@@ -1111,11 +1111,18 @@ def evaluate_experiment(
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
-        actual_values: dict[bytes, Any] = {}
-        for identity, declaration in declarations.items():
-            value_policy = cast(dict[str, Any], declaration["value_policy"])
-            if value_policy["mode"] in {"model-fixed", "experiment-override"}:
-                actual_values[identity] = value_policy["value"]
+        entrypoint = entrypoints[scenario["entrypoint"]]
+        scenario_input_contract = cast(
+            dict[str, Any], entrypoint["scenario_input_contract"]
+        )
+        actual_values = {
+            canonical_bytes(cast(JsonValue, initializer["target"])): initializer[
+                "value"
+            ]
+            for initializer in cast(
+                list[dict[str, Any]], scenario_input_contract["initializers"]
+            )
+        }
         for assignment in scenario["assignments"]:
             identity = canonical_bytes(cast(JsonValue, assignment["target"]))
             actual_values[identity] = assignment["value"]
@@ -1136,7 +1143,6 @@ def evaluate_experiment(
                 },
             )
         )
-        entrypoint = entrypoints[scenario["entrypoint"]]
         operation = operations[entrypoint["operation"]["id"]]
         outcomes = {row["id"]: row for row in operation["outcomes"]}
         draws: list[dict[str, JsonValue]] = []

@@ -2147,6 +2147,49 @@ def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
     assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
 
 
+@pytest.mark.parametrize("role", ("derived", "output", "random"))
+def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
+    tmp_path,
+    run_cli,
+    role,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": f"{role}_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / f"{role}-operand.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+
+
 def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path):
     def lower(source_value: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
         source = tmp_path / f"{name}.json"
@@ -2380,7 +2423,8 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
                 "named-stream",
                 "none",
             ],
-            "experiment_assignable": True,
+            "entrypoint_operand_access": [],
+            "entrypoint_result": False,
         }
     )
     _reidentify_language_bundle(candidate_ldb)
@@ -2398,6 +2442,98 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         list[dict[str, Any]], artifacts["rir-semantic-payload"]["declarations"]
     )
     assert {item["role"] for item in declarations} == {"lowered-by-ldb"}
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "authority_mode", "operand_symbol", "expected_contract_member"),
+    (
+        ("model-fixed", "authority-model-value", "constant_value", "initializers"),
+        (
+            "experiment-required",
+            "authority-scenario-required",
+            "parameter_value",
+            "targets",
+        ),
+    ),
+)
+def test_symbol_assignment_semantics_follow_the_admitted_ldb_mode_inventories(
+    old_mode,
+    authority_mode,
+    operand_symbol,
+    expected_contract_member,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": operand_symbol,
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    baseline = model_module.check_model_source_value(source_value)
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    assignment_policy = lowering["assignment_policy"]
+    for row in assignment_policy["roles"]:
+        row["modes"] = [
+            authority_mode if mode == old_mode else mode
+            for mode in row["modes"]
+        ]
+    inventory_member = (
+        "model_value_modes"
+        if old_mode == "model-fixed"
+        else "required_experiment_modes"
+    )
+    assignment_policy[inventory_member] = [
+        authority_mode if mode == old_mode else mode
+        for mode in assignment_policy[inventory_member]
+    ]
+    source_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"]
+    mode_schema = source_schema["properties"]["modules"]["items"]["properties"][
+        "symbols"
+    ]["items"]["properties"]["value_policy"]["properties"]["mode"]
+    mode_schema["enum"].append(authority_mode)
+    for symbol in _symbols(source_value):
+        if symbol["value_policy"]["mode"] == old_mode:
+            symbol["value_policy"]["mode"] = authority_mode
+    _reidentify_language_bundle(candidate_ldb)
+    authority_admission = admit_authorities(baseline.kernel, candidate_ldb)
+    assert authority_admission.admitted is True
+
+    checked = model_module.check_model_source_value(
+        source_value,
+        kernel=baseline.kernel,
+        language_bundle=candidate_ldb,
+        authority_admission=authority_admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
+    contract = cast(dict[str, Any], entrypoints[0]["scenario_input_contract"])
+    rows = cast(list[dict[str, Any]], contract[expected_contract_member])
+    assert len(rows) == 1
+    assert rows[0]["target"]["name"] == operand_symbol
 
 
 def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):

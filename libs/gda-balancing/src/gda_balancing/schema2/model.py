@@ -1445,17 +1445,53 @@ def _resolved_source_symbols(
     )
 
 
-def _assignment_policy_by_role(lowering: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _assignment_policy(
+    lowering: dict[str, Any],
+    *,
+    expected_roles: set[str] | None = None,
+) -> dict[str, Any]:
     policy = lowering.get("assignment_policy")
-    rows = policy.get("roles") if isinstance(policy, dict) else None
+    if not isinstance(policy, dict):
+        raise ValueError("the admitted lowering has no Symbol assignment policy")
+    rows = policy.get("roles")
+    inventory_members = (
+        "model_value_modes",
+        "required_experiment_modes",
+        "optional_experiment_modes",
+    )
     if (
         not isinstance(rows, list)
         or not rows
         or any(
+            not isinstance(policy.get(member), list)
+            or any(
+                not isinstance(mode, str) or not mode
+                for mode in policy[member]
+            )
+            or len(policy[member]) != len(set(policy[member]))
+            for member in inventory_members
+        )
+        or policy.get("scenario_target_cardinality")
+        != "one-per-resolved-actual"
+        or policy.get("duplicate_actual_policy") != "collapse"
+        or any(
             not isinstance(row, dict)
             or not isinstance(row.get("role"), str)
             or not isinstance(row.get("modes"), list)
-            or not isinstance(row.get("experiment_assignable"), bool)
+            or not row["modes"]
+            or any(
+                not isinstance(mode, str) or not mode
+                for mode in row["modes"]
+            )
+            or len(row["modes"]) != len(set(row["modes"]))
+            or not isinstance(row.get("entrypoint_operand_access"), list)
+            or any(
+                access not in {"read", "read-write", "write"}
+                for access in row["entrypoint_operand_access"]
+            )
+            or len(row["entrypoint_operand_access"])
+            != len(set(row["entrypoint_operand_access"]))
+            or not isinstance(row.get("entrypoint_result"), bool)
             for row in rows
         )
     ):
@@ -1463,6 +1499,25 @@ def _assignment_policy_by_role(lowering: dict[str, Any]) -> dict[str, dict[str, 
     by_role = {row["role"]: row for row in rows}
     if len(by_role) != len(rows):
         raise ValueError("the admitted Symbol assignment policy repeats a role")
+    if expected_roles is not None and set(by_role) != expected_roles:
+        raise ValueError("the admitted Symbol assignment policy is not total")
+    model_modes = set(cast(list[str], policy["model_value_modes"]))
+    required_modes = set(cast(list[str], policy["required_experiment_modes"]))
+    optional_modes = set(cast(list[str], policy["optional_experiment_modes"]))
+    if (
+        model_modes & required_modes
+        or required_modes & optional_modes
+        or not optional_modes <= model_modes
+    ):
+        raise ValueError("the admitted Symbol assignment mode ownership overlaps")
+    return policy
+
+
+def _assignment_policy_by_role(
+    policy: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    rows = cast(list[dict[str, Any]], policy["roles"])
+    by_role = {cast(str, row["role"]): row for row in rows}
     return by_role
 
 
@@ -1500,8 +1555,9 @@ def _value_contract_matches(
 
 def _value_policy_is_valid(
     declaration: dict[str, Any],
-    assignment_by_role: dict[str, dict[str, Any]],
+    assignment_policy: dict[str, Any],
 ) -> bool:
+    assignment_by_role = _assignment_policy_by_role(assignment_policy)
     role = declaration.get("role")
     value_policy = declaration.get("value_policy")
     if (
@@ -1515,7 +1571,7 @@ def _value_policy_is_valid(
     mode = value_policy.get("mode")
     if mode not in policy_row.get("modes", []):
         return False
-    if mode in {"model-fixed", "experiment-override"}:
+    if mode in assignment_policy["model_value_modes"]:
         value = value_policy.get("value")
         if (
             set(value_policy) != {"mode", "value"}
@@ -1543,26 +1599,72 @@ def _invalid_source_value_policy_pointer(
     source: dict[str, Any],
     language_bundle: dict[str, Any],
 ) -> str | None:
-    assignment_by_role = _assignment_policy_by_role(
-        _model_lowering(language_bundle)
+    lowering = _model_lowering(language_bundle)
+    assignment_policy = _assignment_policy(
+        lowering,
+        expected_roles=set(
+            cast(list[str], language_bundle["language"]["quantity"]["symbol_roles"])
+        ),
     )
+    profile = _resolution_profile(
+        language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    modules_member = cast(str, profile["modules_member"])
+    symbols_member = cast(str, profile["symbols_member"])
     for module_index, module in enumerate(
-        cast(list[dict[str, Any]], source["modules"])
+        cast(list[dict[str, Any]], source[modules_member])
     ):
         for symbol_index, symbol in enumerate(
-            cast(list[dict[str, Any]], module["symbols"])
+            cast(list[dict[str, Any]], module[symbols_member])
         ):
-            if not _value_policy_is_valid(symbol, assignment_by_role):
+            if not _value_policy_is_valid(symbol, assignment_policy):
                 return _pointer(
                     (
-                        "modules",
+                        modules_member,
                         module_index,
-                        "symbols",
+                        symbols_member,
                         symbol_index,
                         "value_policy",
                     )
                 )
     return None
+
+
+def _symbol_initialization_contract(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+    resolved_symbol: dict[str, JsonValue],
+    target_identity: str,
+) -> tuple[dict[str, JsonValue] | None, dict[str, JsonValue] | None]:
+    value_policy = cast(dict[str, Any], declaration["value_policy"])
+    mode = cast(str, value_policy["mode"])
+    required_modes = cast(
+        list[str], assignment_policy["required_experiment_modes"]
+    )
+    optional_modes = cast(
+        list[str], assignment_policy["optional_experiment_modes"]
+    )
+    model_modes = cast(list[str], assignment_policy["model_value_modes"])
+    target: dict[str, JsonValue] | None = None
+    if mode in required_modes or mode in optional_modes:
+        target = {
+            "target": resolved_symbol,
+            "target_identity": target_identity,
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": "required" if mode in required_modes else "optional",
+            "override": mode in optional_modes,
+        }
+    initializer: dict[str, JsonValue] | None = None
+    if mode in model_modes:
+        initializer = {
+            "target": resolved_symbol,
+            "target_identity": target_identity,
+            "owner": "model",
+            "initialization_source": "value-policy",
+            "value": cast(int, value_policy["value"]),
+        }
+    return target, initializer
 
 
 def _resolved_entrypoints(
@@ -1572,9 +1674,18 @@ def _resolved_entrypoints(
 ) -> list[dict[str, JsonValue]]:
     """Resolve Source entrypoint bindings once; downstream consumers use only this graph."""
     lowering = _model_lowering(checked.language_bundle)
-    assignment_by_role = _assignment_policy_by_role(lowering)
+    assignment_policy = _assignment_policy(
+        lowering,
+        expected_roles=set(
+            cast(
+                list[str],
+                checked.language_bundle["language"]["quantity"]["symbol_roles"],
+            )
+        ),
+    )
+    assignment_by_role = _assignment_policy_by_role(assignment_policy)
     if any(
-        not _value_policy_is_valid(declaration, assignment_by_role)
+        not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
     ):
         raise ValueError("Model declarations do not close Symbol assignment policy")
@@ -1642,6 +1753,7 @@ def _resolved_entrypoints(
         resolved_arguments: list[dict[str, JsonValue]] = []
         aliases: dict[str, list[str]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        initializers: dict[str, dict[str, JsonValue]] = {}
         for formal, source_argument in zip(
             formal_ports, source_arguments, strict=True
         ):
@@ -1667,9 +1779,12 @@ def _resolved_entrypoints(
                     )
                 access = cast(str, formal["access"])
                 role = cast(str, declaration["role"])
-                if access in {"read-write", "write"} and role != "state":
+                if access not in assignment_by_role[role][
+                    "entrypoint_operand_access"
+                ]:
                     raise ValueError(
-                        f"entrypoint writable port requires state: {formal['id']}"
+                        "entrypoint Symbol role is incompatible with "
+                        f"{access} port {formal['id']}"
                     )
                 resolved_symbol = cast(
                     dict[str, JsonValue], declaration["resolved_symbol"]
@@ -1686,32 +1801,29 @@ def _resolved_entrypoints(
                     "identity": operand_identity,
                 }
                 aliases.setdefault(operand_identity, []).append(access)
-                value_policy = cast(dict[str, Any], declaration["value_policy"])
-                mode = value_policy.get("mode")
-                if mode in {"experiment-required", "experiment-override"}:
-                    target_identity = content_identity(
-                        domains["actual_operand"],
-                        cast(JsonValue, operand_body),
-                    )
-                    target = {
-                        "target": resolved_symbol,
-                        "target_identity": target_identity,
-                        "owner": "experiment",
-                        "cardinality": (
-                            "required"
-                            if mode == "experiment-required"
-                            else "optional"
-                        ),
-                        "override": mode == "experiment-override",
-                    }
-                    previous = scenario_targets.get(target_identity)
+                target, initializer = _symbol_initialization_contract(
+                    declaration,
+                    assignment_policy,
+                    resolved_symbol,
+                    operand_identity,
+                )
+                if target is not None:
+                    previous = scenario_targets.get(operand_identity)
                     if previous is not None and previous != target:
                         raise ValueError(
                             "one actual target derived conflicting assignment contracts"
                         )
-                    scenario_targets[target_identity] = cast(
-                        dict[str, JsonValue], target
-                    )
+                    scenario_targets[operand_identity] = target
+                if initializer is not None:
+                    previous_initializer = initializers.get(operand_identity)
+                    if (
+                        previous_initializer is not None
+                        and previous_initializer != initializer
+                    ):
+                        raise ValueError(
+                            "one actual target derived conflicting initializers"
+                        )
+                    initializers[operand_identity] = initializer
             elif source_operand["kind"] == "literal":
                 if formal["access"] != "read":
                     raise ValueError("literal operand cannot bind a writable port")
@@ -1761,7 +1873,10 @@ def _resolved_entrypoints(
             )
             if (
                 result_declaration is None
-                or result_declaration.get("role") != "output"
+                or assignment_by_role[
+                    cast(str, result_declaration.get("role"))
+                ]["entrypoint_result"]
+                is not True
                 or not _value_contract_matches(
                     result_declaration, operation["result"]
                 )
@@ -1791,6 +1906,10 @@ def _resolved_entrypoints(
                 "refusals": operation["refusals"],
                 "resource_bounds": operation["resource_bounds"],
                 "scenario_input_contract": {
+                    "initializers": sorted(
+                        initializers.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
                     "targets": sorted(
                         scenario_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
@@ -2826,9 +2945,15 @@ def _resolved_entrypoint_graph_is_admitted(
     """Independently rederive every identity and contract in the resolved call graph."""
     if not isinstance(entrypoints, list):
         return False
-    assignment_by_role = _assignment_policy_by_role(_model_lowering(ldb))
+    assignment_policy = _assignment_policy(
+        _model_lowering(ldb),
+        expected_roles=set(
+            cast(list[str], ldb["language"]["quantity"]["symbol_roles"])
+        ),
+    )
+    assignment_by_role = _assignment_policy_by_role(assignment_policy)
     if any(
-        not _value_policy_is_valid(declaration, assignment_by_role)
+        not _value_policy_is_valid(declaration, assignment_policy)
         for declaration in declarations
     ):
         return False
@@ -2900,6 +3025,7 @@ def _resolved_entrypoint_graph_is_admitted(
             return False
         aliases: dict[str, list[str]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
         for formal, argument in zip(formal_ports, arguments, strict=True):
             if not isinstance(argument, dict):
@@ -2941,7 +3067,9 @@ def _resolved_entrypoint_graph_is_admitted(
                     return False
                 access = formal["access"]
                 role = cast(str, declaration["role"])
-                if access in {"read-write", "write"} and role != "state":
+                if access not in assignment_by_role[role][
+                    "entrypoint_operand_access"
+                ]:
                     return False
                 operand_body = cast(
                     dict[str, JsonValue],
@@ -2955,26 +3083,25 @@ def _resolved_entrypoint_graph_is_admitted(
                     "identity": operand_identity,
                 }
                 aliases.setdefault(operand_identity, []).append(access)
-                mode = cast(dict[str, Any], declaration["value_policy"])["mode"]
-                if mode in {"experiment-required", "experiment-override"}:
-                    target = cast(
-                        dict[str, JsonValue],
-                        {
-                            "target": symbol,
-                            "target_identity": operand_identity,
-                            "owner": "experiment",
-                            "cardinality": (
-                                "required"
-                                if mode == "experiment-required"
-                                else "optional"
-                            ),
-                            "override": mode == "experiment-override",
-                        },
-                    )
+                target, initializer = _symbol_initialization_contract(
+                    declaration,
+                    assignment_policy,
+                    cast(dict[str, JsonValue], symbol),
+                    operand_identity,
+                )
+                if target is not None:
                     previous = scenario_targets.get(operand_identity)
                     if previous is not None and previous != target:
                         return False
                     scenario_targets[operand_identity] = target
+                if initializer is not None:
+                    previous_initializer = initializers.get(operand_identity)
+                    if (
+                        previous_initializer is not None
+                        and previous_initializer != initializer
+                    ):
+                        return False
+                    initializers[operand_identity] = initializer
             elif operand.get("kind") == "literal":
                 value = operand.get("value")
                 if (
@@ -3038,7 +3165,10 @@ def _resolved_entrypoint_graph_is_admitted(
             )
             if (
                 result_declaration is None
-                or result_declaration.get("role") != "output"
+                or assignment_by_role[
+                    cast(str, result_declaration.get("role"))
+                ]["entrypoint_result"]
+                is not True
                 or not _value_contract_matches(
                     result_declaration, operation["result"]
                 )
@@ -3065,6 +3195,10 @@ def _resolved_entrypoint_graph_is_admitted(
                 "refusals": operation["refusals"],
                 "resource_bounds": operation["resource_bounds"],
                 "scenario_input_contract": {
+                    "initializers": sorted(
+                        initializers.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
                     "targets": sorted(
                         scenario_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
