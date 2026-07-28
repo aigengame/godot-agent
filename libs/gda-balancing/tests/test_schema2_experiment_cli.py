@@ -2019,7 +2019,6 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
-        lowering["assignment_policy"],
     )
     alias = next(
         row

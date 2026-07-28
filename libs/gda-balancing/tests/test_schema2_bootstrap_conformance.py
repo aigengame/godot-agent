@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb"
+    "sha256:2711b2177664b53fd74cf4803d0c767482e49029cc12e27f260ee5cf5a73b61c"
 )
 
 
@@ -3664,31 +3664,6 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
         or not isinstance(policy.get("roles"), list)
     ):
         return False
-    literal_profiles = policy.get("literal_profiles")
-    if (
-        policy.get("literal_selection") != "unique-formal-match"
-        or not isinstance(literal_profiles, list)
-        or not literal_profiles
-        or any(
-            not isinstance(profile, dict)
-            or profile.get("source_kind") != "integer"
-            or not isinstance(profile.get("id"), str)
-            or not profile["id"]
-            or type(profile.get("minimum")) is not int
-            or type(profile.get("maximum")) is not int
-            or profile["minimum"] > profile["maximum"]
-            for profile in literal_profiles
-        )
-        or len(literal_profiles)
-        != len(
-            {
-                profile["id"]
-                for profile in literal_profiles
-                if isinstance(profile, dict) and "id" in profile
-            }
-        )
-    ):
-        return False
     role_rows = policy["roles"]
     roles = {
         row.get("role")
@@ -3777,6 +3752,135 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     except (KeyError, TypeError):
         return False
     return schema_modes == declared_modes
+
+
+def _consumer_b_literal_typing_profiles_are_closed(
+    kernel: dict[str, Any],
+    ldb: dict[str, Any],
+) -> bool:
+    contract = kernel.get("meta_format", {}).get("literal_typing")
+    expected = {
+        "closed": True,
+        "collection": "language.literal_typing_profiles",
+        "selection": "unique-formal-match",
+        "source_kinds": ["integer"],
+        "match_members": [
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        ],
+        "range_members": {"maximum": "maximum", "minimum": "minimum"},
+        "ownership": "profile-owner-must-own-exact-type-export",
+        "formal_closure": "at-least-one-exact-operation-value-contract",
+        "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
+    }
+    language = ldb.get("language")
+    if contract != expected or not isinstance(language, dict):
+        return False
+    profiles = language.get("literal_typing_profiles")
+    packages = language.get("packages")
+    operations = language.get("operations")
+    quantity = language.get("quantity")
+    if (
+        not isinstance(profiles, list)
+        or not profiles
+        or not isinstance(packages, list)
+        or not isinstance(operations, list)
+        or not isinstance(quantity, dict)
+    ):
+        return False
+    inventories = {
+        "representation": set(quantity.get("representations", [])),
+        "kind": set(quantity.get("kinds", [])),
+        "unit": {
+            row.get("id") for row in quantity.get("units", []) if isinstance(row, dict)
+        },
+        "numeric_policy": {
+            row.get("id")
+            for row in quantity.get("numeric_policies", [])
+            if isinstance(row, dict)
+        },
+    }
+    owners: dict[str, list[dict[str, Any]]] = {}
+    for package in packages:
+        exports = package.get("exports") if isinstance(package, dict) else None
+        exported_profiles = (
+            exports.get("literal_typing_profiles")
+            if isinstance(exports, dict)
+            else None
+        )
+        if not isinstance(exported_profiles, list):
+            return False
+        for profile_id in exported_profiles:
+            if not isinstance(profile_id, str):
+                return False
+            owners.setdefault(profile_id, []).append(package)
+    formals: list[dict[str, Any]] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            return False
+        inputs = operation.get("inputs")
+        result = operation.get("result")
+        if not isinstance(inputs, list) or not isinstance(result, dict):
+            return False
+        formals.extend(item for item in inputs if isinstance(item, dict))
+        formals.append(result)
+    match_members = cast(list[str], expected["match_members"])
+    for profile in profiles:
+        if (
+            not isinstance(profile, dict)
+            or profile.get("source_kind") != "integer"
+            or not isinstance(profile.get("id"), str)
+            or len(owners.get(cast(str, profile.get("id")), [])) != 1
+            or type(profile.get("minimum")) is not int
+            or type(profile.get("maximum")) is not int
+            or profile["minimum"] > profile["maximum"]
+            or any(
+                profile.get(member) not in values
+                for member, values in inventories.items()
+            )
+            or not isinstance(profile.get("type"), dict)
+        ):
+            return False
+        owner = owners[cast(str, profile["id"])][0]
+        type_ref = cast(dict[str, Any], profile["type"])
+        exported_types = cast(dict[str, Any], owner["exports"]).get("types")
+        if (
+            type_ref.get("package") != owner.get("id")
+            or type_ref.get("version") != owner.get("version")
+            or not isinstance(exported_types, list)
+            or sum(
+                1
+                for exported in exported_types
+                if isinstance(exported, dict)
+                and exported.get("id") == type_ref.get("id")
+            )
+            != 1
+            or not any(
+                all(
+                    _encoded(profile.get(member)) == _encoded(formal.get(member))
+                    for member in match_members
+                )
+                for formal in formals
+            )
+        ):
+            return False
+    for index, left in enumerate(cast(list[dict[str, Any]], profiles)):
+        for right in cast(list[dict[str, Any]], profiles)[index + 1 :]:
+            if (
+                left["source_kind"] == right["source_kind"]
+                and all(
+                    _encoded(left.get(member)) == _encoded(right.get(member))
+                    for member in match_members
+                )
+                and left["minimum"] <= right["maximum"]
+                and right["minimum"] <= left["maximum"]
+            ):
+                return False
+    return True
 
 
 def _consumer_b_fact_schemas(
@@ -4641,6 +4745,7 @@ def _consumer_b_runtime_authority_is_closed(
 
 
 def _consumer_b_operation_composition_subjects(
+    kernel: dict[str, Any],
     ldb: dict[str, Any],
 ) -> tuple[str, ...]:
     """Independently close exact nested calls without using production admission."""
@@ -4649,16 +4754,16 @@ def _consumer_b_operation_composition_subjects(
         return ()
     packages = language.get("packages")
     operations = language.get("operations")
-    lowerings = language.get("model_lowerings")
     if not isinstance(packages, list) or not isinstance(operations, list):
         return ()
-    assignment_policy = (
-        lowerings[0].get("assignment_policy")
-        if isinstance(lowerings, list)
-        and len(lowerings) == 1
-        and isinstance(lowerings[0], dict)
-        else None
-    )
+    literal_profiles = language.get("literal_typing_profiles")
+    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
+    if (
+        not isinstance(literal_contract, dict)
+        or literal_contract.get("selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+    ):
+        return ("language.literal-typing-profiles",)
     owners: dict[str, tuple[str, str]] = {}
     for package in packages:
         if not isinstance(package, dict):
@@ -4738,16 +4843,11 @@ def _consumer_b_operation_composition_subjects(
         return True
 
     def literal_matches(value: Any, formal: dict[str, Any]) -> bool:
-        if (
-            type(value) is not int
-            or not isinstance(assignment_policy, dict)
-            or assignment_policy.get("literal_selection") != "unique-formal-match"
-            or not isinstance(assignment_policy.get("literal_profiles"), list)
-        ):
+        if type(value) is not int:
             return False
         matches = [
             profile
-            for profile in assignment_policy["literal_profiles"]
+            for profile in literal_profiles
             if isinstance(profile, dict)
             and profile.get("source_kind") == "integer"
             and type(profile.get("minimum")) is int
@@ -5489,7 +5589,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     package_vector_set_contract = (
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
-    composition_subjects = _consumer_b_operation_composition_subjects(ldb)
+    composition_subjects = _consumer_b_operation_composition_subjects(kernel, ldb)
     raw_diagnostics = ldb.get("diagnostics")
     raw_vectors = ldb.get("vectors")
     early_diagnostic_catalog = (
@@ -5630,6 +5730,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "kernel.vector_mismatch",
             "static",
             "language.definitions.assignment-policy",
+        )
+    if not _consumer_b_literal_typing_profiles_are_closed(kernel, ldb):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.literal-typing-profiles",
         )
     for composition_subject in composition_subjects:
         refuse("kernel.vector_mismatch", "static", composition_subject)
@@ -6458,6 +6564,68 @@ def test_two_consumers_refuse_assignment_modes_without_an_operand_value_producer
     ) in first["diagnostics"]
 
 
+def test_literal_typing_is_an_independent_package_owned_authority():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    policy = language["model_lowerings"][0]["assignment_policy"]
+    profiles = language["literal_typing_profiles"]
+    owner = next(
+        package for package in language["packages"] if package["id"] == "core.quantity"
+    )
+
+    assert "literal_profiles" not in policy
+    assert "literal_selection" not in policy
+    assert [profile["id"] for profile in profiles] == ["quantity.dimensionless-int64"]
+    assert owner["exports"]["literal_typing_profiles"] == [
+        "quantity.dimensionless-int64"
+    ]
+    assert "language.literal_typing_profiles" in owner["runtime_semantic_paths"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing-type",
+        "missing-numeric-policy",
+        "overlapping-profile",
+    ),
+)
+def test_two_consumers_refuse_unclosed_or_ambiguous_literal_typing_profiles(
+    mutation,
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    profiles = ldb["language"]["literal_typing_profiles"]
+    profile = profiles[0]
+    if mutation == "missing-type":
+        profile["type"]["id"] = "MissingQuantity"
+    elif mutation == "missing-numeric-policy":
+        profile["numeric_policy"] = "missing-numeric-policy"
+    else:
+        overlapping = deepcopy(profile)
+        overlapping["id"] = "quantity.dimensionless-int64-overlap"
+        profiles.append(overlapping)
+        owner = next(
+            package
+            for package in ldb["language"]["packages"]
+            if package["id"] == "core.quantity"
+        )
+        owner["exports"]["literal_typing_profiles"].append(overlapping["id"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.literal-typing-profiles",
+    ) in first["diagnostics"]
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_subject"),
     (
@@ -6647,6 +6815,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "diagnostic_reason",
         "language_bundle",
         "language_definitions",
+        "literal_typing",
         "model_program_vector",
         "package_dependency_constraint",
         "package_conformance_vector_set",

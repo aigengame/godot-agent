@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb"
+    "sha256:2711b2177664b53fd74cf4803d0c767482e49029cc12e27f260ee5cf5a73b61c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4088,33 +4088,6 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     policy = lowerings[0].get("assignment_policy")
     if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
         return False
-    literal_profiles = policy.get("literal_profiles")
-    if (
-        policy.get("literal_selection") != "unique-formal-match"
-        or not isinstance(literal_profiles, list)
-        or not literal_profiles
-        or any(
-            not isinstance(profile, dict)
-            or profile.get("source_kind") != "integer"
-            or not isinstance(profile.get("id"), str)
-            or not profile["id"]
-            or not isinstance(profile.get("minimum"), int)
-            or isinstance(profile["minimum"], bool)
-            or not isinstance(profile.get("maximum"), int)
-            or isinstance(profile["maximum"], bool)
-            or profile["minimum"] > profile["maximum"]
-            for profile in literal_profiles
-        )
-        or len(literal_profiles)
-        != len(
-            {
-                profile["id"]
-                for profile in literal_profiles
-                if isinstance(profile, dict) and "id" in profile
-            }
-        )
-    ):
-        return False
     rows = cast(list[dict[str, Any]], policy["roles"])
     by_role = {
         row.get("role"): row
@@ -4166,6 +4139,143 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     return schema_modes == declared_mode_ids
 
 
+def _literal_typing_profiles_are_closed(
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> bool:
+    meta = kernel.get("meta_format")
+    contract = meta.get("literal_typing") if isinstance(meta, dict) else None
+    expected_contract = {
+        "closed": True,
+        "collection": "language.literal_typing_profiles",
+        "selection": "unique-formal-match",
+        "source_kinds": ["integer"],
+        "match_members": [
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        ],
+        "range_members": {
+            "maximum": "maximum",
+            "minimum": "minimum",
+        },
+        "ownership": "profile-owner-must-own-exact-type-export",
+        "formal_closure": "at-least-one-exact-operation-value-contract",
+        "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
+    }
+    language = language_bundle.get("language")
+    if not isinstance(language, dict) or contract != expected_contract:
+        return False
+    profiles = language.get("literal_typing_profiles")
+    packages = language.get("packages")
+    operations = language.get("operations")
+    quantity = language.get("quantity")
+    if (
+        not isinstance(profiles, list)
+        or not profiles
+        or not isinstance(packages, list)
+        or not isinstance(operations, list)
+        or not isinstance(quantity, dict)
+    ):
+        return False
+    representations = set(cast(list[Any], quantity.get("representations", [])))
+    kinds = set(cast(list[Any], quantity.get("kinds", [])))
+    units = {
+        row.get("id")
+        for row in cast(list[Any], quantity.get("units", []))
+        if isinstance(row, dict)
+    }
+    numeric_policies = {
+        row.get("id")
+        for row in cast(list[Any], quantity.get("numeric_policies", []))
+        if isinstance(row, dict)
+    }
+    owners: dict[str, list[dict[str, Any]]] = {}
+    for package in packages:
+        exports = package.get("exports") if isinstance(package, dict) else None
+        profile_ids = (
+            exports.get("literal_typing_profiles")
+            if isinstance(exports, dict)
+            else None
+        )
+        if not isinstance(profile_ids, list):
+            return False
+        for profile_id in profile_ids:
+            if not isinstance(profile_id, str):
+                return False
+            owners.setdefault(profile_id, []).append(package)
+    formals = [
+        formal
+        for operation in operations
+        if isinstance(operation, dict)
+        for formal in (
+            [item for item in operation.get("inputs", []) if isinstance(item, dict)]
+            + (
+                [operation["result"]]
+                if isinstance(operation.get("result"), dict)
+                else []
+            )
+        )
+    ]
+    match_members = cast(list[str], contract["match_members"])
+    for profile in profiles:
+        if (
+            not isinstance(profile, dict)
+            or profile.get("source_kind") != "integer"
+            or not isinstance(profile.get("id"), str)
+            or len(owners.get(cast(str, profile.get("id")), [])) != 1
+            or type(profile.get("minimum")) is not int
+            or type(profile.get("maximum")) is not int
+            or profile["minimum"] > profile["maximum"]
+            or profile.get("representation") not in representations
+            or profile.get("kind") not in kinds
+            or profile.get("unit") not in units
+            or profile.get("numeric_policy") not in numeric_policies
+            or not isinstance(profile.get("type"), dict)
+        ):
+            return False
+        owner = owners[cast(str, profile["id"])][0]
+        owner_exports = cast(dict[str, Any], owner["exports"])
+        exported_types = owner_exports.get("types")
+        type_ref = cast(dict[str, Any], profile["type"])
+        if (
+            type_ref.get("package") != owner.get("id")
+            or type_ref.get("version") != owner.get("version")
+            or not isinstance(exported_types, list)
+            or len(
+                [
+                    row
+                    for row in exported_types
+                    if isinstance(row, dict) and row.get("id") == type_ref.get("id")
+                ]
+            )
+            != 1
+            or not any(
+                all(
+                    profile.get(member) == formal.get(member)
+                    for member in match_members
+                )
+                for formal in formals
+            )
+        ):
+            return False
+    for index, left in enumerate(cast(list[dict[str, Any]], profiles)):
+        for right in cast(list[dict[str, Any]], profiles)[index + 1 :]:
+            if (
+                left["source_kind"] == right["source_kind"]
+                and all(
+                    left.get(member) == right.get(member) for member in match_members
+                )
+                and left["minimum"] <= right["maximum"]
+                and right["minimum"] <= left["maximum"]
+            ):
+                return False
+    return True
+
+
 def _operation_value_contract_matches(
     actual: dict[str, Any], formal: dict[str, Any]
 ) -> bool:
@@ -4184,19 +4294,17 @@ def _operation_value_contract_matches(
 def _literal_matches_operation_contract(
     value: Any,
     formal: dict[str, Any],
-    assignment_policy: Any,
+    literal_profiles: Any,
 ) -> bool:
     if (
         not isinstance(value, int)
         or isinstance(value, bool)
-        or not isinstance(assignment_policy, dict)
-        or assignment_policy.get("literal_selection") != "unique-formal-match"
-        or not isinstance(assignment_policy.get("literal_profiles"), list)
+        or not isinstance(literal_profiles, list)
     ):
         return False
     matches = [
         profile
-        for profile in assignment_policy["literal_profiles"]
+        for profile in literal_profiles
         if isinstance(profile, dict)
         and profile.get("source_kind") == "integer"
         and isinstance(profile.get("minimum"), int)
@@ -4262,19 +4370,20 @@ def _operation_aliases_are_admitted(
 
 
 def _operation_composition_diagnostic_subjects(
+    kernel: dict[str, Any],
     language_bundle: dict[str, Any],
 ) -> tuple[str, ...]:
     language = language_bundle.get("language")
     if not isinstance(language, dict) or not isinstance(language.get("packages"), list):
         return ("language.operations",)
-    lowerings = language.get("model_lowerings")
-    assignment_policy = (
-        lowerings[0].get("assignment_policy")
-        if isinstance(lowerings, list)
-        and len(lowerings) == 1
-        and isinstance(lowerings[0], dict)
-        else None
-    )
+    literal_profiles = language.get("literal_typing_profiles")
+    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
+    if (
+        not isinstance(literal_contract, dict)
+        or literal_contract.get("selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+    ):
+        return ("language.literal-typing-profiles",)
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
         package_id = package.get("id")
@@ -4415,7 +4524,7 @@ def _operation_composition_diagnostic_subjects(
                     ] != "read" or not _literal_matches_operation_contract(
                         literal,
                         formal,
-                        assignment_policy,
+                        literal_profiles,
                     ):
                         refuse(owner, operation, site, "arguments")
                         return None
@@ -5456,7 +5565,7 @@ def admit_authorities(
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
     )
     composition_subjects = (
-        _operation_composition_diagnostic_subjects(language_bundle)
+        _operation_composition_diagnostic_subjects(kernel, language_bundle)
         if definitions_are_closed
         else ()
     )
@@ -5599,6 +5708,12 @@ def admit_authorities(
             "kernel.vector_mismatch",
             "static",
             "language.definitions.assignment-policy",
+        )
+    if not _literal_typing_profiles_are_closed(kernel, language_bundle):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.literal-typing-profiles",
         )
     if definitions_are_closed:
         for subject in composition_subjects:

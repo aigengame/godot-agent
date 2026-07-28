@@ -404,10 +404,21 @@ The explicit value source bound to one `Formal port` by either a `Model entrypoi
 `Operation call site`: a resolved Model symbol, a caller-local result, a contextually typed literal,
 or another Kernel-admitted expression. Its identity is derived from the owning authority and
 binding position. Equal display names are never binding proof, and one actual may intentionally
-feed multiple compatible ports. The LDB assignment policy, not the host integer type, owns literal
-profiles; admission requires exactly one profile to match the formal port's complete value contract
-and records that context in RIR identity (bADR-0013/0022).
+feed multiple compatible ports. A package-owned `Literal Typing Profile`, not the Symbol assignment
+policy or host integer type, types a literal; admission requires exactly one selected profile to
+match the formal port's complete value contract and records that context in RIR identity
+(bADR-0013/0016/0022).
 _Avoid_: implicit same-name lookup, ambient variable, parameter declaration
+
+**Literal Typing Profile**:
+An independently exported LDB definition that lets one package map a source-literal kind and
+bounded value range to an exact type/value contract. The exporting package must own that exact Type
+release; referenced representation, kind, unit, and Numeric policy must close against LDB
+inventories; the profile must match at least one Operation formal value contract; and overlapping
+profiles for the same match contract are refused. Selected profiles enter RIR runtime semantics,
+while the Symbol assignment policy remains limited to Symbol roles, access, initialization
+ownership, and Experiment cardinality (bADR-0016/0022).
+_Avoid_: host literal default, lowering-owned literal table, Symbol assignment rule
 
 **Operation call site**:
 One statically bounded nested invocation of an exact versioned Operation owned by another LDB

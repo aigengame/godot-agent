@@ -255,6 +255,13 @@
               ],
               "path": "language_bundle.vectors",
               "subject": "language-bundle.vectors"
+            },
+            {
+              "keys": [
+                "id"
+              ],
+              "path": "language_bundle.language.literal_typing_profiles",
+              "subject": "language.literal_typing_profiles"
             }
           ]
         },
@@ -616,7 +623,20 @@
                 "exports.units": "language_bundle.language.quantity.units.id",
                 "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id",
                 "profiles.resolution": "language_bundle.language.resolution_profiles.id",
-                "profiles.runtime": "language_bundle.language.runtime_profiles.id"
+                "profiles.runtime": "language_bundle.language.runtime_profiles.id",
+                "exports.literal_typing_profiles": "language_bundle.language.literal_typing_profiles.id"
+              }
+            },
+            {
+              "owners": "language_bundle.language.literal_typing_profiles",
+              "targets": {
+                "kind": "language_bundle.language.quantity.kinds",
+                "numeric_policy": "language_bundle.language.quantity.numeric_policies.id",
+                "representation": "language_bundle.language.quantity.representations",
+                "type.id": "language_bundle.language.packages.exports.types.id",
+                "type.package": "language_bundle.language.packages.id",
+                "type.version": "language_bundle.language.packages.version",
+                "unit": "language_bundle.language.quantity.units.id"
               }
             }
           ]
@@ -721,6 +741,7 @@
       "components",
       "constructors",
       "conversions",
+      "literal_typing_profiles",
       "model_checks",
       "model_lowerings",
       "model_source_schema_versions",
@@ -858,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb",
+  "content_identity": "sha256:2711b2177664b53fd74cf4803d0c767482e49029cc12e27f260ee5cf5a73b61c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2546,84 +2567,13 @@
                 },
                 "scenario_target_cardinality": {
                   "const": "one-per-resolved-actual"
-                },
-                "literal_profiles": {
-                  "items": {
-                    "field_types": {
-                      "domain": {
-                        "type": "object"
-                      },
-                      "id": {
-                        "type": "non-empty-string"
-                      },
-                      "kind": {
-                        "type": "non-empty-string"
-                      },
-                      "maximum": {
-                        "type": "signed-int64"
-                      },
-                      "minimum": {
-                        "type": "signed-int64"
-                      },
-                      "numeric_policy": {
-                        "type": "non-empty-string"
-                      },
-                      "representation": {
-                        "type": "non-empty-string"
-                      },
-                      "source_kind": {
-                        "const": "integer"
-                      },
-                      "type": {
-                        "field_types": {
-                          "id": {
-                            "type": "non-empty-string"
-                          },
-                          "package": {
-                            "type": "non-empty-string"
-                          },
-                          "version": {
-                            "type": "non-empty-string"
-                          }
-                        },
-                        "required_members": [
-                          "package",
-                          "version",
-                          "id"
-                        ],
-                        "type": "closed-object"
-                      },
-                      "unit": {
-                        "type": "non-empty-string"
-                      }
-                    },
-                    "required_members": [
-                      "id",
-                      "source_kind",
-                      "type",
-                      "representation",
-                      "kind",
-                      "unit",
-                      "domain",
-                      "numeric_policy",
-                      "minimum",
-                      "maximum"
-                    ],
-                    "type": "closed-object"
-                  },
-                  "type": "list-of"
-                },
-                "literal_selection": {
-                  "const": "unique-formal-match"
                 }
               },
               "required_members": [
                 "id",
                 "roles",
                 "scenario_target_cardinality",
-                "duplicate_actual_policy",
-                "literal_profiles",
-                "literal_selection"
+                "duplicate_actual_policy"
               ],
               "type": "closed-object"
             },
@@ -3200,6 +3150,68 @@
             "artifact_kind",
             "schema"
           ]
+        },
+        "literal_typing_profiles": {
+          "field_types": {
+            "domain": {
+              "type": "canonical-value"
+            },
+            "id": {
+              "type": "non-empty-string"
+            },
+            "kind": {
+              "type": "non-empty-string"
+            },
+            "maximum": {
+              "type": "signed-int64"
+            },
+            "minimum": {
+              "type": "signed-int64"
+            },
+            "numeric_policy": {
+              "type": "non-empty-string"
+            },
+            "representation": {
+              "type": "non-empty-string"
+            },
+            "source_kind": {
+              "const": "integer"
+            },
+            "type": {
+              "field_types": {
+                "id": {
+                  "type": "non-empty-string"
+                },
+                "package": {
+                  "type": "non-empty-string"
+                },
+                "version": {
+                  "type": "non-empty-string"
+                }
+              },
+              "required_members": [
+                "package",
+                "version",
+                "id"
+              ],
+              "type": "closed-object"
+            },
+            "unit": {
+              "type": "non-empty-string"
+            }
+          },
+          "required_members": [
+            "id",
+            "source_kind",
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+            "minimum",
+            "maximum"
+          ]
         }
       },
       "quantity": {
@@ -3414,6 +3426,9 @@
           },
           "wire_schemas": {
             "type": "string-list"
+          },
+          "literal_typing_profiles": {
+            "type": "string-list"
           }
         },
         "profiles": {
@@ -3458,6 +3473,7 @@
           "kinds",
           "language_rules",
           "model_checks",
+          "literal_typing_profiles",
           "model_lowerings",
           "model_source_schema_versions",
           "operations",
@@ -3540,6 +3556,11 @@
             "authority_path": "language.model_checks",
             "key_member": "id",
             "owners_path": "exports.model_checks"
+          },
+          {
+            "authority_path": "language.literal_typing_profiles",
+            "key_member": "id",
+            "owners_path": "exports.literal_typing_profiles"
           },
           {
             "authority_path": "language.model_lowerings",
@@ -5547,6 +5568,29 @@
         "vector_definitions",
         "vectors"
       ]
+    },
+    "literal_typing": {
+      "closed": true,
+      "collection": "language.literal_typing_profiles",
+      "selection": "unique-formal-match",
+      "source_kinds": [
+        "integer"
+      ],
+      "match_members": [
+        "type",
+        "representation",
+        "kind",
+        "unit",
+        "domain",
+        "numeric_policy"
+      ],
+      "range_members": {
+        "maximum": "maximum",
+        "minimum": "minimum"
+      },
+      "ownership": "profile-owner-must-own-exact-type-export",
+      "formal_closure": "at-least-one-exact-operation-value-contract",
+      "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract"
     }
   },
   "resources": {

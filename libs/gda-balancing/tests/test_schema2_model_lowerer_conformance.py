@@ -1212,12 +1212,20 @@ def _reference_value_contract_matches(
 def _reference_literal_context(
     value: Any,
     formal: dict[str, Any],
-    policy: dict[str, Any],
+    checked: CheckedModel,
+    selected_semantics: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if type(value) is not int or policy["literal_selection"] != "unique-formal-match":
+    if (
+        type(value) is not int
+        or checked.kernel["meta_format"]["literal_typing"]["selection"]
+        != "unique-formal-match"
+    ):
         return None
+    profiles = [
+        row["definition"] for row in selected_semantics["literal_typing_profiles"]
+    ]
     matches = []
-    for profile in policy["literal_profiles"]:
+    for profile in profiles:
         if (
             profile["source_kind"] == "integer"
             and profile["minimum"] <= value <= profile["maximum"]
@@ -1465,7 +1473,8 @@ def _reference_entrypoints(
                 context_type = _reference_literal_context(
                     operand["value"],
                     formal,
-                    policy,
+                    checked,
+                    selected_semantics,
                 )
                 if formal["access"] != "read" or context_type is None:
                     raise _ReferenceEntrypointError(
@@ -1711,7 +1720,8 @@ def _reference_call_sites(
                     context_type = _reference_literal_context(
                         operand["literal"],
                         formal,
-                        lowering["assignment_policy"],
+                        checked,
+                        selected_semantics,
                     )
                     if formal["access"] != "read" or context_type is None:
                         raise ValueError("nested literal is incompatible")
@@ -2201,6 +2211,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
     assert {
+        "quantity.literal.integer-admitted",
         "game.combat.model-binding.contract-stale-package",
         "game.combat.model-binding.contract-stale-version",
         "game.combat.model-binding.contract-stale-id",
@@ -2377,6 +2388,27 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     ]
     assert len({row["identity"] for row in entrypoints}) == 2
     assert len({_reference_encoded(row["arguments"]) for row in entrypoints}) == 2
+
+    literal = cast(
+        dict[str, Any],
+        results["quantity.literal.integer-admitted"],
+    )
+    literal_operand = literal["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+    assert literal_operand["context_type"] == {
+        "domain": {"kind": "actual"},
+        "id": "quantity.dimensionless-int64",
+        "kind": "scalar",
+        "numeric_policy": "exact-int64",
+        "representation": "Int",
+        "type": {
+            "id": "Quantity",
+            "package": "core.quantity",
+            "version": "2.0.0",
+        },
+        "unit": "1",
+    }
 
 
 def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):

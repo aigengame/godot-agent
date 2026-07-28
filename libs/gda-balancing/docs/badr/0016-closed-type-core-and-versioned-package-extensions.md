@@ -184,9 +184,12 @@ therefore requires a small closed type language and a constrained package extens
 - **Conversions are explicit operations.** Cross-kind, cross-unit, and representation conversions
   exist only as versioned Conversion operations with declared legality, exact/lossy status,
   rounding, domain mapping, and refusal behavior. Source requests the conversion; Typed HIR records
-  the selected operation explicitly. Contextual literal typing selects exactly one LDB-owned
-  literal profile against the consuming formal's complete value contract and retains that resolved
-  context in RIR identity; it is not a host-default integer type or an implicit coercion.
+  the selected operation explicitly. Contextual literal typing selects exactly one independently
+  exported, package-owned LDB Literal Typing Profile against the consuming formal's complete value
+  contract and retains that resolved context in RIR identity. The profile owner must own the exact
+  Type release, its value references must close, and overlapping profiles for one match contract
+  are invalid; it is not a host-default integer type, a Symbol-assignment concern, or an implicit
+  coercion.
 
 - **Package compatibility follows strict semantic versioning.** Minor versions may add optional
   types, operations, capabilities, or fields whose absence preserves every existing program's

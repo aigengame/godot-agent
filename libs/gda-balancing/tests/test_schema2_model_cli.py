@@ -2324,6 +2324,122 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
     }
 
 
+def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
+    tmp_path,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "typed-literal-admission.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    artifacts = {
+        name: deepcopy(original[name])
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+        )
+    }
+    operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+    operand["context_type"]["id"] = "forged.literal-profile"
+    _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
+    artifacts["resolved-model"]["rir_identity"] = artifacts["rir-semantic-payload"][
+        "content_identity"
+    ]
+    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
+def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "literal-profile-reidentity.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    original_checked = model_module.check_model_source(str(source))
+    assert isinstance(original_checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(original_checked)
+
+    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    profile = candidate_ldb["language"]["literal_typing_profiles"][0]
+    old_id = profile["id"]
+    profile["id"] = "quantity.dimensionless-int64-reidentified"
+    owner = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "core.quantity"
+    )
+    owner["exports"]["literal_typing_profiles"] = [profile["id"]]
+    assert old_id != profile["id"]
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    monkeypatch.setattr(
+        model_module,
+        "load_authorities",
+        lambda: (kernel, candidate_ldb),
+    )
+
+    changed_checked = model_module.check_model_source(str(source))
+    assert isinstance(changed_checked, model_module.CheckedModel)
+    changed = model_module.lower_checked_model(changed_checked)
+    changed_operand = changed["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+
+    assert changed_operand["context_type"]["id"] == profile["id"]
+    assert (
+        changed["rir-semantic-payload"]["content_identity"]
+        != original["rir-semantic-payload"]["content_identity"]
+    )
+
+
 def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
     tmp_path,
     run_cli,
@@ -2577,9 +2693,6 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
             checked.language_bundle["language"]["model_lowerings"][0][
                 "composition_policy"
             ],
-            checked.language_bundle["language"]["model_lowerings"][0][
-                "assignment_policy"
-            ],
         ),
     )
     hit_sites = [
@@ -2638,9 +2751,6 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
             selected,
             checked.language_bundle["language"]["model_lowerings"][0][
                 "composition_policy"
-            ],
-            checked.language_bundle["language"]["model_lowerings"][0][
-                "assignment_policy"
             ],
         )
 
@@ -2853,7 +2963,7 @@ def test_package_admission_closes_every_operation_composition_axis(
     _reidentify_language_bundle(candidate_ldb)
 
     composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
-        candidate_ldb
+        baseline.kernel, candidate_ldb
     )
     admission = admit_authorities(baseline.kernel, candidate_ldb)
 

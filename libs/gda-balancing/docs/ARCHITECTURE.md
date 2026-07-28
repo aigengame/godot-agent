@@ -367,8 +367,9 @@ Typed HIR closes every invocation before RIR:
    symbols to one exact Operation interface;
 3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
    rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
-   bindings, requires each literal to have one exact contextual-type match in the LDB assignment
-   policy, requires each nested callee's effect/refusal closure to fit the caller declaration, and
+   bindings, requires each literal to have one exact contextual-type match in the selected
+   package-owned Literal Typing Profiles, requires each nested callee's effect/refusal closure to
+   fit the caller declaration, and
    derives the transitive resource charge under the LDB composition policy;
 4. RIR records the exact entrypoint and call-site graph plus its generated Scenario Input Contract,
    including each literal's resolved context type, Model-owned initializers, and exact
@@ -383,10 +384,15 @@ alias is legal only when the selected Operation contract explicitly admits it. F
 under #590 may introduce another Kernel-admitted expression operand, but it does not replace or
 weaken the same entrypoint/call-site closure.
 
-A literal has no host-default type. The LDB assignment policy owns an extensible set of literal
-profiles and selects exactly one profile by source kind, formal type, representation, kind, unit,
-domain, Numeric policy, and numeric bound. Zero or multiple matches refuse before HIR; successful
-lowering preserves the selected profile in the RIR operand and its identity. Under
+A literal has no host-default type. Each type package may independently export Literal Typing
+Profiles, and the runtime projection selects the profiles reachable from the Model's exact Type
+exports. A profile closes against its owner Type, the LDB value inventories, and at least one
+Operation formal value contract. Selection matches source kind, formal type, representation, kind,
+unit, domain, Numeric policy, and numeric bound; overlapping ranges for the same match contract are
+invalid. Zero or multiple matches refuse before HIR; successful lowering preserves the selected
+profile in the RIR operand and its identity. The Symbol assignment policy therefore remains
+orthogonal: it owns only Symbol roles, access, initialization ownership, and Experiment
+cardinality. Under
 `operation-body-order`, writable aliases denote one runtime location for the complete invocation:
 a write in one child call is visible to every later sibling call, while a propagated rollback
 restores the operation's entry snapshot.
@@ -890,7 +896,7 @@ classified by the same vocabulary used above:
 | Refined—adopted | Duplicate JSON keys were collapsed by host decoding, non-empty external inputs were silently ignored, a multi-scenario refusal named the first scenario, and an Operation step budget accumulated across scenarios. Canonical ingress now rejects duplicate keys, unsupported external inputs refuse explicitly, terminal audit retains the exact scenario, and per-Event/per-run budgets have separate scopes. | Canonical ingress, Experiment admission, and Runtime accounting; implementation/conformance updated |
 | Refined—adopted | The first cast selected a raw LDB Operation while Model symbols, Operation inputs, and scenario values repeated equal names. That made the host's same-name lookup an undeclared peer binding authority and could not express one defense symbol feeding distinct hit and mitigation ports. Operations now own formal ports, Model Source owns explicit entrypoint bindings, the LDB assignment policy owns initialization/access/cardinality, RIR owns resolved call-site identities plus the derived Scenario Input Contract, and Experiment owns only assignments exported by that contract. | bADR-0012/0013/0016/0022 invocation-authority chain; machine authority, tutorial, runtime, and both consumers updated |
 | Refined—adopted | Nested Operation execution initially shared one ambient value map, so caller locals and same-named model values could be captured across call boundaries. Runtime now creates lexical call frames from the RIR's exact formal-to-actual bindings and traces entrypoint, call-site, operation, outcome, operand, and result identities. RIR admission independently rederives the graph so coherent identity rewriting cannot bless a tampered binding. | Kernel invoke law, LDB call sites, RIR/runtime admission, and trace provenance; machine authority and conformance updated |
-| Refined—adopted | Literal admission treated every exact-int64 host integer as compatible with every readable formal port, so `1` could bind a Boolean formal and RIR carried no resolved literal type. The LDB assignment policy now owns closed, extensible literal profiles; root and nested bindings require one exact formal match and retain that context type in RIR identity. | Core Quantity lowering policy, RIR wire/admission contract, package-owned negative vector, and independent lowerer; machine authority and conformance updated |
+| Refined—adopted | Literal admission first treated every exact-int64 host integer as compatible with every readable formal port, then placed the repair inside the Symbol assignment policy. That fixed Boolean misbinding but coupled a type package's literal rules to one Model lowering. Literal Typing Profiles are now independent package exports with exact Type/value reference closure, ambiguity refusal, runtime projection, positive/negative package vectors, and RIR identity/admission evidence; the Symbol assignment policy owns only Symbol assignment. | Kernel/LDB literal-typing contract, Core Quantity package, RIR wire/admission contract, package vectors, and two independent consumers updated |
 | Refined—adopted | `operation-body-order` aliases shared one state location inside a child call, but the parent frame refreshed only ports passed to that child. A write through one alias could therefore be invisible to a later sibling call through another alias. Runtime now refreshes the complete parent alias group after every child return, preserving shared-location semantics across continue/propagate and rollback boundaries. | Runtime invocation semantics plus cross-child differential regression; implementation and conformance updated |
 | Confirmed—narrowly | One Model symbol intentionally supplies the cast's two compatible read-only defense ports. Package-owned Model Program vectors also cover distinct defense symbols, a source-symbol rename, multiple entrypoints selecting the same exact Operation with different bindings, stale Operation coordinates, and every value-contract axis. The `core.quantity` vector proves an `experiment-override` entrypoint emits both a Model initializer and an optional override target. Dual-consumer mutation tests close effect/refusal/resource/cycle violations; Experiment tests refuse under/over/duplicate assignments, raw-Operation selection, and rebinding. | `game.combat.model-binding.*`, `quantity.assignment-policy.optional-override`, plus bounded dual-consumer conformance tests; retained |
 | Confirmed—narrowly | An independent lowerer derives byte-identical entrypoint, call-site, alias, closure, Scenario Input Contract, and identity graphs. A second evaluator builds its root frame only from RIR resolved operands and agrees with production on the committed cast's typed outcome, facts, state, RNG and call provenance. It validates every runtime-node contract vector and executes every RNG vector; nodes outside the cast are not claimed as independently executed semantics. | Bounded differential witness for `rpg.combat.cast-v1`; retained as a test, not generalized |

@@ -128,10 +128,13 @@ structured formal judgments, and an honest proof/conformance boundary.
   `internal`; admission rejects an operand mode without either an Experiment value or Model
   initializer, and rejects a result mode not produced by execution. Successful lowering gives every
   actual operand and call site a stable identity and emits Model initializers and Experiment targets
-  in the Scenario Input Contract. The same policy owns literal profiles: a root or nested literal
-  must select exactly one profile whose source kind, type, representation, kind, unit, domain,
-  Numeric policy, and bounds match the formal port. Zero or multiple matches refuse before HIR;
-  RIR preserves the resolved profile as part of the actual-operand identity. A declared writable
+  in the Scenario Input Contract. Literal typing is a separate package-owned LDB authority: a root
+  or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
+  type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The
+  exporting package owns the exact Type release, referenced value inventories and an Operation
+  formal close the profile, and overlapping ranges for one match contract are invalid. Zero or
+  multiple matches refuse before HIR; RIR preserves the selected profile as part of the
+  actual-operand identity. A declared writable
   alias denotes one location for the whole invocation, so a child write is visible through every
   later sibling alias and operation rollback restores the entry snapshot.
 
@@ -263,10 +266,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 - A minimal bundle can start with only the kernel and RPG-tracer packages, then add packages through
   versioned manifests and their bound conformance-vector children without changing the core
   grammar.
-- Permanent RPG-slice dogfooding found that a host integer had been admitted for a Boolean formal
-  and that parent aliases could retain stale values across sibling calls. Literal typing is now
-  LDB-owned and identity-bearing, and `operation-body-order` aliasing now spans the complete
-  invocation rather than one child frame.
+- Permanent RPG-slice dogfooding found that a host integer had been admitted for a Boolean formal,
+  the first repair coupled Literal Typing Profiles to one Symbol assignment policy, and parent
+  aliases could retain stale values across sibling calls. Literal typing is now independently
+  package-owned, reference-closed, ambiguity-refusing, runtime-selected, and identity-bearing;
+  `operation-body-order` aliasing spans the complete invocation rather than one child frame.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample
