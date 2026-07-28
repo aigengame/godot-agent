@@ -4246,6 +4246,7 @@ def _consumer_b_runtime_authority_is_closed(
             "named_rng",
             "event_atomicity",
             "outcome_contract",
+            "invocation_contract",
             "vectors",
         }
         or runtime.get("closed") is not True
@@ -4314,6 +4315,27 @@ def _consumer_b_runtime_authority_is_closed(
         }
     ):
         return False
+    invocation_contract = runtime.get("invocation_contract")
+    if (
+        not isinstance(invocation_contract, dict)
+        or invocation_contract.get("closed") is not True
+        or invocation_contract.get("version") != "resolved-operation-binding-v1"
+        or invocation_contract.get("scope") != "lexical-call-frame"
+        or invocation_contract.get("ambient_capture") != "forbidden"
+        or invocation_contract.get("argument_evaluation_order")
+        != "formal-port-declaration-order"
+        or invocation_contract.get("outcome_mapping")
+        != "exactly-once-and-exhaustive"
+        or invocation_contract.get("resource_charge")
+        != "invoke-plus-transitive-callee-steps"
+        or set(invocation_contract.get("operand_kinds", []))
+        != {"port", "local", "literal"}
+        or set(invocation_contract.get("result_binding_kinds", []))
+        != {"local", "operation-result", "discard"}
+        or set(invocation_contract.get("outcome_actions", []))
+        != {"continue", "propagate"}
+    ):
+        return False
     vectors = runtime.get("vectors")
     if not isinstance(vectors, list) or {
         item.get("node") for item in vectors if item.get("kind") == "node"
@@ -4366,13 +4388,73 @@ def _consumer_b_runtime_authority_is_closed(
             if isinstance(outcome, str):
                 referenced.add(outcome)
             if node["semantics"]["operator"] == "invoke-operation":
-                invoked = operations_by_id.get(instruction.get("operation"))
+                operation_ref = instruction.get("operation")
+                if (
+                    not isinstance(operation_ref, dict)
+                    or set(operation_ref) != {"package", "version", "id"}
+                ):
+                    return None
+                invoked = operations_by_id.get(operation_ref["id"])
                 if not isinstance(invoked, dict):
+                    return None
+                formal_ports = [
+                    row.get("id")
+                    for row in invoked.get("inputs", [])
+                    if isinstance(row, dict)
+                ]
+                arguments = instruction.get("arguments")
+                if (
+                    not isinstance(arguments, list)
+                    or [row.get("port") for row in arguments] != formal_ports
+                    or any(
+                        not isinstance(row, dict)
+                        or set(row) != {"port", "operand"}
+                        or not isinstance(row["operand"], dict)
+                        or row["operand"].get("kind")
+                        not in set(invocation_contract["operand_kinds"])
+                        for row in arguments
+                    )
+                ):
+                    return None
+                child_outcomes = {
+                    row.get("id")
+                    for row in invoked.get("outcomes", [])
+                    if isinstance(row, dict)
+                }
+                mappings = instruction.get("outcomes")
+                if (
+                    not isinstance(mappings, list)
+                    or {row.get("outcome") for row in mappings} != child_outcomes
+                    or len(mappings) != len(child_outcomes)
+                ):
+                    return None
+                for mapping in mappings:
+                    action = mapping.get("action")
+                    if (
+                        not isinstance(action, dict)
+                        or action.get("kind")
+                        not in set(invocation_contract["outcome_actions"])
+                    ):
+                        return None
+                    if action["kind"] == "propagate":
+                        propagated = action.get("outcome")
+                        if not isinstance(propagated, str):
+                            return None
+                        referenced.add(propagated)
+                result_binding = instruction.get("result")
+                if (
+                    not isinstance(result_binding, dict)
+                    or result_binding.get("kind")
+                    not in set(invocation_contract["result_binding_kinds"])
+                    or (
+                        result_binding["kind"] == "discard"
+                        and invoked.get("result", {}).get("discardable") is not True
+                    )
+                ):
                     return None
                 nested = referenced_outcomes(invoked, nested_stack)
                 if nested is None:
                     return None
-                referenced.update(nested)
         return referenced
 
     for operation in operations:
@@ -4384,10 +4466,6 @@ def _consumer_b_runtime_authority_is_closed(
         referenced = referenced_outcomes(operation, set())
         if referenced is None:
             return False
-        if operation_kind == "event-fragment":
-            if "outcomes" in operation or "default_outcome" in operation:
-                return False
-            continue
         outcomes = operation.get("outcomes")
         if not isinstance(outcomes, list) or any(
             set(item) != {"id", "kind", "state_policy"}
@@ -6071,6 +6149,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "named_rng",
         "event_atomicity",
         "outcome_contract",
+        "invocation_contract",
         "vectors",
     }
     nodes = {item["id"]: item for item in runtime["nodes"]}
@@ -6155,6 +6234,11 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "state_policies": ["commit", "rollback"],
         "operation_members": ["outcomes", "default_outcome"],
     }
+    assert runtime["invocation_contract"]["scope"] == "lexical-call-frame"
+    assert runtime["invocation_contract"]["ambient_capture"] == "forbidden"
+    assert runtime["invocation_contract"]["outcome_mapping"] == (
+        "exactly-once-and-exhaustive"
+    )
     node_vectors = {
         item["node"] for item in runtime["vectors"] if item["kind"] == "node"
     }
@@ -6212,12 +6296,15 @@ def test_rpg_operation_declares_its_complete_gameplay_outcome_algebra():
         for item in authority["language_bundle"]["language"]["operations"]
     }
     referenced = {
-        instruction["outcome"]
+        mapping["action"]["outcome"]
         for invocation in operation["body"]
-        for instruction in operations[invocation["operation"]]["body"]
-        if "outcome" in instruction
+        for mapping in invocation["outcomes"]
+        if mapping["action"]["kind"] == "propagate"
     }
     assert referenced == declared - {operation["default_outcome"]}
+    assert {
+        invocation["operation"]["id"] for invocation in operation["body"]
+    } <= set(operations)
 
 
 @pytest.mark.parametrize(

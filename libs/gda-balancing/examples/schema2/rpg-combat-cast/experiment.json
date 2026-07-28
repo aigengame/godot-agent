@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13",
-  "language_bundle_identity": "sha256:499b1cd3afdada96470de699f4386f6cd72848cdd57f4a8787f5421b47c07325",
+  "kernel_identity": "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00",
+  "language_bundle_identity": "sha256:b27abb48f46330f04926e7b713eed4d3287682c71a40bf26197ff8180c081afc",
   "model": {
-    "source_identity": "sha256:803d4871b840dfb7f60978a887fbe9195231094086cbe26dae086a6d62c3bee3",
-    "build_receipt_identity": "sha256:6f96e2155b629dea18c7a1891c8fd7a2c0fd58d374648f81efb6b10fb851a69c",
-    "resolved_model_identity": "sha256:fad58a5aa5d8c86d6e8fb71f70eb2200164fe64d8a56d37aa0404d55f6f29e09",
-    "package_lock_identity": "sha256:91dced4bfaf3032539abb2c31d498368fb5bb91a23706394cc29e69222e9eb9e",
-    "rir_identity": "sha256:a3899d780cdf512e23bd351a8b9ed570eaf14c1a20abae03522e6f903931a048"
+    "source_identity": "sha256:30912df260463ddd5a1e191606b4ae85112662cde387cb6d4c14d7936bbe9994",
+    "build_receipt_identity": "sha256:f4edfced03d50bc5ae7e4da075f732d4e72e9d6c528f433d065af8687e32d7f5",
+    "resolved_model_identity": "sha256:b1669150bdf2587e06e65abd3cbb8ce50175881d0c139929b9e8f8f78b24d0bc",
+    "package_lock_identity": "sha256:fd35ff13c0b1ae784ac8eb612ac227b2f62f269e2ff26a51cbe7877988413b6e",
+    "rir_identity": "sha256:cb068976ad8103504e5e809e825cafc54a838dd8f6a4bc720e945dd80b305cfc"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -56,34 +56,62 @@
   "scenarios": [
     {
       "id": "one-cast",
-      "operation": "game.combat.cast-v1",
-      "values": [
+      "entrypoint": "combat.cast",
+      "assignments": [
         {
-          "name": "actor_mana",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "actor_mana"
+          },
           "value": 30
         },
         {
-          "name": "action_cost",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "action_cost"
+          },
           "value": 8
         },
         {
-          "name": "accuracy",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "accuracy"
+          },
           "value": 85
         },
         {
-          "name": "base_damage",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "base_damage"
+          },
           "value": 24
         },
         {
-          "name": "critical_threshold",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "critical_threshold"
+          },
           "value": 0
         },
         {
-          "name": "target_defense",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "target_defense"
+          },
           "value": 6
         },
         {
-          "name": "target_health",
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "target_health"
+          },
           "value": 100
         }
       ],
@@ -116,7 +144,7 @@
       "observation": {
         "source": "event",
         "name": "cast-resolved",
-        "member": "damage"
+        "member": "damage_dealt"
       },
       "target": {
         "minimum": 1,

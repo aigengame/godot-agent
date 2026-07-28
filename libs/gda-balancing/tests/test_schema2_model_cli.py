@@ -38,6 +38,18 @@ def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "model-fixed"
+                if role == "constant"
+                else "experiment-required"
+                if role in {"parameter", "input", "state"}
+                else "named-stream"
+                if role == "random"
+                else "none"
+            ),
+            **({"value": 1} if role == "constant" else {}),
+        },
     }
 
 
@@ -59,6 +71,7 @@ def _model_source() -> dict[str, Any]:
             "entry_module": "main",
         },
         "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "entrypoints": [],
         "modules": [
             {
                 "id": "main",
@@ -485,6 +498,7 @@ def test_model_check_gates_resolution_when_required_top_level_members_are_missin
         ("/manifest", "language.source_contract_mismatch"),
         ("/package_requirements", "language.source_contract_mismatch"),
         ("/modules", "language.source_contract_mismatch"),
+        ("/entrypoints", "language.source_contract_mismatch"),
     }
 
 
@@ -2215,12 +2229,17 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     for entry in package["semantic_closure"]:
         entry["definitions"] = []
     operation = {
-        "body": [
-            {
-                "node": "subtract-state",
-                "symbol": "account_balance",
-                "value": "price",
-            }
+            "body": [
+                {
+                    "node": "subtract-state",
+                    "symbol": "account_balance",
+                    "value": "price",
+                },
+                {
+                    "node": "copy",
+                    "target": "remaining_balance",
+                    "value": "account_balance",
+                },
         ],
         "default_outcome": "purchase-complete",
         "effects": [
@@ -2228,11 +2247,37 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "metric.observe",
             "snapshot.commit",
         ],
-        "id": "genre.economy.purchase-v1",
-        "inputs": [
-            {"name": "account_balance", "type": "Quantity"},
-            {"name": "price", "type": "Quantity"},
-        ],
+            "id": "genre.economy.purchase-v1",
+            "inputs": [
+                {
+                    "access": "read-write",
+                    "domain": {"kind": "actual"},
+                    "id": "account_balance",
+                    "kind": "scalar",
+                    "numeric_policy": "exact-int64",
+                    "representation": "Int",
+                    "type": {
+                        "id": "Quantity",
+                        "package": "core.quantity",
+                        "version": "2.0.0",
+                    },
+                    "unit": "1",
+                },
+                {
+                    "access": "read",
+                    "domain": {"kind": "actual"},
+                    "id": "price",
+                    "kind": "scalar",
+                    "numeric_policy": "exact-int64",
+                    "representation": "Int",
+                    "type": {
+                        "id": "Quantity",
+                        "package": "core.quantity",
+                        "version": "2.0.0",
+                    },
+                    "unit": "1",
+                },
+            ],
         "kind_rules": {"inputs": "preserve", "result": "preserve"},
         "numeric_policy": "exact-int64",
         "operation_kind": "event-program",
@@ -2249,8 +2294,23 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "runtime.reason.step-limit",
             "runtime.reason.numeric-overflow",
         ],
-        "resource_bounds": {"max_steps": 1},
-        "result": "Quantity",
+        "resource_bounds": {"max_steps": 2},
+        "result": {
+            "access": "read",
+            "discardable": False,
+            "domain": {"kind": "actual"},
+            "id": "result",
+            "kind": "scalar",
+            "numeric_policy": "exact-int64",
+            "representation": "Int",
+            "source": {"kind": "local", "name": "remaining_balance"},
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.0.0",
+            },
+            "unit": "1",
+        },
         "rule": "quantity.lower",
         "runtime_profile": "standard.exact-int64-event-v1",
         "unit_rules": {"inputs": "preserve", "result": "preserve"},
@@ -2303,6 +2363,40 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     source_document["modules"][0]["symbols"] = [
         _quantity_symbol("account_balance", "state"),
         _quantity_symbol("price", "parameter"),
+        _quantity_symbol("purchase_balance", "output"),
+    ]
+    source_document["entrypoints"] = [
+        {
+            "id": "economy.purchase",
+            "operation": {
+                "package": "genre.economy",
+                "version": "1.0.0",
+                "id": "genre.economy.purchase-v1",
+            },
+            "arguments": [
+                {
+                    "port": "account_balance",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "account_balance",
+                    },
+                },
+                {
+                    "port": "price",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "price",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "purchase_balance",
+            },
+        }
     ]
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
@@ -2347,7 +2441,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
                 "operation_kinds": ["event-program"],
-                "instruction_nodes": ["subtract-state"],
+                "instruction_nodes": ["copy", "subtract-state"],
                 "effects": [
                     "event.commit",
                     "metric.observe",
@@ -2363,10 +2457,24 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
         "scenarios": [
             {
                 "id": "purchase",
-                "operation": "genre.economy.purchase-v1",
-                "values": [
-                    {"name": "account_balance", "value": 100},
-                    {"name": "price", "value": 25},
+                "entrypoint": "economy.purchase",
+                "assignments": [
+                    {
+                        "target": {
+                            "model": "example.quantity-model",
+                            "module": "main",
+                            "name": "account_balance",
+                        },
+                        "value": 100,
+                    },
+                    {
+                        "target": {
+                            "model": "example.quantity-model",
+                            "module": "main",
+                            "name": "price",
+                        },
+                        "value": 25,
+                    },
                 ],
                 "named_streams": [],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},

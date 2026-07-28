@@ -31,6 +31,13 @@ def _rpg_value(name: str, role: str) -> dict[str, Any]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 1000},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "experiment-required"
+                if role not in {"derived", "output", "random"}
+                else "none"
+            )
+        },
     }
 
 
@@ -65,7 +72,43 @@ def _rpg_model_source() -> dict[str, Any]:
                     _rpg_value("critical_threshold", "parameter"),
                     _rpg_value("target_defense", "input"),
                     _rpg_value("target_health", "state"),
+                    _rpg_value("damage_dealt", "output"),
                 ],
+            }
+        ],
+        "entrypoints": [
+            {
+                "id": "combat.cast",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "1.0.0",
+                    "id": "game.combat.cast-v1",
+                },
+                "arguments": [
+                    {
+                        "port": port,
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "combat",
+                            "symbol": symbol,
+                        },
+                    }
+                    for port, symbol in (
+                        ("actor_resource", "actor_mana"),
+                        ("action_cost", "action_cost"),
+                        ("accuracy", "accuracy"),
+                        ("base_damage", "base_damage"),
+                        ("critical_threshold", "critical_threshold"),
+                        ("hit_defense", "target_defense"),
+                        ("damage_mitigation", "target_defense"),
+                        ("target_health", "target_health"),
+                    )
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "combat",
+                    "symbol": "damage_dealt",
+                },
             }
         ],
     }
@@ -169,125 +212,205 @@ def _reference_execute_event(
     *,
     seed: int,
     state_names: set[str],
+    root_arguments: list[dict[str, Any]] | None = None,
+    result_target: str | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
     nodes = {row["id"]: row for row in runtime["nodes"]}
-    outcomes = {row["id"]: row for row in operation["outcomes"]}
-    variables = {row["name"]: row["value"] for row in scenario["values"]}
-    state = {name: variables[name] for name in state_names}
-    before = dict(state)
-    outcome = operation["default_outcome"]
+    if "assignments" in scenario:
+        variables = {
+            row["target"]["name"]: row["value"] for row in scenario["assignments"]
+        }
+    else:
+        variables = {row["name"]: row["value"] for row in scenario["values"]}
+    cells = {name: {"value": value} for name, value in variables.items()}
+    state_cells = {name: cells[name] for name in state_names}
+    before = {name: cell["value"] for name, cell in state_cells.items()}
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
-    draws = []
+    draws: list[dict[str, Any]] = []
 
     def exact(value: int) -> int:
         assert numeric["minimum"] <= value <= numeric["maximum"]
         return value
 
-    def expanded_body(
-        selected: dict[str, Any], stack: tuple[str, ...] = ()
-    ) -> list[dict[str, Any]]:
-        operation_id = selected["id"]
-        assert operation_id not in stack
-        result: list[dict[str, Any]] = []
+    def execute(
+        selected: dict[str, Any],
+        arguments: dict[str, dict[str, Any]],
+        stack: tuple[str, ...] = (),
+    ) -> tuple[str, Any]:
+        assert selected["id"] not in stack
+        locals_: dict[str, dict[str, Any]] = {}
+        frame_cells = {id(cell): cell for cell in arguments.values()}
+        snapshot = {key: cell["value"] for key, cell in frame_cells.items()}
+        outcome = selected["default_outcome"]
+
+        def cell(name: str) -> dict[str, Any]:
+            if name in locals_:
+                return locals_[name]
+            return arguments[name]
+
+        def write_local(name: str, value: Any) -> None:
+            locals_[name] = {"value": value}
+
         for instruction in selected["body"]:
-            result.append(instruction)
-            if instruction["node"] == "invoke":
-                result.extend(
-                    expanded_body(
-                        operations[instruction["operation"]],
-                        (*stack, operation_id),
-                    )
+            node = nodes[instruction["node"]]
+            assert set(instruction) == set(node["required_members"])
+            semantics = node["semantics"]
+            operator = semantics["operator"]
+            if operator == "invoke-operation":
+                child = operations[instruction["operation"]["id"]]
+                child_arguments: dict[str, dict[str, Any]] = {}
+                for binding in instruction["arguments"]:
+                    operand = binding["operand"]
+                    if operand["kind"] == "port":
+                        actual = arguments[operand["port"]]
+                    elif operand["kind"] == "local":
+                        actual = locals_[operand["local"]]
+                    else:
+                        actual = {"value": operand["value"]}
+                    child_arguments[binding["port"]] = actual
+                child_outcome, child_result = execute(
+                    child,
+                    child_arguments,
+                    (*stack, selected["id"]),
                 )
-        return result
+                result_binding = instruction["result"]
+                if result_binding["kind"] == "local":
+                    write_local(result_binding["name"], child_result)
+                action = next(
+                    row["action"]
+                    for row in instruction["outcomes"]
+                    if row["outcome"] == child_outcome
+                )
+                if action["kind"] == "propagate":
+                    outcome = action["outcome"]
+                    break
+                continue
+            if operator == "gameplay-precondition":
+                if not _reference_compare(
+                    semantics["comparison"],
+                    cell(instruction["left"])["value"],
+                    cell(instruction["right"])["value"],
+                ):
+                    outcome = instruction["outcome"]
+                    break
+            elif operator == "named-integer-draw":
+                draw = _reference_rng_draw(
+                    runtime["named_rng"],
+                    seed,
+                    instruction["stream"],
+                    instruction["minimum"],
+                    instruction["maximum"],
+                    rng_states,
+                    rng_indices,
+                )
+                draws.append(draw)
+                write_local(instruction["target"], draw["value"])
+            elif operator == "integer-literal":
+                write_local(instruction["target"], instruction["literal"])
+            elif operator == "copy-value":
+                write_local(
+                    instruction["target"],
+                    cell(instruction["value"])["value"],
+                )
+            elif operator in {
+                "integer-add",
+                "integer-subtract",
+                "integer-multiply",
+                "integer-maximum",
+            }:
+                left = cell(instruction["left"])["value"]
+                right = cell(instruction["right"])["value"]
+                result = {
+                    "integer-add": lambda: left + right,
+                    "integer-subtract": lambda: left - right,
+                    "integer-multiply": lambda: left * right,
+                    "integer-maximum": lambda: max(left, right),
+                }[operator]()
+                write_local(instruction["target"], exact(result))
+            elif operator == "integer-compare":
+                write_local(
+                    instruction["target"],
+                    _reference_compare(
+                        semantics["comparison"],
+                        cell(instruction["left"])["value"],
+                        cell(instruction["right"])["value"],
+                    ),
+                )
+            elif operator == "select-value":
+                choice = (
+                    instruction["when_true"]
+                    if cell(instruction["condition"])["value"]
+                    else instruction["when_false"]
+                )
+                write_local(instruction["target"], cell(choice)["value"])
+            elif operator == "state-integer-subtract":
+                target = arguments[instruction["symbol"]]
+                target["value"] = exact(
+                    target["value"] - cell(instruction["value"])["value"]
+                )
+            elif operator == "state-write":
+                arguments[instruction["symbol"]]["value"] = exact(
+                    cell(instruction["value"])["value"]
+                )
+            else:
+                raise AssertionError(
+                    f"unsupported operator in authority: {operator}"
+                )
 
-    for instruction in expanded_body(operation):
-        node = nodes[instruction["node"]]
-        assert set(instruction) == set(node["required_members"])
-        semantics = node["semantics"]
-        operator = semantics["operator"]
-        if operator == "invoke-operation":
-            continue
-        if operator == "gameplay-precondition":
-            if not _reference_compare(
-                semantics["comparison"],
-                variables[instruction["left"]],
-                variables[instruction["right"]],
-            ):
-                outcome = instruction["outcome"]
-                break
-        elif operator == "named-integer-draw":
-            draw = _reference_rng_draw(
-                runtime["named_rng"],
-                seed,
-                instruction["stream"],
-                instruction["minimum"],
-                instruction["maximum"],
-                rng_states,
-                rng_indices,
-            )
-            draws.append(draw)
-            variables[instruction["target"]] = draw["value"]
-        elif operator == "integer-literal":
-            variables[instruction["target"]] = instruction["literal"]
-        elif operator == "copy-value":
-            variables[instruction["target"]] = variables[instruction["value"]]
-        elif operator in {
-            "integer-add",
-            "integer-subtract",
-            "integer-multiply",
-            "integer-maximum",
-        }:
-            left = variables[instruction["left"]]
-            right = variables[instruction["right"]]
-            result = {
-                "integer-add": lambda: left + right,
-                "integer-subtract": lambda: left - right,
-                "integer-multiply": lambda: left * right,
-                "integer-maximum": lambda: max(left, right),
-            }[operator]()
-            variables[instruction["target"]] = exact(result)
-        elif operator == "integer-compare":
-            variables[instruction["target"]] = _reference_compare(
-                semantics["comparison"],
-                variables[instruction["left"]],
-                variables[instruction["right"]],
-            )
-        elif operator == "select-value":
-            selected = (
-                instruction["when_true"]
-                if variables[instruction["condition"]]
-                else instruction["when_false"]
-            )
-            variables[instruction["target"]] = variables[selected]
-        elif operator == "state-integer-subtract":
-            name = instruction["symbol"]
-            state[name] = exact(state[name] - variables[instruction["value"]])
-            variables[name] = state[name]
-        elif operator == "state-write":
-            name = instruction["symbol"]
-            state[name] = exact(variables[instruction["value"]])
-            variables[name] = state[name]
+        outcome_definition = next(
+            row for row in selected["outcomes"] if row["id"] == outcome
+        )
+        if outcome_definition["state_policy"] == "rollback":
+            for key, value in snapshot.items():
+                frame_cells[key]["value"] = value
+        source = selected["result"]["source"]
+        if source["kind"] == "local":
+            result = locals_.get(source["name"], {"value": 0})["value"]
+        elif source["kind"] == "port":
+            result = arguments[source["name"]]["value"]
         else:
-            raise AssertionError(f"unsupported operator in authority: {operator}")
+            assert source["kind"] == "unit"
+            result = None
+        return outcome, result
 
-    outcome_definition = outcomes[outcome]
+    if root_arguments is None:
+        root_arguments = [
+            {
+                "port": port["id"],
+                "operand": {"kind": "symbol", "symbol": port["id"]},
+            }
+            for port in operation["inputs"]
+        ]
+    root_frame = {
+        row["port"]: cells[row["operand"]["symbol"]] for row in root_arguments
+    }
+    outcome, result = execute(operation, root_frame)
+    if result_target is not None:
+        cells[result_target] = {"value": result}
+    outcome_definition = next(
+        row for row in operation["outcomes"] if row["id"] == outcome
+    )
     if outcome_definition["state_policy"] == "rollback":
-        state = before
-        variables.update(before)
+        for name, value in before.items():
+            state_cells[name]["value"] = value
+    facts = {name: cell["value"] for name, cell in cells.items()}
     return {
         "operation": operation["id"],
         "outcome": {
             "id": outcome,
             "kind": outcome_definition["kind"],
         },
-        "facts": _reference_fact_rows(variables),
+        "facts": _reference_fact_rows(facts),
         "state_before": [
             {"name": name, "value": before[name]} for name in sorted(before)
         ],
-        "state_after": [{"name": name, "value": state[name]} for name in sorted(state)],
+        "state_after": [
+            {"name": name, "value": state_cells[name]["value"]}
+            for name in sorted(state_cells)
+        ],
         "rng_draws": draws,
     }
 
@@ -350,15 +473,25 @@ def _experiment(
         "scenarios": [
             {
                 "id": "one-cast",
-                "operation": "game.combat.cast-v1",
-                "values": [
-                    {"name": "actor_mana", "value": 30},
-                    {"name": "action_cost", "value": 8},
-                    {"name": "accuracy", "value": 85},
-                    {"name": "base_damage", "value": base_damage},
-                    {"name": "critical_threshold", "value": 0},
-                    {"name": "target_defense", "value": 6},
-                    {"name": "target_health", "value": 100},
+                "entrypoint": "combat.cast",
+                "assignments": [
+                    {
+                        "target": {
+                            "model": "example.rpg-combat-cast",
+                            "module": "combat",
+                            "name": name,
+                        },
+                        "value": value,
+                    }
+                    for name, value in (
+                        ("actor_mana", 30),
+                        ("action_cost", 8),
+                        ("accuracy", 85),
+                        ("base_damage", base_damage),
+                        ("critical_threshold", 0),
+                        ("target_defense", 6),
+                        ("target_health", 100),
+                    )
                 ],
                 "named_streams": ["critical", "hit"],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
@@ -373,7 +506,7 @@ def _experiment(
                     "observation": {
                         "source": "event",
                         "name": "cast-resolved",
-                        "member": "damage",
+                        "member": "damage_dealt",
                     },
                     "target": {"minimum": 1, "maximum": 1000},
                 }
@@ -438,8 +571,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
         [
             _rpg_value("hit_defense", "input"),
             _rpg_value("damage_mitigation", "input"),
-            _rpg_value("damage_dealt", "output"),
-        ]
+            ]
     )
     for symbol in symbols:
         symbol["value_policy"] = {
@@ -665,10 +797,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "state_after": event["state_after"],
         }
 
-    assert (
-        vector_projection(first_trace["events"][0])
-        == combat_vectors["game.combat.cast.positive"]["expect"]
+    public_positive_expect = json.loads(
+        json.dumps(combat_vectors["game.combat.cast.positive"]["expect"])
     )
+    public_positive_expect["state_after"][0]["name"] = "actor_mana"
+    assert vector_projection(first_trace["events"][0]) == public_positive_expect
     operation = next(
         row for row in operations.values() if row["id"] == "game.combat.cast-v1"
     )
@@ -685,6 +818,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         first_spec["scenarios"][0],
         seed=first_spec["seed"]["value"],
         state_names=state_names,
+        root_arguments=source_value["entrypoints"][0]["arguments"],
+        result_target=source_value["entrypoints"][0]["result"]["symbol"],
     )
     assert {
         key: value for key, value in first_trace["events"][0].items() if key != "index"
@@ -706,8 +841,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     tuned_spec = json.loads(json.dumps(first_spec))
     base_damage = next(
         row
-        for row in tuned_spec["scenarios"][0]["values"]
-        if row["name"] == "base_damage"
+        for row in tuned_spec["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "base_damage"
     )
     base_damage["value"] = 40
     tuned_path = tmp_path / "experiment-40.json"
@@ -746,10 +881,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         tuned_trace["content_identity"] != first_trace["content_identity"]
         and tuned_metrics["content_identity"] != first_metrics["content_identity"]
     )
-    assert (
-        vector_projection(tuned_trace["events"][0])
-        == combat_vectors["game.combat.cast.tuned-damage"]["expect"]
+    public_tuned_expect = json.loads(
+        json.dumps(combat_vectors["game.combat.cast.tuned-damage"]["expect"])
     )
+    public_tuned_expect["state_after"][0]["name"] = "actor_mana"
+    assert vector_projection(tuned_trace["events"][0]) == public_tuned_expect
 
 
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():
@@ -822,7 +958,6 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         operation = operations[vector["operation"]]
         scenario = {
             "id": vector["id"],
-            "operation": vector["operation"],
             "values": vector["input"]["values"],
         }
         event = _reference_execute_event(
@@ -865,7 +1000,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         != observed["game.combat.cast.tuned-damage"]["state_after"]
     )
     assert observed["game.combat.cast.miss-rollback"]["state_after"] == [
-        {"name": "actor_mana", "value": 30},
+        {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
 
@@ -1133,11 +1268,13 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
     }
+    entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for instruction in experiment_runtime_module._expanded_operation_body(
-            operations[scenario["operation"]], operations
+            operations[entrypoints[scenario["entrypoint"]]["operation"]["id"]],
+            operations,
         )
     }
     assert first.value["evaluator_build_identity"] == (
@@ -1249,8 +1386,8 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
     )
     threshold = next(
         row
-        for row in specification["scenarios"][0]["values"]
-        if row["name"] == "critical_threshold"
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "critical_threshold"
     )
     threshold["value"] = 100
     spec_path = tmp_path / "overflow-experiment.json"
@@ -1315,8 +1452,8 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
     )
     actor_mana = next(
         row
-        for row in specification["scenarios"][0]["values"]
-        if row["name"] == "actor_mana"
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "actor_mana"
     )
     actor_mana["value"] = 4
     specification["metrics"] = [
@@ -1380,13 +1517,13 @@ def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
         "miss": json.loads(json.dumps(value)),
         "insufficient-resource": json.loads(json.dumps(value)),
     }
-    for row in scenarios["miss"]["scenarios"][0]["values"]:
-        if row["name"] == "accuracy":
+    for row in scenarios["miss"]["scenarios"][0]["assignments"]:
+        if row["target"]["name"] == "accuracy":
             row["value"] = 0
-        elif row["name"] == "target_defense":
+        elif row["target"]["name"] == "target_defense":
             row["value"] = 1000
-    for row in scenarios["insufficient-resource"]["scenarios"][0]["values"]:
-        if row["name"] == "actor_mana":
+    for row in scenarios["insufficient-resource"]["scenarios"][0]["assignments"]:
+        if row["target"]["name"] == "actor_mana":
             row["value"] = 0
     for outcome, scenario in scenarios.items():
         scenario["metrics"] = [
@@ -1510,10 +1647,10 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     )
     second = json.loads(json.dumps(value["scenarios"][0]))
     second["id"] = "overflowing-cast"
-    for row in second["values"]:
-        if row["name"] == "base_damage":
+    for row in second["assignments"]:
+        if row["target"]["name"] == "base_damage":
             row["value"] = 1 << 62
-        elif row["name"] == "critical_threshold":
+        elif row["target"]["name"] == "critical_threshold":
             row["value"] = 100
     value["scenarios"].append(second)
     path = tmp_path / "second-scenario-overflow.json"

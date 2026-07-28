@@ -304,6 +304,13 @@ def _conformance_quantity(name: str, role: str) -> dict[str, object]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 1000},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "experiment-required"
+                if role not in {"derived", "output", "random"}
+                else "none"
+            )
+        },
     }
 
 
@@ -339,7 +346,43 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                     _conformance_quantity("critical_threshold", "parameter"),
                     _conformance_quantity("target_defense", "input"),
                     _conformance_quantity("target_health", "state"),
+                    _conformance_quantity("damage_dealt", "output"),
                 ],
+            }
+        ],
+        "entrypoints": [
+            {
+                "id": "combat.cast",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "1.0.0",
+                    "id": "game.combat.cast-v1",
+                },
+                "arguments": [
+                    {
+                        "port": port,
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "combat",
+                            "symbol": symbol,
+                        },
+                    }
+                    for port, symbol in (
+                        ("actor_resource", "actor_mana"),
+                        ("action_cost", "action_cost"),
+                        ("accuracy", "accuracy"),
+                        ("base_damage", "base_damage"),
+                        ("critical_threshold", "critical_threshold"),
+                        ("hit_defense", "target_defense"),
+                        ("damage_mitigation", "target_defense"),
+                        ("target_health", "target_health"),
+                    )
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "combat",
+                    "symbol": "damage_dealt",
+                },
             }
         ],
     }
@@ -416,15 +459,25 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
         "scenarios": [
             {
                 "id": "one",
-                "operation": "game.combat.cast-v1",
-                "values": [
-                    {"name": "actor_mana", "value": 30},
-                    {"name": "action_cost", "value": 8},
-                    {"name": "accuracy", "value": 85},
-                    {"name": "base_damage", "value": 24},
-                    {"name": "critical_threshold", "value": 0},
-                    {"name": "target_defense", "value": 6},
-                    {"name": "target_health", "value": 100},
+                "entrypoint": "combat.cast",
+                "assignments": [
+                    {
+                        "target": {
+                            "model": "example.rpg-combat-cast",
+                            "module": "combat",
+                            "name": name,
+                        },
+                        "value": value,
+                    }
+                    for name, value in (
+                        ("actor_mana", 30),
+                        ("action_cost", 8),
+                        ("accuracy", 85),
+                        ("base_damage", 24),
+                        ("critical_threshold", 0),
+                        ("target_defense", 6),
+                        ("target_health", 100),
+                    )
                 ],
                 "named_streams": ["critical", "hit"],
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
@@ -444,7 +497,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 "observation": {
                     "source": "event",
                     "name": "cast-resolved",
-                    "member": "damage",
+                    "member": "damage_dealt",
                 },
                 "target": {"minimum": 0, "maximum": 1000},
             }
@@ -491,8 +544,11 @@ _VALID_EXPERIMENT = """{
   "external_inputs": [],
   "scenarios": [{
     "id": "one",
-    "operation": "game.combat.cast-v1",
-    "values": [{"name": "value", "value": 1}],
+    "entrypoint": "main",
+    "assignments": [{
+      "target": {"model": "fixture", "module": "main", "name": "value"},
+      "value": 1
+    }],
     "named_streams": [],
     "terminal_condition": {"kind": "event-count", "maximum": 1}
   }],
