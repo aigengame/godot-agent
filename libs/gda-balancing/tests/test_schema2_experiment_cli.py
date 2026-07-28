@@ -1157,6 +1157,171 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert vector_projection(tuned_trace["events"][0]) == public_tuned_expect
 
 
+def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
+    tmp_path,
+    run_cli,
+):
+    baseline = _rpg_model_source()
+    renamed = deepcopy(baseline)
+    defense = next(
+        symbol
+        for symbol in renamed["modules"][0]["symbols"]
+        if symbol["symbol"] == "target_defense"
+    )
+    defense["symbol"] = "renamed_defense"
+    for argument in renamed["entrypoints"][0]["arguments"]:
+        operand = argument["operand"]
+        if (
+            operand["kind"] == "symbol"
+            and operand["symbol"] == "target_defense"
+        ):
+            operand["symbol"] = "renamed_defense"
+
+    def build_and_run(
+        label: str,
+        source_value: dict[str, Any],
+        build_key: str,
+        experiment_key: str,
+    ) -> tuple[
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, dict[str, Any]],
+    ]:
+        source_path = tmp_path / f"{label}-model.json"
+        source_path.write_text(json.dumps(source_value), encoding="utf-8")
+        build_exit, build_stdout, build_stderr = run_cli(
+            [
+                "model",
+                "build",
+                str(source_path),
+                "--out",
+                str(tmp_path / f"{label}-resolved-model.json"),
+                "--invocation-key",
+                build_key,
+            ]
+        )
+        assert (build_exit, build_stderr) == (0, "")
+        build_receipt = json.loads(build_stdout)
+        build_record = _member(build_receipt, "build-receipt")
+        specification = _experiment(
+            kernel_identity=build_record["kernel_identity"],
+            language_bundle_identity=build_record["language_bundle_identity"],
+            source_identity=content_identity(
+                "model-source-package-v2", source_value
+            ),
+            build_receipt=build_receipt,
+            base_damage=24,
+        )
+        if label == "renamed":
+            assignment = next(
+                row
+                for row in specification["scenarios"][0]["assignments"]
+                if row["target"]["name"] == "target_defense"
+            )
+            assignment["target"]["name"] = "renamed_defense"
+        specification_path = tmp_path / f"{label}-experiment.json"
+        specification_path.write_text(
+            json.dumps(specification), encoding="utf-8"
+        )
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"{label}-evaluation.json"),
+                "--invocation-key",
+                experiment_key,
+            ]
+        )
+        assert (exit_code, stderr) == (0, "")
+        receipt = json.loads(stdout)
+        artifacts = {
+            name: _member(receipt, name)
+            for name in (
+                "evaluation-run",
+                "event-trace",
+                "metric-dataset",
+                "reproduction-receipt",
+                "snapshot-series",
+            )
+        }
+        return build_receipt, specification, receipt, artifacts
+
+    baseline_build, baseline_spec, _baseline_receipt, baseline_artifacts = (
+        build_and_run("baseline", baseline, "4" * 64, "6" * 64)
+    )
+    renamed_build, renamed_spec, _renamed_receipt, renamed_artifacts = (
+        build_and_run("renamed", renamed, "5" * 64, "7" * 64)
+    )
+    baseline_rir = _member(baseline_build, "rir-semantic-payload")
+    renamed_rir = _member(renamed_build, "rir-semantic-payload")
+    baseline_resolved = _member(baseline_build, "resolved-model")
+    renamed_resolved = _member(renamed_build, "resolved-model")
+
+    def defense_identities(
+        rir: dict[str, Any],
+    ) -> tuple[dict[str, str], set[str]]:
+        declaration = next(
+            row
+            for row in rir["declarations"]
+            if row["resolved_symbol"]["name"]
+            in {"target_defense", "renamed_defense"}
+        )
+        entrypoint = next(
+            row for row in rir["entrypoints"] if row["id"] == "combat.cast"
+        )
+        operands = {
+            argument["operand"]["identity"]
+            for argument in entrypoint["arguments"]
+            if argument["port"]["name"]
+            in {"hit_defense", "damage_mitigation"}
+        }
+        return declaration["resolved_symbol"], operands
+
+    baseline_declaration, baseline_operands = defense_identities(baseline_rir)
+    renamed_declaration, renamed_operands = defense_identities(renamed_rir)
+    assert baseline_declaration != renamed_declaration
+    assert len(baseline_operands) == len(renamed_operands) == 1
+    assert baseline_operands != renamed_operands
+    assert (
+        baseline_rir["content_identity"] != renamed_rir["content_identity"]
+        and baseline_resolved["content_identity"]
+        != renamed_resolved["content_identity"]
+    )
+    assert (
+        experiment_runtime_module.experiment_input_identity(baseline_spec)
+        != experiment_runtime_module.experiment_input_identity(renamed_spec)
+    )
+    assert all(
+        baseline_artifacts[name]["content_identity"]
+        != renamed_artifacts[name]["content_identity"]
+        for name in baseline_artifacts
+    )
+
+    def numeric_projection(artifacts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        event = artifacts["event-trace"]["events"][0]
+        return {
+            "outcome": event["outcome"],
+            "rng_draws": event["rng_draws"],
+            "state_before": event["state_before"],
+            "state_after": event["state_after"],
+            "metrics": [
+                {
+                    "metric": sample["metric"],
+                    "status": sample["status"],
+                    "value": sample["value"],
+                }
+                for sample in artifacts["metric-dataset"]["samples"]
+            ],
+        }
+
+    assert numeric_projection(baseline_artifacts) == numeric_projection(
+        renamed_artifacts
+    )
+
+
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     runtime = kernel["meta_format"]["runtime_program"]
