@@ -1972,7 +1972,13 @@ def _operation_contract_matches(
 ) -> bool:
     return actual.get("type") == formal.get("type") and all(
         actual.get(member) == formal.get(member)
-        for member in ("representation", "kind", "unit", "numeric_policy")
+        for member in (
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
     )
 
 

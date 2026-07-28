@@ -4008,13 +4008,27 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     lowerings = language.get("model_lowerings")
     quantity = language.get("quantity")
     wire_schemas = language.get("wire_schemas")
+    resolution_profiles = language.get("resolution_profiles")
     if (
         not isinstance(lowerings, list)
         or len(lowerings) != 1
         or not isinstance(quantity, dict)
         or not isinstance(quantity.get("symbol_roles"), list)
         or not isinstance(wire_schemas, list)
+        or not isinstance(resolution_profiles, list)
     ):
+        return False
+    selected_profile = lowerings[0].get("resolution_profile")
+    profiles = [
+        profile
+        for profile in resolution_profiles
+        if isinstance(profile, dict) and profile.get("id") == selected_profile
+    ]
+    if len(profiles) != 1:
+        return False
+    modules_member = profiles[0].get("modules_member")
+    symbols_member = profiles[0].get("symbols_member")
+    if not isinstance(modules_member, str) or not isinstance(symbols_member, str):
         return False
     policy = lowerings[0].get("assignment_policy")
     if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
@@ -4064,8 +4078,8 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         return False
     try:
         schema_modes = set(
-            model_source_schemas[0]["properties"]["modules"]["items"]["properties"][
-                "symbols"
+            model_source_schemas[0]["properties"][modules_member]["items"]["properties"][
+                symbols_member
             ]["items"]["properties"]["value_policy"]["properties"]["mode"]["enum"]
         )
     except (KeyError, TypeError):

@@ -1069,6 +1069,53 @@ def _reference_value_contract_matches(
     )
 
 
+def _reference_assignment_mode(
+    declaration: dict[str, Any],
+    roles: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    role = roles.get(declaration["role"])
+    if role is None:
+        raise ValueError("Symbol role has no assignment policy")
+    matches = [
+        mode
+        for mode in role["modes"]
+        if mode["id"] == declaration["value_policy"]["mode"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("Symbol value mode has no unique assignment contract")
+    return matches[0]
+
+
+def _reference_alias_rows(
+    operation: dict[str, Any],
+    aliases: dict[str, list[tuple[str, str]]],
+) -> list[dict[str, Any]]:
+    policy = operation["alias_policy"]
+    writable_groups = {
+        frozenset(group["ports"]): group["semantics"]
+        for group in policy["writable_groups"]
+    }
+    rows = []
+    for actual_identity, uses in aliases.items():
+        if len(uses) < 2:
+            continue
+        ports = [name for name, _access in uses]
+        if all(access == "read" for _name, access in uses):
+            alias_policy = policy["read_only"]
+        else:
+            alias_policy = writable_groups.get(frozenset(ports))
+            if alias_policy is None:
+                raise ValueError("Operation does not admit this writable alias set")
+        rows.append(
+            {
+                "actual_operand_identity": actual_identity,
+                "ports": ports,
+                "policy": alias_policy,
+            }
+        )
+    return rows
+
+
 def _reference_entrypoints(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
@@ -1102,12 +1149,6 @@ def _reference_entrypoints(
     domains = checked.kernel["meta_format"]["runtime_program"][
         "invocation_contract"
     ]["identity_domains"]
-    model_modes = set(policy["model_value_modes"])
-    required_modes = set(policy["required_experiment_modes"])
-    optional_modes = set(policy["optional_experiment_modes"])
-    assert not model_modes & required_modes
-    assert not required_modes & optional_modes
-    assert optional_modes <= model_modes
     assert policy["duplicate_actual_policy"] == "collapse"
     assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
     resolved_entrypoints = []
@@ -1138,7 +1179,7 @@ def _reference_entrypoints(
         ]:
             raise ValueError("entrypoint arguments do not close formal ports")
         arguments = []
-        aliases: dict[str, list[str]] = {}
+        aliases: dict[str, list[tuple[str, str]]] = {}
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
         for formal, authored in zip(formals, authored_arguments, strict=True):
@@ -1168,25 +1209,28 @@ def _reference_entrypoints(
                     **operand_body,
                     "identity": operand_identity,
                 }
-                aliases.setdefault(operand_identity, []).append(access)
+                aliases.setdefault(operand_identity, []).append(
+                    (formal["id"], access)
+                )
                 value_policy = declaration["value_policy"]
-                mode = value_policy["mode"]
-                if mode in required_modes or mode in optional_modes:
+                mode = _reference_assignment_mode(declaration, roles)
+                if mode["experiment_cardinality"] != "forbidden":
                     target = {
                         "target": symbol,
                         "target_identity": operand_identity,
                         "owner": "experiment",
                         "initialization_source": "scenario-assignment",
-                        "cardinality": (
-                            "required" if mode in required_modes else "optional"
-                        ),
-                        "override": mode in optional_modes,
+                        "cardinality": mode["experiment_cardinality"],
+                        "override": mode["override"],
                     }
                     previous = targets.get(operand_identity)
                     if previous is not None and previous != target:
                         raise ValueError("conflicting Scenario targets")
                     targets[operand_identity] = target
-                if mode in model_modes:
+                if mode["initialization_source"] in {
+                    "model",
+                    "model-with-experiment-override",
+                }:
                     initializer = {
                         "target": symbol,
                         "target_identity": operand_identity,
@@ -1226,11 +1270,7 @@ def _reference_entrypoints(
                     "access": formal["access"],
                 }
             )
-        if any(
-            len(accesses) > 1 and any(access != "read" for access in accesses)
-            for accesses in aliases.values()
-        ):
-            raise ValueError("entrypoint has an illegal writable alias")
+        alias_rows = _reference_alias_rows(operation, aliases)
         authored_result = source_entrypoint["result"]
         if authored_result["kind"] == "discard":
             if operation["result"]["discardable"] is not True:
@@ -1262,6 +1302,7 @@ def _reference_entrypoints(
             "id": entrypoint_id,
             "operation": exact_operation,
             "arguments": arguments,
+            "aliases": alias_rows,
             "result": result,
             "effects": operation["effects"],
             "refusals": operation["refusals"],
@@ -1294,7 +1335,13 @@ def _reference_operation_contract_matches(
 ) -> bool:
     return actual["type"] == formal["type"] and all(
         actual[member] == formal[member]
-        for member in ("representation", "kind", "unit", "numeric_policy")
+        for member in (
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
     )
 
 
@@ -1303,11 +1350,10 @@ def _reference_call_sites(
     selected_semantics: dict[str, Any],
     lowering: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    assert lowering["composition_policy"] == {
-        "effects": "callee-subset-of-caller-declaration",
-        "refusals": "callee-subset-of-caller-declaration",
-        "resources": "transitive-charge-within-caller-bound",
-    }
+    composition_policy = lowering["composition_policy"]
+    effect_policy = composition_policy["effects"]
+    refusal_policy = composition_policy["refusals"]
+    resource_policy = composition_policy["resources"]
     package_versions = {
         row["id"]: row["version"] for row in selected_semantics["packages"]
     }
@@ -1468,19 +1514,7 @@ def _reference_call_sites(
                         "access": formal["access"],
                     }
                 )
-            alias_rows = []
-            for actual_identity, uses in aliases.items():
-                if len(uses) < 2:
-                    continue
-                if any(access != "read" for _name, access in uses):
-                    raise ValueError("nested writable alias is illegal")
-                alias_rows.append(
-                    {
-                        "actual_operand_identity": actual_identity,
-                        "ports": [name for name, _access in uses],
-                        "policy": "read-only-share",
-                    }
-                )
+            alias_rows = _reference_alias_rows(child, aliases)
             authored_result = instruction["result"]
             if authored_result["kind"] == "discard":
                 if child["result"]["discardable"] is not True:
@@ -1541,14 +1575,20 @@ def _reference_call_sites(
             child_effects, child_refusals, child_charge = close(
                 child_row, (*stack, parent_key)
             )
-            if (
-                not child_effects <= set(operation["effects"])
-                or not child_refusals <= set(operation["refusals"])
-            ):
-                raise ValueError("nested closure exceeds caller declaration")
-            effects.update(child_effects)
-            refusals.update(child_refusals)
-            charge += child_charge
+            if effect_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_effects <= set(operation["effects"]):
+                raise ValueError("nested effect closure exceeds caller declaration")
+            if refusal_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_refusals <= set(operation["refusals"]):
+                raise ValueError("nested refusal closure exceeds caller declaration")
+            if effect_policy["aggregation"] == "union":
+                effects.update(child_effects)
+            if refusal_policy["aggregation"] == "union":
+                refusals.update(child_refusals)
+            if resource_policy["aggregation"] == "sum":
+                charge += child_charge
             body = {
                 "parent_operation": parent_ref,
                 "site": site,
@@ -1572,7 +1612,11 @@ def _reference_call_sites(
                     ),
                 }
             )
-        if charge > operation["resource_bounds"]["max_steps"]:
+        if (
+            resource_policy["containment"]
+            == "transitive-charge-within-caller-bound"
+            and charge > operation["resource_bounds"]["max_steps"]
+        ):
             raise ValueError("transitive resource charge exceeds caller bound")
         cache[parent_key] = effects, refusals, charge
         return effects, refusals, charge
