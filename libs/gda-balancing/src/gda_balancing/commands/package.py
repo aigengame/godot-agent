@@ -529,6 +529,7 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
     categories = contract.get("categories")
     fixture_modes = contract.get("fixture_modes")
     expect_members = contract.get("expect_members")
+    diagnostic_members = contract.get("diagnostic_members")
     relation_kinds = contract.get("relation_kinds")
     lock_members = contract.get("lock_oracle_members")
     if (
@@ -537,6 +538,7 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
         or not isinstance(categories, list)
         or not isinstance(fixture_modes, dict)
         or not isinstance(expect_members, list)
+        or diagnostic_members != ["code", "stage", "pointer"]
         or not isinstance(relation_kinds, list)
         or not isinstance(lock_members, list)
     ):
@@ -581,8 +583,12 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
                     "properties": {
                         "code": _non_empty_string_schema(),
                         "stage": _non_empty_string_schema(),
+                        "pointer": {
+                            "type": "string",
+                            "pattern": "^(?:$|/)",
+                        },
                     },
-                    "required": ["code", "stage"],
+                    "required": diagnostic_members,
                     "unevaluatedProperties": False,
                 },
             },
