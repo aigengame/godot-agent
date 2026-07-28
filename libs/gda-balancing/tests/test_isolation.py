@@ -135,8 +135,10 @@ def test_toolkit_carries_no_per_game_config() -> None:
         "src/gda_balancing/schema2/authorities/language-bundle.json",
         *{
             "src/gda_balancing/schema2/authorities/packages/"
-            f"{descriptor['id']}@{descriptor['version']}.json"
+            f"{descriptor['id'].replace('.', '-')}/"
+            f"{descriptor['id']}@{descriptor['version']}{suffix}"
             for descriptor in root["package_descriptors"]
+            for suffix in (".json", ".conformance-vectors.json")
         },
     }
     stray = [

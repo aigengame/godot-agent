@@ -498,14 +498,15 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     _loaded_kernel, ldb = experiment_runtime_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
-    combat = next(
-        package
-        for package in ldb["language"]["packages"]
-        if package["id"] == "game.combat"
+    combat_vectors = next(
+        vector_set["vector_definitions"]
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "game.combat"
+        and vector_set["package_version"] == "1.0.0"
     )
     combat_vectors = {
         vector["id"]: vector
-        for vector in combat["vector_definitions"]
+        for vector in combat_vectors
         if vector.get("kind") == "runtime-scenario"
     }
 
@@ -656,14 +657,14 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
 def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
     kernel, ldb = experiment_runtime_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
-    combat = next(
-        package
-        for package in ldb["language"]["packages"]
-        if package["id"] == "game.combat"
-    )
     vectors = [
         vector
-        for vector in combat["vector_definitions"]
+        for vector in next(
+            vector_set["vector_definitions"]
+            for vector_set in ldb.package_conformance_vector_sets
+            if vector_set["package_id"] == "game.combat"
+            and vector_set["package_version"] == "1.0.0"
+        )
         if vector.get("kind") == "runtime-scenario"
     ]
     assert {vector["category"] for vector in vectors} == {

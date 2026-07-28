@@ -166,25 +166,26 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
         package["runtime_semantic_paths"] = ["language.capabilities"]
         for entry in package["semantic_closure"]:
             entry["definitions"] = []
-        package["vectors"] = []
-        package["vector_definitions"] = []
         return package
 
-    language["packages"].extend(
-        [
-            empty_package("shared.rules", "1.0.0", []),
-            empty_package("shared.rules", "2.0.0", []),
-            empty_package(
-                "genre.parent-a",
-                "1.0.0",
-                [{"id": "shared.rules", "version": "1.0.0"}],
-            ),
-            empty_package(
-                "genre.parent-b",
-                "1.0.0",
-                [{"id": "shared.rules", "version": "2.0.0"}],
-            ),
-        ]
+    added_packages = [
+        empty_package("shared.rules", "1.0.0", []),
+        empty_package("shared.rules", "2.0.0", []),
+        empty_package(
+            "genre.parent-a",
+            "1.0.0",
+            [{"id": "shared.rules", "version": "1.0.0"}],
+        ),
+        empty_package(
+            "genre.parent-b",
+            "1.0.0",
+            [{"id": "shared.rules", "version": "2.0.0"}],
+        ),
+    ]
+    language["packages"].extend(added_packages)
+    candidate_ldb.package_conformance_vector_sets.extend(
+        _package_vector_set(package["id"], package["version"], [])
+        for package in added_packages
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
@@ -1733,6 +1734,22 @@ def _reidentify(artifact: dict, domain: str) -> None:
     )
 
 
+def _package_vector_set(
+    package_id: str,
+    package_version: str,
+    vectors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    vector_set = {
+        "artifact_kind": "package-conformance-vector-set",
+        "package_id": package_id,
+        "package_version": package_version,
+        "vectors": [vector["id"] for vector in vectors],
+        "vector_definitions": deepcopy(vectors),
+    }
+    _reidentify(vector_set, "package-conformance-vector-set-v2")
+    return vector_set
+
+
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = model_module.load_authorities()
@@ -1752,17 +1769,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             values = selected
         return values
 
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
+    projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(
-                    vector
-                    for vector in language_bundle["vectors"]
-                    if vector["id"] == vector_id
-                )
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry, projection in zip(
             package["semantic_closure"], projections, strict=True
         ):
@@ -1793,12 +1805,40 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 ],
             ),
         )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        existing_vectors = {
+            vector["id"]: vector for vector in vector_set["vector_definitions"]
+        }
+        vector_set["vector_definitions"] = [
+            deepcopy(projected_vectors.get(vector_id, existing_vectors[vector_id]))
+            for vector_id in vector_set["vectors"]
+        ]
+        _reidentify(vector_set, "package-conformance-vector-set-v2")
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(canonical_bytes(cast(JsonValue, vector_set))),
+            "content_identity": vector_set["content_identity"],
+        }
         _reidentify(package, "domain-package-release-v2")
     graph_root = getattr(language_bundle, "root", None)
     if isinstance(graph_root, dict):
-        packages = deepcopy(language_bundle["language"]["packages"])
-        packages.sort(key=lambda package: (package["id"], package["version"]))
-        sizes = [len(canonical_bytes(cast(JsonValue, package))) for package in packages]
+        members = sorted(
+            zip(
+                deepcopy(language_bundle["language"]["packages"]),
+                deepcopy(language_bundle.package_conformance_vector_sets),
+                strict=True,
+            ),
+            key=lambda member: (member[0]["id"], member[0]["version"]),
+        )
+        packages = [package for package, _vector_set in members]
+        vector_sets = [vector_set for _package, vector_set in members]
+        package_sizes = [
+            len(canonical_bytes(cast(JsonValue, package))) for package in packages
+        ]
+        vector_set_sizes = [
+            len(canonical_bytes(cast(JsonValue, vector_set)))
+            for vector_set in vector_sets
+        ]
         graph_root["resources"] = deepcopy(language_bundle["resources"])
         graph_root["package_descriptors"] = [
             {
@@ -1808,29 +1848,37 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 "id": package["id"],
                 "version": package["version"],
             }
-            for package, size in zip(packages, sizes, strict=True)
+            for package, size in zip(packages, package_sizes, strict=True)
         ]
         _reidentify(graph_root, "language-definition-bundle-v2")
         language_bundle.root = deepcopy(graph_root)
         language_bundle.package_releases = packages
+        language_bundle.package_conformance_vector_sets = vector_sets
         language_bundle.root_byte_size = len(
             canonical_bytes(cast(JsonValue, graph_root))
         )
-        language_bundle.member_byte_sizes = tuple(sizes)
+        language_bundle.package_byte_sizes = tuple(package_sizes)
+        language_bundle.vector_set_byte_sizes = tuple(vector_set_sizes)
         rebuilt = derive_language_index(
             graph_root,
             packages,
+            vector_sets,
             kernel["admission"]["required_language_members"],
             root_byte_size=language_bundle.root_byte_size,
-            member_byte_sizes=sizes,
+            package_byte_sizes=package_sizes,
+            vector_set_byte_sizes=vector_set_sizes,
             descriptor_order=kernel["meta_format"]["language_bundle"][
                 "package_descriptor"
             ]["canonical_order"],
         )
         language_bundle.root = deepcopy(rebuilt.root)
         language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+        language_bundle.package_conformance_vector_sets = deepcopy(
+            rebuilt.package_conformance_vector_sets
+        )
         language_bundle.root_byte_size = rebuilt.root_byte_size
-        language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
+        language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+        language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
         language_bundle.clear()
         language_bundle.update(dict(rebuilt))
         return
@@ -2193,14 +2241,14 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             ("resource", "resource-bound", "resource_bounds.max_steps"),
         )
     ]
-    package["vectors"] = [vector["id"] for vector in vectors]
-    package["vector_definitions"] = deepcopy(vectors)
     language["capabilities"].append(
         {"id": "genre.economy.purchase", "rule": "quantity.lower"}
     )
     language["operations"].append(operation)
-    candidate_ldb["vectors"].extend(vectors)
     language["packages"].append(package)
+    candidate_ldb.package_conformance_vector_sets.append(
+        _package_vector_set(package["id"], package["version"], vectors)
+    )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
     assert kernel == model_module.load_authorities()[0]

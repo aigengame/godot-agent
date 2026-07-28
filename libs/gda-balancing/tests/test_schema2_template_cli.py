@@ -81,17 +81,11 @@ def _reidentify_language_bundle(kernel, language_bundle):
             values = selected
         return values
 
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
     for package in language_bundle["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(
-                    vector
-                    for vector in language_bundle["vectors"]
-                    if vector["id"] == vector_id
-                )
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry, projection in zip(
             package["semantic_closure"], projections, strict=True
         ):
@@ -119,16 +113,37 @@ def _reidentify_language_bundle(kernel, language_bundle):
                 if entry["authority_path"] in runtime_paths
             ],
         )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set["content_identity"] = content_identity(
+            "package-conformance-vector-set-v2",
+            {
+                key: value
+                for key, value in vector_set.items()
+                if key != "content_identity"
+            },
+        )
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(canonical_bytes(vector_set)),
+            "content_identity": vector_set["content_identity"],
+        }
         package["content_identity"] = content_identity(
             "domain-package-release-v2",
             {key: value for key, value in package.items() if key != "content_identity"},
         )
 
-    packages = sorted(
-        deepcopy(language_bundle["language"]["packages"]),
-        key=lambda package: (package["id"], package["version"]),
+    members = sorted(
+        zip(
+            deepcopy(language_bundle["language"]["packages"]),
+            deepcopy(language_bundle.package_conformance_vector_sets),
+            strict=True,
+        ),
+        key=lambda member: (member[0]["id"], member[0]["version"]),
     )
-    sizes = [len(canonical_bytes(package)) for package in packages]
+    packages = [package for package, _vector_set in members]
+    vector_sets = [vector_set for _package, vector_set in members]
+    package_sizes = [len(canonical_bytes(package)) for package in packages]
+    vector_set_sizes = [len(canonical_bytes(vector_set)) for vector_set in vector_sets]
     root = deepcopy(language_bundle.root)
     root["package_descriptors"] = [
         {
@@ -138,7 +153,7 @@ def _reidentify_language_bundle(kernel, language_bundle):
             "id": package["id"],
             "version": package["version"],
         }
-        for package, size in zip(packages, sizes, strict=True)
+        for package, size in zip(packages, package_sizes, strict=True)
     ]
     root["content_identity"] = content_identity(
         "language-definition-bundle-v2",
@@ -147,17 +162,23 @@ def _reidentify_language_bundle(kernel, language_bundle):
     rebuilt = derive_language_index(
         root,
         packages,
+        vector_sets,
         kernel["admission"]["required_language_members"],
         root_byte_size=len(canonical_bytes(root)),
-        member_byte_sizes=sizes,
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
         descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
             "canonical_order"
         ],
     )
     language_bundle.root = deepcopy(rebuilt.root)
     language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.package_conformance_vector_sets = deepcopy(
+        rebuilt.package_conformance_vector_sets
+    )
     language_bundle.root_byte_size = rebuilt.root_byte_size
-    language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
+    language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+    language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
     language_bundle.clear()
     language_bundle.update(dict(rebuilt))
 
@@ -874,7 +895,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:bbdc2237e02e479cf13eee3f071a99c9b9472d4a01d99910bd2ba9031790cb7c"
+                    "sha256:1df04803c9581af377f14fa444749dd39ce297b731ecadf434f8bd6c0d67fff3"
                 ),
             }
         ]

@@ -23,7 +23,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:91c865a4de1a07cb97c3bb09456ce406f0bd148529267b544073a9a26335d2a4"
+    "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37"
 )
 
 
@@ -54,6 +54,44 @@ def _reidentify_package_release(package: dict[str, Any]) -> None:
         ).hexdigest()
     )
     package["content_identity"] = _identity("domain-package-release-v2", package)
+
+
+def _reidentify_package_vector_set(vector_set: dict[str, Any]) -> None:
+    vector_set["content_identity"] = _identity(
+        "package-conformance-vector-set-v2", vector_set
+    )
+
+
+def _bind_package_vector_set(
+    package: dict[str, Any], vector_set: dict[str, Any]
+) -> None:
+    _reidentify_package_vector_set(vector_set)
+    package["conformance_vectors"] = {
+        "artifact_kind": vector_set["artifact_kind"],
+        "byte_size": len(_encoded(vector_set)),
+        "content_identity": vector_set["content_identity"],
+    }
+    _reidentify_package_release(package)
+
+
+def _package_vector_set(
+    ldb: LanguageBundleIndex, package: dict[str, Any]
+) -> dict[str, Any]:
+    return next(
+        vector_set
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == package["id"]
+        and vector_set["package_version"] == package["version"]
+    )
+
+
+def _owned_vector(ldb: LanguageBundleIndex, vector_id: str) -> dict[str, Any]:
+    return next(
+        vector
+        for vector_set in ldb.package_conformance_vector_sets
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == vector_id
+    )
 
 
 def _safe_identity(domain: str, artifact: dict[str, Any]) -> str | None:
@@ -437,14 +475,40 @@ def _consumer_b_signed_int64(value: Any) -> bool:
     )
 
 
+def _consumer_b_package_vector_set_is_closed(
+    vector_set: dict[str, Any], contract: Any
+) -> bool:
+    expected_members = {
+        "artifact_kind",
+        "content_identity",
+        "package_id",
+        "package_version",
+        "vector_definitions",
+        "vectors",
+    }
+    return (
+        isinstance(contract, dict)
+        and contract.get("closed") is True
+        and contract.get("required_members") == sorted(expected_members)
+        and set(vector_set) == expected_members
+        and vector_set.get("artifact_kind") == "package-conformance-vector-set"
+        and isinstance(vector_set.get("content_identity"), str)
+        and isinstance(vector_set.get("package_id"), str)
+        and isinstance(vector_set.get("package_version"), str)
+        and isinstance(vector_set.get("vector_definitions"), list)
+        and isinstance(vector_set.get("vectors"), list)
+    )
+
+
 def _consumer_b_package_evidence_vectors_are_closed(
     package: dict[str, Any],
+    vector_set: dict[str, Any],
     contract: Any,
 ) -> bool:
     if not _consumer_b_package_vector_contract_is_closed(contract):
         return False
-    vector_ids = package.get("vectors")
-    vectors = package.get("vector_definitions")
+    vector_ids = vector_set.get("vectors")
+    vectors = vector_set.get("vector_definitions")
     if (
         not isinstance(vector_ids, list)
         or not isinstance(vectors, list)
@@ -4281,20 +4345,30 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         refuse("kernel.identity_mismatch", "ingress", "kernel")
     raw_graph_root = getattr(ldb, "root", None)
     raw_graph_releases = getattr(ldb, "package_releases", None)
+    raw_graph_vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
     raw_graph_root_size = getattr(ldb, "root_byte_size", None)
-    raw_graph_member_sizes = getattr(ldb, "member_byte_sizes", None)
+    raw_graph_package_sizes = getattr(ldb, "package_byte_sizes", None)
+    raw_graph_vector_set_sizes = getattr(ldb, "vector_set_byte_sizes", None)
     is_graph = (
         isinstance(raw_graph_root, dict)
         and isinstance(raw_graph_releases, list)
+        and isinstance(raw_graph_vector_sets, list)
         and isinstance(raw_graph_root_size, int)
-        and isinstance(raw_graph_member_sizes, tuple)
+        and isinstance(raw_graph_package_sizes, tuple)
+        and isinstance(raw_graph_vector_set_sizes, tuple)
     )
     raw_graph_candidate = is_graph and not isinstance(ldb, LanguageBundleIndex)
     graph_root = cast(dict[str, Any], raw_graph_root) if is_graph else {}
     graph_releases = cast(list[dict[str, Any]], raw_graph_releases) if is_graph else []
+    graph_vector_sets = (
+        cast(list[dict[str, Any]], raw_graph_vector_sets) if is_graph else []
+    )
     graph_root_size = cast(int, raw_graph_root_size) if is_graph else 0
-    graph_member_sizes = (
-        cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
+    graph_package_sizes = (
+        cast(tuple[int, ...], raw_graph_package_sizes) if is_graph else ()
+    )
+    graph_vector_set_sizes = (
+        cast(tuple[int, ...], raw_graph_vector_set_sizes) if is_graph else ()
     )
     descriptor_order = (
         kernel.get("meta_format", {})
@@ -4307,7 +4381,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         if (
             isinstance(descriptors, list)
             and len(descriptors) == len(graph_releases)
-            and len(descriptors) == len(graph_member_sizes)
+            and len(descriptors) == len(graph_vector_sets)
+            and len(descriptors) == len(graph_package_sizes)
+            and len(descriptors) == len(graph_vector_set_sizes)
             and all(
                 isinstance(descriptor, dict)
                 and all(
@@ -4320,7 +4396,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 zip(
                     descriptors,
                     graph_releases,
-                    graph_member_sizes,
+                    graph_vector_sets,
+                    graph_package_sizes,
+                    graph_vector_set_sizes,
                     strict=True,
                 ),
                 key=lambda member: tuple(
@@ -4329,12 +4407,23 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             )
             graph_root = deepcopy(graph_root)
             graph_root["package_descriptors"] = [
-                deepcopy(descriptor) for descriptor, _release, _size in members
+                deepcopy(descriptor)
+                for descriptor, _release, _vectors, _package_size, _vector_size in members
             ]
             graph_releases = [
-                deepcopy(release) for _descriptor, release, _size in members
+                deepcopy(release)
+                for _descriptor, release, _vectors, _package_size, _vector_size in members
             ]
-            graph_member_sizes = tuple(size for _descriptor, _release, size in members)
+            graph_vector_sets = [
+                deepcopy(vectors)
+                for _descriptor, _release, vectors, _package_size, _vector_size in members
+            ]
+            graph_package_sizes = tuple(
+                size for _descriptor, _release, _vectors, size, _vector_size in members
+            )
+            graph_vector_set_sizes = tuple(
+                size for _descriptor, _release, _vectors, _package_size, size in members
+            )
     identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
         kernel, "language-definition-bundle-v2", identity_source
@@ -4364,14 +4453,29 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             set(graph_root) != expected_root_members
             or not isinstance(descriptors, list)
             or len(descriptors) != len(graph_releases)
-            or len(descriptors) != len(graph_member_sizes)
+            or len(descriptors) != len(graph_vector_sets)
+            or len(descriptors) != len(graph_package_sizes)
+            or len(descriptors) != len(graph_vector_set_sizes)
         ):
             refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
         else:
             coordinates = []
             coordinates_are_strings = True
-            for index, (descriptor, release, byte_size) in enumerate(
-                zip(descriptors, graph_releases, graph_member_sizes, strict=True)
+            for index, (
+                descriptor,
+                release,
+                vector_set,
+                package_byte_size,
+                vector_set_byte_size,
+            ) in enumerate(
+                zip(
+                    descriptors,
+                    graph_releases,
+                    graph_vector_sets,
+                    graph_package_sizes,
+                    graph_vector_set_sizes,
+                    strict=True,
+                )
             ):
                 subject = f"language-bundle.package_descriptors.{index}"
                 if (
@@ -4382,7 +4486,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
                     != release.get("content_identity")
-                    or descriptor.get("byte_size") != byte_size
+                    or descriptor.get("byte_size") != package_byte_size
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
@@ -4396,6 +4500,25 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     kernel, "domain-package-release-v2", release
                 ):
                     refuse("kernel.identity_mismatch", "ingress", subject)
+                vector_descriptor = release.get("conformance_vectors")
+                vector_subject = f"{subject}.conformance_vectors"
+                if (
+                    not isinstance(vector_descriptor, dict)
+                    or set(vector_descriptor)
+                    != {"artifact_kind", "byte_size", "content_identity"}
+                    or vector_descriptor.get("artifact_kind")
+                    != vector_set.get("artifact_kind")
+                    or vector_descriptor.get("content_identity")
+                    != vector_set.get("content_identity")
+                    or vector_descriptor.get("byte_size") != vector_set_byte_size
+                    or vector_set.get("package_id") != release.get("id")
+                    or vector_set.get("package_version") != release.get("version")
+                ):
+                    refuse("kernel.binding_mismatch", "ingress", vector_subject)
+                elif vector_set.get("content_identity") != _identity_from_kernel(
+                    kernel, "package-conformance-vector-set-v2", vector_set
+                ):
+                    refuse("kernel.identity_mismatch", "ingress", vector_subject)
             if coordinates_are_strings and coordinates != sorted(coordinates):
                 refuse(
                     "kernel.member_set_mismatch",
@@ -4488,8 +4611,10 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             graph_limit_names = {
                 "max_ldb_root_bytes",
                 "max_ldb_child_bytes",
+                "max_ldb_package_bytes",
                 "max_ldb_total_bytes",
                 "max_ldb_package_count",
+                "max_ldb_package_member_count",
                 "max_ldb_dependency_depth",
                 "max_ldb_dependency_steps",
                 "max_ldb_admission_work",
@@ -4533,16 +4658,30 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         (depth_of(coordinate) for coordinate in dependency_graph),
                         default=0,
                     )
-                graph_work = _work(graph_root) + sum(
-                    _work(release) for release in graph_releases
+                graph_work = (
+                    _work(graph_root)
+                    + sum(_work(release) for release in graph_releases)
+                    + sum(_work(vector_set) for vector_set in graph_vector_sets)
                 )
                 if (
                     graph_root_size > typed_graph_limits["max_ldb_root_bytes"]
                     or any(
                         size > typed_graph_limits["max_ldb_child_bytes"]
-                        for size in graph_member_sizes
+                        for size in (*graph_package_sizes, *graph_vector_set_sizes)
                     )
-                    or graph_root_size + sum(graph_member_sizes)
+                    or any(
+                        package_size + vector_size
+                        > typed_graph_limits["max_ldb_package_bytes"]
+                        for package_size, vector_size in zip(
+                            graph_package_sizes,
+                            graph_vector_set_sizes,
+                            strict=True,
+                        )
+                    )
+                    or typed_graph_limits["max_ldb_package_member_count"] != 2
+                    or graph_root_size
+                    + sum(graph_package_sizes)
+                    + sum(graph_vector_set_sizes)
                     > typed_graph_limits["max_ldb_total_bytes"]
                     or len(graph_releases) > typed_graph_limits["max_ldb_package_count"]
                     or dependency_depth > typed_graph_limits["max_ldb_dependency_depth"]
@@ -4560,7 +4699,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             }
             derived_diagnostics: list[Any] = []
             derived_vectors: list[Any] = []
-            for release in graph_releases:
+            for release, vector_set in zip(
+                graph_releases, graph_vector_sets, strict=True
+            ):
                 for entry in release.get("semantic_closure", []):
                     authority_path = entry.get("authority_path")
                     definitions = entry.get("definitions")
@@ -4578,7 +4719,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     for segment in segments[:-1]:
                         target = target.setdefault(segment, {})
                     target.setdefault(segments[-1], []).extend(deepcopy(definitions))
-                derived_vectors.extend(deepcopy(release.get("vector_definitions", [])))
+                derived_vectors.extend(
+                    deepcopy(vector_set.get("vector_definitions", []))
+                )
             language["packages"] = deepcopy(graph_releases)
             expected_index = {
                 "artifact_kind": graph_root.get("artifact_kind"),
@@ -4678,6 +4821,10 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             (f"language-bundle.packages.{index}", package)
             for index, package in enumerate(graph_releases)
         )
+        resource_artifacts.extend(
+            (f"language-bundle.package-vectors.{index}", vector_set)
+            for index, vector_set in enumerate(graph_vector_sets)
+        )
     else:
         resource_artifacts.append(("language-bundle", ldb))
     for subject, artifact in resource_artifacts:
@@ -4702,6 +4849,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     package_contract = meta.get("package_release") if isinstance(meta, dict) else None
     package_vector_contract = (
         meta.get("package_vector") if isinstance(meta, dict) else None
+    )
+    package_vector_set_contract = (
+        meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
     if not _consumer_b_package_vector_contract_is_closed(package_vector_contract):
         refuse(
@@ -4736,8 +4886,19 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     "ingress",
                     f"{subject}.semantic_identity",
                 )
-            if not _consumer_b_package_evidence_vectors_are_closed(
-                package, package_vector_contract
+            vector_set = (
+                graph_vector_sets[index] if index < len(graph_vector_sets) else None
+            )
+            if (
+                not isinstance(vector_set, dict)
+                or not _consumer_b_package_vector_set_is_closed(
+                    vector_set, package_vector_set_contract
+                )
+                or vector_set.get("package_id") != package.get("id")
+                or vector_set.get("package_version") != package.get("version")
+                or not _consumer_b_package_evidence_vectors_are_closed(
+                    package, vector_set, package_vector_contract
+                )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
         semantic_projection_mismatch = len(packages) == len(
@@ -5133,13 +5294,20 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     numeric_profiles = {
         item["id"] for item in ldb["language"]["quantity"]["numeric_policies"]
     }
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in graph_vector_sets
+    }
     for package in packages:
         exports = package["exports"]
         profiles = package["profiles"]
+        vector_set = vector_sets_by_coordinate.get(
+            (package["id"], package["version"]), {}
+        )
         references_close = (
-            set(package["vectors"]) <= vector_ids
-            and package["vector_definitions"]
-            == [vectors_by_id[vector_id] for vector_id in package["vectors"]]
+            set(vector_set.get("vectors", [])) <= vector_ids
+            and vector_set.get("vector_definitions")
+            == [vectors_by_id[vector_id] for vector_id in vector_set.get("vectors", [])]
             and set(exports["language_rules"]) <= set(rule_ids)
             and set(exports["diagnostics"]) <= set(ldb_codes)
             and set(profiles["numeric"]) <= numeric_profiles
@@ -5375,12 +5543,6 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
         return values
 
     for package in ldb["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(vector for vector in ldb["vectors"] if vector["id"] == vector_id)
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry, projection in zip(
             package["semantic_closure"], projections, strict=True
         ):
@@ -5399,7 +5561,7 @@ def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
                     in owners
                 ]
             )
-        _reidentify_package_release(package)
+        _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 
 
@@ -5407,7 +5569,35 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
     graph_root = getattr(ldb, "root", None)
     if isinstance(graph_root, dict):
         packages = deepcopy(ldb["language"]["packages"])
-        sizes = [len(_encoded(package)) for package in packages]
+        vector_sets_by_coordinate = {
+            (vector_set["package_id"], vector_set["package_version"]): deepcopy(
+                vector_set
+            )
+            for vector_set in ldb.package_conformance_vector_sets
+        }
+        vector_sets = []
+        for package in packages:
+            coordinate = (package["id"], package["version"])
+            vector_set = vector_sets_by_coordinate.get(coordinate)
+            if vector_set is None:
+                vector_set = {
+                    "artifact_kind": "package-conformance-vector-set",
+                    "content_identity": "",
+                    "package_id": package["id"],
+                    "package_version": package["version"],
+                    "vector_definitions": [],
+                    "vectors": [],
+                }
+                _bind_package_vector_set(package, vector_set)
+            vector_sets.append(vector_set)
+        members = sorted(
+            zip(packages, vector_sets, strict=True),
+            key=lambda member: _encoded([member[0]["id"], member[0]["version"]]),
+        )
+        packages = [package for package, _vector_set in members]
+        vector_sets = [vector_set for _package, vector_set in members]
+        package_sizes = [len(_encoded(package)) for package in packages]
+        vector_set_sizes = [len(_encoded(vector_set)) for vector_set in vector_sets]
         graph_root["resources"] = deepcopy(ldb["resources"])
         graph_root["package_descriptors"] = [
             {
@@ -5417,29 +5607,37 @@ def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
                 "id": package["id"],
                 "version": package["version"],
             }
-            for package, size in zip(packages, sizes, strict=True)
+            for package, size in zip(packages, package_sizes, strict=True)
         ]
         graph_root["content_identity"] = _identity(
             "language-definition-bundle-v2", graph_root
         )
         ldb.root = deepcopy(graph_root)
         ldb.package_releases = packages
+        ldb.package_conformance_vector_sets = vector_sets
         ldb.root_byte_size = len(_encoded(graph_root))
-        ldb.member_byte_sizes = tuple(sizes)
+        ldb.package_byte_sizes = tuple(package_sizes)
+        ldb.vector_set_byte_sizes = tuple(vector_set_sizes)
         rebuilt = derive_language_index(
             graph_root,
             packages,
+            vector_sets,
             authority_set()["kernel"]["admission"]["required_language_members"],
             root_byte_size=ldb.root_byte_size,
-            member_byte_sizes=sizes,
+            package_byte_sizes=package_sizes,
+            vector_set_byte_sizes=vector_set_sizes,
             descriptor_order=authority_set()["kernel"]["meta_format"][
                 "language_bundle"
             ]["package_descriptor"]["canonical_order"],
         )
         ldb.root = deepcopy(rebuilt.root)
         ldb.package_releases = deepcopy(rebuilt.package_releases)
+        ldb.package_conformance_vector_sets = deepcopy(
+            rebuilt.package_conformance_vector_sets
+        )
         ldb.root_byte_size = rebuilt.root_byte_size
-        ldb.member_byte_sizes = rebuilt.member_byte_sizes
+        ldb.package_byte_sizes = rebuilt.package_byte_sizes
+        ldb.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
         ldb.clear()
         ldb.update(dict(rebuilt))
         return
@@ -5625,6 +5823,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "language_definitions",
         "model_program_vector",
         "package_dependency_constraint",
+        "package_conformance_vector_set",
         "package_release",
         "package_vector",
         "resolution_judgment",
@@ -6086,24 +6285,22 @@ def test_reidentified_model_program_vector_contract_mutations_are_refused(
 ):
     authority = authority_set()
     ldb = authority["language_bundle"]
-    vectors = ldb["vectors"]
     if mutation == "unknown-diagnostic":
-        vector = next(
-            item for item in vectors if item["id"] == "model.compile.negative-duplicate"
+        vector = _owned_vector(
+            ldb,
+            "model.compile.negative-duplicate",
         )
         vector["expect"]["diagnostics"][0]["code"] = "host.unknown"
     elif mutation == "invalid-resource-recipe":
-        vector = next(
-            item
-            for item in vectors
-            if item["id"] == "model.compile.boundary-max-symbols-plus-one"
+        vector = _owned_vector(
+            ldb,
+            "model.compile.boundary-max-symbols-plus-one",
         )
         vector["source_fixture"]["count_offset"] = 2
     else:
-        vector = next(
-            item
-            for item in vectors
-            if item["id"] == "model.compile.mutation-role-change"
+        vector = _owned_vector(
+            ldb,
+            "model.compile.mutation-role-change",
         )
         vector["expect"]["relation"]["reference"] = "host.missing"
 
@@ -6187,6 +6384,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert set(package) == {
         "artifact_kind",
         "capabilities",
+        "conformance_vectors",
         "content_identity",
         "dependencies",
         "exports",
@@ -6195,8 +6393,6 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
-        "vector_definitions",
-        "vectors",
         "version",
     }
     assert package["artifact_kind"] == "domain-package-release"
@@ -6216,8 +6412,11 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["exports"]["operations"] == ["quantity.identity"]
     assert package["profiles"]["runtime"] == []
     assert package["exports"]["types"]
-    assert package["vectors"]
-    assert [item["id"] for item in package["vector_definitions"]] == package["vectors"]
+    vector_set = _package_vector_set(ldb, package)
+    assert vector_set["vectors"]
+    assert [item["id"] for item in vector_set["vector_definitions"]] == vector_set[
+        "vectors"
+    ]
     assert ldb["language"]["quantity"]["representations"] == ["Int"]
     assert "random" in ldb["language"]["quantity"]["symbol_roles"]
     assert "random-variable" not in ldb["language"]["quantity"]["symbol_roles"]
@@ -6251,18 +6450,12 @@ def test_package_release_identity_binds_normative_vector_definitions():
     authority = authority_set()
     ldb = authority["language_bundle"]
     package = ldb["language"]["packages"][0]
+    vector_set = _package_vector_set(ldb, package)
     old_release_identity = package["content_identity"]
-    vector = next(
-        item for item in ldb["vectors"] if item["id"] == "model.compile.positive"
-    )
+    old_semantic_identity = package["semantic_identity"]
+    old_vector_identity = vector_set["content_identity"]
+    vector = _owned_vector(ldb, "model.compile.positive")
     vector["expect"]["debug_map_identity"] = "sha256:" + "f" * 64
-    package_vector = next(
-        item
-        for item in package["vector_definitions"]
-        if item["id"] == "model.compile.positive"
-    )
-    package_vector["expect"]["debug_map_identity"] = "sha256:" + "f" * 64
-    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -6270,16 +6463,18 @@ def test_package_release_identity_binds_normative_vector_definitions():
     assert first == second
     assert first["admitted"] is False
     assert any(
-        code == "kernel.identity_mismatch"
-        and subject == "language-bundle.language.packages.0"
+        code == "kernel.identity_mismatch" and subject.endswith(".conformance_vectors")
         for _, code, subject in first["diagnostics"]
     ), first["diagnostics"]
 
-    package = ldb["language"]["packages"][0]
-    package["content_identity"] = _identity("domain-package-release-v2", package)
+    _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 
+    package = ldb["language"]["packages"][0]
+    vector_set = _package_vector_set(ldb, package)
+    assert vector_set["content_identity"] != old_vector_identity
     assert package["content_identity"] != old_release_identity
+    assert package["semantic_identity"] == old_semantic_identity
     assert _consumer_a(authority["kernel"], ldb)["admitted"] is True
 
 
@@ -6298,26 +6493,18 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
             for item in ldb["language"]["packages"]
             if item["id"] == "game.resource"
         )
-        vector = next(
-            item
-            for item in package["vector_definitions"]
-            if item["id"] == "game.resource.spend.effects"
-        )
+        vector = _owned_vector(ldb, "game.resource.spend.effects")
         vector["expect"] = ["event.commit"]
     else:
         package = next(
             item for item in ldb["language"]["packages"] if item["id"] == "game.combat"
         )
-        vector = next(
-            item
-            for item in package["vector_definitions"]
-            if item["id"] == "game.combat.cast.positive"
-        )
+        vector = _owned_vector(ldb, "game.combat.cast.positive")
         if mutation == "runtime-operation":
             vector["operation"] = "game.combat.damage-v1"
         else:
             vector["kind"] = "host-runtime-scenario"
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -6475,7 +6662,6 @@ def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
     other_package["dependencies"] = {"optional": [], "required": []}
     other_package["exports"] = {member: [] for member in quantity_package["exports"]}
     other_package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
-    other_package["vectors"] = []
     for entry in other_package["semantic_closure"]:
         entry["definitions"] = []
 
@@ -6598,10 +6784,12 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
 
 def test_reidentified_package_cannot_reference_an_unowned_vector():
     authority = authority_set()
-    package = authority["language_bundle"]["language"]["packages"][0]
-    package["vectors"][0] = "host.missing"
-    package["content_identity"] = _identity("domain-package-release-v2", package)
-    _reidentify_graph_root(authority["language_bundle"])
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
+    vector_set = _package_vector_set(ldb, package)
+    vector_set["vectors"][0] = "host.missing"
+    _bind_package_vector_set(package, vector_set)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6722,46 +6910,54 @@ def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
     ldb = authority["language_bundle"]
     duplicate = deepcopy(ldb["vectors"][0])
     duplicate["rule"] = "quantity.lower"
+    vector_set = next(
+        candidate
+        for candidate in ldb.package_conformance_vector_sets
+        if duplicate["id"] in candidate["vectors"]
+    )
     package = next(
         candidate
         for candidate in ldb["language"]["packages"]
-        if duplicate["id"] in candidate["vectors"]
+        if candidate["id"] == vector_set["package_id"]
+        and candidate["version"] == vector_set["package_version"]
     )
-    package["vectors"].append(duplicate["id"])
-    package["vector_definitions"].append(duplicate)
-    _reidentify_package_release(package)
+    vector_set["vectors"].append(duplicate["id"])
+    vector_set["vector_definitions"].append(duplicate)
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
-    assert (
-        "ingress",
-        "kernel.member_set_mismatch",
-        "language-bundle.language.packages.0",
-    ) in first["diagnostics"]
+    assert any(
+        code == "kernel.vector_mismatch" and subject.endswith(".vectors")
+        for _, code, subject in first["diagnostics"]
+    )
 
 
 def test_reidentified_open_fact_shape_is_refused_by_both_consumers():
     authority = authority_set()
     ldb = authority["language_bundle"]
-    vector = next(
-        item
+    vector_id = next(
+        item["id"]
         for item in ldb["vectors"]
         if isinstance(item.get("input"), dict) and "facts" in item["input"]
     )
+    vector = _owned_vector(ldb, vector_id)
     vector["input"]["facts"][0]["host_semantics"] = "invented"
+    vector_set = next(
+        candidate
+        for candidate in ldb.package_conformance_vector_sets
+        if vector["id"] in candidate["vectors"]
+    )
     package = next(
         candidate
         for candidate in ldb["language"]["packages"]
-        if vector["id"] in candidate["vectors"]
+        if candidate["id"] == vector_set["package_id"]
+        and candidate["version"] == vector_set["package_version"]
     )
-    package_vector = next(
-        item for item in package["vector_definitions"] if item["id"] == vector["id"]
-    )
-    package_vector["input"]["facts"][0]["host_semantics"] = "invented"
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -6910,26 +7106,28 @@ def test_malformed_quantity_inventory_returns_a_typed_refusal_from_both_consumer
 def test_reidentified_fact_enum_drift_is_refused_by_both_consumers():
     authority = authority_set()
     ldb = authority["language_bundle"]
-    vector = next(
-        item
+    vector_id = next(
+        item["id"]
         for item in ldb["vectors"]
         if isinstance(item.get("input"), dict) and "facts" in item["input"]
     )
+    vector = _owned_vector(ldb, vector_id)
     input_fact = vector["input"]["facts"][0]
     expected_fact = vector["expect"]
     input_fact["fields"]["role"] = "host-role"
     expected_fact["fields"]["role"] = "host-role"
+    vector_set = next(
+        candidate
+        for candidate in ldb.package_conformance_vector_sets
+        if vector["id"] in candidate["vectors"]
+    )
     package = next(
         candidate
         for candidate in ldb["language"]["packages"]
-        if vector["id"] in candidate["vectors"]
+        if candidate["id"] == vector_set["package_id"]
+        and candidate["version"] == vector_set["package_version"]
     )
-    package_vector = next(
-        item for item in package["vector_definitions"] if item["id"] == vector["id"]
-    )
-    package_vector["input"]["facts"][0]["fields"]["role"] = "host-role"
-    package_vector["expect"]["fields"]["role"] = "host-role"
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -7003,20 +7201,21 @@ def test_reidentified_reason_cannot_change_its_limit_semantics():
 def test_reidentified_reason_vector_with_non_boolean_outcome_is_a_total_refusal():
     authority = authority_set()
     ldb = authority["language_bundle"]
-    reason_vector = next(item for item in ldb["vectors"] if "reason" in item)
+    reason_vector_id = next(item["id"] for item in ldb["vectors"] if "reason" in item)
+    reason_vector = _owned_vector(ldb, reason_vector_id)
     reason_vector["matched"] = {"host": True}
+    vector_set = next(
+        candidate
+        for candidate in ldb.package_conformance_vector_sets
+        if reason_vector["id"] in candidate["vectors"]
+    )
     package = next(
         candidate
         for candidate in ldb["language"]["packages"]
-        if reason_vector["id"] in candidate["vectors"]
+        if candidate["id"] == vector_set["package_id"]
+        and candidate["version"] == vector_set["package_version"]
     )
-    package_vector = next(
-        item
-        for item in package["vector_definitions"]
-        if item["id"] == reason_vector["id"]
-    )
-    package_vector["matched"] = {"host": True}
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -7456,16 +7655,12 @@ def test_reidentified_conflicting_duplicate_binding_refuses_in_both_consumers():
         if definition["id"] == "quantity.declare"
     )
     rule["premises"].append(deepcopy(rule["premises"][0]))
-    vector = next(
-        candidate
-        for candidate in package["vector_definitions"]
-        if candidate["id"] == "quantity.declare.valid"
-    )
+    vector = _owned_vector(ldb, "quantity.declare.valid")
     conflicting_fact = deepcopy(vector["input"]["facts"][0])
     conflicting_fact["fields"]["role"] = "input"
     vector["input"]["facts"].append(conflicting_fact)
     vector["expect"]["fields"]["role"] = "input"
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -7765,10 +7960,11 @@ def test_two_consumers_agree_on_report_all_cap_and_truncation():
         if "quantity.declare" in candidate["exports"]["language_rules"]
     )
     diagnostic_cap = authority["kernel"]["resources"]["max_diagnostics"]
+    vector_set = _package_vector_set(ldb, package)
     for index in range(diagnostic_cap + 2):
         vector_id = f"mutant.{index}"
-        package["vectors"].append(vector_id)
-        package["vector_definitions"].append(
+        vector_set["vectors"].append(vector_id)
+        vector_set["vector_definitions"].append(
             {
                 "expect": {},
                 "id": vector_id,
@@ -7776,7 +7972,7 @@ def test_two_consumers_agree_on_report_all_cap_and_truncation():
                 "rule": "quantity.declare",
             }
         )
-    _reidentify_package_release(package)
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -7794,8 +7990,9 @@ def test_two_consumers_refuse_the_same_nesting_resource_exhaustion():
     nested: object = "leaf"
     for _ in range(authority["kernel"]["resources"]["max_nesting_depth"] + 1):
         nested = [nested]
-    package["vector_definitions"][0]["unused_host_payload"] = nested
-    _reidentify_package_release(package)
+    vector_set = _package_vector_set(ldb, package)
+    vector_set["vector_definitions"][0]["unused_host_payload"] = nested
+    _bind_package_vector_set(package, vector_set)
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -7803,7 +8000,7 @@ def test_two_consumers_refuse_the_same_nesting_resource_exhaustion():
 
     assert first == second
     assert first["diagnostics"] == [
-        ("ingress", "kernel.resource_exhausted", "language-bundle.packages.0")
+        ("ingress", "kernel.resource_exhausted", "language-bundle.package-vectors.0")
     ]
 
 
@@ -7870,10 +8067,16 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
 
     if mutation == "missing":
         ldb.package_releases.pop()
-        ldb.member_byte_sizes = ldb.member_byte_sizes[:-1]
+        ldb.package_conformance_vector_sets.pop()
+        ldb.package_byte_sizes = ldb.package_byte_sizes[:-1]
+        ldb.vector_set_byte_sizes = ldb.vector_set_byte_sizes[:-1]
     elif mutation == "extra":
         ldb.package_releases.append(deepcopy(ldb.package_releases[-1]))
-        ldb.member_byte_sizes += (ldb.member_byte_sizes[-1],)
+        ldb.package_conformance_vector_sets.append(
+            deepcopy(ldb.package_conformance_vector_sets[-1])
+        )
+        ldb.package_byte_sizes += (ldb.package_byte_sizes[-1],)
+        ldb.vector_set_byte_sizes += (ldb.vector_set_byte_sizes[-1],)
     elif mutation in {"duplicate", "same-coordinate-different-content"}:
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
@@ -7888,8 +8091,8 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
     elif mutation == "digest-mismatch":
         ldb.root["package_descriptors"][0]["content_identity"] = "sha256:" + "0" * 64
     elif mutation == "size-mismatch":
-        ldb.member_byte_sizes = (ldb.member_byte_sizes[0] + 1,) + tuple(
-            ldb.member_byte_sizes[1:]
+        ldb.package_byte_sizes = (ldb.package_byte_sizes[0] + 1,) + tuple(
+            ldb.package_byte_sizes[1:]
         )
     elif mutation == "coordinate-mismatch":
         ldb.root["package_descriptors"][0]["id"] = "core.substituted"
@@ -7912,6 +8115,57 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
     assert any(code == expected_code for _, code, _ in first["diagnostics"])
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    (
+        ("missing", "kernel.member_set_mismatch"),
+        ("extra", "kernel.member_set_mismatch"),
+        ("substituted", "kernel.binding_mismatch"),
+        ("digest-mismatch", "kernel.binding_mismatch"),
+        ("size-mismatch", "kernel.binding_mismatch"),
+        ("coordinate-mismatch", "kernel.binding_mismatch"),
+        ("malformed", "kernel.identity_mismatch"),
+    ),
+)
+def test_two_consumers_refuse_adversarial_package_vector_children(
+    mutation, expected_code
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+
+    if mutation == "missing":
+        ldb.package_conformance_vector_sets.pop()
+        ldb.vector_set_byte_sizes = ldb.vector_set_byte_sizes[:-1]
+    elif mutation == "extra":
+        ldb.package_conformance_vector_sets.append(
+            deepcopy(ldb.package_conformance_vector_sets[-1])
+        )
+        ldb.vector_set_byte_sizes += (ldb.vector_set_byte_sizes[-1],)
+    elif mutation == "substituted":
+        ldb.package_conformance_vector_sets[0] = deepcopy(
+            ldb.package_conformance_vector_sets[-1]
+        )
+    elif mutation == "digest-mismatch":
+        ldb.package_conformance_vector_sets[0]["content_identity"] = (
+            "sha256:" + "0" * 64
+        )
+    elif mutation == "size-mismatch":
+        ldb.vector_set_byte_sizes = (ldb.vector_set_byte_sizes[0] + 1,) + tuple(
+            ldb.vector_set_byte_sizes[1:]
+        )
+    elif mutation == "coordinate-mismatch":
+        ldb.package_conformance_vector_sets[0]["package_id"] = "core.substituted"
+    else:
+        ldb.package_conformance_vector_sets[0].pop("vectors")
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(code == expected_code for _, code, _ in first["diagnostics"])
+
+
 def test_descriptor_transport_order_does_not_change_the_canonical_graph():
     authority = authority_set()
     baseline = authority["language_bundle"]
@@ -7920,8 +8174,12 @@ def test_descriptor_transport_order_does_not_change_the_canonical_graph():
     reordered = LanguageBundleGraph(
         root=reordered_root,
         package_releases=list(reversed(baseline.package_releases)),
+        package_conformance_vector_sets=list(
+            reversed(baseline.package_conformance_vector_sets)
+        ),
         root_byte_size=baseline.root_byte_size,
-        member_byte_sizes=list(reversed(baseline.member_byte_sizes)),
+        package_byte_sizes=list(reversed(baseline.package_byte_sizes)),
+        vector_set_byte_sizes=list(reversed(baseline.vector_set_byte_sizes)),
     )
 
     first = _consumer_a(authority["kernel"], reordered)
@@ -7958,13 +8216,25 @@ def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
 
     return {
         "max_ldb_root_bytes": ldb.root_byte_size,
-        "max_ldb_child_bytes": max(ldb.member_byte_sizes),
-        "max_ldb_total_bytes": ldb.root_byte_size + sum(ldb.member_byte_sizes),
+        "max_ldb_child_bytes": max(*ldb.package_byte_sizes, *ldb.vector_set_byte_sizes),
+        "max_ldb_package_bytes": max(
+            package_size + vector_size
+            for package_size, vector_size in zip(
+                ldb.package_byte_sizes,
+                ldb.vector_set_byte_sizes,
+                strict=True,
+            )
+        ),
+        "max_ldb_total_bytes": ldb.root_byte_size
+        + sum(ldb.package_byte_sizes)
+        + sum(ldb.vector_set_byte_sizes),
         "max_ldb_package_count": len(ldb.package_releases),
+        "max_ldb_package_member_count": 2,
         "max_ldb_dependency_depth": max(map(depth_of, dependencies)),
         "max_ldb_dependency_steps": sum(map(len, dependencies.values())),
         "max_ldb_admission_work": _work(ldb.root)
-        + sum(_work(package) for package in ldb.package_releases),
+        + sum(_work(package) for package in ldb.package_releases)
+        + sum(_work(vector_set) for vector_set in ldb.package_conformance_vector_sets),
     }
 
 
@@ -7973,8 +8243,10 @@ def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
     (
         "max_ldb_root_bytes",
         "max_ldb_child_bytes",
+        "max_ldb_package_bytes",
         "max_ldb_total_bytes",
         "max_ldb_package_count",
+        "max_ldb_package_member_count",
         "max_ldb_dependency_depth",
         "max_ldb_dependency_steps",
         "max_ldb_admission_work",

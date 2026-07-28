@@ -44,13 +44,21 @@ def _language_index(authority: dict[str, Any]) -> LanguageBundleIndex:
     kernel = cast(dict[str, Any], authority["kernel"])
     root = cast(dict[str, Any], authority["language_bundle"])
     releases = cast(list[dict[str, Any]], authority["package_releases"])
-    member_sizes = [len(canonical_bytes(cast(Any, release))) for release in releases]
+    vector_sets = cast(
+        list[dict[str, Any]], authority["package_conformance_vector_sets"]
+    )
+    package_sizes = [len(canonical_bytes(cast(Any, release))) for release in releases]
+    vector_set_sizes = [
+        len(canonical_bytes(cast(Any, vector_set))) for vector_set in vector_sets
+    ]
     return derive_language_index(
         root,
         releases,
+        vector_sets,
         cast(list[str], kernel["admission"]["required_language_members"]),
         root_byte_size=len(canonical_bytes(cast(Any, root))),
-        member_byte_sizes=member_sizes,
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
         descriptor_order=cast(
             list[str],
             kernel["meta_format"]["language_bundle"]["package_descriptor"][

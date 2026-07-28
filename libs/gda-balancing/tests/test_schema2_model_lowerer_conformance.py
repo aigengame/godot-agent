@@ -172,17 +172,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     projections_by_path = {
         projection["authority_path"]: projection for projection in projections
     }
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
+    projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(
-                    vector
-                    for vector in language_bundle["vectors"]
-                    if vector["id"] == vector_id
-                )
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry in package["semantic_closure"]:
             projection = projections_by_path[entry["authority_path"]]
             definitions = _exact_path(language_bundle, entry["authority_path"])
@@ -205,15 +200,45 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 if entry["authority_path"] in runtime_paths
             ],
         )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        existing_vectors = {
+            vector["id"]: vector for vector in vector_set["vector_definitions"]
+        }
+        vector_set["vector_definitions"] = [
+            deepcopy(projected_vectors.get(vector_id, existing_vectors[vector_id]))
+            for vector_id in vector_set["vectors"]
+        ]
+        vector_set["content_identity"] = _reference_content_identity(
+            "package-conformance-vector-set-v2",
+            {
+                key: value
+                for key, value in vector_set.items()
+                if key != "content_identity"
+            },
+        )
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(_reference_encoded(vector_set)),
+            "content_identity": vector_set["content_identity"],
+        }
         package["content_identity"] = _reference_content_identity(
             "domain-package-release-v2",
             {key: value for key, value in package.items() if key != "content_identity"},
         )
-    packages = sorted(
-        deepcopy(language_bundle["language"]["packages"]),
-        key=lambda package: (package["id"], package["version"]),
+    members = sorted(
+        zip(
+            deepcopy(language_bundle["language"]["packages"]),
+            deepcopy(language_bundle.package_conformance_vector_sets),
+            strict=True,
+        ),
+        key=lambda member: (member[0]["id"], member[0]["version"]),
     )
-    member_sizes = [len(_reference_encoded(package)) for package in packages]
+    packages = [package for package, _vector_set in members]
+    vector_sets = [vector_set for _package, vector_set in members]
+    package_sizes = [len(_reference_encoded(package)) for package in packages]
+    vector_set_sizes = [
+        len(_reference_encoded(vector_set)) for vector_set in vector_sets
+    ]
     root = deepcopy(language_bundle.root)
     root["resources"] = deepcopy(language_bundle["resources"])
     root["package_descriptors"] = [
@@ -224,7 +249,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             "id": package["id"],
             "version": package["version"],
         }
-        for package, size in zip(packages, member_sizes, strict=True)
+        for package, size in zip(packages, package_sizes, strict=True)
     ]
     root["content_identity"] = _reference_content_identity(
         "language-definition-bundle-v2",
@@ -233,17 +258,23 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     rebuilt = derive_language_index(
         root,
         packages,
+        vector_sets,
         kernel["admission"]["required_language_members"],
         root_byte_size=len(_reference_encoded(root)),
-        member_byte_sizes=member_sizes,
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
         descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
             "canonical_order"
         ],
     )
     language_bundle.root = deepcopy(rebuilt.root)
     language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.package_conformance_vector_sets = deepcopy(
+        rebuilt.package_conformance_vector_sets
+    )
     language_bundle.root_byte_size = rebuilt.root_byte_size
-    language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
+    language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+    language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
     language_bundle.clear()
     language_bundle.update(dict(rebuilt))
 
@@ -1317,10 +1348,16 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     kernel, language_bundle = load_authorities()
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
+    vector_set = next(
+        vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_ids <= set(vector_set["vectors"])
+    )
     package = next(
         package
         for package in language_bundle["language"]["packages"]
-        if vector_ids <= set(package["vectors"])
+        if package["id"] == vector_set["package_id"]
+        and package["version"] == vector_set["package_version"]
     )
     assert {item["category"] for item in vectors} == {
         "positive",
@@ -1329,7 +1366,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "mutation",
         "semantic-equivalence",
     }
-    assert {item["id"] for item in vectors} <= set(package["vectors"])
+    assert {item["id"] for item in vectors} <= set(vector_set["vectors"])
     assert all(
         entry["authority_path"] != "vectors" for entry in package["semantic_closure"]
     )
