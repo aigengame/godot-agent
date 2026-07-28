@@ -79,11 +79,19 @@ def schema_get_handler(
         if inp.artifact == "language-bundle":
             root = getattr(ldb, "root", None)
             package_releases = getattr(ldb, "package_releases", None)
-            if isinstance(root, dict) and isinstance(package_releases, list):
+            package_vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
+            if (
+                isinstance(root, dict)
+                and isinstance(package_releases, list)
+                and isinstance(package_vector_sets, list)
+            ):
                 public_authorities = {
                     "kernel": cast(JsonValue, kernel),
                     "language_bundle": cast(JsonValue, root),
                     "package_releases": cast(JsonValue, package_releases),
+                    "package_conformance_vector_sets": cast(
+                        JsonValue, package_vector_sets
+                    ),
                     "admission": authorities["admission"],
                 }
                 return SchemaArtifact(root=cast(dict[str, Any], public_authorities))
@@ -134,6 +142,7 @@ def schema_get_success_schema() -> dict[str, object]:
                         for name in (
                             "artifact_kind",
                             "capabilities",
+                            "conformance_vectors",
                             "content_identity",
                             "dependencies",
                             "exports",
@@ -142,14 +151,13 @@ def schema_get_success_schema() -> dict[str, object]:
                             "runtime_semantic_paths",
                             "semantic_closure",
                             "semantic_identity",
-                            "vector_definitions",
-                            "vectors",
                             "version",
                         )
                     },
                     "required": [
                         "artifact_kind",
                         "capabilities",
+                        "conformance_vectors",
                         "content_identity",
                         "dependencies",
                         "exports",
@@ -158,9 +166,33 @@ def schema_get_success_schema() -> dict[str, object]:
                         "runtime_semantic_paths",
                         "semantic_closure",
                         "semantic_identity",
+                        "version",
+                    ],
+                    "unevaluatedProperties": False,
+                },
+            },
+            "package_conformance_vector_sets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        name: {}
+                        for name in (
+                            "artifact_kind",
+                            "content_identity",
+                            "package_id",
+                            "package_version",
+                            "vector_definitions",
+                            "vectors",
+                        )
+                    },
+                    "required": [
+                        "artifact_kind",
+                        "content_identity",
+                        "package_id",
+                        "package_version",
                         "vector_definitions",
                         "vectors",
-                        "version",
                     ],
                     "unevaluatedProperties": False,
                 },
@@ -171,6 +203,7 @@ def schema_get_success_schema() -> dict[str, object]:
             "kernel",
             "language_bundle",
             "package_releases",
+            "package_conformance_vector_sets",
             "admission",
         ],
         "unevaluatedProperties": False,

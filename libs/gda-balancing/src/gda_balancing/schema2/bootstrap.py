@@ -29,6 +29,8 @@ from gda_balancing.schema2.template_contract import (
 
 _KERNEL_DOMAIN = "schema-major-kernel-v2"
 _LDB_DOMAIN = "language-definition-bundle-v2"
+_PACKAGE_RELEASE_DOMAIN = "domain-package-release-v2"
+_PACKAGE_VECTOR_SET_DOMAIN = "package-conformance-vector-set-v2"
 SCHEMA2_REFUSAL_STAGES = (
     "ingress",
     "parse",
@@ -50,7 +52,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:91c865a4de1a07cb97c3bb09456ce406f0bd148529267b544073a9a26335d2a4"
+    "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -457,14 +459,55 @@ def _signed_int64(value: Any) -> bool:
     )
 
 
+def _package_conformance_vector_set_is_closed(
+    vector_set: dict[str, Any],
+    contract: Any,
+) -> bool:
+    expected_members = {
+        "artifact_kind",
+        "content_identity",
+        "package_id",
+        "package_version",
+        "vector_definitions",
+        "vectors",
+    }
+    expected_field_types = {
+        "artifact_kind": {"const": "package-conformance-vector-set"},
+        "content_identity": {"type": "non-empty-string"},
+        "package_id": {"type": "non-empty-string"},
+        "package_version": {"type": "non-empty-string"},
+        "vector_definitions": {"type": "list"},
+        "vectors": {"type": "string-list"},
+    }
+    return (
+        isinstance(contract, dict)
+        and contract.get("closed") is True
+        and contract.get("required_members") == sorted(expected_members)
+        and contract.get("field_types") == expected_field_types
+        and set(vector_set) == expected_members
+        and vector_set.get("artifact_kind") == "package-conformance-vector-set"
+        and isinstance(vector_set.get("content_identity"), str)
+        and bool(vector_set["content_identity"])
+        and isinstance(vector_set.get("package_id"), str)
+        and bool(vector_set["package_id"])
+        and isinstance(vector_set.get("package_version"), str)
+        and bool(vector_set["package_version"])
+        and isinstance(vector_set.get("vector_definitions"), list)
+        and isinstance(vector_set.get("vectors"), list)
+        and all(isinstance(item, str) and item for item in vector_set["vectors"])
+        and len(vector_set["vectors"]) == len(set(vector_set["vectors"]))
+    )
+
+
 def _package_evidence_vectors_are_closed(
     package: dict[str, Any],
+    vector_set: dict[str, Any],
     contract: Any,
 ) -> bool:
     if not _package_vector_contract_is_closed(contract):
         return False
-    vector_ids = package.get("vectors")
-    vectors = package.get("vector_definitions")
+    vector_ids = vector_set.get("vectors")
+    vectors = vector_set.get("vector_definitions")
     if (
         not isinstance(vector_ids, list)
         or not isinstance(vectors, list)
@@ -4269,19 +4312,31 @@ def admit_authorities(
     ) and not isinstance(language_bundle, LanguageBundleIndex)
     raw_graph_root = getattr(language_bundle, "root", None)
     raw_graph_releases = getattr(language_bundle, "package_releases", None)
+    raw_graph_vector_sets = getattr(
+        language_bundle, "package_conformance_vector_sets", None
+    )
     raw_graph_root_size = getattr(language_bundle, "root_byte_size", None)
-    raw_graph_member_sizes = getattr(language_bundle, "member_byte_sizes", None)
+    raw_graph_package_sizes = getattr(language_bundle, "package_byte_sizes", None)
+    raw_graph_vector_set_sizes = getattr(language_bundle, "vector_set_byte_sizes", None)
     is_graph = (
         isinstance(raw_graph_root, dict)
         and isinstance(raw_graph_releases, list)
+        and isinstance(raw_graph_vector_sets, list)
         and isinstance(raw_graph_root_size, int)
-        and isinstance(raw_graph_member_sizes, tuple)
+        and isinstance(raw_graph_package_sizes, tuple)
+        and isinstance(raw_graph_vector_set_sizes, tuple)
     )
     graph_root = cast(dict[str, Any], raw_graph_root) if is_graph else {}
     graph_releases = cast(list[dict[str, Any]], raw_graph_releases) if is_graph else []
+    graph_vector_sets = (
+        cast(list[dict[str, Any]], raw_graph_vector_sets) if is_graph else []
+    )
     graph_root_size = cast(int, raw_graph_root_size) if is_graph else 0
-    graph_member_sizes = (
-        cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
+    graph_package_sizes = (
+        cast(tuple[int, ...], raw_graph_package_sizes) if is_graph else ()
+    )
+    graph_vector_set_sizes = (
+        cast(tuple[int, ...], raw_graph_vector_set_sizes) if is_graph else ()
     )
     descriptor_order = (
         kernel.get("meta_format", {})
@@ -4294,13 +4349,22 @@ def admit_authorities(
         and isinstance(descriptor_order, list)
         and all(isinstance(item, str) for item in descriptor_order)
     ):
-        graph_root, graph_releases, normalized_sizes = canonical_graph_members(
+        (
             graph_root,
             graph_releases,
-            list(graph_member_sizes),
+            graph_vector_sets,
+            normalized_package_sizes,
+            normalized_vector_set_sizes,
+        ) = canonical_graph_members(
+            graph_root,
+            graph_releases,
+            graph_vector_sets,
+            list(graph_package_sizes),
+            list(graph_vector_set_sizes),
             cast(list[str], descriptor_order),
         )
-        graph_member_sizes = tuple(normalized_sizes)
+        graph_package_sizes = tuple(normalized_package_sizes)
+        graph_vector_set_sizes = tuple(normalized_vector_set_sizes)
     identity_source = graph_root if is_graph else language_bundle
     ldb_identity = identity_source.get("content_identity")
     canonical_encoding = kernel.get("canonical_encoding")
@@ -4349,13 +4413,28 @@ def admit_authorities(
             or graph_root.get("schema_major") != 2
             or not isinstance(descriptors, list)
             or len(descriptors) != len(graph_releases)
-            or len(descriptors) != len(graph_member_sizes)
+            or len(descriptors) != len(graph_vector_sets)
+            or len(descriptors) != len(graph_package_sizes)
+            or len(descriptors) != len(graph_vector_set_sizes)
         ):
             refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
         else:
             coordinates: list[tuple[str, str]] = []
-            for index, (descriptor, release, byte_size) in enumerate(
-                zip(descriptors, graph_releases, graph_member_sizes, strict=True)
+            for index, (
+                descriptor,
+                release,
+                vector_set,
+                package_byte_size,
+                vector_set_byte_size,
+            ) in enumerate(
+                zip(
+                    descriptors,
+                    graph_releases,
+                    graph_vector_sets,
+                    graph_package_sizes,
+                    graph_vector_set_sizes,
+                    strict=True,
+                )
             ):
                 subject = f"language-bundle.package_descriptors.{index}"
                 if (
@@ -4367,7 +4446,7 @@ def admit_authorities(
                     or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
                     != release.get("content_identity")
-                    or descriptor.get("byte_size") != byte_size
+                    or descriptor.get("byte_size") != package_byte_size
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
@@ -4378,9 +4457,29 @@ def admit_authorities(
                 coordinate = (descriptor["id"], descriptor["version"])
                 coordinates.append(coordinate)
                 if release.get("content_identity") != _safe_artifact_identity(
-                    "domain-package-release-v2", release, canonical_encoding
+                    _PACKAGE_RELEASE_DOMAIN, release, canonical_encoding
                 ):
                     refuse("kernel.identity_mismatch", "ingress", subject)
+                vector_descriptor = release.get("conformance_vectors")
+                vector_subject = f"{subject}.conformance_vectors"
+                if (
+                    not isinstance(vector_descriptor, dict)
+                    or set(vector_descriptor)
+                    != {"artifact_kind", "byte_size", "content_identity"}
+                    or not isinstance(vector_set, dict)
+                    or vector_descriptor.get("artifact_kind")
+                    != vector_set.get("artifact_kind")
+                    or vector_descriptor.get("content_identity")
+                    != vector_set.get("content_identity")
+                    or vector_descriptor.get("byte_size") != vector_set_byte_size
+                    or vector_set.get("package_id") != release.get("id")
+                    or vector_set.get("package_version") != release.get("version")
+                ):
+                    refuse("kernel.binding_mismatch", "ingress", vector_subject)
+                elif vector_set.get("content_identity") != _safe_artifact_identity(
+                    _PACKAGE_VECTOR_SET_DOMAIN, vector_set, canonical_encoding
+                ):
+                    refuse("kernel.identity_mismatch", "ingress", vector_subject)
             if coordinates != sorted(coordinates):
                 refuse(
                     "kernel.member_set_mismatch",
@@ -4475,8 +4574,10 @@ def admit_authorities(
             graph_limit_names = (
                 "max_ldb_root_bytes",
                 "max_ldb_child_bytes",
+                "max_ldb_package_bytes",
                 "max_ldb_total_bytes",
                 "max_ldb_package_count",
+                "max_ldb_package_member_count",
                 "max_ldb_dependency_depth",
                 "max_ldb_dependency_steps",
                 "max_ldb_admission_work",
@@ -4526,16 +4627,32 @@ def admit_authorities(
                         ),
                         default=0,
                     )
-                graph_work = _resource_work(graph_root) + sum(
-                    _resource_work(release) for release in graph_releases
+                graph_work = (
+                    _resource_work(graph_root)
+                    + sum(_resource_work(release) for release in graph_releases)
+                    + sum(
+                        _resource_work(vector_set) for vector_set in graph_vector_sets
+                    )
                 )
                 if (
                     graph_root_size > typed_graph_limits["max_ldb_root_bytes"]
                     or any(
                         size > typed_graph_limits["max_ldb_child_bytes"]
-                        for size in graph_member_sizes
+                        for size in (*graph_package_sizes, *graph_vector_set_sizes)
                     )
-                    or graph_root_size + sum(graph_member_sizes)
+                    or any(
+                        package_size + vector_size
+                        > typed_graph_limits["max_ldb_package_bytes"]
+                        for package_size, vector_size in zip(
+                            graph_package_sizes,
+                            graph_vector_set_sizes,
+                            strict=True,
+                        )
+                    )
+                    or typed_graph_limits["max_ldb_package_member_count"] != 2
+                    or graph_root_size
+                    + sum(graph_package_sizes)
+                    + sum(graph_vector_set_sizes)
                     > typed_graph_limits["max_ldb_total_bytes"]
                     or len(graph_releases) > typed_graph_limits["max_ldb_package_count"]
                     or dependency_depth > typed_graph_limits["max_ldb_dependency_depth"]
@@ -4572,9 +4689,11 @@ def admit_authorities(
                     expected_index = derive_language_index(
                         graph_root,
                         graph_releases,
+                        graph_vector_sets,
                         cast(list[str], required_language_members),
                         root_byte_size=graph_root_size,
-                        member_byte_sizes=list(graph_member_sizes),
+                        package_byte_sizes=list(graph_package_sizes),
+                        vector_set_byte_sizes=list(graph_vector_set_sizes),
                         descriptor_order=cast(list[str], descriptor_order),
                     )
                 except ValueError:
@@ -4682,6 +4801,10 @@ def admit_authorities(
             (f"language-bundle.packages.{index}", package)
             for index, package in enumerate(graph_releases)
         )
+        resource_artifacts.extend(
+            (f"language-bundle.package-vectors.{index}", vector_set)
+            for index, vector_set in enumerate(graph_vector_sets)
+        )
     else:
         resource_artifacts.append(("language-bundle", language_bundle))
     for subject, artifact in resource_artifacts:
@@ -4703,6 +4826,11 @@ def admit_authorities(
     )
     package_vector_contract = (
         raw_meta_format.get("package_vector")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
+    package_vector_set_contract = (
+        raw_meta_format.get("package_conformance_vector_set")
         if isinstance(raw_meta_format, dict)
         else None
     )
@@ -4728,7 +4856,7 @@ def admit_authorities(
                 continue
             admitted_packages.append(package)
             if package.get("content_identity") != _safe_artifact_identity(
-                "domain-package-release-v2", package, canonical_encoding
+                _PACKAGE_RELEASE_DOMAIN, package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
             if not _package_semantic_closure_is_closed(package, package_contract):
@@ -4737,8 +4865,19 @@ def admit_authorities(
                     "ingress",
                     f"{subject}.semantic_identity",
                 )
-            if not _package_evidence_vectors_are_closed(
-                package, package_vector_contract
+            vector_set = (
+                graph_vector_sets[index] if index < len(graph_vector_sets) else None
+            )
+            if (
+                not isinstance(vector_set, dict)
+                or not _package_conformance_vector_set_is_closed(
+                    vector_set, package_vector_set_contract
+                )
+                or vector_set.get("package_id") != package.get("id")
+                or vector_set.get("package_version") != package.get("version")
+                or not _package_evidence_vectors_are_closed(
+                    package, vector_set, package_vector_contract
+                )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
         semantic_projection_mismatch = len(admitted_packages) == len(
@@ -5032,17 +5171,28 @@ def admit_authorities(
             )
             if isinstance(item, dict)
         }
+        vector_sets_by_coordinate = {
+            (
+                vector_set.get("package_id"),
+                vector_set.get("package_version"),
+            ): vector_set
+            for vector_set in graph_vector_sets
+            if isinstance(vector_set, dict)
+        }
         for package in packages:
             if not isinstance(package, dict):
                 continue
             exports = cast(dict[str, Any], package.get("exports", {}))
             profiles = cast(dict[str, Any], package.get("profiles", {}))
+            vector_set = vector_sets_by_coordinate.get(
+                (package.get("id"), package.get("version")), {}
+            )
             references_close = (
-                set(map(str, package.get("vectors", []))) <= vector_ids
-                and package.get("vector_definitions")
+                set(map(str, vector_set.get("vectors", []))) <= vector_ids
+                and vector_set.get("vector_definitions")
                 == [
                     vectors_by_id[vector_id]
-                    for vector_id in package.get("vectors", [])
+                    for vector_id in vector_set.get("vectors", [])
                     if vector_id in vectors_by_id
                 ]
                 and set(map(str, exports.get("language_rules", []))) <= set(rule_ids)

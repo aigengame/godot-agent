@@ -1,7 +1,7 @@
 """Standard Schema 2.0 package inventory commands (bADR-0021/0023)."""
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -28,6 +28,7 @@ class PackageGetInput(BaseModel):
 
     id: str = Field(min_length=1)
     version: str = Field(min_length=1)
+    member: Literal["release", "conformance-vectors"] = "release"
 
 
 class PackageArtifact(RootModel[dict[str, Any]]):
@@ -39,7 +40,10 @@ AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
 
 def _admitted_package_graph(
     provider: AuthorityProvider,
-) -> tuple[dict[str, Any], list[dict[str, Any]]] | Schema2RefusalReport:
+) -> (
+    tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]
+    | Schema2RefusalReport
+):
     try:
         kernel, ldb = provider()
     except AuthorityLoadError as err:
@@ -49,13 +53,18 @@ def _admitted_package_graph(
         return bootstrap_refusal(admission)
     root = getattr(ldb, "root", None)
     releases = getattr(ldb, "package_releases", None)
-    if not isinstance(root, dict) or not isinstance(releases, list):
+    vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
+    if (
+        not isinstance(root, dict)
+        or not isinstance(releases, list)
+        or not isinstance(vector_sets, list)
+    ):
         return ingress_refusal(
             "kernel.member_set_mismatch",
             "language-bundle",
             "the admitted LDB has no sealed package graph",
         )
-    return root, releases
+    return root, releases, vector_sets
 
 
 def package_list_handler(
@@ -65,7 +74,7 @@ def package_list_handler(
         graph = _admitted_package_graph(provider)
         if isinstance(graph, Schema2RefusalReport):
             return graph
-        root, _releases = graph
+        root, _releases, _vector_sets = graph
         return PackageArtifact(
             root={
                 "language_bundle_identity": root["content_identity"],
@@ -83,10 +92,11 @@ def package_get_handler(
         graph = _admitted_package_graph(provider)
         if isinstance(graph, Schema2RefusalReport):
             return graph
-        _root, releases = graph
-        for release in releases:
+        _root, releases, vector_sets = graph
+        for release, vector_set in zip(releases, vector_sets, strict=True):
             if release.get("id") == inp.id and release.get("version") == inp.version:
-                return PackageArtifact(root=cast(dict[str, Any], release))
+                selected = release if inp.member == "release" else vector_set
+                return PackageArtifact(root=cast(dict[str, Any], selected))
         return ingress_refusal(
             "kernel.binding_mismatch",
             f"{inp.id}@{inp.version}",
@@ -170,7 +180,9 @@ def _closed_contract_schema(contract: dict[str, Any]) -> dict[str, object]:
     }
 
 
-def _package_contracts() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _package_contracts() -> tuple[
+    dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]
+]:
     kernel, _language_bundle = load_descriptor_authorities()
     meta_format = cast(dict[str, Any], kernel["meta_format"])
     language_bundle_contract = cast(dict[str, Any], meta_format["language_bundle"])
@@ -180,11 +192,17 @@ def _package_contracts() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]
         ),
         cast(dict[str, Any], language_bundle_contract["package_descriptor"]),
         cast(dict[str, Any], meta_format["package_release"]),
+        cast(dict[str, Any], meta_format["package_conformance_vector_set"]),
     )
 
 
 def package_list_success_schema() -> dict[str, object]:
-    identity_contract, descriptor_contract, _release_contract = _package_contracts()
+    (
+        identity_contract,
+        descriptor_contract,
+        _release_contract,
+        _vector_set_contract,
+    ) = _package_contracts()
     return {
         "type": "object",
         "properties": {
@@ -200,8 +218,18 @@ def package_list_success_schema() -> dict[str, object]:
 
 
 def package_get_success_schema() -> dict[str, object]:
-    _identity_contract, _descriptor_contract, release_contract = _package_contracts()
-    return _closed_contract_schema(release_contract)
+    (
+        _identity_contract,
+        _descriptor_contract,
+        release_contract,
+        vector_set_contract,
+    ) = _package_contracts()
+    return {
+        "oneOf": [
+            _closed_contract_schema(release_contract),
+            _closed_contract_schema(vector_set_contract),
+        ]
+    }
 
 
 PACKAGE_LIST = CommandDescriptor(
@@ -223,7 +251,7 @@ PACKAGE_LIST = CommandDescriptor(
 PACKAGE_GET = CommandDescriptor(
     group="package",
     command="get",
-    description="Get one exact Package Release from the admitted language bundle.",
+    description="Get one exact member of a Package Release.",
     input_model=PackageGetInput,
     output_model=PackageArtifact,
     handler=package_get_handler(load_authorities),

@@ -52,9 +52,24 @@ from gda_balancing.schema2.surface import schema2_error_envelope_schema
 def _reidentify_graph(kernel, ldb):
     root = deepcopy(ldb.root)
     releases = deepcopy(ldb.package_releases)
+    vector_sets = deepcopy(ldb.package_conformance_vector_sets)
     descriptors = []
-    member_sizes = []
-    for release in releases:
+    package_sizes = []
+    vector_set_sizes = []
+    for release, vector_set in zip(releases, vector_sets, strict=True):
+        vector_body = {
+            key: value for key, value in vector_set.items() if key != "content_identity"
+        }
+        vector_set["content_identity"] = content_identity(
+            "package-conformance-vector-set-v2", vector_body
+        )
+        vector_size = len(canonical_bytes(vector_set))
+        vector_set_sizes.append(vector_size)
+        release["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": vector_size,
+            "content_identity": vector_set["content_identity"],
+        }
         body = {
             key: value for key, value in release.items() if key != "content_identity"
         }
@@ -62,7 +77,7 @@ def _reidentify_graph(kernel, ldb):
             "domain-package-release-v2", body
         )
         byte_size = len(canonical_bytes(release))
-        member_sizes.append(byte_size)
+        package_sizes.append(byte_size)
         descriptors.append(
             {
                 "artifact_kind": release["artifact_kind"],
@@ -81,9 +96,11 @@ def _reidentify_graph(kernel, ldb):
     return derive_language_index(
         root,
         releases,
+        vector_sets,
         kernel["admission"]["required_language_members"],
         root_byte_size=root_byte_size,
-        member_byte_sizes=member_sizes,
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
         descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
             "canonical_order"
         ],
@@ -123,8 +140,10 @@ def test_invalid_raw_graph_never_constructs_a_derived_index(monkeypatch):
     candidate = LanguageBundleGraph(
         root=admitted.root,
         package_releases=releases,
+        package_conformance_vector_sets=admitted.package_conformance_vector_sets,
         root_byte_size=admitted.root_byte_size,
-        member_byte_sizes=list(admitted.member_byte_sizes),
+        package_byte_sizes=list(admitted.package_byte_sizes),
+        vector_set_byte_sizes=list(admitted.vector_set_byte_sizes),
     )
 
     def fail_if_derived(*_args, **_kwargs):
@@ -249,9 +268,23 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
     assert dict(ldb) == dict(baseline_ldb)
 
 
-def test_authority_loader_refuses_an_unreadable_declared_child(monkeypatch):
+@pytest.mark.parametrize(
+    ("unreadable", "subject"),
+    [
+        (
+            "packages/core-quantity/core.quantity@2.0.0.json",
+            "language-bundle.package_descriptors.0",
+        ),
+        (
+            "packages/core-quantity/core.quantity@2.0.0.conformance-vectors.json",
+            "language-bundle.package_descriptors.0.conformance_vectors",
+        ),
+    ],
+)
+def test_authority_loader_refuses_an_unreadable_declared_child(
+    monkeypatch, unreadable, subject
+):
     logical_members = _authority_resource_bytes()
-    unreadable = "packages/core.quantity@2.0.0.json"
 
     class UnreadableResource:
         def __init__(self, logical_name=""):
@@ -274,7 +307,7 @@ def test_authority_loader_refuses_an_unreadable_declared_child(monkeypatch):
         authority_module.load_authorities()
 
     assert caught.value.code == "kernel.member_set_mismatch"
-    assert caught.value.subject == "language-bundle.package_descriptors.0"
+    assert caught.value.subject == subject
 
 
 def test_schema_introspection_does_not_read_runtime_authorities(monkeypatch, run_cli):
@@ -297,6 +330,7 @@ def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
     assert set(authority) == {
         "kernel",
         "language_bundle",
+        "package_conformance_vector_sets",
         "package_releases",
         "admission",
     }
@@ -335,6 +369,32 @@ def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
     }
 
 
+def test_language_bundle_exposes_manifest_bound_conformance_vector_children(run_cli):
+    exit_code, stdout, stderr = run_cli(["schema", "get", "language-bundle"])
+
+    assert (exit_code, stderr) == (0, "")
+    authority = json.loads(stdout)
+    releases = authority["package_releases"]
+    vector_sets = authority["package_conformance_vector_sets"]
+    assert len(releases) == len(vector_sets) > 1
+
+    for release, vector_set in zip(releases, vector_sets, strict=True):
+        assert "vector_definitions" not in release
+        assert "vectors" not in release
+        descriptor = release["conformance_vectors"]
+        assert descriptor == {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(canonical_bytes(vector_set)),
+            "content_identity": vector_set["content_identity"],
+        }
+        assert vector_set["artifact_kind"] == "package-conformance-vector-set"
+        assert vector_set["package_id"] == release["id"]
+        assert vector_set["package_version"] == release["version"]
+        assert [item["id"] for item in vector_set["vector_definitions"]] == vector_set[
+            "vectors"
+        ]
+
+
 def test_package_list_and_exact_get_return_root_declared_children(run_cli):
     _, authority_stdout, _ = run_cli(["schema", "get", "language-bundle"])
     authority = json.loads(authority_stdout)
@@ -351,8 +411,11 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
         "packages": authority["language_bundle"]["package_descriptors"],
     }
 
-    for descriptor, release in zip(
-        listing["packages"], authority["package_releases"], strict=True
+    for descriptor, release, vector_set in zip(
+        listing["packages"],
+        authority["package_releases"],
+        authority["package_conformance_vector_sets"],
+        strict=True,
     ):
         get_exit, get_stdout, get_stderr = run_cli(
             [
@@ -371,6 +434,21 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
             "success"
         ]
         jsonschema.validate(retrieved, get_success_schema)
+        vector_exit, vector_stdout, vector_stderr = run_cli(
+            [
+                "package",
+                "get",
+                "--id",
+                descriptor["id"],
+                "--version",
+                descriptor["version"],
+                "--member",
+                "conformance-vectors",
+            ]
+        )
+        assert (vector_exit, vector_stderr) == (0, "")
+        assert json.loads(vector_stdout) == vector_set
+        jsonschema.validate(vector_set, get_success_schema)
 
 
 def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
@@ -380,15 +458,23 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     descriptor_contract = kernel_meta["language_bundle"]["package_descriptor"]
 
     get_schema = package_get_success_schema()
-    get_properties = cast(dict[str, Any], get_schema["properties"])
+    release_schema, vector_set_schema = cast(list[dict[str, Any]], get_schema["oneOf"])
+    get_properties = cast(dict[str, Any], release_schema["properties"])
     assert set(get_properties) == set(release_contract["required_members"])
-    assert set(cast(list[str], get_schema["required"])) == set(
+    assert set(cast(list[str], release_schema["required"])) == set(
         release_contract["required_members"]
     )
     for field, members in release_contract["nested_members"].items():
         nested = cast(dict[str, Any], get_properties[field])
         assert set(nested["properties"]) == set(members)
         assert set(nested["required"]) == set(members)
+    vector_set_contract = kernel_meta["package_conformance_vector_set"]
+    assert set(vector_set_schema["properties"]) == set(
+        vector_set_contract["required_members"]
+    )
+    assert set(vector_set_schema["required"]) == set(
+        vector_set_contract["required_members"]
+    )
 
     list_schema = package_list_success_schema()
     list_properties = cast(dict[str, Any], list_schema["properties"])
@@ -405,7 +491,7 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
 def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     release = authority["package_releases"][0]
-    schema = package_get_success_schema()
+    schema = cast(dict[str, Any], package_get_success_schema()["oneOf"][0])
     invalid_releases = []
 
     invalid_list = deepcopy(release)
@@ -442,8 +528,10 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         "gda_balancing/schema2/authorities/language-bundle.json",
         *{
             "gda_balancing/schema2/authorities/packages/"
-            f"{descriptor['id']}@{descriptor['version']}.json"
+            f"{descriptor['id'].replace('.', '-')}/"
+            f"{descriptor['id']}@{descriptor['version']}{suffix}"
             for descriptor in source_root["package_descriptors"]
+            for suffix in (".json", ".conformance-vectors.json")
         },
     }
     built = subprocess.run(
@@ -489,18 +577,21 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     assert installed_list.stdout == source_list[1]
 
     for descriptor in source_root["package_descriptors"]:
-        arguments = (
-            "package",
-            "get",
-            "--id",
-            descriptor["id"],
-            "--version",
-            descriptor["version"],
-        )
-        source = run_cli(list(arguments))
-        from_wheel = installed(*arguments)
-        assert (from_wheel.returncode, from_wheel.stderr) == (0, "")
-        assert from_wheel.stdout == source[1]
+        for member in ("release", "conformance-vectors"):
+            arguments = (
+                "package",
+                "get",
+                "--id",
+                descriptor["id"],
+                "--version",
+                descriptor["version"],
+                "--member",
+                member,
+            )
+            source = run_cli(list(arguments))
+            from_wheel = installed(*arguments)
+            assert (from_wheel.returncode, from_wheel.stderr) == (0, "")
+            assert from_wheel.stdout == source[1]
 
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
@@ -710,9 +801,13 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
         for release in authority["package_releases"]
         if release["id"] == "core.quantity"
     )
+    vector_sets = {
+        vector_set["package_id"]: vector_set
+        for vector_set in authority["package_conformance_vector_sets"]
+    }
     admitted_oracles = [
         vector["expect"]["lock_oracle"]
-        for vector in quantity["vector_definitions"]
+        for vector in vector_sets[quantity["id"]]["vector_definitions"]
         if vector.get("expect", {}).get("outcome") == "admitted"
     ]
     assert admitted_oracles
@@ -748,11 +843,16 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     }
 
     releases = {release["id"]: release for release in authority["package_releases"]}
+    vector_sets = {
+        vector_set["package_id"]: vector_set
+        for vector_set in authority["package_conformance_vector_sets"]
+    }
     vectors = []
     for package_id in ("game.resource", "game.check", "game.combat"):
         package = releases[package_id]
-        assert package["vectors"]
-        assert [item["id"] for item in package["vector_definitions"]] == package[
+        vector_set = vector_sets[package_id]
+        assert vector_set["vectors"]
+        assert [item["id"] for item in vector_set["vector_definitions"]] == vector_set[
             "vectors"
         ]
         owned_operations = {
@@ -768,13 +868,13 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
             for operation in owned_operations.values()
             for vector_id in operation["vectors"]
         }
-        assert referenced <= set(package["vectors"])
+        assert referenced <= set(vector_set["vectors"])
         assert all(operation["vectors"] for operation in owned_operations.values())
-        for vector in package["vector_definitions"]:
+        for vector in vector_set["vector_definitions"]:
             if vector["kind"] != "package-contract":
                 assert vector["operation"] in owned_operations
                 assert vector["id"] in owned_operations[vector["operation"]]["vectors"]
-        vectors.extend(package["vector_definitions"])
+        vectors.extend(vector_set["vector_definitions"])
 
     assert len({item["id"] for item in vectors}) == len(vectors)
     assert {item["category"] for item in vectors} == required_categories
@@ -1074,8 +1174,8 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
 
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     witnessed_codes: set[str] = set()
-    for release in authority["package_releases"]:
-        for vector in release["vector_definitions"]:
+    for vector_set in authority["package_conformance_vector_sets"]:
+        for vector in vector_set["vector_definitions"]:
             diagnostic = vector.get("diagnostic")
             if isinstance(diagnostic, str):
                 witnessed_codes.add(diagnostic)
@@ -1217,7 +1317,9 @@ def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
     ldb = deepcopy(loaded_ldb)
     diagnostic_cap = kernel["resources"]["max_diagnostics"]
     core = next(
-        release for release in ldb.package_releases if release["id"] == "core.quantity"
+        vector_set
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
     )
     for index in range(diagnostic_cap + 2):
         vector_id = f"mutant.{index}"
@@ -1258,7 +1360,9 @@ def test_bootstrap_nesting_cap_refuses_before_static_rule_execution(run_cli):
     nested: object = "leaf"
     for _ in range(kernel["resources"]["max_nesting_depth"] + 1):
         nested = [nested]
-    ldb.package_releases[0]["vector_definitions"][0]["unused_host_payload"] = nested
+    ldb.package_conformance_vector_sets[0]["vector_definitions"][0][
+        "unused_host_payload"
+    ] = nested
     ldb = _reidentify_graph(kernel, ldb)
     descriptor = replace(SCHEMA_GET, handler=schema_get_handler(lambda: (kernel, ldb)))
 

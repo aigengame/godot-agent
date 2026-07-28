@@ -23,9 +23,8 @@ _AUTHORITY_PACKAGE = "gda_balancing.schema2.authorities"
 _BOOTSTRAP_MAX_AUTHORITY_BYTES = 262144
 _BOOTSTRAP_MAX_NESTING_DEPTH = 32
 _BOOTSTRAP_MAX_PACKAGE_MEMBERS = 256
-_PACKAGE_COORDINATE = re.compile(
-    r"^[a-z0-9]+(?:[._-][a-z0-9]+)*@[0-9]+\.[0-9]+\.[0-9]+$"
-)
+_PACKAGE_ID = re.compile(r"^[a-z0-9]+(?:\.[a-z0-9]+)*$")
+_PACKAGE_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
 class AuthorityLoadError(Exception):
@@ -127,21 +126,24 @@ def _load(
     return _decode_authority(text, name, subject), len(data)
 
 
-def _package_resource_name(descriptor: dict[str, Any]) -> str:
+def _package_resource_names(descriptor: dict[str, Any]) -> tuple[str, str]:
     package_id = descriptor.get("id")
     version = descriptor.get("version")
-    coordinate = f"{package_id}@{version}"
     if (
         not isinstance(package_id, str)
         or not isinstance(version, str)
-        or _PACKAGE_COORDINATE.fullmatch(coordinate) is None
+        or _PACKAGE_ID.fullmatch(package_id) is None
+        or _PACKAGE_VERSION.fullmatch(version) is None
     ):
         raise AuthorityLoadError(
             code="kernel.member_set_mismatch",
             subject="language-bundle.package_descriptors",
             message="package descriptor coordinate is not a safe canonical coordinate",
         )
-    return f"packages/{coordinate}.json"
+    coordinate = f"{package_id}@{version}"
+    directory = package_id.replace(".", "-")
+    prefix = f"packages/{directory}/{coordinate}"
+    return f"{prefix}.json", f"{prefix}.conformance-vectors.json"
 
 
 def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
@@ -184,7 +186,9 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             message="package descriptor count exceeds the bootstrap bound",
         )
     releases: list[dict[str, Any]] = []
-    member_byte_sizes: list[int] = []
+    vector_sets: list[dict[str, Any]] = []
+    package_byte_sizes: list[int] = []
+    vector_set_byte_sizes: list[int] = []
     for index, descriptor in enumerate(descriptors):
         if not isinstance(descriptor, dict):
             raise AuthorityLoadError(
@@ -192,14 +196,21 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
                 subject=f"language-bundle.package_descriptors.{index}",
                 message="package descriptor is not an object",
             )
-        name = _package_resource_name(descriptor)
-        release, byte_size = _load(
-            name,
+        release_name, vector_set_name = _package_resource_names(descriptor)
+        release, release_byte_size = _load(
+            release_name,
             f"language-bundle.package_descriptors.{index}",
             max_bytes=child_limit,
         )
+        vector_set, vector_set_byte_size = _load(
+            vector_set_name,
+            f"language-bundle.package_descriptors.{index}.conformance_vectors",
+            max_bytes=child_limit,
+        )
         releases.append(release)
-        member_byte_sizes.append(byte_size)
+        vector_sets.append(vector_set)
+        package_byte_sizes.append(release_byte_size)
+        vector_set_byte_sizes.append(vector_set_byte_size)
     required_language_members = kernel.get("admission", {}).get(
         "required_language_members"
     )
@@ -228,8 +239,10 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     graph = LanguageBundleGraph(
         root=root,
         package_releases=releases,
+        package_conformance_vector_sets=vector_sets,
         root_byte_size=root_size,
-        member_byte_sizes=member_byte_sizes,
+        package_byte_sizes=package_byte_sizes,
+        vector_set_byte_sizes=vector_set_byte_sizes,
     )
     admission = admit_authorities(kernel, graph)
     if not admission.admitted:
@@ -242,9 +255,11 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     index = derive_language_index(
         root,
         releases,
+        vector_sets,
         required_language_members,
         root_byte_size=root_size,
-        member_byte_sizes=member_byte_sizes,
+        package_byte_sizes=package_byte_sizes,
+        vector_set_byte_sizes=vector_set_byte_sizes,
         descriptor_order=descriptor_order,
     )
     return kernel, index

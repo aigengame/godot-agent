@@ -13,6 +13,7 @@ from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_
 
 
 _PACKAGE_DOMAIN = "domain-package-release-v2"
+_PACKAGE_VECTOR_SET_DOMAIN = "package-conformance-vector-set-v2"
 _LDB_DOMAIN = "language-definition-bundle-v2"
 
 
@@ -34,6 +35,17 @@ def _semantic_identity(package: dict[str, Any], domain: str) -> str:
     return content_identity(domain, cast(JsonValue, selected))
 
 
+def _package_paths(
+    package_dir: Path, package_id: str, version: str
+) -> tuple[Path, Path]:
+    coordinate = f"{package_id}@{version}"
+    directory = package_dir / package_id.replace(".", "-")
+    return (
+        directory / f"{coordinate}.json",
+        directory / f"{coordinate}.conformance-vectors.json",
+    )
+
+
 def _build(
     authority_dir: Path,
 ) -> tuple[bytes, dict[Path, bytes]]:
@@ -47,15 +59,22 @@ def _build(
         raise ValueError("the LDB root has no package descriptors")
 
     package_dir = authority_dir / "packages"
-    declared_paths = {
-        package_dir / f"{item['id']}@{item['version']}.json"
+    declared_path_pairs = [
+        _package_paths(package_dir, item["id"], item["version"])
         for item in descriptors
         if isinstance(item, dict)
-    }
-    shipped_paths = set(package_dir.glob("*.json"))
+    ]
+    declared_paths = {path for pair in declared_path_pairs for path in pair}
+    shipped_paths = set(package_dir.rglob("*.json"))
     if declared_paths != shipped_paths:
-        missing = sorted(str(path.name) for path in declared_paths - shipped_paths)
-        extra = sorted(str(path.name) for path in shipped_paths - declared_paths)
+        missing = sorted(
+            str(path.relative_to(package_dir))
+            for path in declared_paths - shipped_paths
+        )
+        extra = sorted(
+            str(path.relative_to(package_dir))
+            for path in shipped_paths - declared_paths
+        )
         raise ValueError(f"package membership drift: missing={missing}, extra={extra}")
 
     semantic_domain = kernel["meta_format"]["package_release"]["semantic_closure"][
@@ -67,19 +86,35 @@ def _build(
     if not isinstance(descriptor_order, list) or not descriptor_order:
         raise ValueError("the Kernel declares no package descriptor order")
     packages: list[dict[str, Any]] = []
-    for path in declared_paths:
-        package = json.loads(path.read_text())
+    vector_sets_by_coordinate: dict[tuple[str, str], dict[str, Any]] = {}
+    for package_path, vector_path in declared_path_pairs:
+        package = json.loads(package_path.read_text())
+        vector_set = json.loads(vector_path.read_text())
+        vector_set["content_identity"] = _identity(
+            _PACKAGE_VECTOR_SET_DOMAIN, vector_set
+        )
+        vector_data = canonical_bytes(cast(JsonValue, vector_set))
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(vector_data),
+            "content_identity": vector_set["content_identity"],
+        }
         package["semantic_identity"] = _semantic_identity(package, semantic_domain)
         package["content_identity"] = _identity(_PACKAGE_DOMAIN, package)
         packages.append(package)
+        vector_sets_by_coordinate[(package["id"], package["version"])] = vector_set
     packages.sort(key=lambda item: tuple(item[name] for name in descriptor_order))
 
     package_bytes: dict[Path, bytes] = {}
     rebuilt_descriptors: list[dict[str, Any]] = []
     for package in packages:
         data = canonical_bytes(cast(JsonValue, package))
-        path = package_dir / f"{package['id']}@{package['version']}.json"
-        package_bytes[path] = data
+        package_path, vector_path = _package_paths(
+            package_dir, package["id"], package["version"]
+        )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        package_bytes[package_path] = data
+        package_bytes[vector_path] = canonical_bytes(cast(JsonValue, vector_set))
         rebuilt_descriptors.append(
             {
                 "artifact_kind": package["artifact_kind"],

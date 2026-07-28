@@ -613,8 +613,7 @@
                 "exports.units": "language_bundle.language.quantity.units.id",
                 "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id",
                 "profiles.resolution": "language_bundle.language.resolution_profiles.id",
-                "profiles.runtime": "language_bundle.language.runtime_profiles.id",
-                "vectors": "language_bundle.vectors.id"
+                "profiles.runtime": "language_bundle.language.runtime_profiles.id"
               }
             }
           ]
@@ -820,7 +819,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          "\u007f"
+          ""
         ]
       },
       {
@@ -856,7 +855,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:91c865a4de1a07cb97c3bb09456ce406f0bd148529267b544073a9a26335d2a4",
+  "content_identity": "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3043,12 +3042,6 @@
         "semantic_identity": {
           "type": "non-empty-string"
         },
-        "vector_definitions": {
-          "type": "list"
-        },
-        "vectors": {
-          "type": "string-list"
-        },
         "version": {
           "type": "non-empty-string"
         }
@@ -3171,6 +3164,17 @@
           "runtime": {
             "type": "string-list"
           }
+        },
+        "conformance_vectors": {
+          "artifact_kind": {
+            "const": "package-conformance-vector-set"
+          },
+          "byte_size": {
+            "type": "positive-signed-int64"
+          },
+          "content_identity": {
+            "type": "non-empty-string"
+          }
         }
       },
       "nested_members": {
@@ -3207,11 +3211,17 @@
           "numeric",
           "resolution",
           "runtime"
+        ],
+        "conformance_vectors": [
+          "artifact_kind",
+          "byte_size",
+          "content_identity"
         ]
       },
       "required_members": [
         "artifact_kind",
         "capabilities",
+        "conformance_vectors",
         "content_identity",
         "dependencies",
         "exports",
@@ -3220,8 +3230,6 @@
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
-        "vector_definitions",
-        "vectors",
         "version"
       ],
       "semantic_closure": {
@@ -5203,6 +5211,37 @@
           "max_runtime_steps"
         ]
       }
+    },
+    "package_conformance_vector_set": {
+      "closed": true,
+      "field_types": {
+        "artifact_kind": {
+          "const": "package-conformance-vector-set"
+        },
+        "content_identity": {
+          "type": "non-empty-string"
+        },
+        "package_id": {
+          "type": "non-empty-string"
+        },
+        "package_version": {
+          "type": "non-empty-string"
+        },
+        "vector_definitions": {
+          "type": "list"
+        },
+        "vectors": {
+          "type": "string-list"
+        }
+      },
+      "required_members": [
+        "artifact_kind",
+        "content_identity",
+        "package_id",
+        "package_version",
+        "vector_definitions",
+        "vectors"
+      ]
     }
   },
   "resources": {
@@ -5216,7 +5255,9 @@
     "max_ldb_package_count": 128,
     "max_ldb_dependency_depth": 32,
     "max_ldb_dependency_steps": 4096,
-    "max_ldb_admission_work": 1000000
+    "max_ldb_admission_work": 1000000,
+    "max_ldb_package_bytes": 524288,
+    "max_ldb_package_member_count": 2
   },
   "schema_major": 2,
   "vectors": [
