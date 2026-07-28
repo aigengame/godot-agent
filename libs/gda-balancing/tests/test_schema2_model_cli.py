@@ -2139,7 +2139,14 @@ def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+    expected_pointer = (
+        "/entrypoints/0/arguments"
+        if mutation == "missing"
+        else "/entrypoints/0/arguments/1/port"
+        if mutation in {"extra", "duplicate"}
+        else "/entrypoints/0/arguments/0/port"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == expected_pointer
 
 
 @pytest.mark.parametrize("role", ("derived", "output", "random"))
@@ -2182,7 +2189,47 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/entrypoints/0/arguments/0/operand"
+    )
+
+
+def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run_cli):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "parameter_value",
+            },
+        }
+    ]
+    source = tmp_path / "invalid-entrypoint-result.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints/0/result"
 
 
 @pytest.mark.parametrize(
@@ -2277,7 +2324,9 @@ def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        f"/entrypoints/0/operation/{member}"
+    )
 
 
 def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path):
@@ -2509,6 +2558,47 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
         diagnostic.subject == "language.definitions.assignment-policy"
         for diagnostic in admission.diagnostics
     )
+
+
+@pytest.mark.parametrize(
+    "initialization_source",
+    ("named-random-stream", "resolved-model"),
+)
+def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer(
+    initialization_source,
+):
+    baseline = model_module.check_model_source_value(_model_source())
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    parameter = next(
+        row
+        for row in lowering["assignment_policy"]["roles"]
+        if row["role"] == "parameter"
+    )
+    mode = next(row for row in parameter["modes"] if row["id"] == "experiment-required")
+    mode.update(
+        {
+            "initialization_source": initialization_source,
+            "value_member": "forbidden",
+            "experiment_cardinality": "forbidden",
+            "override": False,
+        }
+    )
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject == "language.definitions.assignment-policy"
+        for diagnostic in admission.diagnostics
+    )
+    with pytest.raises(ValueError, match="total Symbol assignment policy"):
+        model_module._assignment_policy(
+            lowering,
+            expected_roles=set(candidate_ldb["language"]["quantity"]["symbol_roles"]),
+        )
 
 
 @pytest.mark.parametrize(
@@ -2834,6 +2924,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
             "modes": [modes_by_id[mode] for mode in sorted(modes_by_id)],
             "entrypoint_operand_access": [],
             "entrypoint_result": False,
+            "binding_kind": "internal",
         }
     )
     _reidentify_language_bundle(candidate_ldb)

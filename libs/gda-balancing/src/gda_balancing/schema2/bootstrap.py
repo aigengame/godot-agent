@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc"
+    "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4006,6 +4006,38 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
     )
 
 
+def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
+    modes = row.get("modes")
+    accesses = row.get("entrypoint_operand_access")
+    result = row.get("entrypoint_result")
+    binding_kind = row.get("binding_kind")
+    if (
+        not isinstance(modes, list)
+        or not modes
+        or not isinstance(accesses, list)
+        or not isinstance(result, bool)
+    ):
+        return False
+    if binding_kind == "operand":
+        return (
+            bool(accesses)
+            and result is False
+            and all(
+                mode["experiment_cardinality"] != "forbidden"
+                or mode["initialization_source"]
+                in {"model", "model-with-experiment-override"}
+                for mode in modes
+            )
+        )
+    if binding_kind == "result":
+        return (
+            not accesses
+            and result is True
+            and all(mode["initialization_source"] == "execution" for mode in modes)
+        )
+    return binding_kind == "internal" and not accesses and result is False
+
+
 def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     language = language_bundle.get("language")
     if not isinstance(language, dict):
@@ -4063,10 +4095,7 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
             )
             or len({mode["id"] for mode in modes}) != len(modes)
             or any(access not in {"read", "read-write", "write"} for access in accesses)
-            or (
-                accesses
-                and any(mode["initialization_source"] == "execution" for mode in modes)
-            )
+            or not _assignment_role_contract_is_total(row)
         ):
             return False
         declared_mode_ids.update(cast(str, mode["id"]) for mode in modes)

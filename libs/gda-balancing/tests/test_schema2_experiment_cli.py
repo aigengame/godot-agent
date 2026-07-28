@@ -12,6 +12,7 @@ import pytest
 
 import gda_balancing.commands.experiment as experiment_command_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
+import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.surface import descriptor_identity
 
@@ -907,7 +908,7 @@ def test_model_entrypoint_refuses_conflicting_writable_actual_aliases(
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+    assert error["diagnostics"][0]["primary"]["pointer"] == ("/entrypoints/0/arguments")
 
 
 @pytest.mark.parametrize("mutation", ("under", "over", "duplicate"))
@@ -1866,6 +1867,113 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
     }
+
+
+def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
+    specification_path = _write_built_experiment(
+        tmp_path,
+        run_cli,
+        base_damage=90,
+    )
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    damage = operations["game.combat.damage-v1"]
+    damage["alias_policy"]["writable_groups"] = [
+        {
+            "ports": ["mitigation", "target_health"],
+            "semantics": "operation-body-order",
+        }
+    ]
+    write = next(
+        instruction
+        for instruction in damage["body"]
+        if instruction["node"] == "subtract-state"
+    )
+    damage["body"].remove(write)
+    damage["body"].insert(0, {**write, "value": "base_damage"})
+    cast_operation = operations["game.combat.cast-v1"]
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    mitigation = next(
+        argument
+        for argument in damage_call["arguments"]
+        if argument["port"] == "mitigation"
+    )
+    mitigation["operand"]["port"] = "target_health"
+    lowering = checked.language_bundle["language"]["model_lowerings"][0]
+    rir["call_sites"] = model_module._resolved_call_sites(
+        checked.kernel,
+        rir["selected_semantics"],
+        lowering["composition_policy"],
+    )
+    alias = next(
+        row
+        for call_site in rir["call_sites"]
+        if call_site["site"] == "apply-damage"
+        for row in call_site["aliases"]
+    )
+    assert alias == {
+        "actual_operand_identity": alias["actual_operand_identity"],
+        "ports": ["mitigation", "target_health"],
+        "policy": "operation-body-order",
+    }
+    value = deepcopy(checked.value)
+    value["scenarios"][0]["assignments"] = [
+        {
+            **assignment,
+            "value": (
+                90
+                if assignment["target"]["name"] == "base_damage"
+                else assignment["value"]
+            ),
+        }
+        for assignment in value["scenarios"][0]["assignments"]
+    ]
+    candidate = replace(
+        checked,
+        value=value,
+        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        rir=rir,
+    )
+
+    production = experiment_runtime_module.evaluate_experiment(candidate)
+
+    assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
+    production_event = production.members["event-trace"].value["events"][0]
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    reference_event = _reference_execute_event(
+        checked.kernel,
+        operations["game.combat.cast-v1"],
+        operations,
+        value["scenarios"][0],
+        seed=value["seed"]["value"],
+        resolved_entrypoint=entrypoint,
+        resolved_declarations=rir["declarations"],
+        resolved_call_sites=rir["call_sites"],
+    )
+    assert {
+        key: item for key, item in production_event.items() if key != "index"
+    } == reference_event
+    assert (
+        next(
+            row["integer"]
+            for row in production_event["facts"]
+            if row["name"] == "damage_dealt"
+        )
+        == 80
+    )
+    assert production_event["state_after"] == [
+        {"name": "actor_mana", "value": 22},
+        {"name": "target_health", "value": 10},
+    ]
 
 
 def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(

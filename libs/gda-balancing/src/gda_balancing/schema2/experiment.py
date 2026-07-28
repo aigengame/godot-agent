@@ -1339,7 +1339,9 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=call_site_identity,
                         ) from error
-                    variables[formal] = state[actual]
+                    for alias, alias_actual in state_references.items():
+                        if alias_actual == actual:
+                            variables[alias] = state[actual]
                 else:
                     raise ValueError(
                         f"admitted evaluator lacks runtime operator {operator}"

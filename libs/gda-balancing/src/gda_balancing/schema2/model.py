@@ -195,6 +195,14 @@ class _RuntimeProjectionResourceExhausted(Exception):
     """The admitted runtime-projection budget was exhausted."""
 
 
+class _EntrypointBindingError(ValueError):
+    """A Model entrypoint failed at one exact author-owned source pointer."""
+
+    def __init__(self, pointer: str, message: str) -> None:
+        super().__init__(message)
+        self.pointer = pointer
+
+
 @dataclass
 class _RuntimeProjectionBudget:
     limit: int
@@ -1045,6 +1053,18 @@ def _check_model_source_bytes(
             "Model Source runtime projection exhausted its admitted step budget",
             ldb,
         )
+    except _EntrypointBindingError as err:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            err.pointer,
+            f"Model entrypoint resolution failed: {err}",
+            ldb,
+        )
     except (KeyError, TypeError, ValueError) as err:
         source_contract_reason = reason_by_id(
             ldb,
@@ -1497,6 +1517,7 @@ def _assignment_policy(
             or len(row["entrypoint_operand_access"])
             != len(set(row["entrypoint_operand_access"]))
             or not isinstance(row.get("entrypoint_result"), bool)
+            or row.get("binding_kind") not in {"operand", "result", "internal"}
             for row in rows
         )
     ):
@@ -1512,6 +1533,8 @@ def _assignment_policy(
         for mode in cast(list[dict[str, Any]], row["modes"])
     ):
         raise ValueError("the admitted Symbol assignment mode ownership is incomplete")
+    if any(not _assignment_role_is_total(row) for row in rows):
+        raise ValueError("the admitted lowering has no total Symbol assignment policy")
     return policy
 
 
@@ -1546,6 +1569,30 @@ def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
             and override is False
         )
     )
+
+
+def _assignment_role_is_total(row: dict[str, Any]) -> bool:
+    modes = cast(list[dict[str, Any]], row["modes"])
+    accesses = cast(list[str], row["entrypoint_operand_access"])
+    result = cast(bool, row["entrypoint_result"])
+    if row["binding_kind"] == "operand":
+        return (
+            bool(accesses)
+            and result is False
+            and all(
+                mode["experiment_cardinality"] != "forbidden"
+                or mode["initialization_source"]
+                in {"model", "model-with-experiment-override"}
+                for mode in modes
+            )
+        )
+    if row["binding_kind"] == "result":
+        return (
+            not accesses
+            and result is True
+            and all(mode["initialization_source"] == "execution" for mode in modes)
+        )
+    return row["binding_kind"] == "internal" and not accesses and result is False
 
 
 def _assignment_policy_by_role(
@@ -1758,10 +1805,16 @@ def _resolved_entrypoints(
     )
     entrypoints: list[dict[str, JsonValue]] = []
     seen_entrypoints: set[str] = set()
-    for source_entrypoint in cast(list[dict[str, Any]], checked.source["entrypoints"]):
+    for entrypoint_index, source_entrypoint in enumerate(
+        cast(list[dict[str, Any]], checked.source["entrypoints"])
+    ):
+        pointer = f"/entrypoints/{entrypoint_index}"
         entrypoint_id = cast(str, source_entrypoint["id"])
         if entrypoint_id in seen_entrypoints:
-            raise ValueError(f"duplicate Model entrypoint: {entrypoint_id}")
+            raise _EntrypointBindingError(
+                f"{pointer}/id",
+                f"duplicate Model entrypoint: {entrypoint_id}",
+            )
         seen_entrypoints.add(entrypoint_id)
         operation_ref = cast(dict[str, str], source_entrypoint["operation"])
         operation_row = operations.get(
@@ -1772,7 +1825,16 @@ def _resolved_entrypoints(
             )
         )
         if operation_row is None:
-            raise ValueError(f"entrypoint Operation is not selected: {entrypoint_id}")
+            if operation_ref["package"] not in package_versions:
+                member = "package"
+            elif package_versions[operation_ref["package"]] != operation_ref["version"]:
+                member = "version"
+            else:
+                member = "id"
+            raise _EntrypointBindingError(
+                f"{pointer}/operation/{member}",
+                f"entrypoint Operation is not selected: {entrypoint_id}",
+            )
         operation = cast(dict[str, Any], operation_row["definition"])
         exact_operation = _exact_operation_coordinate(operation_row, package_versions)
         formal_ports = cast(list[dict[str, Any]], operation["inputs"])
@@ -1780,14 +1842,32 @@ def _resolved_entrypoints(
         argument_names = [row["port"] for row in source_arguments]
         formal_names = [row["id"] for row in formal_ports]
         if argument_names != formal_names:
-            raise ValueError(
-                f"entrypoint arguments do not exactly close formal ports: {entrypoint_id}"
+            if len(source_arguments) < len(formal_ports):
+                argument_pointer = f"{pointer}/arguments"
+            else:
+                mismatch = next(
+                    (
+                        index
+                        for index, (actual, expected) in enumerate(
+                            zip(argument_names, formal_names, strict=False)
+                        )
+                        if actual != expected
+                    ),
+                    len(formal_names),
+                )
+                argument_pointer = f"{pointer}/arguments/{mismatch}/port"
+            raise _EntrypointBindingError(
+                argument_pointer,
+                f"entrypoint arguments do not exactly close formal ports: {entrypoint_id}",
             )
         resolved_arguments: list[dict[str, JsonValue]] = []
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
-        for formal, source_argument in zip(formal_ports, source_arguments, strict=True):
+        for argument_index, (formal, source_argument) in enumerate(
+            zip(formal_ports, source_arguments, strict=True)
+        ):
+            operand_pointer = f"{pointer}/arguments/{argument_index}/operand"
             formal_identity = content_identity(
                 domains["formal_port"],
                 cast(
@@ -1801,19 +1881,22 @@ def _resolved_entrypoints(
                     (source_operand["module"], source_operand["symbol"])
                 )
                 if declaration is None:
-                    raise ValueError(
-                        f"entrypoint Symbol operand is unresolved: {entrypoint_id}"
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        f"entrypoint Symbol operand is unresolved: {entrypoint_id}",
                     )
                 if not _value_contract_matches(declaration, formal):
-                    raise ValueError(
-                        f"entrypoint Symbol is incompatible with port {formal['id']}"
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        f"entrypoint Symbol is incompatible with port {formal['id']}",
                     )
                 access = cast(str, formal["access"])
                 role = cast(str, declaration["role"])
                 if access not in assignment_by_role[role]["entrypoint_operand_access"]:
-                    raise ValueError(
+                    raise _EntrypointBindingError(
+                        operand_pointer,
                         "entrypoint Symbol role is incompatible with "
-                        f"{access} port {formal['id']}"
+                        f"{access} port {formal['id']}",
                     )
                 resolved_symbol = cast(
                     dict[str, JsonValue], declaration["resolved_symbol"]
@@ -1841,8 +1924,10 @@ def _resolved_entrypoints(
                 if target is not None:
                     previous = scenario_targets.get(operand_identity)
                     if previous is not None and previous != target:
-                        raise ValueError(
-                            "one actual target derived conflicting assignment contracts"
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting assignment "
+                            "contracts",
                         )
                     scenario_targets[operand_identity] = target
                 if initializer is not None:
@@ -1851,16 +1936,23 @@ def _resolved_entrypoints(
                         previous_initializer is not None
                         and previous_initializer != initializer
                     ):
-                        raise ValueError(
-                            "one actual target derived conflicting initializers"
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting initializers",
                         )
                     initializers[operand_identity] = initializer
             elif source_operand["kind"] == "literal":
                 if formal["access"] != "read":
-                    raise ValueError("literal operand cannot bind a writable port")
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "literal operand cannot bind a writable port",
+                    )
                 value = source_operand["value"]
                 if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError("literal operand is outside exact Int64")
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "literal operand is outside exact Int64",
+                    )
                 operand_body = {"kind": "literal", "value": value}
                 resolved_operand = {
                     **operand_body,
@@ -1869,7 +1961,10 @@ def _resolved_entrypoints(
                     ),
                 }
             else:
-                raise ValueError("entrypoint operand kind is not admitted")
+                raise _EntrypointBindingError(
+                    operand_pointer,
+                    "entrypoint operand kind is not admitted",
+                )
             resolved_arguments.append(
                 cast(
                     dict[str, JsonValue],
@@ -1884,12 +1979,19 @@ def _resolved_entrypoints(
                     },
                 )
             )
-        alias_rows = _resolved_alias_rows(operation, aliases)
+        try:
+            alias_rows = _resolved_alias_rows(operation, aliases)
+        except ValueError as err:
+            raise _EntrypointBindingError(
+                f"{pointer}/arguments",
+                str(err),
+            ) from err
         source_result = cast(dict[str, Any], source_entrypoint["result"])
         if source_result["kind"] == "discard":
             if operation["result"]["discardable"] is not True:
-                raise ValueError(
-                    "entrypoint cannot discard a required Operation result"
+                raise _EntrypointBindingError(
+                    f"{pointer}/result",
+                    "entrypoint cannot discard a required Operation result",
                 )
             result_body = cast(dict[str, JsonValue], {"kind": "discard"})
             resolved_result: dict[str, JsonValue] = {
@@ -1908,8 +2010,9 @@ def _resolved_entrypoints(
                 is not True
                 or not _value_contract_matches(result_declaration, operation["result"])
             ):
-                raise ValueError(
-                    "entrypoint result must bind one compatible output Symbol"
+                raise _EntrypointBindingError(
+                    f"{pointer}/result",
+                    "entrypoint result must bind one compatible output Symbol",
                 )
             result_symbol = cast(
                 dict[str, JsonValue], result_declaration["resolved_symbol"]

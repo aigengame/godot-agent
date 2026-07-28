@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc"
+    "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de"
 )
 
 
@@ -3684,10 +3684,13 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     for row in role_rows:
         modes = row.get("modes")
         accesses = row.get("entrypoint_operand_access")
+        result = row.get("entrypoint_result")
+        binding_kind = row.get("binding_kind")
         if (
             not isinstance(modes, list)
             or not modes
             or not isinstance(accesses, list)
+            or not isinstance(result, bool)
             or any(
                 not isinstance(mode, dict)
                 or not isinstance(mode.get("id"), str)
@@ -3704,9 +3707,30 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
             or len({mode["id"] for mode in modes}) != len(modes)
             or any(access not in {"read", "read-write", "write"} for access in accesses)
             or (
-                accesses
-                and any(mode["initialization_source"] == "execution" for mode in modes)
+                binding_kind == "operand"
+                and (
+                    not accesses
+                    or result is not False
+                    or any(
+                        mode["experiment_cardinality"] == "forbidden"
+                        and mode["initialization_source"]
+                        not in {"model", "model-with-experiment-override"}
+                        for mode in modes
+                    )
+                )
             )
+            or (
+                binding_kind == "result"
+                and (
+                    accesses
+                    or result is not True
+                    or any(
+                        mode["initialization_source"] != "execution" for mode in modes
+                    )
+                )
+            )
+            or (binding_kind == "internal" and (accesses or result is not False))
+            or binding_kind not in {"operand", "result", "internal"}
         ):
             return False
         declared_modes.update(mode["id"] for mode in modes)
@@ -6051,6 +6075,40 @@ def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure
         "static",
         "kernel.vector_mismatch",
         "language.definitions",
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "initialization_source",
+    ("named-random-stream", "resolved-model"),
+)
+def test_two_consumers_refuse_assignment_modes_without_an_operand_value_producer(
+    initialization_source,
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    policy = ldb["language"]["model_lowerings"][0]["assignment_policy"]
+    parameter = next(row for row in policy["roles"] if row["role"] == "parameter")
+    mode = next(row for row in parameter["modes"] if row["id"] == "experiment-required")
+    mode.update(
+        {
+            "initialization_source": initialization_source,
+            "value_member": "forbidden",
+            "experiment_cardinality": "forbidden",
+            "override": False,
+        }
+    )
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.definitions.assignment-policy",
     ) in first["diagnostics"]
 
 

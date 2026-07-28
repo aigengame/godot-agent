@@ -858,7 +858,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc",
+  "content_identity": "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2519,13 +2519,21 @@
                       },
                       "role": {
                         "type": "non-empty-string"
+                      },
+                      "binding_kind": {
+                        "enum": [
+                          "operand",
+                          "result",
+                          "internal"
+                        ]
                       }
                     },
                     "required_members": [
                       "role",
                       "modes",
                       "entrypoint_operand_access",
-                      "entrypoint_result"
+                      "entrypoint_result",
+                      "binding_kind"
                     ],
                     "type": "closed-object"
                   },
