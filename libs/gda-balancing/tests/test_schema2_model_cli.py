@@ -2275,6 +2275,121 @@ def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
         )
 
 
+def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "typed-literal.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    checked = model_module.check_model_source(str(source))
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoint = cast(list[dict[str, Any]], rir["entrypoints"])[0]
+    operand = cast(dict[str, Any], entrypoint["arguments"][0]["operand"])
+    assert operand["value"] == 7
+    assert operand["context_type"] == {
+        "id": "quantity.dimensionless-int64",
+        "type": {
+            "package": "core.quantity",
+            "version": "2.0.0",
+            "id": "Quantity",
+        },
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain": {"kind": "actual"},
+        "numeric_policy": "exact-int64",
+    }
+
+
+def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
+    tmp_path,
+    run_cli,
+):
+    source_path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source_value = json.loads(source_path.read_text(encoding="utf-8"))
+    source_value["entrypoints"] = [
+        {
+            "id": "combat.damage",
+            "operation": {
+                "package": "game.combat",
+                "version": "1.0.0",
+                "id": "game.combat.damage-v1",
+            },
+            "arguments": [
+                {
+                    "port": "base_damage",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "base_damage",
+                    },
+                },
+                {
+                    "port": "critical",
+                    "operand": {"kind": "literal", "value": 1},
+                },
+                {
+                    "port": "mitigation",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "target_defense",
+                    },
+                },
+                {
+                    "port": "target_health",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "target_health",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "combat",
+                "symbol": "damage_dealt",
+            },
+        }
+    ]
+    source = tmp_path / "literal-for-boolean.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/entrypoints/0/arguments/1/operand"
+    )
+
+
 @pytest.mark.parametrize(
     ("member", "value"),
     (
@@ -2462,6 +2577,9 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
             checked.language_bundle["language"]["model_lowerings"][0][
                 "composition_policy"
             ],
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "assignment_policy"
+            ],
         ),
     )
     hit_sites = [
@@ -2520,6 +2638,9 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
             selected,
             checked.language_bundle["language"]["model_lowerings"][0][
                 "composition_policy"
+            ],
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "assignment_policy"
             ],
         )
 

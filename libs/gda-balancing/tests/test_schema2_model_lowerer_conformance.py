@@ -28,6 +28,12 @@ class _ReferenceRuntimeProjectionExhausted(Exception):
     pass
 
 
+class _ReferenceEntrypointError(ValueError):
+    def __init__(self, pointer: str, message: str):
+        super().__init__(message)
+        self.pointer = pointer
+
+
 def _reference_validate_canonical(value: Any) -> None:
     if value is None or isinstance(value, (bool, str)):
         if isinstance(value, str):
@@ -136,6 +142,25 @@ def _reference_select(root: Any, selector: list[str]) -> list[Any]:
                 selected.extend(value)
             elif isinstance(value, dict) and segment in value:
                 selected.append(value[segment])
+        values = selected
+    return values
+
+
+def _reference_select_with_paths(
+    root: Any,
+    selector: list[str],
+    base_path: tuple[object, ...] = (),
+) -> list[tuple[Any, tuple[object, ...]]]:
+    values = [(root, base_path)]
+    for segment in selector:
+        selected: list[tuple[Any, tuple[object, ...]]] = []
+        for value, path in values:
+            if segment == "*" and isinstance(value, list):
+                selected.extend(
+                    (item, (*path, index)) for index, item in enumerate(value)
+                )
+            elif isinstance(value, dict) and segment in value:
+                selected.append((value[segment], (*path, segment)))
         values = selected
     return values
 
@@ -340,7 +365,7 @@ def _reference_check_source(
     source: dict[str, Any],
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
-) -> tuple[str, ...] | CheckedModel:
+) -> tuple[tuple[str, str], ...] | CheckedModel:
     """Independently interpret the admitted source schema and model-check relation."""
     language = language_bundle["language"]
     source_schema = next(
@@ -367,23 +392,73 @@ def _reference_check_source(
                 expected == "*" or expected == actual
                 for expected, actual in zip(selector, path, strict=True)
             ):
-                return (reasons[check["reason"]]["diagnostic"],)
-        return (reasons[profile["structural_reason"]]["diagnostic"],)
+                return (
+                    (
+                        reasons[check["reason"]]["diagnostic"],
+                        _reference_pointer(list(path)),
+                    ),
+                )
+        return (
+            (
+                reasons[profile["structural_reason"]]["diagnostic"],
+                _reference_pointer(list(path)),
+            ),
+        )
 
-    diagnostics_by_stage: dict[str, list[str]] = {}
+    diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
         scopes = (
-            _reference_select(source, check["scope_selector"])
+            _reference_select_with_paths(source, check["scope_selector"])
             if "scope_selector" in check
-            else [source]
+            else [(source, ())]
         )
-        for scope in scopes:
-            values = _reference_select(scope, check["selector"])
-            if _reference_reason_matches(language_bundle, reason, values):
-                diagnostics_by_stage.setdefault(reason["stage"], []).append(
-                    reason["diagnostic"]
+        for scope, scope_path in scopes:
+            selected = _reference_select_with_paths(
+                scope,
+                check["selector"],
+                scope_path,
+            )
+            values = [value for value, _path in selected]
+            code = reason["diagnostic"]
+            if check["mode"] == "each":
+                diagnostics_by_stage.setdefault(reason["stage"], []).extend(
+                    (code, _reference_pointer(list(path)))
+                    for value, path in selected
+                    if _reference_reason_matches(language_bundle, reason, [value])
                 )
+                continue
+            if not _reference_reason_matches(language_bundle, reason, values):
+                continue
+            operation = reason["predicate"]["operation"]
+            if check["mode"] == "all" and operation == "has-duplicate":
+                first_paths: dict[bytes, tuple[object, ...]] = {}
+                for value, path in selected:
+                    encoded = _reference_encoded(value)
+                    if encoded not in first_paths:
+                        first_paths[encoded] = path
+                        continue
+                    diagnostics_by_stage.setdefault(reason["stage"], []).append(
+                        (code, _reference_pointer(list(path)))
+                    )
+                continue
+            if check["mode"] == "count":
+                limit_values = _reference_path(
+                    language_bundle,
+                    reason["predicate"]["limit_path"],
+                )
+                assert len(limit_values) == 1 and isinstance(limit_values[0], int)
+                limit = limit_values[0]
+                location = (
+                    selected[limit][1]
+                    if len(selected) > limit
+                    else tuple(check["selector"])
+                )
+            else:
+                location = selected[0][1] if selected else tuple(check["selector"])
+            diagnostics_by_stage.setdefault(reason["stage"], []).append(
+                (code, _reference_pointer(list(location)))
+            )
 
     resource_reasons = [
         reason
@@ -432,22 +507,30 @@ def _reference_check_source(
         selected_packages[package_id] for package_id in sorted(selected_packages)
     ]
 
-    def read_term(term: dict[str, Any], environment: dict[str, Any]) -> Any:
+    def read_term(
+        term: dict[str, Any],
+        environment: dict[str, tuple[Any, tuple[object, ...] | None]],
+    ) -> tuple[Any, tuple[object, ...] | None]:
         if term["root"] == "source":
             value: Any = source
+            pointer: tuple[object, ...] | None = ()
         elif term["root"] == "language":
             value = language
+            pointer = None
         elif term["root"] == "selected-packages":
             value = selected_package_values
+            pointer = None
         elif term["root"] == "binding":
-            value = environment[term["binding"]]
+            value, pointer = environment[term["binding"]]
         else:
             raise AssertionError(
                 f"reference consumer observed unknown term root: {term['root']}"
             )
         for segment in term["path"]:
             value = value[segment]
-        return value
+            if pointer is not None:
+                pointer = (*pointer, segment)
+        return value, pointer
 
     try:
         for recipe in profile["relation_recipes"]:
@@ -455,12 +538,24 @@ def _reference_check_source(
             for binding in recipe["bindings"]:
                 next_environments = []
                 for environment in environments:
-                    candidates = read_term(binding["source"], environment)
+                    candidates, source_pointer = read_term(
+                        binding["source"], environment
+                    )
                     assert isinstance(candidates, list)
-                    for candidate in candidates:
+                    for candidate_index, candidate in enumerate(candidates):
                         consume_base()
                         next_environments.append(
-                            {**environment, binding["name"]: candidate}
+                            {
+                                **environment,
+                                binding["name"]: (
+                                    candidate,
+                                    (
+                                        (*source_pointer, candidate_index)
+                                        if source_pointer is not None
+                                        else None
+                                    ),
+                                ),
+                            }
                         )
                 environments = next_environments
             relation_rows = []
@@ -468,21 +563,28 @@ def _reference_check_source(
                 rejected = False
                 for predicate in recipe["predicates"]:
                     consume_base()
-                    if predicate["operator"] == "equal" and read_term(
-                        predicate["left"], environment
-                    ) != read_term(predicate["right"], environment):
+                    if (
+                        predicate["operator"] == "equal"
+                        and read_term(predicate["left"], environment)[0]
+                        != read_term(predicate["right"], environment)[0]
+                    ):
                         rejected = True
                         break
                 if rejected:
                     continue
                 values = {}
+                pointers = {}
                 for field in recipe["fields"]:
                     consume_base()
-                    values[field["name"]] = read_term(field["term"], environment)
-                relation_rows.append({"values": values})
+                    value, pointer = read_term(field["term"], environment)
+                    values[field["name"]] = value
+                    if field["pointer"]:
+                        assert pointer is not None
+                        pointers[field["name"]] = _reference_pointer(list(pointer))
+                relation_rows.append({"values": values, "pointers": pointers})
             relations[recipe["id"]] = relation_rows
     except BudgetExhausted:
-        return (resource_diagnostic,)
+        return ((resource_diagnostic, ""),)
 
     def matches(
         subject: dict[str, Any],
@@ -494,9 +596,13 @@ def _reference_check_source(
             for field in fields
         )
 
-    def law_fails(law: dict[str, Any], consume: Callable[[], None]) -> bool:
+    def law_failures(
+        law: dict[str, Any],
+        consume: Callable[[], None],
+    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
         operator = law["operator"]
         if operator == "require-match":
+            failures = []
             for subject in relations[law["subject_relation"]]:
                 consume()
                 guard = law.get("guard")
@@ -514,31 +620,59 @@ def _reference_check_source(
                     if matches(subject, target, law["match"]):
                         targets.append(target)
                 if law["cardinality"] == "exactly-one" and len(targets) != 1:
-                    return True
-            return False
+                    failures.append((subject, None))
+            return failures
         if operator == "require-unique":
             fields = [*law["scope"], *law["key"]]
-            keys = []
+            first_by_key = {}
+            failures = []
             for item in relations[law["relation"]]:
                 consume()
-                keys.append(tuple(item["values"][field] for field in fields))
-            return len(keys) != len(set(keys))
+                key = tuple(item["values"][field] for field in fields)
+                previous = first_by_key.get(key)
+                if previous is None:
+                    first_by_key[key] = item
+                else:
+                    failures.append((item, previous))
+            return failures
         if operator == "require-single-value":
-            grouped: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+            grouped: dict[
+                tuple[str, ...],
+                tuple[tuple[str, ...], dict[str, Any]],
+            ] = {}
+            failures = []
             for item in relations[law["relation"]]:
                 consume()
                 group = tuple(
                     item["values"][field] for field in [*law["scope"], *law["group"]]
                 )
                 value = tuple(item["values"][field] for field in law["value"])
-                grouped.setdefault(group, set()).add(value)
-            return any(len(values) != 1 for values in grouped.values())
+                previous = grouped.get(group)
+                if previous is None:
+                    grouped[group] = (value, item)
+                elif previous[0] != value:
+                    failures.append((item, previous[1]))
+            return failures
         raise AssertionError(
             f"reference consumer observed unknown resolution law: {operator}"
         )
 
     resolution_meta = kernel["meta_format"]["resolution_judgment"]
     operations = {item["id"]: item for item in resolution_meta["operations"]}
+
+    def resolution_pointer(code: str) -> str:
+        if code == "language.package_version_unavailable":
+            for index, requirement in enumerate(source[requirements_member]):
+                coordinate = (
+                    requirement[requirement_package_member],
+                    requirement[requirement_version_member],
+                )
+                if coordinate not in packages_by_coordinate:
+                    return _reference_pointer(
+                        [requirements_member, index, requirement_version_member]
+                    )
+        return ""
+
     for stage in resolution_meta["stage_order"]:
         stage_steps = base_steps
 
@@ -552,12 +686,18 @@ def _reference_check_source(
         try:
             for judgment in profile["judgment_chain"]:
                 operation = operations[judgment["operation"]]
-                if operation["stage"] == stage and law_fails(
-                    operation["law"], consume_stage
-                ):
-                    stage_diagnostics.append(reasons[judgment["reason"]]["diagnostic"])
+                if operation["stage"] != stage:
+                    continue
+                law = operation["law"]
+                for item, _previous in law_failures(law, consume_stage):
+                    code = reasons[judgment["reason"]]["diagnostic"]
+                    pointer = item["pointers"].get(
+                        law["pointer_field"],
+                        resolution_pointer(code),
+                    )
+                    stage_diagnostics.append((code, pointer))
         except BudgetExhausted:
-            return (resource_diagnostic,)
+            return ((resource_diagnostic, ""),)
         if stage_diagnostics:
             return tuple(dict.fromkeys(stage_diagnostics))
     checked = CheckedModel(
@@ -578,9 +718,16 @@ def _reference_check_source(
             == "resources.max_runtime_projection_steps"
         ]
         assert len(runtime_reasons) == 1
-        return (runtime_reasons[0]["diagnostic"],)
+        return ((runtime_reasons[0]["diagnostic"], ""),)
+    except _ReferenceEntrypointError as error:
+        return (
+            (
+                reasons[profile["structural_reason"]]["diagnostic"],
+                error.pointer,
+            ),
+        )
     except ValueError:
-        return (reasons[profile["structural_reason"]]["diagnostic"],)
+        return ((reasons[profile["structural_reason"]]["diagnostic"], "/entrypoints"),)
     return checked
 
 
@@ -1062,6 +1209,47 @@ def _reference_value_contract_matches(
     )
 
 
+def _reference_literal_context(
+    value: Any,
+    formal: dict[str, Any],
+    policy: dict[str, Any],
+) -> dict[str, Any] | None:
+    if type(value) is not int or policy["literal_selection"] != "unique-formal-match":
+        return None
+    matches = []
+    for profile in policy["literal_profiles"]:
+        if (
+            profile["source_kind"] == "integer"
+            and profile["minimum"] <= value <= profile["maximum"]
+            and profile["type"] == formal["type"]
+            and all(
+                profile[member] == formal[member]
+                for member in (
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                )
+            )
+        ):
+            matches.append(profile)
+    if len(matches) != 1:
+        return None
+    return {
+        member: matches[0][member]
+        for member in (
+            "id",
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
+    }
+
+
 def _reference_assignment_mode(
     declaration: dict[str, Any],
     roles: dict[str, dict[str, Any]],
@@ -1146,10 +1334,14 @@ def _reference_entrypoints(
     assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
     resolved_entrypoints = []
     seen: set[str] = set()
-    for source_entrypoint in checked.source["entrypoints"]:
+    for entrypoint_index, source_entrypoint in enumerate(checked.source["entrypoints"]):
+        pointer = f"/entrypoints/{entrypoint_index}"
         entrypoint_id = source_entrypoint["id"]
         if entrypoint_id in seen:
-            raise ValueError("duplicate Model entrypoint")
+            raise _ReferenceEntrypointError(
+                f"{pointer}/id",
+                "duplicate Model entrypoint",
+            )
         seen.add(entrypoint_id)
         operation_ref = source_entrypoint["operation"]
         operation_row = operations.get(
@@ -1160,7 +1352,18 @@ def _reference_entrypoints(
             )
         )
         if operation_row is None:
-            raise ValueError("entrypoint Operation is not selected")
+            selected_version = package_versions.get(operation_ref["package"])
+            member = (
+                "package"
+                if selected_version is None
+                else "version"
+                if selected_version != operation_ref["version"]
+                else "id"
+            )
+            raise _ReferenceEntrypointError(
+                f"{pointer}/operation/{member}",
+                "entrypoint Operation is not selected",
+            )
         operation = operation_row["definition"]
         exact_operation = _reference_exact_operation(operation_row, package_versions)
         formals = operation["inputs"]
@@ -1168,12 +1371,36 @@ def _reference_entrypoints(
         if [row["port"] for row in authored_arguments] != [
             row["id"] for row in formals
         ]:
-            raise ValueError("entrypoint arguments do not close formal ports")
+            if len(authored_arguments) < len(formals):
+                argument_pointer = f"{pointer}/arguments"
+            else:
+                mismatch = next(
+                    (
+                        index
+                        for index, (actual, expected) in enumerate(
+                            zip(
+                                [row["port"] for row in authored_arguments],
+                                [row["id"] for row in formals],
+                                strict=False,
+                            )
+                        )
+                        if actual != expected
+                    ),
+                    len(formals),
+                )
+                argument_pointer = f"{pointer}/arguments/{mismatch}/port"
+            raise _ReferenceEntrypointError(
+                argument_pointer,
+                "entrypoint arguments do not close formal ports",
+            )
         arguments = []
         aliases: dict[str, list[tuple[str, str]]] = {}
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
-        for formal, authored in zip(formals, authored_arguments, strict=True):
+        for argument_index, (formal, authored) in enumerate(
+            zip(formals, authored_arguments, strict=True)
+        ):
+            operand_pointer = f"{pointer}/arguments/{argument_index}/operand"
             formal_body = {"operation": exact_operation, "name": formal["id"]}
             operand = authored["operand"]
             if operand["kind"] == "symbol":
@@ -1183,11 +1410,17 @@ def _reference_entrypoints(
                 if declaration is None or not _reference_value_contract_matches(
                     declaration, formal
                 ):
-                    raise ValueError("entrypoint Symbol is incompatible")
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "entrypoint Symbol is incompatible",
+                    )
                 access = formal["access"]
                 role = declaration["role"]
                 if access not in roles[role]["entrypoint_operand_access"]:
-                    raise ValueError("entrypoint Symbol role is incompatible")
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "entrypoint Symbol role is incompatible",
+                    )
                 symbol = declaration["resolved_symbol"]
                 operand_body = {"kind": "symbol", "symbol": symbol}
                 operand_identity = _reference_content_identity(
@@ -1229,11 +1462,20 @@ def _reference_entrypoints(
                         raise ValueError("conflicting Model initializers")
                     initializers[operand_identity] = initializer
             elif operand["kind"] == "literal":
-                if formal["access"] != "read":
-                    raise ValueError("literal cannot bind a writable port")
+                context_type = _reference_literal_context(
+                    operand["value"],
+                    formal,
+                    policy,
+                )
+                if formal["access"] != "read" or context_type is None:
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "literal is incompatible",
+                    )
                 operand_body = {
                     "kind": "literal",
                     "value": operand["value"],
+                    "context_type": context_type,
                 }
                 resolved_operand = {
                     **operand_body,
@@ -1242,7 +1484,10 @@ def _reference_entrypoints(
                     ),
                 }
             else:
-                raise ValueError("unknown entrypoint operand kind")
+                raise _ReferenceEntrypointError(
+                    operand_pointer,
+                    "unknown entrypoint operand kind",
+                )
             arguments.append(
                 {
                     "port": {
@@ -1256,11 +1501,20 @@ def _reference_entrypoints(
                     "access": formal["access"],
                 }
             )
-        alias_rows = _reference_alias_rows(operation, aliases)
+        try:
+            alias_rows = _reference_alias_rows(operation, aliases)
+        except ValueError as error:
+            raise _ReferenceEntrypointError(
+                f"{pointer}/arguments",
+                str(error),
+            ) from error
         authored_result = source_entrypoint["result"]
         if authored_result["kind"] == "discard":
             if operation["result"]["discardable"] is not True:
-                raise ValueError("required result cannot be discarded")
+                raise _ReferenceEntrypointError(
+                    f"{pointer}/result",
+                    "required result cannot be discarded",
+                )
             result_body = {"kind": "discard"}
         else:
             result_declaration = declarations_by_source.get(
@@ -1273,7 +1527,10 @@ def _reference_entrypoints(
                     result_declaration, operation["result"]
                 )
             ):
-                raise ValueError("entrypoint result is incompatible")
+                raise _ReferenceEntrypointError(
+                    f"{pointer}/result",
+                    "entrypoint result is incompatible",
+                )
             result_body = {
                 "kind": "symbol",
                 "symbol": result_declaration["resolved_symbol"],
@@ -1451,16 +1708,23 @@ def _reference_call_sites(
                         ),
                     }
                 elif operand["kind"] == "literal":
-                    if formal["access"] != "read":
+                    context_type = _reference_literal_context(
+                        operand["literal"],
+                        formal,
+                        lowering["assignment_policy"],
+                    )
+                    if formal["access"] != "read" or context_type is None:
                         raise ValueError("nested literal is incompatible")
                     operand_body = {
                         "kind": "literal",
                         "parent_operation": parent_ref,
                         "value": operand["literal"],
+                        "context_type": context_type,
                     }
                     resolved_operand = {
                         "kind": "literal",
                         "value": operand["literal"],
+                        "context_type": context_type,
                         "identity": _reference_content_identity(
                             domains["actual_operand"], operand_body
                         ),
@@ -1945,6 +2209,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "game.combat.model-binding.contract-wrong-kind",
         "game.combat.model-binding.contract-wrong-unit",
         "game.combat.model-binding.contract-wrong-numeric-policy",
+        "game.combat.model-binding.literal-wrong-type",
         "quantity.assignment-policy.optional-override",
         "game.combat.model-binding.multiple-entrypoints",
     } <= vector_ids
@@ -2001,12 +2266,20 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
             assert isinstance(production_checked, Schema2RefusalReport)
             assert isinstance(reference_checked, tuple)
             production_diagnostics = [
-                {"code": item.code, "stage": production_checked.stage}
+                {
+                    "code": item.code,
+                    "stage": production_checked.stage,
+                    "pointer": item.primary.pointer,
+                }
                 for item in production_checked.diagnostics
             ]
             reference_diagnostics = [
-                {"code": code, "stage": diagnostic_stages[code]}
-                for code in reference_checked
+                {
+                    "code": code,
+                    "stage": diagnostic_stages[code],
+                    "pointer": pointer,
+                }
+                for code, pointer in reference_checked
             ]
             assert production_diagnostics == reference_diagnostics
             assert production_diagnostics == expected["diagnostics"]
@@ -2204,8 +2477,8 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
         "language.unresolved_name",
     )
     assert reference == (
-        "language.name_ambiguity",
-        "language.unresolved_name",
+        ("language.name_ambiguity", "/modules/0/imports/1/alias"),
+        ("language.unresolved_name", "/modules/0/symbols/0/type"),
     )
 
 
@@ -2237,7 +2510,7 @@ def test_resolution_step_budget_drives_both_independent_consumers():
     reference = _reference_check_source(source, kernel, language_bundle)
 
     assert tuple(item.code for item in production) == ("language.resource_exhausted",)
-    assert reference == ("language.resource_exhausted",)
+    assert reference == (("language.resource_exhausted", ""),)
 
 
 def test_runtime_projection_budget_drives_both_independent_consumers(
@@ -2272,7 +2545,7 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
     assert tuple(item.code for item in production.diagnostics) == (
         "language.resource_exhausted",
     )
-    assert reference == ("language.resource_exhausted",)
+    assert reference == (("language.resource_exhausted", ""),)
 
 
 def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
@@ -2307,7 +2580,7 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     reference = _reference_check_source(source, kernel, language_bundle)
 
     assert tuple(item.code for item in production) == ("language.name_ambiguity",)
-    assert reference == ("language.name_ambiguity",)
+    assert reference == (("language.name_ambiguity", "/modules/0/imports/1/alias"),)
 
 
 def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_path):
@@ -2346,8 +2619,8 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
         "language.unresolved_name",
     )
     assert reference == (
-        "language.name_ambiguity",
-        "language.unresolved_name",
+        ("language.name_ambiguity", "/modules/0/imports/1/package"),
+        ("language.unresolved_name", "/modules/0/symbols/0/type"),
     )
 
 
@@ -2804,9 +3077,10 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     assert isinstance(reference, tuple)
     assert (
         tuple(item.code for item in production.diagnostics)
-        == reference
+        == tuple(code for code, _pointer in reference)
         == (new_diagnostic,)
     )
+    assert reference == ((new_diagnostic, "/modules/0/symbols/1/symbol"),)
 
 
 def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_changes(
@@ -2832,9 +3106,10 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
     assert isinstance(reference, tuple)
     assert (
         tuple(item.code for item in production.diagnostics)
-        == reference
+        == tuple(code for code, _pointer in reference)
         == (new_diagnostic,)
     )
+    assert reference == ((new_diagnostic, "/package_requirements/0/version"),)
 
 
 def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host_changes(

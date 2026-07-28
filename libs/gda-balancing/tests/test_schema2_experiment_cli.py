@@ -536,17 +536,18 @@ def _reference_execute_event(
                 for name in sorted(state_cells)
             ],
         }
+    outcome_definition = next(
+        row for row in operation["outcomes"] if row["id"] == outcome
+    )
     if (
         resolved_entrypoint is not None
         and resolved_entrypoint["result"]["kind"] == "symbol"
+        and outcome_definition["kind"] == "success"
     ):
         symbol = resolved_entrypoint["result"]["symbol"]
         coordinate = (symbol["model"], symbol["module"], symbol["name"])
         cells[coordinate] = {"value": result}
         display_names[coordinate] = symbol["name"]
-    outcome_definition = next(
-        row for row in operation["outcomes"] if row["id"] == outcome
-    )
     if outcome_definition["state_policy"] == "rollback":
         for name, value in before.items():
             state_cells[name]["value"] = value
@@ -2018,6 +2019,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
+        lowering["assignment_policy"],
     )
     alias = next(
         row
@@ -2078,6 +2080,101 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},
         {"name": "target_health", "value": 10},
+    ]
+
+
+def test_ordered_writable_alias_write_is_visible_to_later_child_call(
+    tmp_path,
+    run_cli,
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    cast_operation = operations["game.combat.cast-v1"]
+    cast_operation["alias_policy"]["writable_groups"] = [
+        {
+            "ports": ["actor_resource", "accuracy"],
+            "semantics": "operation-body-order",
+        }
+    ]
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    actor_resource = next(
+        row
+        for row in entrypoint["arguments"]
+        if row["port"]["name"] == "actor_resource"
+    )
+    accuracy = next(
+        row for row in entrypoint["arguments"] if row["port"]["name"] == "accuracy"
+    )
+    accuracy["operand"] = deepcopy(actor_resource["operand"])
+    actual_identity = actor_resource["operand"]["identity"]
+    entrypoint["aliases"] = [
+        {
+            "actual_operand_identity": actual_identity,
+            "ports": ["actor_resource", "accuracy"],
+            "policy": "operation-body-order",
+        }
+    ]
+    value = deepcopy(checked.value)
+    value["scenarios"][0]["assignments"] = [
+        {
+            **assignment,
+            "value": (
+                35
+                if assignment["target"]["name"] == "target_defense"
+                else assignment["value"]
+            ),
+        }
+        for assignment in value["scenarios"][0]["assignments"]
+    ]
+    value["metrics"] = [
+        _metric_contract(
+            {
+                "id": "target_health_remaining",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 100, "maximum": 100},
+            }
+        )
+    ]
+    candidate = replace(
+        checked,
+        value=value,
+        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        rir=rir,
+    )
+
+    production = experiment_runtime_module.evaluate_experiment(candidate)
+
+    assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
+    production_event = production.members["event-trace"].value["events"][0]
+    reference_event = _reference_execute_event(
+        checked.kernel,
+        cast_operation,
+        operations,
+        value["scenarios"][0],
+        seed=value["seed"]["value"],
+        resolved_entrypoint=entrypoint,
+        resolved_declarations=rir["declarations"],
+        resolved_call_sites=rir["call_sites"],
+    )
+    assert {
+        key: item for key, item in production_event.items() if key != "index"
+    } == reference_event
+    assert production_event["outcome"]["id"] == "miss"
+    assert production_event["state_after"] == [
+        {"name": "actor_mana", "value": 30},
+        {"name": "target_health", "value": 100},
     ]
 
 

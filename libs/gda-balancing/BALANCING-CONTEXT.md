@@ -395,24 +395,28 @@ _Avoid_: function registration, evaluator hook, opcode documentation
 **Formal port**:
 A named, typed input declared once by an LDB `Operation specification`. The formal port is the sole
 authority for that Operation's reusable consumption interface. Model symbols, caller locals, and
-literals do not redefine it; an `Operation call site` binds each required formal port exactly once
-to one compatible `Actual operand` (bADR-0016/0022).
+literals do not redefine it; a `Model entrypoint` or nested `Operation call site` binds each
+required formal port exactly once to one compatible `Actual operand` (bADR-0016/0022).
 _Avoid_: model input name, scenario variable, argument copied into every consumer
 
 **Actual operand**:
-The explicit value source bound to one `Formal port` at one `Operation call site`: a resolved Model
-symbol, a caller-local result, a literal, or another Kernel-admitted expression. Its identity is
-derived from the owning authority and binding position. Equal display names are never binding
-proof, and one actual may intentionally feed multiple compatible ports (bADR-0013/0022).
+The explicit value source bound to one `Formal port` by either a `Model entrypoint` or nested
+`Operation call site`: a resolved Model symbol, a caller-local result, a contextually typed literal,
+or another Kernel-admitted expression. Its identity is derived from the owning authority and
+binding position. Equal display names are never binding proof, and one actual may intentionally
+feed multiple compatible ports. The LDB assignment policy, not the host integer type, owns literal
+profiles; admission requires exactly one profile to match the formal port's complete value contract
+and records that context in RIR identity (bADR-0013/0022).
 _Avoid_: implicit same-name lookup, ambient variable, parameter declaration
 
 **Operation call site**:
-One statically bounded invocation of an exact versioned Operation from a Model entrypoint or another
-Operation body. It owns a stable site id, exact formal-to-actual bindings, result/outcome binding,
-and resolved effect/refusal/resource closure. Typed HIR resolves it before RIR; RIR identifies it;
-an EIR may optimize it but must preserve the same bindings and observable provenance. It is distinct
-from a Formula evaluation site, which issue #590 may add as another expression-shaped actual
-operand without changing this call contract (bADR-0013/0016/0022).
+One statically bounded nested invocation of an exact versioned Operation owned by another LDB
+`Operation specification` body. It owns a stable site id, exact formal-to-actual bindings,
+result/outcome binding, and resolved effect/refusal/resource closure. Typed HIR resolves it before
+RIR; RIR identifies it; an EIR may optimize it but must preserve the same bindings and observable
+provenance. It is distinct from a root `Model entrypoint`, and from a Formula evaluation site, which
+issue #590 may add as another expression-shaped actual operand without changing this call contract
+(bADR-0013/0016/0022).
 _Avoid_: dynamic dispatch, operation name alone, evaluator callback
 
 **Model entrypoint**:
@@ -424,7 +428,7 @@ _Avoid_: raw operation selector, scenario operation, implicit main
 
 **Scenario Input Contract**:
 The generated, ordered initialization contract for one `Model entrypoint`, derived from its
-reachable actual operands and the LDB-owned total Symbol assignment policy. It records exact
+reachable Model-symbol operands and the LDB-owned total Symbol assignment policy. It records exact
 resolved Model-symbol identities, Model-owned value-policy initializers, Experiment-owned required
 inputs, and optional Experiment overrides of explicit Model defaults. An Experiment scenario must
 assign every required member exactly once, may assign an exported optional member at most once, and

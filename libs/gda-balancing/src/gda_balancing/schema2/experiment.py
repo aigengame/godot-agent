@@ -1232,15 +1232,8 @@ def evaluate_experiment(
                     result_binding = instruction["result"]
                     if result_binding["kind"] == "local":
                         variables[result_binding["name"]] = child_result
-                    for binding in instruction["arguments"]:
-                        actual = binding["operand"]
-                        if (
-                            actual["kind"] == "port"
-                            and actual["port"] in state_references
-                        ):
-                            variables[actual["port"]] = state[
-                                state_references[actual["port"]]
-                            ]
+                    for alias, actual in state_references.items():
+                        variables[alias] = state[actual]
                     mapping = next(
                         row
                         for row in instruction["outcomes"]

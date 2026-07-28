@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de"
+    "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb"
 )
 
 
@@ -3664,6 +3664,31 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
         or not isinstance(policy.get("roles"), list)
     ):
         return False
+    literal_profiles = policy.get("literal_profiles")
+    if (
+        policy.get("literal_selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+        or not literal_profiles
+        or any(
+            not isinstance(profile, dict)
+            or profile.get("source_kind") != "integer"
+            or not isinstance(profile.get("id"), str)
+            or not profile["id"]
+            or type(profile.get("minimum")) is not int
+            or type(profile.get("maximum")) is not int
+            or profile["minimum"] > profile["maximum"]
+            for profile in literal_profiles
+        )
+        or len(literal_profiles)
+        != len(
+            {
+                profile["id"]
+                for profile in literal_profiles
+                if isinstance(profile, dict) and "id" in profile
+            }
+        )
+    ):
+        return False
     role_rows = policy["roles"]
     roles = {
         row.get("role")
@@ -4154,6 +4179,7 @@ def _consumer_b_model_program_vector_is_closed(
     category_relations = contract.get("category_relations")
     fixture_modes = contract.get("fixture_modes")
     expect_members = contract.get("expect_members")
+    diagnostic_members = contract.get("diagnostic_members")
     lock_members = contract.get("lock_oracle_members")
     relation_kinds = contract.get("relation_kinds")
     category = vector.get("category")
@@ -4170,6 +4196,7 @@ def _consumer_b_model_program_vector_is_closed(
         or not isinstance(category_relations, dict)
         or not isinstance(fixture_modes, dict)
         or not isinstance(expect_members, list)
+        or diagnostic_members != ["code", "stage", "pointer"]
         or not isinstance(lock_members, list)
         or not isinstance(relation_kinds, list)
         or not isinstance(fixture, dict)
@@ -4249,11 +4276,13 @@ def _consumer_b_model_program_vector_is_closed(
         or not isinstance(diagnostics, list)
         or not all(
             isinstance(item, dict)
-            and set(item) == {"code", "stage"}
+            and set(item) == {"code", "stage", "pointer"}
             and isinstance(item["code"], str)
             and item["code"]
             and isinstance(item["stage"], str)
             and item["stage"]
+            and isinstance(item["pointer"], str)
+            and (not item["pointer"] or item["pointer"].startswith("/"))
             for item in diagnostics
         )
         or not isinstance(semantic_artifacts, bool)
@@ -4620,8 +4649,16 @@ def _consumer_b_operation_composition_subjects(
         return ()
     packages = language.get("packages")
     operations = language.get("operations")
+    lowerings = language.get("model_lowerings")
     if not isinstance(packages, list) or not isinstance(operations, list):
         return ()
+    assignment_policy = (
+        lowerings[0].get("assignment_policy")
+        if isinstance(lowerings, list)
+        and len(lowerings) == 1
+        and isinstance(lowerings[0], dict)
+        else None
+    )
     owners: dict[str, tuple[str, str]] = {}
     for package in packages:
         if not isinstance(package, dict):
@@ -4699,6 +4736,26 @@ def _consumer_b_operation_composition_subjects(
             if frozenset(port for port, _access in uses) not in writable:
                 return False
         return True
+
+    def literal_matches(value: Any, formal: dict[str, Any]) -> bool:
+        if (
+            type(value) is not int
+            or not isinstance(assignment_policy, dict)
+            or assignment_policy.get("literal_selection") != "unique-formal-match"
+            or not isinstance(assignment_policy.get("literal_profiles"), list)
+        ):
+            return False
+        matches = [
+            profile
+            for profile in assignment_policy["literal_profiles"]
+            if isinstance(profile, dict)
+            and profile.get("source_kind") == "integer"
+            and type(profile.get("minimum")) is int
+            and type(profile.get("maximum")) is int
+            and profile["minimum"] <= value <= profile["maximum"]
+            and value_contract_matches(profile, formal)
+        ]
+        return len(matches) == 1
 
     def close(
         coordinate: tuple[str, str, str],
@@ -4796,10 +4853,8 @@ def _consumer_b_operation_composition_subjects(
                     alias_key = f"local:{local_name}"
                 elif kind == "literal":
                     literal = operand.get("literal")
-                    if (
-                        formal.get("access") != "read"
-                        or not isinstance(literal, int)
-                        or isinstance(literal, bool)
+                    if formal.get("access") != "read" or not literal_matches(
+                        literal, formal
                     ):
                         found.add(subject(coordinate, site, "arguments"))
                         return None
@@ -6441,6 +6496,13 @@ def test_two_consumers_refuse_assignment_modes_without_an_operand_value_producer
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
+        (
+            "literal-contract",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.apply-damage.arguments"
+            ),
+        ),
     ),
 )
 def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
@@ -6463,6 +6525,18 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
     elif mutation == "argument-contract":
         defense = next(port for port in hit["inputs"] if port["id"] == "defense")
         defense["numeric_policy"] = "exact-bool"
+    elif mutation == "literal-contract":
+        damage_call = next(
+            instruction
+            for instruction in cast_operation["body"]
+            if instruction.get("site") == "apply-damage"
+        )
+        critical = next(
+            argument
+            for argument in damage_call["arguments"]
+            if argument["port"] == "critical"
+        )
+        critical["operand"] = {"kind": "literal", "literal": 1}
     else:
         hit["body"] = [
             {
@@ -7039,7 +7113,12 @@ def test_resolution_profile_symbol_mapping_must_name_the_declared_semantic_fact(
 
 @pytest.mark.parametrize(
     "mutation",
-    ("unknown-diagnostic", "invalid-resource-recipe", "missing-relation"),
+    (
+        "unknown-diagnostic",
+        "invalid-resource-recipe",
+        "missing-diagnostic-pointer",
+        "missing-relation",
+    ),
 )
 def test_reidentified_model_program_vector_contract_mutations_are_refused(
     mutation,
@@ -7058,6 +7137,12 @@ def test_reidentified_model_program_vector_contract_mutations_are_refused(
             "model.compile.boundary-max-symbols-plus-one",
         )
         vector["source_fixture"]["count_offset"] = 2
+    elif mutation == "missing-diagnostic-pointer":
+        vector = _owned_vector(
+            ldb,
+            "model.compile.negative-duplicate",
+        )
+        vector["expect"]["diagnostics"][0].pop("pointer")
     else:
         vector = _owned_vector(
             ldb,

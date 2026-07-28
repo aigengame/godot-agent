@@ -858,7 +858,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de",
+  "content_identity": "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -1373,6 +1373,11 @@
         "category",
         "source_fixture",
         "expect"
+      ],
+      "diagnostic_members": [
+        "code",
+        "stage",
+        "pointer"
       ]
     },
     "template_admission": {
@@ -2541,13 +2546,84 @@
                 },
                 "scenario_target_cardinality": {
                   "const": "one-per-resolved-actual"
+                },
+                "literal_profiles": {
+                  "items": {
+                    "field_types": {
+                      "domain": {
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "non-empty-string"
+                      },
+                      "kind": {
+                        "type": "non-empty-string"
+                      },
+                      "maximum": {
+                        "type": "signed-int64"
+                      },
+                      "minimum": {
+                        "type": "signed-int64"
+                      },
+                      "numeric_policy": {
+                        "type": "non-empty-string"
+                      },
+                      "representation": {
+                        "type": "non-empty-string"
+                      },
+                      "source_kind": {
+                        "const": "integer"
+                      },
+                      "type": {
+                        "field_types": {
+                          "id": {
+                            "type": "non-empty-string"
+                          },
+                          "package": {
+                            "type": "non-empty-string"
+                          },
+                          "version": {
+                            "type": "non-empty-string"
+                          }
+                        },
+                        "required_members": [
+                          "package",
+                          "version",
+                          "id"
+                        ],
+                        "type": "closed-object"
+                      },
+                      "unit": {
+                        "type": "non-empty-string"
+                      }
+                    },
+                    "required_members": [
+                      "id",
+                      "source_kind",
+                      "type",
+                      "representation",
+                      "kind",
+                      "unit",
+                      "domain",
+                      "numeric_policy",
+                      "minimum",
+                      "maximum"
+                    ],
+                    "type": "closed-object"
+                  },
+                  "type": "list-of"
+                },
+                "literal_selection": {
+                  "const": "unique-formal-match"
                 }
               },
               "required_members": [
                 "id",
                 "roles",
                 "scenario_target_cardinality",
-                "duplicate_actual_policy"
+                "duplicate_actual_policy",
+                "literal_profiles",
+                "literal_selection"
               ],
               "type": "closed-object"
             },

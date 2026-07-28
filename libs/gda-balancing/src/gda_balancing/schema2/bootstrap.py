@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:f5d8eca517eb1e5ec76bcc73673ec3db4b392825cef03a9ba0c497ce8da503de"
+    "sha256:6336215e46eb8a33e3f4be4b72ee58f552011148521c2fd56b970e6c562d72fb"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4088,6 +4088,33 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
     policy = lowerings[0].get("assignment_policy")
     if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
         return False
+    literal_profiles = policy.get("literal_profiles")
+    if (
+        policy.get("literal_selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+        or not literal_profiles
+        or any(
+            not isinstance(profile, dict)
+            or profile.get("source_kind") != "integer"
+            or not isinstance(profile.get("id"), str)
+            or not profile["id"]
+            or not isinstance(profile.get("minimum"), int)
+            or isinstance(profile["minimum"], bool)
+            or not isinstance(profile.get("maximum"), int)
+            or isinstance(profile["maximum"], bool)
+            or profile["minimum"] > profile["maximum"]
+            for profile in literal_profiles
+        )
+        or len(literal_profiles)
+        != len(
+            {
+                profile["id"]
+                for profile in literal_profiles
+                if isinstance(profile, dict) and "id" in profile
+            }
+        )
+    ):
+        return False
     rows = cast(list[dict[str, Any]], policy["roles"])
     by_role = {
         row.get("role"): row
@@ -4154,6 +4181,34 @@ def _operation_value_contract_matches(
     )
 
 
+def _literal_matches_operation_contract(
+    value: Any,
+    formal: dict[str, Any],
+    assignment_policy: Any,
+) -> bool:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not isinstance(assignment_policy, dict)
+        or assignment_policy.get("literal_selection") != "unique-formal-match"
+        or not isinstance(assignment_policy.get("literal_profiles"), list)
+    ):
+        return False
+    matches = [
+        profile
+        for profile in assignment_policy["literal_profiles"]
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "integer"
+        and isinstance(profile.get("minimum"), int)
+        and not isinstance(profile["minimum"], bool)
+        and isinstance(profile.get("maximum"), int)
+        and not isinstance(profile["maximum"], bool)
+        and profile["minimum"] <= value <= profile["maximum"]
+        and _operation_value_contract_matches(profile, formal)
+    ]
+    return len(matches) == 1
+
+
 def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
     inputs = operation.get("inputs")
     policy = operation.get("alias_policy")
@@ -4212,6 +4267,14 @@ def _operation_composition_diagnostic_subjects(
     language = language_bundle.get("language")
     if not isinstance(language, dict) or not isinstance(language.get("packages"), list):
         return ("language.operations",)
+    lowerings = language.get("model_lowerings")
+    assignment_policy = (
+        lowerings[0].get("assignment_policy")
+        if isinstance(lowerings, list)
+        and len(lowerings) == 1
+        and isinstance(lowerings[0], dict)
+        else None
+    )
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
         package_id = package.get("id")
@@ -4347,10 +4410,12 @@ def _operation_composition_diagnostic_subjects(
                     alias_key = f"local:{operand['local']}"
                 elif kind == "literal":
                     literal = operand.get("literal")
-                    if (
-                        formal["access"] != "read"
-                        or isinstance(literal, bool)
-                        or not isinstance(literal, int)
+                    if formal[
+                        "access"
+                    ] != "read" or not _literal_matches_operation_contract(
+                        literal,
+                        formal,
+                        assignment_policy,
                     ):
                         refuse(owner, operation, site, "arguments")
                         return None
@@ -4603,6 +4668,7 @@ def _model_program_vector_is_closed(
     category_relations = contract.get("category_relations")
     fixture_modes = contract.get("fixture_modes")
     expect_members = contract.get("expect_members")
+    diagnostic_members = contract.get("diagnostic_members")
     lock_members = contract.get("lock_oracle_members")
     relation_kinds = contract.get("relation_kinds")
     category = vector.get("category")
@@ -4619,6 +4685,7 @@ def _model_program_vector_is_closed(
         or not isinstance(category_relations, dict)
         or not isinstance(fixture_modes, dict)
         or not isinstance(expect_members, list)
+        or diagnostic_members != ["code", "stage", "pointer"]
         or not isinstance(lock_members, list)
         or not isinstance(relation_kinds, list)
         or not isinstance(fixture, dict)
@@ -4698,11 +4765,13 @@ def _model_program_vector_is_closed(
         or not isinstance(diagnostics, list)
         or not all(
             isinstance(item, dict)
-            and set(item) == {"code", "stage"}
+            and set(item) == {"code", "stage", "pointer"}
             and isinstance(item["code"], str)
             and item["code"]
             and isinstance(item["stage"], str)
             and item["stage"]
+            and isinstance(item["pointer"], str)
+            and (not item["pointer"] or item["pointer"].startswith("/"))
             for item in diagnostics
         )
         or not isinstance(semantic_artifacts, bool)

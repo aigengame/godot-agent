@@ -1038,6 +1038,7 @@ def _check_model_source_bytes(
             kernel,
             selected_semantics,
             _composition_policy(admitted_lowering),
+            _assignment_policy(admitted_lowering),
         )
     except _RuntimeProjectionResourceExhausted:
         resource_reason = _unique_reason(
@@ -1479,11 +1480,42 @@ def _assignment_policy(
     if not isinstance(policy, dict):
         raise ValueError("the admitted lowering has no Symbol assignment policy")
     rows = policy.get("roles")
+    literal_profiles = policy.get("literal_profiles")
     if (
         not isinstance(rows, list)
         or not rows
         or policy.get("scenario_target_cardinality") != "one-per-resolved-actual"
         or policy.get("duplicate_actual_policy") != "collapse"
+        or policy.get("literal_selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+        or not literal_profiles
+        or any(
+            not isinstance(profile, dict)
+            or set(profile)
+            != {
+                "domain",
+                "id",
+                "kind",
+                "maximum",
+                "minimum",
+                "numeric_policy",
+                "representation",
+                "source_kind",
+                "type",
+                "unit",
+            }
+            or profile.get("source_kind") != "integer"
+            or not isinstance(profile.get("id"), str)
+            or not profile["id"]
+            or not isinstance(profile.get("minimum"), int)
+            or isinstance(profile["minimum"], bool)
+            or not isinstance(profile.get("maximum"), int)
+            or isinstance(profile["maximum"], bool)
+            or profile["minimum"] > profile["maximum"]
+            for profile in literal_profiles
+        )
+        or len(literal_profiles)
+        != len({cast(dict[str, Any], profile)["id"] for profile in literal_profiles})
         or any(
             not isinstance(row, dict)
             or not isinstance(row.get("role"), str)
@@ -1653,6 +1685,57 @@ def _value_contract_matches(
             for member in ("representation", "kind", "unit", "numeric_policy")
         )
     )
+
+
+_LITERAL_CONTEXT_MEMBERS = (
+    "id",
+    "type",
+    "representation",
+    "kind",
+    "unit",
+    "domain",
+    "numeric_policy",
+)
+
+
+def _literal_context_contract(
+    value: Any,
+    formal: dict[str, Any],
+    assignment_policy: dict[str, Any],
+) -> dict[str, JsonValue] | None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    profiles = assignment_policy.get("literal_profiles")
+    if assignment_policy.get(
+        "literal_selection"
+    ) != "unique-formal-match" or not isinstance(profiles, list):
+        return None
+    matches = [
+        profile
+        for profile in profiles
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "integer"
+        and isinstance(profile.get("minimum"), int)
+        and not isinstance(profile["minimum"], bool)
+        and isinstance(profile.get("maximum"), int)
+        and not isinstance(profile["maximum"], bool)
+        and profile["minimum"] <= value <= profile["maximum"]
+        and profile.get("type") == formal.get("type")
+        and all(
+            profile.get(member) == formal.get(member)
+            for member in (
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+            )
+        )
+    ]
+    if len(matches) != 1:
+        return None
+    profile = cast(dict[str, JsonValue], matches[0])
+    return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
 
 
 def _value_policy_is_valid(
@@ -1948,12 +2031,21 @@ def _resolved_entrypoints(
                         "literal operand cannot bind a writable port",
                     )
                 value = source_operand["value"]
-                if not isinstance(value, int) or isinstance(value, bool):
+                context_type = _literal_context_contract(
+                    value,
+                    formal,
+                    assignment_policy,
+                )
+                if context_type is None:
                     raise _EntrypointBindingError(
                         operand_pointer,
-                        "literal operand is outside exact Int64",
+                        "literal operand is incompatible with the formal value contract",
                     )
-                operand_body = {"kind": "literal", "value": value}
+                operand_body = {
+                    "kind": "literal",
+                    "value": value,
+                    "context_type": context_type,
+                }
                 resolved_operand = {
                     **operand_body,
                     "identity": content_identity(
@@ -2115,6 +2207,7 @@ def _resolved_call_sites(
     kernel: dict[str, Any],
     selected_semantics: dict[str, Any],
     composition_policy: dict[str, Any],
+    assignment_policy: dict[str, Any],
 ) -> list[dict[str, JsonValue]]:
     """Resolve LDB-authored nested calls without flattening caller/callee names."""
     effect_policy = cast(dict[str, str], composition_policy["effects"])
@@ -2260,11 +2353,12 @@ def _resolved_call_sites(
                     )
                 elif operand["kind"] == "literal":
                     value = operand.get("literal")
-                    if (
-                        formal["access"] != "read"
-                        or not isinstance(value, int)
-                        or isinstance(value, bool)
-                    ):
+                    context_type = _literal_context_contract(
+                        value,
+                        formal,
+                        assignment_policy,
+                    )
+                    if formal["access"] != "read" or context_type is None:
                         raise ValueError("nested call literal operand is incompatible")
                     operand_body = cast(
                         dict[str, JsonValue],
@@ -2272,6 +2366,7 @@ def _resolved_call_sites(
                             "kind": "literal",
                             "parent_operation": parent_ref,
                             "value": value,
+                            "context_type": context_type,
                         },
                     )
                     resolved_operand = cast(
@@ -2279,6 +2374,7 @@ def _resolved_call_sites(
                         {
                             "kind": "literal",
                             "value": value,
+                            "context_type": context_type,
                             "identity": content_identity(
                                 domains["actual_operand"],
                                 cast(JsonValue, operand_body),
@@ -3255,13 +3351,18 @@ def _resolved_entrypoint_graph_is_admitted(
                     initializers[operand_identity] = initializer
             elif operand.get("kind") == "literal":
                 value = operand.get("value")
-                if (
-                    formal["access"] != "read"
-                    or not isinstance(value, int)
-                    or isinstance(value, bool)
-                ):
+                context_type = _literal_context_contract(
+                    value,
+                    formal,
+                    assignment_policy,
+                )
+                if formal["access"] != "read" or context_type is None:
                     return False
-                operand_body = {"kind": "literal", "value": value}
+                operand_body = {
+                    "kind": "literal",
+                    "value": value,
+                    "context_type": context_type,
+                }
                 expected_operand = {
                     **operand_body,
                     "identity": content_identity(
@@ -3492,6 +3593,7 @@ def admit_resolved_model(
             kernel,
             cast(dict[str, Any], expected_runtime_projection),
             _composition_policy(_model_lowering(ldb)),
+            _assignment_policy(_model_lowering(ldb)),
         ):
             return ResolvedModelAdmission(False, diagnostic)
     except (KeyError, TypeError, ValueError):
@@ -3566,6 +3668,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         checked.kernel,
         selected_semantics,
         _composition_policy(lowering),
+        _assignment_policy(lowering),
     )
     rir = _identified_artifact(
         checked.language_bundle,
