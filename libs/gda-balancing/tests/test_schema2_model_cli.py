@@ -2308,7 +2308,13 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
 
     call_sites = cast(
         list[dict[str, Any]],
-        model_module._resolved_call_sites(checked.kernel, selected),
+        model_module._resolved_call_sites(
+            checked.kernel,
+            selected,
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "composition_policy"
+            ],
+        ),
     )
     hit_sites = [
         row
@@ -2331,6 +2337,43 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
             for row in hit_sites
         }
     ) == 2
+
+
+@pytest.mark.parametrize(
+    ("member", "hidden_value"),
+    (
+        ("effects", "hidden.child-effect"),
+        ("refusals", "hidden.child-refusal"),
+    ),
+)
+def test_nested_call_rejects_undeclared_child_closure_widening(
+    member,
+    hidden_value,
+):
+    source = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    child = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.check.hit-v1"
+    )
+    child[member].append(hidden_value)
+
+    with pytest.raises(ValueError, match="closure exceeds caller declaration"):
+        model_module._resolved_call_sites(
+            checked.kernel,
+            selected,
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "composition_policy"
+            ],
+        )
 
 
 def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):

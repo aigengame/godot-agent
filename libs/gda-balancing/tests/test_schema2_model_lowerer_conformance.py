@@ -586,6 +586,8 @@ def _reference_check_source(
         ]
         assert len(runtime_reasons) == 1
         return (runtime_reasons[0]["diagnostic"],)
+    except ValueError:
+        return (reasons[profile["structural_reason"]]["diagnostic"],)
     return checked
 
 
@@ -1017,17 +1019,576 @@ def _reference_rir(
         for invocation in lowering["rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])
+    selected_semantics = _reference_runtime_projection(
+        checked, lock, declarations, lowering
+    )
     return _reference_artifact(
         checked,
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
-            "entrypoints": [],
-            "call_sites": [],
-            "selected_semantics": _reference_runtime_projection(
-                checked, lock, declarations, lowering
+            "entrypoints": _reference_entrypoints(
+                checked,
+                declarations,
+                selected_semantics,
             ),
+            "call_sites": _reference_call_sites(
+                checked,
+                selected_semantics,
+                lowering,
+            ),
+            "selected_semantics": selected_semantics,
         },
+    )
+
+
+def _reference_exact_operation(
+    operation_row: dict[str, Any],
+    package_versions: dict[str, str],
+) -> dict[str, str]:
+    package = operation_row["package"]
+    return {
+        "package": package,
+        "version": package_versions[package],
+        "id": operation_row["definition"]["id"],
+    }
+
+
+def _reference_value_contract_matches(
+    declaration: dict[str, Any],
+    contract: dict[str, Any],
+) -> bool:
+    expected_type = contract["type"]
+    return declaration["type_identity"] == {
+        "package": expected_type["package"],
+        "version": expected_type["version"],
+        "symbol": expected_type["id"],
+    } and all(
+        declaration[member] == contract[member]
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    )
+
+
+def _reference_entrypoints(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    lowering = _reference_lowering(checked.language_bundle["language"])
+    policy = lowering["assignment_policy"]
+    roles = {row["role"]: row for row in policy["roles"]}
+    assert set(roles) == set(
+        checked.language_bundle["language"]["quantity"]["symbol_roles"]
+    )
+    package_versions = {
+        row["id"]: row["version"] for row in selected_semantics["packages"]
+    }
+    operation_rows = selected_semantics["operations"]
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    declarations_by_source = {
+        (
+            declaration["resolved_symbol"]["module"],
+            declaration["resolved_symbol"]["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    domains = checked.kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]
+    model_modes = set(policy["model_value_modes"])
+    required_modes = set(policy["required_experiment_modes"])
+    optional_modes = set(policy["optional_experiment_modes"])
+    assert not model_modes & required_modes
+    assert not required_modes & optional_modes
+    assert optional_modes <= model_modes
+    assert policy["duplicate_actual_policy"] == "collapse"
+    assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
+    resolved_entrypoints = []
+    seen: set[str] = set()
+    for source_entrypoint in checked.source["entrypoints"]:
+        entrypoint_id = source_entrypoint["id"]
+        if entrypoint_id in seen:
+            raise ValueError("duplicate Model entrypoint")
+        seen.add(entrypoint_id)
+        operation_ref = source_entrypoint["operation"]
+        operation_row = operations.get(
+            (
+                operation_ref["package"],
+                operation_ref["version"],
+                operation_ref["id"],
+            )
+        )
+        if operation_row is None:
+            raise ValueError("entrypoint Operation is not selected")
+        operation = operation_row["definition"]
+        exact_operation = _reference_exact_operation(
+            operation_row, package_versions
+        )
+        formals = operation["inputs"]
+        authored_arguments = source_entrypoint["arguments"]
+        if [row["port"] for row in authored_arguments] != [
+            row["id"] for row in formals
+        ]:
+            raise ValueError("entrypoint arguments do not close formal ports")
+        arguments = []
+        aliases: dict[str, list[str]] = {}
+        initializers: dict[str, dict[str, Any]] = {}
+        targets: dict[str, dict[str, Any]] = {}
+        for formal, authored in zip(formals, authored_arguments, strict=True):
+            formal_body = {"operation": exact_operation, "name": formal["id"]}
+            operand = authored["operand"]
+            if operand["kind"] == "symbol":
+                declaration = declarations_by_source.get(
+                    (operand["module"], operand["symbol"])
+                )
+                if (
+                    declaration is None
+                    or not _reference_value_contract_matches(
+                        declaration, formal
+                    )
+                ):
+                    raise ValueError("entrypoint Symbol is incompatible")
+                access = formal["access"]
+                role = declaration["role"]
+                if access not in roles[role]["entrypoint_operand_access"]:
+                    raise ValueError("entrypoint Symbol role is incompatible")
+                symbol = declaration["resolved_symbol"]
+                operand_body = {"kind": "symbol", "symbol": symbol}
+                operand_identity = _reference_content_identity(
+                    domains["actual_operand"], operand_body
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(access)
+                value_policy = declaration["value_policy"]
+                mode = value_policy["mode"]
+                if mode in required_modes or mode in optional_modes:
+                    target = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "experiment",
+                        "initialization_source": "scenario-assignment",
+                        "cardinality": (
+                            "required" if mode in required_modes else "optional"
+                        ),
+                        "override": mode in optional_modes,
+                    }
+                    previous = targets.get(operand_identity)
+                    if previous is not None and previous != target:
+                        raise ValueError("conflicting Scenario targets")
+                    targets[operand_identity] = target
+                if mode in model_modes:
+                    initializer = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "model",
+                        "initialization_source": "value-policy",
+                        "value": value_policy["value"],
+                    }
+                    previous = initializers.get(operand_identity)
+                    if previous is not None and previous != initializer:
+                        raise ValueError("conflicting Model initializers")
+                    initializers[operand_identity] = initializer
+            elif operand["kind"] == "literal":
+                if formal["access"] != "read":
+                    raise ValueError("literal cannot bind a writable port")
+                operand_body = {
+                    "kind": "literal",
+                    "value": operand["value"],
+                }
+                resolved_operand = {
+                    **operand_body,
+                    "identity": _reference_content_identity(
+                        domains["actual_operand"], operand_body
+                    ),
+                }
+            else:
+                raise ValueError("unknown entrypoint operand kind")
+            arguments.append(
+                {
+                    "port": {
+                        "identity": _reference_content_identity(
+                            domains["formal_port"], formal_body
+                        ),
+                        "operation": exact_operation,
+                        "name": formal["id"],
+                    },
+                    "operand": resolved_operand,
+                    "access": formal["access"],
+                }
+            )
+        if any(
+            len(accesses) > 1 and any(access != "read" for access in accesses)
+            for accesses in aliases.values()
+        ):
+            raise ValueError("entrypoint has an illegal writable alias")
+        authored_result = source_entrypoint["result"]
+        if authored_result["kind"] == "discard":
+            if operation["result"]["discardable"] is not True:
+                raise ValueError("required result cannot be discarded")
+            result_body = {"kind": "discard"}
+        else:
+            result_declaration = declarations_by_source.get(
+                (authored_result["module"], authored_result["symbol"])
+            )
+            if (
+                result_declaration is None
+                or not roles[result_declaration["role"]]["entrypoint_result"]
+                or not _reference_value_contract_matches(
+                    result_declaration, operation["result"]
+                )
+            ):
+                raise ValueError("entrypoint result is incompatible")
+            result_body = {
+                "kind": "symbol",
+                "symbol": result_declaration["resolved_symbol"],
+            }
+        result = {
+            **result_body,
+            "identity": _reference_content_identity(
+                domains["result"], result_body
+            ),
+        }
+        body = {
+            "id": entrypoint_id,
+            "operation": exact_operation,
+            "arguments": arguments,
+            "result": result,
+            "effects": operation["effects"],
+            "refusals": operation["refusals"],
+            "resource_bounds": operation["resource_bounds"],
+            "scenario_input_contract": {
+                "initializers": sorted(
+                    initializers.values(),
+                    key=lambda row: row["target_identity"],
+                ),
+                "targets": sorted(
+                    targets.values(),
+                    key=lambda row: row["target_identity"],
+                ),
+            },
+        }
+        resolved_entrypoints.append(
+            {
+                **body,
+                "identity": _reference_content_identity(
+                    domains["entrypoint"], body
+                ),
+            }
+        )
+    return sorted(resolved_entrypoints, key=lambda row: row["id"])
+
+
+def _reference_operation_contract_matches(
+    actual: dict[str, Any],
+    formal: dict[str, Any],
+) -> bool:
+    return actual["type"] == formal["type"] and all(
+        actual[member] == formal[member]
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    )
+
+
+def _reference_call_sites(
+    checked: CheckedModel,
+    selected_semantics: dict[str, Any],
+    lowering: dict[str, Any],
+) -> list[dict[str, Any]]:
+    assert lowering["composition_policy"] == {
+        "effects": "callee-subset-of-caller-declaration",
+        "refusals": "callee-subset-of-caller-declaration",
+        "resources": "transitive-charge-within-caller-bound",
+    }
+    package_versions = {
+        row["id"]: row["version"] for row in selected_semantics["packages"]
+    }
+    operation_rows = selected_semantics["operations"]
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    domains = checked.kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]
+    rows = []
+    cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+
+    def close(
+        operation_row: dict[str, Any],
+        stack: tuple[tuple[str, str, str], ...],
+    ) -> tuple[set[str], set[str], int]:
+        parent_ref = _reference_exact_operation(
+            operation_row, package_versions
+        )
+        parent_key = (
+            parent_ref["package"],
+            parent_ref["version"],
+            parent_ref["id"],
+        )
+        if parent_key in stack:
+            raise ValueError("Operation call graph contains a cycle")
+        if parent_key in cache:
+            return cache[parent_key]
+        operation = operation_row["definition"]
+        parent_ports = {row["id"]: row for row in operation["inputs"]}
+        parent_outcomes = {
+            row["id"] for row in operation.get("outcomes", [])
+        }
+        local_contracts: dict[str, dict[str, Any]] = {}
+        effects = set(operation["effects"])
+        refusals = set(operation["refusals"])
+        charge = 0
+        seen_sites: set[str] = set()
+        for order, instruction in enumerate(operation["body"]):
+            charge += 1
+            if instruction["node"] != "invoke":
+                continue
+            site = instruction["site"]
+            if site in seen_sites:
+                raise ValueError("duplicate nested call site")
+            seen_sites.add(site)
+            child_ref = instruction["operation"]
+            child_row = operations.get(
+                (
+                    child_ref["package"],
+                    child_ref["version"],
+                    child_ref["id"],
+                )
+            )
+            if child_row is None:
+                raise ValueError("nested Operation is not selected")
+            child = child_row["definition"]
+            exact_child = _reference_exact_operation(
+                child_row, package_versions
+            )
+            child_ports = child["inputs"]
+            authored_arguments = instruction["arguments"]
+            if [row["port"] for row in authored_arguments] != [
+                row["id"] for row in child_ports
+            ]:
+                raise ValueError("nested arguments do not close formal ports")
+            aliases: dict[str, list[tuple[str, str]]] = {}
+            arguments = []
+            for formal, authored in zip(
+                child_ports, authored_arguments, strict=True
+            ):
+                formal_body = {"operation": exact_child, "name": formal["id"]}
+                operand = authored["operand"]
+                if operand["kind"] == "port":
+                    contract = parent_ports.get(operand["port"])
+                    if (
+                        contract is None
+                        or not _reference_operation_contract_matches(
+                            contract, formal
+                        )
+                        or (
+                            formal["access"] in {"read-write", "write"}
+                            and contract["access"] not in {"read-write", "write"}
+                        )
+                    ):
+                        raise ValueError("nested port operand is incompatible")
+                    operand_body = {
+                        "kind": "port",
+                        "parent_operation": parent_ref,
+                        "port": operand["port"],
+                    }
+                    resolved_operand = {
+                        "kind": "port",
+                        "port": operand["port"],
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                elif operand["kind"] == "local":
+                    contract = local_contracts.get(operand["local"])
+                    if (
+                        contract is None
+                        or formal["access"] != "read"
+                        or not _reference_operation_contract_matches(
+                            contract, formal
+                        )
+                    ):
+                        raise ValueError("nested local operand is incompatible")
+                    operand_body = {
+                        "kind": "local",
+                        "parent_operation": parent_ref,
+                        "local": operand["local"],
+                    }
+                    resolved_operand = {
+                        "kind": "local",
+                        "local": operand["local"],
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                elif operand["kind"] == "literal":
+                    if formal["access"] != "read":
+                        raise ValueError("nested literal is incompatible")
+                    operand_body = {
+                        "kind": "literal",
+                        "parent_operation": parent_ref,
+                        "value": operand["literal"],
+                    }
+                    resolved_operand = {
+                        "kind": "literal",
+                        "value": operand["literal"],
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                else:
+                    raise ValueError("unknown nested operand kind")
+                actual_identity = resolved_operand["identity"]
+                aliases.setdefault(actual_identity, []).append(
+                    (formal["id"], formal["access"])
+                )
+                arguments.append(
+                    {
+                        "port": {
+                            "identity": _reference_content_identity(
+                                domains["formal_port"], formal_body
+                            ),
+                            "operation": exact_child,
+                            "name": formal["id"],
+                        },
+                        "operand": resolved_operand,
+                        "access": formal["access"],
+                    }
+                )
+            alias_rows = []
+            for actual_identity, uses in aliases.items():
+                if len(uses) < 2:
+                    continue
+                if any(access != "read" for _name, access in uses):
+                    raise ValueError("nested writable alias is illegal")
+                alias_rows.append(
+                    {
+                        "actual_operand_identity": actual_identity,
+                        "ports": [name for name, _access in uses],
+                        "policy": "read-only-share",
+                    }
+                )
+            authored_result = instruction["result"]
+            if authored_result["kind"] == "discard":
+                if child["result"]["discardable"] is not True:
+                    raise ValueError("required nested result is discarded")
+            elif authored_result["kind"] == "local":
+                name = authored_result["name"]
+                if name in local_contracts:
+                    raise ValueError("nested result local is repeated")
+                local_contracts[name] = child["result"]
+            elif authored_result["kind"] == "operation-result":
+                if not _reference_operation_contract_matches(
+                    child["result"], operation["result"]
+                ):
+                    raise ValueError("nested result is incompatible")
+            else:
+                raise ValueError("unknown nested result binding")
+            result_body = {
+                "parent_operation": parent_ref,
+                "site": site,
+                "operation": exact_child,
+                "binding": authored_result,
+            }
+            result = {
+                "identity": _reference_content_identity(
+                    domains["result"], result_body
+                ),
+                "binding": authored_result,
+            }
+            authored_outcomes = instruction["outcomes"]
+            if [row["outcome"] for row in authored_outcomes] != [
+                row["id"] for row in child["outcomes"]
+            ]:
+                raise ValueError("nested outcome mapping is not exhaustive")
+            outcomes = []
+            for mapping in authored_outcomes:
+                action = mapping["action"]
+                if (
+                    action["kind"] == "propagate"
+                    and action["outcome"] not in parent_outcomes
+                ):
+                    raise ValueError("nested outcome is not admitted by caller")
+                outcome_body = {
+                    "parent_operation": parent_ref,
+                    "site": site,
+                    "operation": exact_child,
+                    "outcome": mapping["outcome"],
+                    "action": action,
+                }
+                outcomes.append(
+                    {
+                        "identity": _reference_content_identity(
+                            domains["outcome"], outcome_body
+                        ),
+                        "outcome": mapping["outcome"],
+                        "action": action,
+                    }
+                )
+            child_effects, child_refusals, child_charge = close(
+                child_row, (*stack, parent_key)
+            )
+            if (
+                not child_effects <= set(operation["effects"])
+                or not child_refusals <= set(operation["refusals"])
+            ):
+                raise ValueError("nested closure exceeds caller declaration")
+            effects.update(child_effects)
+            refusals.update(child_refusals)
+            charge += child_charge
+            body = {
+                "parent_operation": parent_ref,
+                "site": site,
+                "order": order,
+                "operation": exact_child,
+                "arguments": arguments,
+                "result": result,
+                "outcomes": outcomes,
+                "aliases": alias_rows,
+                "closure": {
+                    "effects": sorted(child_effects),
+                    "refusals": sorted(child_refusals),
+                    "resource_charge": 1 + child_charge,
+                },
+            }
+            rows.append(
+                {
+                    **body,
+                    "identity": _reference_content_identity(
+                        domains["call_site"], body
+                    ),
+                }
+            )
+        if charge > operation["resource_bounds"]["max_steps"]:
+            raise ValueError("transitive resource charge exceeds caller bound")
+        cache[parent_key] = effects, refusals, charge
+        return effects, refusals, charge
+
+    for operation_row in sorted(
+        operation_rows,
+        key=lambda row: (row["package"], row["definition"]["id"]),
+    ):
+        close(operation_row, ())
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["parent_operation"]["package"],
+            row["parent_operation"]["id"],
+            row["order"],
+        ),
     )
 
 
@@ -1366,17 +1927,24 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     kernel, language_bundle = load_authorities()
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
-    vector_set = next(
-        vector_set
-        for vector_set in language_bundle.package_conformance_vector_sets
-        if vector_ids <= set(vector_set["vectors"])
-    )
-    package = next(
+    vector_owners = {
+        vector_id: [
+            vector_set
+            for vector_set in language_bundle.package_conformance_vector_sets
+            if vector_id in vector_set["vectors"]
+        ]
+        for vector_id in vector_ids
+    }
+    assert all(len(owners) == 1 for owners in vector_owners.values())
+    owner_coordinates = {
+        (owners[0]["package_id"], owners[0]["package_version"])
+        for owners in vector_owners.values()
+    }
+    packages = [
         package
         for package in language_bundle["language"]["packages"]
-        if package["id"] == vector_set["package_id"]
-        and package["version"] == vector_set["package_version"]
-    )
+        if (package["id"], package["version"]) in owner_coordinates
+    ]
     assert {item["category"] for item in vectors} == {
         "positive",
         "negative",
@@ -1384,9 +1952,11 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "mutation",
         "semantic-equivalence",
     }
-    assert {item["id"] for item in vectors} <= set(vector_set["vectors"])
+    assert set(vector_owners) == vector_ids
     assert all(
-        entry["authority_path"] != "vectors" for entry in package["semantic_closure"]
+        entry["authority_path"] != "vectors"
+        for package in packages
+        for entry in package["semantic_closure"]
     )
 
     results: dict[str, dict[str, Any] | None] = {}
@@ -1512,6 +2082,42 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
         )
     )
     assert _reference_admits_semantic_artifacts(production, reference_checked)
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        }
+    ).admitted
+
+
+def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
+    path = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, language_bundle = load_authorities()
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert production["rir-semantic-payload"] == reference[
+        "rir-semantic-payload"
+    ]
+    rir = reference["rir-semantic-payload"]
+    assert len(cast(list[Any], rir["entrypoints"])) == 1
+    assert len(cast(list[Any], rir["call_sites"])) == 4
     assert admit_resolved_model(
         {
             name: reference[name]

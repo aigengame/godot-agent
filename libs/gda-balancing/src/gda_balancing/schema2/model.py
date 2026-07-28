@@ -1026,6 +1026,11 @@ def _check_model_source_bytes(
             cast(list[dict[str, Any]], declarations),
             selected_semantics,
         )
+        _resolved_call_sites(
+            kernel,
+            selected_semantics,
+            _composition_policy(admitted_lowering),
+        )
     except _RuntimeProjectionResourceExhausted:
         resource_reason = _unique_reason(
             ldb,
@@ -1936,11 +1941,30 @@ def _operation_contract_matches(
     )
 
 
+def _composition_policy(lowering: dict[str, Any]) -> dict[str, str]:
+    policy = lowering.get("composition_policy")
+    expected = {
+        "effects": "callee-subset-of-caller-declaration",
+        "refusals": "callee-subset-of-caller-declaration",
+        "resources": "transitive-charge-within-caller-bound",
+    }
+    if policy != expected:
+        raise ValueError("the admitted lowering has no closed composition policy")
+    return cast(dict[str, str], policy)
+
+
 def _resolved_call_sites(
     kernel: dict[str, Any],
     selected_semantics: dict[str, Any],
+    composition_policy: dict[str, str],
 ) -> list[dict[str, JsonValue]]:
     """Resolve LDB-authored nested calls without flattening caller/callee names."""
+    if composition_policy != {
+        "effects": "callee-subset-of-caller-declaration",
+        "refusals": "callee-subset-of-caller-declaration",
+        "resources": "transitive-charge-within-caller-bound",
+    }:
+        raise ValueError("nested-call composition policy is not admitted")
     package_versions = {
         row["id"]: row["version"]
         for row in cast(list[dict[str, str]], selected_semantics["packages"])
@@ -2226,6 +2250,14 @@ def _resolved_call_sites(
             child_effects, child_refusals, child_charge = operation_closure(
                 child_row, (*stack, parent_key)
             )
+            if (
+                not child_effects <= set(cast(list[str], operation["effects"]))
+                or not child_refusals
+                <= set(cast(list[str], operation["refusals"]))
+            ):
+                raise ValueError(
+                    "nested Operation closure exceeds caller declaration"
+                )
             effects.update(child_effects)
             refusals.update(child_refusals)
             charge += child_charge
@@ -3343,7 +3375,9 @@ def admit_resolved_model(
         ):
             return ResolvedModelAdmission(False, diagnostic)
         if rir.get("call_sites") != _resolved_call_sites(
-            kernel, cast(dict[str, Any], expected_runtime_projection)
+            kernel,
+            cast(dict[str, Any], expected_runtime_projection),
+            _composition_policy(_model_lowering(ldb)),
         ):
             return ResolvedModelAdmission(False, diagnostic)
     except (KeyError, TypeError, ValueError):
@@ -3414,7 +3448,11 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         cast(list[dict[str, Any]], declarations),
         selected_semantics,
     )
-    call_sites = _resolved_call_sites(checked.kernel, selected_semantics)
+    call_sites = _resolved_call_sites(
+        checked.kernel,
+        selected_semantics,
+        _composition_policy(lowering),
+    )
     rir = _identified_artifact(
         checked.language_bundle,
         "rir-semantic-payload",

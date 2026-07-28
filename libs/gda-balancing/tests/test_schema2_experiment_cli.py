@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -212,23 +212,69 @@ def _reference_execute_event(
     scenario: dict[str, Any],
     *,
     seed: int,
-    state_names: set[str],
-    root_arguments: list[dict[str, Any]] | None = None,
-    result_target: str | None = None,
+    state_names: set[str] | None = None,
     resolved_entrypoint: dict[str, Any] | None = None,
+    resolved_declarations: list[dict[str, Any]] | None = None,
     resolved_call_sites: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
     nodes = {row["id"]: row for row in runtime["nodes"]}
-    if "assignments" in scenario:
+    variables: dict[str | tuple[str, str, str], Any]
+    state_targets: set[str | tuple[str, str, str]]
+    display_names: dict[str | tuple[str, str, str], str]
+    if resolved_entrypoint is not None:
+        assert resolved_declarations is not None
+        declarations = {
+            (
+                row["resolved_symbol"]["model"],
+                row["resolved_symbol"]["module"],
+                row["resolved_symbol"]["name"],
+            ): row
+            for row in resolved_declarations
+        }
         variables = {
-            row["target"]["name"]: row["value"] for row in scenario["assignments"]
+            (
+                row["target"]["model"],
+                row["target"]["module"],
+                row["target"]["name"],
+            ): row["value"]
+            for row in resolved_entrypoint["scenario_input_contract"]["initializers"]
+        }
+        variables.update(
+            {
+                (
+                    row["target"]["model"],
+                    row["target"]["module"],
+                    row["target"]["name"],
+                ): row["value"]
+                for row in scenario["assignments"]
+            }
+        )
+        state_targets = {
+            coordinate
+            for coordinate, declaration in declarations.items()
+            if declaration["role"] == "state"
+        }
+        display_names = {
+            coordinate: declaration["resolved_symbol"]["name"]
+            for coordinate, declaration in declarations.items()
         }
     else:
-        variables = {row["name"]: row["value"] for row in scenario["values"]}
+        assert state_names is not None
+        legacy_variables: dict[str, Any] = {
+            row["name"]: row["value"] for row in scenario["values"]
+        }
+        variables = cast(
+            dict[str | tuple[str, str, str], Any],
+            legacy_variables,
+        )
+        state_targets = set(state_names)
+        display_names = {name: name for name in legacy_variables}
     cells = {name: {"value": value} for name, value in variables.items()}
-    state_cells = {name: cells[name] for name in state_names}
+    state_cells = {
+        name: cells[name] for name in state_targets if name in cells
+    }
     before = {name: cell["value"] for name, cell in state_cells.items()}
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
@@ -414,7 +460,7 @@ def _reference_execute_event(
             result = None
         return outcome, result
 
-    if root_arguments is None:
+    if resolved_entrypoint is None:
         root_arguments = [
             {
                 "port": port["id"],
@@ -422,23 +468,47 @@ def _reference_execute_event(
             }
             for port in operation["inputs"]
         ]
-    root_frame = {
-        row["port"]: cells[row["operand"]["symbol"]] for row in root_arguments
-    }
+        root_frame = {
+            row["port"]: cells[row["operand"]["symbol"]]
+            for row in root_arguments
+        }
+    else:
+        root_frame = {}
+        for argument in resolved_entrypoint["arguments"]:
+            operand = argument["operand"]
+            if operand["kind"] == "symbol":
+                symbol = operand["symbol"]
+                coordinate = (
+                    symbol["model"],
+                    symbol["module"],
+                    symbol["name"],
+                )
+                actual = cells[coordinate]
+            else:
+                actual = {"value": operand["value"]}
+            root_frame[argument["port"]["name"]] = actual
     outcome, result = execute(
         operation,
         root_frame,
         path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
     )
-    if result_target is not None:
-        cells[result_target] = {"value": result}
+    if (
+        resolved_entrypoint is not None
+        and resolved_entrypoint["result"]["kind"] == "symbol"
+    ):
+        symbol = resolved_entrypoint["result"]["symbol"]
+        coordinate = (symbol["model"], symbol["module"], symbol["name"])
+        cells[coordinate] = {"value": result}
+        display_names[coordinate] = symbol["name"]
     outcome_definition = next(
         row for row in operation["outcomes"] if row["id"] == outcome
     )
     if outcome_definition["state_policy"] == "rollback":
         for name, value in before.items():
             state_cells[name]["value"] = value
-    facts = {name: cell["value"] for name, cell in cells.items()}
+    facts: dict[str, Any] = {
+        display_names[name]: cell["value"] for name, cell in cells.items()
+    }
     event = {
         "operation": operation["id"],
         "outcome": {
@@ -447,10 +517,14 @@ def _reference_execute_event(
         },
         "facts": _reference_fact_rows(facts),
         "state_before": [
-            {"name": name, "value": before[name]} for name in sorted(before)
+            {"name": display_names[name], "value": before[name]}
+            for name in sorted(before)
         ],
         "state_after": [
-            {"name": name, "value": state_cells[name]["value"]}
+            {
+                "name": display_names[name],
+                "value": state_cells[name]["value"],
+            }
             for name in sorted(state_cells)
         ],
         "rng_draws": draws,
@@ -956,12 +1030,6 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     operation = next(
         row for row in operations.values() if row["id"] == "game.combat.cast-v1"
     )
-    state_names = {
-        row["symbol"]
-        for module in source_value["modules"]
-        for row in module["symbols"]
-        if row["role"] == "state"
-    }
     rir = _member(build_receipt, "rir-semantic-payload")
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
@@ -972,10 +1040,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         operations,
         first_spec["scenarios"][0],
         seed=first_spec["seed"]["value"],
-        state_names=state_names,
-        root_arguments=source_value["entrypoints"][0]["arguments"],
-        result_target=source_value["entrypoints"][0]["result"]["symbol"],
         resolved_entrypoint=resolved_entrypoint,
+        resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
     )
     assert {
