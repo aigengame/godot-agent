@@ -6632,13 +6632,13 @@ def test_two_consumers_project_kernel_package_coordinate_patterns():
     }
 
 
-def test_two_consumers_follow_a_mutated_kernel_coordinate_pattern(monkeypatch):
+def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch):
     authority = authority_set()
     kernel = authority["kernel"]
     ldb = authority["language_bundle"]
     kernel["meta_format"]["package_conformance_vector_set"]["field_types"][
         "package_id"
-    ]["pattern"] = r"^game\.[a-z0-9]+$"
+    ]["pattern"] = r"^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
     _reidentify(kernel, ldb)
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
@@ -6651,12 +6651,8 @@ def test_two_consumers_follow_a_mutated_kernel_coordinate_pattern(monkeypatch):
     second = _consumer_b(kernel, ldb)
 
     assert first == second
-    assert first["admitted"] is False
-    assert any(
-        code == "kernel.vector_mismatch"
-        and subject == "language-bundle.language.packages.0.vectors"
-        for _stage, code, subject in first["diagnostics"]
-    )
+    assert first["admitted"] is True
+    assert first["diagnostics"] == []
 
 
 @pytest.mark.parametrize(
