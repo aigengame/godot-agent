@@ -205,6 +205,15 @@ def _reference_fact_rows(values: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+class _ReferenceRuntimeRefusal(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+        self.operation: str | None = None
+        self.call_path: str | None = None
+        self.call_site_identity: str | None = None
+
+
 def _reference_execute_event(
     kernel: dict[str, Any],
     operation: dict[str, Any],
@@ -286,7 +295,8 @@ def _reference_execute_event(
     }
 
     def exact(value: int) -> int:
-        assert numeric["minimum"] <= value <= numeric["maximum"]
+        if not numeric["minimum"] <= value <= numeric["maximum"]:
+            raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
         return value
 
     def execute(
@@ -309,140 +319,155 @@ def _reference_execute_event(
         def write_local(name: str, value: Any) -> None:
             locals_[name] = {"value": value}
 
-        for instruction in selected["body"]:
-            node = nodes[instruction["node"]]
-            assert set(instruction) == set(node["required_members"])
-            semantics = node["semantics"]
-            operator = semantics["operator"]
-            if operator == "invoke-operation":
-                child = operations[instruction["operation"]["id"]]
-                child_arguments: dict[str, dict[str, Any]] = {}
-                for binding in instruction["arguments"]:
-                    operand = binding["operand"]
-                    if operand["kind"] == "port":
-                        actual = arguments[operand["port"]]
-                    elif operand["kind"] == "local":
-                        actual = locals_[operand["local"]]
-                    else:
-                        actual = {"value": operand["value"]}
-                    child_arguments[binding["port"]] = actual
-                child_outcome, child_result = execute(
-                    child,
-                    child_arguments,
-                    (*stack, selected["id"]),
-                    (*path, instruction["site"]),
-                )
-                if resolved_call_sites is not None:
-                    call_site = call_sites[(selected["id"], instruction["site"])]
-                    outcome_row = next(
-                        row
-                        for row in call_site["outcomes"]
+        try:
+            for instruction in selected["body"]:
+                node = nodes[instruction["node"]]
+                assert set(instruction) == set(node["required_members"])
+                semantics = node["semantics"]
+                operator = semantics["operator"]
+                if operator == "invoke-operation":
+                    child = operations[instruction["operation"]["id"]]
+                    child_arguments: dict[str, dict[str, Any]] = {}
+                    for binding in instruction["arguments"]:
+                        operand = binding["operand"]
+                        if operand["kind"] == "port":
+                            actual = arguments[operand["port"]]
+                        elif operand["kind"] == "local":
+                            actual = locals_[operand["local"]]
+                        else:
+                            actual = {"value": operand["value"]}
+                        child_arguments[binding["port"]] = actual
+                    try:
+                        child_outcome, child_result = execute(
+                            child,
+                            child_arguments,
+                            (*stack, selected["id"]),
+                            (*path, instruction["site"]),
+                        )
+                    except _ReferenceRuntimeRefusal as refusal:
+                        if resolved_call_sites is not None:
+                            refusal.call_site_identity = call_sites[
+                                (selected["id"], instruction["site"])
+                            ]["identity"]
+                        raise
+                    if resolved_call_sites is not None:
+                        call_site = call_sites[(selected["id"], instruction["site"])]
+                        outcome_row = next(
+                            row
+                            for row in call_site["outcomes"]
+                            if row["outcome"] == child_outcome
+                        )
+                        calls.append(
+                            {
+                                "call_site_identity": call_site["identity"],
+                                "site": "/".join((*path, instruction["site"])),
+                                "operation": call_site["operation"],
+                                "outcome": {
+                                    "id": child_outcome,
+                                    "identity": outcome_row["identity"],
+                                },
+                                "arguments": [
+                                    {
+                                        "formal_port_identity": row["port"]["identity"],
+                                        "actual_operand_identity": row["operand"][
+                                            "identity"
+                                        ],
+                                    }
+                                    for row in call_site["arguments"]
+                                ],
+                                "result_identity": call_site["result"]["identity"],
+                            }
+                        )
+                    result_binding = instruction["result"]
+                    if result_binding["kind"] == "local":
+                        write_local(result_binding["name"], child_result)
+                    action = next(
+                        row["action"]
+                        for row in instruction["outcomes"]
                         if row["outcome"] == child_outcome
                     )
-                    calls.append(
-                        {
-                            "call_site_identity": call_site["identity"],
-                            "site": "/".join((*path, instruction["site"])),
-                            "operation": call_site["operation"],
-                            "outcome": {
-                                "id": child_outcome,
-                                "identity": outcome_row["identity"],
-                            },
-                            "arguments": [
-                                {
-                                    "formal_port_identity": row["port"]["identity"],
-                                    "actual_operand_identity": row["operand"][
-                                        "identity"
-                                    ],
-                                }
-                                for row in call_site["arguments"]
-                            ],
-                            "result_identity": call_site["result"]["identity"],
-                        }
-                    )
-                result_binding = instruction["result"]
-                if result_binding["kind"] == "local":
-                    write_local(result_binding["name"], child_result)
-                action = next(
-                    row["action"]
-                    for row in instruction["outcomes"]
-                    if row["outcome"] == child_outcome
-                )
-                if action["kind"] == "propagate":
-                    outcome = action["outcome"]
-                    break
-                continue
-            if operator == "gameplay-precondition":
-                if not _reference_compare(
-                    semantics["comparison"],
-                    cell(instruction["left"])["value"],
-                    cell(instruction["right"])["value"],
-                ):
-                    outcome = instruction["outcome"]
-                    break
-            elif operator == "named-integer-draw":
-                draw = _reference_rng_draw(
-                    runtime["named_rng"],
-                    seed,
-                    instruction["stream"],
-                    instruction["minimum"],
-                    instruction["maximum"],
-                    rng_states,
-                    rng_indices,
-                )
-                draws.append(draw)
-                write_local(instruction["target"], draw["value"])
-            elif operator == "integer-literal":
-                write_local(instruction["target"], instruction["literal"])
-            elif operator == "copy-value":
-                write_local(
-                    instruction["target"],
-                    cell(instruction["value"])["value"],
-                )
-            elif operator in {
-                "integer-add",
-                "integer-subtract",
-                "integer-multiply",
-                "integer-maximum",
-            }:
-                left = cell(instruction["left"])["value"]
-                right = cell(instruction["right"])["value"]
-                result = {
-                    "integer-add": lambda: left + right,
-                    "integer-subtract": lambda: left - right,
-                    "integer-multiply": lambda: left * right,
-                    "integer-maximum": lambda: max(left, right),
-                }[operator]()
-                write_local(instruction["target"], exact(result))
-            elif operator == "integer-compare":
-                write_local(
-                    instruction["target"],
-                    _reference_compare(
+                    if action["kind"] == "propagate":
+                        outcome = action["outcome"]
+                        break
+                    continue
+                if operator == "gameplay-precondition":
+                    if not _reference_compare(
                         semantics["comparison"],
                         cell(instruction["left"])["value"],
                         cell(instruction["right"])["value"],
-                    ),
-                )
-            elif operator == "select-value":
-                choice = (
-                    instruction["when_true"]
-                    if cell(instruction["condition"])["value"]
-                    else instruction["when_false"]
-                )
-                write_local(instruction["target"], cell(choice)["value"])
-            elif operator == "state-integer-subtract":
-                target = arguments[instruction["symbol"]]
-                target["value"] = exact(
-                    target["value"] - cell(instruction["value"])["value"]
-                )
-            elif operator == "state-write":
-                arguments[instruction["symbol"]]["value"] = exact(
-                    cell(instruction["value"])["value"]
-                )
-            else:
-                raise AssertionError(
-                    f"unsupported operator in authority: {operator}"
-                )
+                    ):
+                        outcome = instruction["outcome"]
+                        break
+                elif operator == "named-integer-draw":
+                    draw = _reference_rng_draw(
+                        runtime["named_rng"],
+                        seed,
+                        instruction["stream"],
+                        instruction["minimum"],
+                        instruction["maximum"],
+                        rng_states,
+                        rng_indices,
+                    )
+                    draws.append(draw)
+                    write_local(instruction["target"], draw["value"])
+                elif operator == "integer-literal":
+                    write_local(instruction["target"], instruction["literal"])
+                elif operator == "copy-value":
+                    write_local(
+                        instruction["target"],
+                        cell(instruction["value"])["value"],
+                    )
+                elif operator in {
+                    "integer-add",
+                    "integer-subtract",
+                    "integer-multiply",
+                    "integer-maximum",
+                }:
+                    left = cell(instruction["left"])["value"]
+                    right = cell(instruction["right"])["value"]
+                    result = {
+                        "integer-add": lambda: left + right,
+                        "integer-subtract": lambda: left - right,
+                        "integer-multiply": lambda: left * right,
+                        "integer-maximum": lambda: max(left, right),
+                    }[operator]()
+                    write_local(instruction["target"], exact(result))
+                elif operator == "integer-compare":
+                    write_local(
+                        instruction["target"],
+                        _reference_compare(
+                            semantics["comparison"],
+                            cell(instruction["left"])["value"],
+                            cell(instruction["right"])["value"],
+                        ),
+                    )
+                elif operator == "select-value":
+                    choice = (
+                        instruction["when_true"]
+                        if cell(instruction["condition"])["value"]
+                        else instruction["when_false"]
+                    )
+                    write_local(instruction["target"], cell(choice)["value"])
+                elif operator == "state-integer-subtract":
+                    target = arguments[instruction["symbol"]]
+                    target["value"] = exact(
+                        target["value"] - cell(instruction["value"])["value"]
+                    )
+                elif operator == "state-write":
+                    arguments[instruction["symbol"]]["value"] = exact(
+                        cell(instruction["value"])["value"]
+                    )
+                else:
+                    raise AssertionError(
+                        f"unsupported operator in authority: {operator}"
+                    )
+        except _ReferenceRuntimeRefusal as refusal:
+            for key, value in snapshot.items():
+                frame_cells[key]["value"] = value
+            if refusal.operation is None:
+                refusal.operation = selected["id"]
+                refusal.call_path = "/".join(path)
+            raise
 
         outcome_definition = next(
             row for row in selected["outcomes"] if row["id"] == outcome
@@ -487,11 +512,32 @@ def _reference_execute_event(
             else:
                 actual = {"value": operand["value"]}
             root_frame[argument["port"]["name"]] = actual
-    outcome, result = execute(
-        operation,
-        root_frame,
-        path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
-    )
+    try:
+        outcome, result = execute(
+            operation,
+            root_frame,
+            path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
+        )
+    except _ReferenceRuntimeRefusal as refusal:
+        return {
+            "refusal": {
+                "reason": refusal.reason,
+                "operation": refusal.operation,
+                "call_path": refusal.call_path,
+                "call_site_identity": refusal.call_site_identity,
+            },
+            "state_before": [
+                {"name": display_names[name], "value": before[name]}
+                for name in sorted(before)
+            ],
+            "state_after": [
+                {
+                    "name": display_names[name],
+                    "value": state_cells[name]["value"],
+                }
+                for name in sorted(state_cells)
+            ],
+        }
     if (
         resolved_entrypoint is not None
         and resolved_entrypoint["result"]["kind"] == "symbol"
@@ -1648,6 +1694,32 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         {"name": "target_health", "value": 100},
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    kernel, ldb = experiment_runtime_module.load_authorities()
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    rir = _member(build_receipt, "rir-semantic-payload")
+    resolved_entrypoint = next(
+        row for row in rir["entrypoints"] if row["id"] == "combat.cast"
+    )
+    reference = _reference_execute_event(
+        kernel,
+        operations["game.combat.cast-v1"],
+        operations,
+        specification["scenarios"][0],
+        seed=specification["seed"]["value"],
+        resolved_entrypoint=resolved_entrypoint,
+        resolved_declarations=rir["declarations"],
+        resolved_call_sites=rir["call_sites"],
+    )
+    assert reference == {
+        "refusal": {
+            "reason": audit["refusing_event"]["reason"],
+            "operation": audit["refusing_event"]["operation"],
+            "call_path": audit["refusing_event"]["call_path"],
+            "call_site_identity": audit["refusing_event"]["call_site_identity"],
+        },
+        "state_before": audit["rollback"]["state_before"],
+        "state_after": audit["rollback"]["state_after"],
+    }
 
 
 def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(

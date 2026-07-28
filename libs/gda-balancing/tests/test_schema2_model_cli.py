@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
@@ -2190,6 +2191,102 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
     assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
 
 
+@pytest.mark.parametrize(
+    ("member", "incompatible"),
+    (
+        (
+            "type",
+            {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+        ),
+        ("representation", "Bool"),
+        ("kind", "boolean"),
+        ("unit", "incompatible-unit"),
+        ("numeric_policy", "exact-bool"),
+    ),
+)
+def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
+    member,
+    incompatible,
+):
+    source = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    cast_operation = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    accuracy = next(
+        port for port in cast_operation["inputs"] if port["id"] == "accuracy"
+    )
+    accuracy[member] = incompatible
+
+    with pytest.raises(ValueError, match="incompatible"):
+        model_module._resolved_entrypoints(
+            checked,
+            cast(list[dict[str, Any]], rir["declarations"]),
+            selected,
+        )
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    (
+        ("package", "missing.package"),
+        ("version", "9.0.0"),
+        ("id", "quantity.missing"),
+    ),
+)
+def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
+    tmp_path,
+    run_cli,
+    member,
+    value,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source_value["entrypoints"][0]["operation"][member] = value
+    source = tmp_path / f"stale-operation-{member}.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+
+
 def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path):
     def lower(source_value: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
         source = tmp_path / f"{name}.json"
@@ -2386,7 +2483,15 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
     parameter = next(
         row for row in assignment_policy["roles"] if row["role"] == "parameter"
     )
-    parameter["modes"].append("orphan-source")
+    parameter["modes"].append(
+        {
+            "id": "orphan-source",
+            "initialization_source": "execution",
+            "value_member": "forbidden",
+            "experiment_cardinality": "forbidden",
+            "override": False,
+        }
+    )
     mode_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"][
         "properties"
     ]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
@@ -2402,6 +2507,145 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
         diagnostic.subject == "language.definitions.assignment-policy"
         for diagnostic in admission.diagnostics
     )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_subject"),
+    (
+        (
+            "effect",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.effects"
+            ),
+        ),
+        (
+            "refusal",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.refusals"
+            ),
+        ),
+        (
+            "resource",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.resource_bounds"
+            ),
+        ),
+        (
+            "cycle",
+            (
+                "language.operations.game.check@1.0.0."
+                "game.check.hit-v1.body.cycle.operation"
+            ),
+        ),
+        (
+            "argument-contract",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.arguments"
+            ),
+        ),
+    ),
+)
+def test_package_admission_closes_every_operation_composition_axis(
+    mutation,
+    expected_subject,
+):
+    baseline = model_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/rpg-combat-cast/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+
+    def owned_operation(operation_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        projected = next(
+            operation
+            for operation in candidate_ldb["language"]["operations"]
+            if operation["id"] == operation_id
+        )
+        package = next(
+            package
+            for package in candidate_ldb["language"]["packages"]
+            if operation_id in package["exports"]["operations"]
+        )
+        closure = next(
+            entry["definitions"]
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+        owned = next(
+            operation for operation in closure if operation["id"] == operation_id
+        )
+        return projected, owned
+
+    hit_operations = owned_operation("game.check.hit-v1")
+    cast_operations = owned_operation("game.combat.cast-v1")
+    if mutation == "effect":
+        for operation in hit_operations:
+            operation["effects"].append("hidden.child-effect")
+    elif mutation == "refusal":
+        for operation in hit_operations:
+            operation["refusals"].append("hidden.child-refusal")
+    elif mutation == "resource":
+        for operation in cast_operations:
+            operation["resource_bounds"]["max_steps"] = 1
+    elif mutation == "argument-contract":
+        for operation in hit_operations:
+            defense = next(
+                port for port in operation["inputs"] if port["id"] == "defense"
+            )
+            defense["numeric_policy"] = "exact-bool"
+    else:
+        recursive_body = [
+            {
+                "node": "invoke",
+                "site": "self",
+                "operation": {
+                    "package": "game.check",
+                    "version": "1.0.0",
+                    "id": "game.check.hit-v1",
+                },
+                "arguments": [
+                    {
+                        "port": "accuracy",
+                        "operand": {"kind": "port", "port": "accuracy"},
+                    },
+                    {
+                        "port": "defense",
+                        "operand": {"kind": "port", "port": "defense"},
+                    },
+                ],
+                "result": {"kind": "discard"},
+                "outcomes": [
+                    {
+                        "outcome": "hit",
+                        "action": {"kind": "continue"},
+                    },
+                    {
+                        "outcome": "miss",
+                        "action": {"kind": "continue"},
+                    },
+                ],
+            }
+        ]
+        for operation in hit_operations:
+            operation["body"] = deepcopy(recursive_body)
+    _reidentify_language_bundle(candidate_ldb)
+
+    composition_subjects = (
+        bootstrap_module._operation_composition_diagnostic_subjects(candidate_ldb)
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert expected_subject in composition_subjects
+    assert admission.admitted is False
 
 
 def test_authority_admission_rejects_operation_closure_at_the_package_site():
