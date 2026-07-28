@@ -7,12 +7,14 @@ importing implementation-private registries.
 
 import json
 import os
+import runpy
 import subprocess
 import sys
 import zipfile
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from shutil import copytree
 from typing import Any, cast, get_args
 
 import jsonschema
@@ -28,7 +30,11 @@ from gda_balancing.commands.package import (
     package_get_success_schema,
     package_list_success_schema,
 )
-from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
+from gda_balancing.commands.schema import (
+    SCHEMA_GET,
+    schema_get_handler,
+    schema_get_success_schema,
+)
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
@@ -182,6 +188,64 @@ def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, ru
     exit_code, stdout, stderr = run_cli(["schema", "get", "language-bundle"])
     assert (exit_code, stderr) == (2, "")
     assert json.loads(stdout)["error"]["stage"] == "ingress"
+
+
+@pytest.mark.parametrize("transport", ("whitespace", "key-order"))
+def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
+    monkeypatch, transport
+):
+    logical_members = _authority_resource_bytes()
+    target = "packages/game-combat/game.combat@1.0.0.conformance-vectors.json"
+    decoded = json.loads(logical_members[target])
+    if transport == "whitespace":
+        logical_members[target] = json.dumps(
+            decoded, ensure_ascii=False, indent=2, sort_keys=True
+        ).encode("utf-8")
+    else:
+        logical_members[target] = (
+            json.dumps(
+                dict(reversed(list(decoded.items()))),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+
+    class MutatedResource:
+        def __init__(self, logical_name=""):
+            self.logical_name = logical_name
+
+        def joinpath(self, *parts):
+            name = "/".join((*self.logical_name.split("/"), *parts)).lstrip("/")
+            return MutatedResource(name)
+
+        def read_bytes(self):
+            return logical_members[self.logical_name]
+
+    monkeypatch.setattr(authority_module, "files", lambda _package: MutatedResource())
+
+    with pytest.raises(authority_module.AuthorityLoadError) as caught:
+        authority_module.load_authorities()
+
+    assert caught.value.code == "kernel.member_set_mismatch"
+    assert caught.value.subject.endswith(".conformance_vectors")
+    assert "canonical JSON bytes" in caught.value.message
+
+
+def test_rebuild_tool_projects_kernel_package_coordinate_patterns(tmp_path):
+    tool = runpy.run_path(
+        str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
+    )
+    source = Path(authority_module.__file__).parent / "authorities"
+    candidate = tmp_path / "authorities"
+    copytree(source, candidate)
+    root_path = candidate / "language-bundle.json"
+    root = json.loads(root_path.read_text())
+    root["package_descriptors"][0]["id"] = "core/quantity"
+    root_path.write_text(json.dumps(root), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Kernel-valid package coordinate"):
+        tool["_build"](candidate)
 
 
 @pytest.mark.parametrize(
@@ -475,6 +539,16 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     assert set(vector_set_schema["required"]) == set(
         vector_set_contract["required_members"]
     )
+    vector_definitions = cast(
+        dict[str, Any],
+        cast(dict[str, Any], vector_set_schema["properties"])["vector_definitions"],
+    )
+    vector_items = cast(dict[str, Any], vector_definitions["items"])
+    assert {
+        cast(dict[str, Any], item)["properties"]["kind"]["const"]
+        for item in cast(list[dict[str, Any]], vector_items["oneOf"])
+        if "kind" in cast(dict[str, Any], item)["properties"]
+    } == {item["id"] for item in kernel_meta["package_vector"]["kinds"]}
 
     list_schema = package_list_success_schema()
     list_properties = cast(dict[str, Any], list_schema["properties"])
@@ -513,9 +587,39 @@ def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_c
     ]
     invalid_releases.append(open_dependency)
 
+    invalid_coordinate = deepcopy(release)
+    invalid_coordinate["id"] = "core/quantity"
+    invalid_releases.append(invalid_coordinate)
+
     for invalid_release in invalid_releases:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(invalid_release, schema)
+
+
+def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    package_schema = cast(
+        dict[str, Any],
+        cast(list[dict[str, Any]], package_get_success_schema()["oneOf"])[1],
+    )
+    authority_schema = schema_get_success_schema()
+    invalid_children = []
+
+    malformed_definition = deepcopy(authority["package_conformance_vector_sets"][0])
+    malformed_definition["vector_definitions"][0] = {"host": "invented"}
+    invalid_children.append(malformed_definition)
+
+    invalid_coordinate = deepcopy(authority["package_conformance_vector_sets"][0])
+    invalid_coordinate["package_id"] = "core/quantity"
+    invalid_children.append(invalid_coordinate)
+
+    for invalid_child in invalid_children:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(invalid_child, package_schema)
+        invalid_authority = deepcopy(authority)
+        invalid_authority["package_conformance_vector_sets"][0] = invalid_child
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(invalid_authority, authority_schema)
 
 
 def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
@@ -623,6 +727,29 @@ def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
         "id",
         "version",
     ]
+    coordinate_contract = root_contract["package_descriptor"]["field_types"]
+    assert coordinate_contract["id"] == {
+        "type": "non-empty-string",
+        "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
+    }
+    assert coordinate_contract["version"] == {
+        "type": "non-empty-string",
+        "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
+    }
+    identity_law = next(
+        law
+        for law in authority["kernel"]["admission"]["laws"]
+        if law["id"] == "kernel.identity.verify"
+    )
+    assert {
+        target.get("artifact") or target.get("collection")
+        for target in identity_law["arguments"]["targets"]
+    } == {
+        "kernel",
+        "language-bundle",
+        "language_bundle.language.packages",
+        "language_bundle.package_conformance_vector_sets",
+    }
     assert set(
         kernel["meta_format"]["admitted_language_index"]["required_members"]
     ) == {
@@ -751,8 +878,14 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     assert dependency_contract == {
         "closed": True,
         "field_types": {
-            "id": {"type": "non-empty-string"},
-            "version": {"type": "non-empty-string"},
+            "id": {
+                "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
+                "type": "non-empty-string",
+            },
+            "version": {
+                "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
+                "type": "non-empty-string",
+            },
         },
         "required_members": ["id", "version"],
         "type": "closed-object",

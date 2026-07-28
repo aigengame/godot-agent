@@ -172,12 +172,12 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
         empty_package("shared.rules", "1.0.0", []),
         empty_package("shared.rules", "2.0.0", []),
         empty_package(
-            "genre.parent-a",
+            "genre.parenta",
             "1.0.0",
             [{"id": "shared.rules", "version": "1.0.0"}],
         ),
         empty_package(
-            "genre.parent-b",
+            "genre.parentb",
             "1.0.0",
             [{"id": "shared.rules", "version": "2.0.0"}],
         ),
@@ -195,8 +195,8 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     source_document = _model_source()
     source_document["package_requirements"].extend(
         [
-            {"id": "genre.parent-a", "version": "1.0.0"},
-            {"id": "genre.parent-b", "version": "1.0.0"},
+            {"id": "genre.parenta", "version": "1.0.0"},
+            {"id": "genre.parentb", "version": "1.0.0"},
         ]
     )
     source = tmp_path / "conflicting-transitive-versions.json"
@@ -2105,6 +2105,47 @@ def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
 
     original_package = checked.language_bundle["language"]["packages"][0]
     mutated_package = candidate_ldb["language"]["packages"][0]
+    assert original_package["semantic_identity"] == mutated_package["semantic_identity"]
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    original_ldb = cast(LanguageBundleIndex, checked.language_bundle)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(original_ldb))
+    vector_set = next(
+        item
+        for item in candidate_ldb.package_conformance_vector_sets
+        if item["package_id"] == "core.quantity"
+    )
+    vector_set["vectors"].reverse()
+    vector_set["vector_definitions"].reverse()
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+    candidate = replace(checked, language_bundle=candidate_ldb)
+
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = next(
+        item
+        for item in original_ldb["language"]["packages"]
+        if item["id"] == "core.quantity"
+    )
+    mutated_package = next(
+        item
+        for item in candidate_ldb["language"]["packages"]
+        if item["id"] == "core.quantity"
+    )
+    assert (
+        original_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
     assert original_package["semantic_identity"] == mutated_package["semantic_identity"]
     assert original_package["content_identity"] != mutated_package["content_identity"]
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]

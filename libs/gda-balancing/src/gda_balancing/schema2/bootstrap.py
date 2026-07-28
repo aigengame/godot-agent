@@ -6,6 +6,7 @@ declared generic inputs/result and normative vectors.
 """
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -27,10 +28,6 @@ from gda_balancing.schema2.template_contract import (
     TEMPLATE_SELECTOR_CONTRACT,
 )
 
-_KERNEL_DOMAIN = "schema-major-kernel-v2"
-_LDB_DOMAIN = "language-definition-bundle-v2"
-_PACKAGE_RELEASE_DOMAIN = "domain-package-release-v2"
-_PACKAGE_VECTOR_SET_DOMAIN = "package-conformance-vector-set-v2"
 SCHEMA2_REFUSAL_STAGES = (
     "ingress",
     "parse",
@@ -52,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37"
+    "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -218,10 +215,12 @@ def _canonical_contract_is_supported(canonical_encoding: Any) -> bool:
 
 
 def _safe_artifact_identity(
-    domain: str,
+    domain: Any,
     artifact: dict[str, Any],
     canonical_encoding: Any,
 ) -> str | None:
+    if not isinstance(domain, str) or not domain:
+        return None
     try:
         supported = _canonical_contract_is_supported(canonical_encoding)
     except (TypeError, ValueError, UnicodeEncodeError):
@@ -232,6 +231,47 @@ def _safe_artifact_identity(
         return _artifact_identity(domain, artifact)
     except (TypeError, ValueError):
         return None
+
+
+def _declared_identity_domain(
+    kernel: dict[str, Any],
+    *,
+    artifact: str | None = None,
+    collection: str | None = None,
+) -> str | None:
+    if (artifact is None) == (collection is None):
+        return None
+    laws = kernel.get("admission", {}).get("laws")
+    if not isinstance(laws, list):
+        return None
+    identity_laws = [
+        law
+        for law in laws
+        if isinstance(law, dict) and law.get("id") == "kernel.identity.verify"
+    ]
+    if len(identity_laws) != 1:
+        return None
+    targets = identity_laws[0].get("arguments", {}).get("targets")
+    if not isinstance(targets, list):
+        return None
+    selector = "artifact" if artifact is not None else "collection"
+    expected = artifact if artifact is not None else collection
+    matches = [
+        target
+        for target in targets
+        if isinstance(target, dict) and target.get(selector) == expected
+    ]
+    if len(matches) != 1:
+        return None
+    target = matches[0]
+    domain = target.get("domain")
+    if (
+        target.get("identity_member") != "content_identity"
+        or not isinstance(domain, str)
+        or not domain
+    ):
+        return None
+    return domain
 
 
 def _resource_shape(value: Any) -> tuple[int, int]:
@@ -474,8 +514,14 @@ def _package_conformance_vector_set_is_closed(
     expected_field_types = {
         "artifact_kind": {"const": "package-conformance-vector-set"},
         "content_identity": {"type": "non-empty-string"},
-        "package_id": {"type": "non-empty-string"},
-        "package_version": {"type": "non-empty-string"},
+        "package_id": {
+            "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
+            "type": "non-empty-string",
+        },
+        "package_version": {
+            "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
+            "type": "non-empty-string",
+        },
         "vector_definitions": {"type": "list"},
         "vectors": {"type": "string-list"},
     }
@@ -486,12 +532,12 @@ def _package_conformance_vector_set_is_closed(
         and contract.get("field_types") == expected_field_types
         and set(vector_set) == expected_members
         and vector_set.get("artifact_kind") == "package-conformance-vector-set"
-        and isinstance(vector_set.get("content_identity"), str)
-        and bool(vector_set["content_identity"])
-        and isinstance(vector_set.get("package_id"), str)
-        and bool(vector_set["package_id"])
-        and isinstance(vector_set.get("package_version"), str)
-        and bool(vector_set["package_version"])
+        and all(
+            _value_matches_contract(
+                vector_set[name], expected_field_types[name], vector_set
+            )
+            for name in ("content_identity", "package_id", "package_version")
+        )
         and isinstance(vector_set.get("vector_definitions"), list)
         and isinstance(vector_set.get("vectors"), list)
         and all(isinstance(item, str) and item for item in vector_set["vectors"])
@@ -1606,7 +1652,17 @@ def _value_matches_contract(
         return isinstance(contract["enum"], list) and value in contract["enum"]
     value_type = contract.get("type")
     if value_type == "non-empty-string":
-        return isinstance(value, str) and bool(value)
+        if not isinstance(value, str) or not value:
+            return False
+        pattern = contract.get("pattern")
+        if pattern is None:
+            return True
+        if not isinstance(pattern, str):
+            return False
+        try:
+            return re.fullmatch(pattern, value) is not None
+        except re.error:
+            return False
     if value_type == "boolean":
         return isinstance(value, bool)
     if value_type == "list":
@@ -4338,11 +4394,15 @@ def admit_authorities(
     graph_vector_set_sizes = (
         cast(tuple[int, ...], raw_graph_vector_set_sizes) if is_graph else ()
     )
-    descriptor_order = (
+    descriptor_contract = (
         kernel.get("meta_format", {})
         .get("language_bundle", {})
-        .get("package_descriptor", {})
-        .get("canonical_order")
+        .get("package_descriptor")
+    )
+    descriptor_order = (
+        descriptor_contract.get("canonical_order")
+        if isinstance(descriptor_contract, dict)
+        else None
     )
     if (
         is_graph
@@ -4368,11 +4428,20 @@ def admit_authorities(
     identity_source = graph_root if is_graph else language_bundle
     ldb_identity = identity_source.get("content_identity")
     canonical_encoding = kernel.get("canonical_encoding")
+    kernel_domain = _declared_identity_domain(kernel, artifact="kernel")
+    ldb_domain = _declared_identity_domain(kernel, artifact="language-bundle")
+    package_release_domain = _declared_identity_domain(
+        kernel, collection="language_bundle.language.packages"
+    )
+    package_vector_set_domain = _declared_identity_domain(
+        kernel,
+        collection="language_bundle.package_conformance_vector_sets",
+    )
     computed_kernel_identity = _safe_artifact_identity(
-        _KERNEL_DOMAIN, kernel, canonical_encoding
+        kernel_domain, kernel, canonical_encoding
     )
     computed_ldb_identity = _safe_artifact_identity(
-        _LDB_DOMAIN, identity_source, canonical_encoding
+        ldb_domain, identity_source, canonical_encoding
     )
     if (
         not isinstance(kernel_identity, str)
@@ -4398,13 +4467,22 @@ def admit_authorities(
             "resources",
             "schema_major",
         }
-        descriptor_members = {
-            "artifact_kind",
-            "byte_size",
-            "content_identity",
-            "id",
-            "version",
-        }
+        descriptor_required = (
+            descriptor_contract.get("required_members")
+            if isinstance(descriptor_contract, dict)
+            else None
+        )
+        descriptor_field_types = (
+            descriptor_contract.get("field_types")
+            if isinstance(descriptor_contract, dict)
+            else None
+        )
+        descriptor_members = (
+            set(descriptor_required)
+            if isinstance(descriptor_required, list)
+            and all(isinstance(item, str) for item in descriptor_required)
+            else set()
+        )
         descriptors = graph_root.get("package_descriptors")
         if (
             set(graph_root) != root_members
@@ -4440,6 +4518,16 @@ def admit_authorities(
                 if (
                     not isinstance(descriptor, dict)
                     or set(descriptor) != descriptor_members
+                    or not isinstance(descriptor_field_types, dict)
+                    or set(descriptor_field_types) != descriptor_members
+                    or not all(
+                        _value_matches_contract(
+                            descriptor[name],
+                            descriptor_field_types[name],
+                            language_bundle,
+                        )
+                        for name in descriptor_members
+                    )
                     or not isinstance(release, dict)
                     or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
@@ -4457,7 +4545,7 @@ def admit_authorities(
                 coordinate = (descriptor["id"], descriptor["version"])
                 coordinates.append(coordinate)
                 if release.get("content_identity") != _safe_artifact_identity(
-                    _PACKAGE_RELEASE_DOMAIN, release, canonical_encoding
+                    package_release_domain, release, canonical_encoding
                 ):
                     refuse("kernel.identity_mismatch", "ingress", subject)
                 vector_descriptor = release.get("conformance_vectors")
@@ -4477,7 +4565,7 @@ def admit_authorities(
                 ):
                     refuse("kernel.binding_mismatch", "ingress", vector_subject)
                 elif vector_set.get("content_identity") != _safe_artifact_identity(
-                    _PACKAGE_VECTOR_SET_DOMAIN, vector_set, canonical_encoding
+                    package_vector_set_domain, vector_set, canonical_encoding
                 ):
                     refuse("kernel.identity_mismatch", "ingress", vector_subject)
             if coordinates != sorted(coordinates):
@@ -4856,7 +4944,7 @@ def admit_authorities(
                 continue
             admitted_packages.append(package)
             if package.get("content_identity") != _safe_artifact_identity(
-                _PACKAGE_RELEASE_DOMAIN, package, canonical_encoding
+                package_release_domain, package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
             if not _package_semantic_closure_is_closed(package, package_contract):

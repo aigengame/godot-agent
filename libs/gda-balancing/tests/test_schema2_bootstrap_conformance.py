@@ -7,6 +7,7 @@ not shared helper behavior.
 
 import hashlib
 import json
+import re
 from copy import deepcopy
 from typing import Any, cast
 
@@ -23,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37"
+    "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13"
 )
 
 
@@ -161,6 +162,51 @@ def _identity_from_kernel(
     if recipe["digest_hex_case"] == "lowercase":
         digest = digest.lower()
     return recipe["identity_output_prefix"] + digest
+
+
+def _declared_identity_domain(
+    kernel: dict[str, Any],
+    *,
+    artifact: str | None = None,
+    collection: str | None = None,
+) -> str | None:
+    if (artifact is None) == (collection is None):
+        return None
+    laws = kernel.get("admission", {}).get("laws")
+    identity_laws = (
+        [
+            law
+            for law in laws
+            if isinstance(law, dict) and law.get("id") == "kernel.identity.verify"
+        ]
+        if isinstance(laws, list)
+        else []
+    )
+    if len(identity_laws) != 1:
+        return None
+    targets = identity_laws[0].get("arguments", {}).get("targets")
+    selector = "artifact" if artifact is not None else "collection"
+    expected = artifact if artifact is not None else collection
+    matches = (
+        [
+            target
+            for target in targets
+            if isinstance(target, dict) and target.get(selector) == expected
+        ]
+        if isinstance(targets, list)
+        else []
+    )
+    if len(matches) != 1:
+        return None
+    target = matches[0]
+    domain = target.get("domain")
+    if (
+        target.get("identity_member") != "content_identity"
+        or not isinstance(domain, str)
+        or not domain
+    ):
+        return None
+    return domain
 
 
 def _encoded(value: Any) -> bytes:
@@ -486,17 +532,32 @@ def _consumer_b_package_vector_set_is_closed(
         "vector_definitions",
         "vectors",
     }
+    expected_field_types = {
+        "artifact_kind": {"const": "package-conformance-vector-set"},
+        "content_identity": {"type": "non-empty-string"},
+        "package_id": {
+            "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
+            "type": "non-empty-string",
+        },
+        "package_version": {
+            "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
+            "type": "non-empty-string",
+        },
+        "vector_definitions": {"type": "list"},
+        "vectors": {"type": "string-list"},
+    }
     return (
         isinstance(contract, dict)
         and contract.get("closed") is True
         and contract.get("required_members") == sorted(expected_members)
+        and contract.get("field_types") == expected_field_types
         and set(vector_set) == expected_members
-        and vector_set.get("artifact_kind") == "package-conformance-vector-set"
-        and isinstance(vector_set.get("content_identity"), str)
-        and isinstance(vector_set.get("package_id"), str)
-        and isinstance(vector_set.get("package_version"), str)
-        and isinstance(vector_set.get("vector_definitions"), list)
-        and isinstance(vector_set.get("vectors"), list)
+        and all(
+            _consumer_b_value_matches(
+                vector_set[name], expected_field_types[name], vector_set
+            )
+            for name in expected_members
+        )
     )
 
 
@@ -1275,7 +1336,17 @@ def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) ->
         return isinstance(contract["enum"], list) and value in contract["enum"]
     kind = contract.get("type")
     if kind == "non-empty-string":
-        return isinstance(value, str) and bool(value)
+        if not isinstance(value, str) or not value:
+            return False
+        pattern = contract.get("pattern")
+        if pattern is None:
+            return True
+        if not isinstance(pattern, str):
+            return False
+        try:
+            return re.fullmatch(pattern, value) is not None
+        except re.error:
+            return False
     if kind == "boolean":
         return isinstance(value, bool)
     if kind == "list":
@@ -4337,9 +4408,18 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     def refuse(code: str, stage: str, subject: str) -> None:
         diagnostics.add((stage, code, subject))
 
+    kernel_domain = _declared_identity_domain(kernel, artifact="kernel")
+    ldb_domain = _declared_identity_domain(kernel, artifact="language-bundle")
+    package_release_domain = _declared_identity_domain(
+        kernel, collection="language_bundle.language.packages"
+    )
+    package_vector_set_domain = _declared_identity_domain(
+        kernel,
+        collection="language_bundle.package_conformance_vector_sets",
+    )
     if (
         kernel.get("content_identity")
-        != _identity_from_kernel(kernel, "schema-major-kernel-v2", kernel)
+        != _identity_from_kernel(kernel, kernel_domain or "", kernel)
         or kernel.get("content_identity") != _SUPPORTED_KERNEL_IDENTITY
     ):
         refuse("kernel.identity_mismatch", "ingress", "kernel")
@@ -4370,11 +4450,15 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     graph_vector_set_sizes = (
         cast(tuple[int, ...], raw_graph_vector_set_sizes) if is_graph else ()
     )
-    descriptor_order = (
+    descriptor_contract = (
         kernel.get("meta_format", {})
         .get("language_bundle", {})
-        .get("package_descriptor", {})
-        .get("canonical_order")
+        .get("package_descriptor")
+    )
+    descriptor_order = (
+        descriptor_contract.get("canonical_order")
+        if isinstance(descriptor_contract, dict)
+        else None
     )
     if is_graph and isinstance(descriptor_order, list) and descriptor_order:
         descriptors = graph_root.get("package_descriptors")
@@ -4426,7 +4510,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             )
     identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
-        kernel, "language-definition-bundle-v2", identity_source
+        kernel, ldb_domain or "", identity_source
     ):
         refuse("kernel.identity_mismatch", "ingress", "language-bundle")
     if ldb.get("kernel_identity") != kernel.get("content_identity"):
@@ -4442,13 +4526,22 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "resources",
             "schema_major",
         }
-        expected_descriptor_members = {
-            "artifact_kind",
-            "byte_size",
-            "content_identity",
-            "id",
-            "version",
-        }
+        descriptor_required = (
+            descriptor_contract.get("required_members")
+            if isinstance(descriptor_contract, dict)
+            else None
+        )
+        descriptor_field_types = (
+            descriptor_contract.get("field_types")
+            if isinstance(descriptor_contract, dict)
+            else None
+        )
+        expected_descriptor_members = (
+            set(descriptor_required)
+            if isinstance(descriptor_required, list)
+            and all(isinstance(item, str) for item in descriptor_required)
+            else set()
+        )
         if (
             set(graph_root) != expected_root_members
             or not isinstance(descriptors, list)
@@ -4481,6 +4574,14 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 if (
                     not isinstance(descriptor, dict)
                     or set(descriptor) != expected_descriptor_members
+                    or not isinstance(descriptor_field_types, dict)
+                    or set(descriptor_field_types) != expected_descriptor_members
+                    or not all(
+                        _consumer_b_value_matches(
+                            descriptor[name], descriptor_field_types[name], ldb
+                        )
+                        for name in expected_descriptor_members
+                    )
                     or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
                     or descriptor.get("version") != release.get("version")
@@ -4497,7 +4598,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 else:
                     coordinates_are_strings = False
                 if release.get("content_identity") != _identity_from_kernel(
-                    kernel, "domain-package-release-v2", release
+                    kernel, package_release_domain or "", release
                 ):
                     refuse("kernel.identity_mismatch", "ingress", subject)
                 vector_descriptor = release.get("conformance_vectors")
@@ -4516,7 +4617,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 ):
                     refuse("kernel.binding_mismatch", "ingress", vector_subject)
                 elif vector_set.get("content_identity") != _identity_from_kernel(
-                    kernel, "package-conformance-vector-set-v2", vector_set
+                    kernel, package_vector_set_domain or "", vector_set
                 ):
                     refuse("kernel.identity_mismatch", "ingress", vector_subject)
             if coordinates_are_strings and coordinates != sorted(coordinates):
@@ -4875,7 +4976,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 continue
             packages.append(package)
             if package.get("content_identity") != _identity_from_kernel(
-                kernel, "domain-package-release-v2", package
+                kernel, package_release_domain or "", package
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
             if not _consumer_b_package_semantic_closure_is_closed(
@@ -6476,6 +6577,50 @@ def test_package_release_identity_binds_normative_vector_definitions():
     assert package["content_identity"] != old_release_identity
     assert package["semantic_identity"] == old_semantic_identity
     assert _consumer_a(authority["kernel"], ldb)["admitted"] is True
+
+
+def test_kernel_identity_law_owns_every_authority_artifact_domain():
+    kernel = authority_set()["kernel"]
+    law = next(
+        item
+        for item in kernel["admission"]["laws"]
+        if item["id"] == "kernel.identity.verify"
+    )
+
+    assert {
+        target.get("artifact") or target.get("collection"): target["domain"]
+        for target in law["arguments"]["targets"]
+    } == {
+        "kernel": "schema-major-kernel-v2",
+        "language-bundle": "language-definition-bundle-v2",
+        "language_bundle.language.packages": "domain-package-release-v2",
+        "language_bundle.package_conformance_vector_sets": (
+            "package-conformance-vector-set-v2"
+        ),
+    }
+
+
+def test_two_consumers_project_kernel_package_coordinate_patterns():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "game.combat"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    package["id"] = "game/combat"
+    vector_set["package_id"] = package["id"]
+    _bind_package_vector_set(package, vector_set)
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert {code for _stage, code, _subject in first["diagnostics"]} >= {
+        "kernel.binding_mismatch",
+        "kernel.member_set_mismatch",
+    }
 
 
 @pytest.mark.parametrize(
@@ -8279,3 +8424,42 @@ def test_two_consumers_agree_at_and_above_each_graph_resource_boundary(
                 "kernel.resource_exhausted",
                 "language-bundle",
             ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    ("limit_name", "shape_index"),
+    (("max_nesting_depth", 0), ("max_members", 1)),
+)
+def test_two_consumers_agree_at_and_above_each_authority_shape_boundary(
+    monkeypatch, limit_name, shape_index
+):
+    baseline = authority_set()
+    ldb = baseline["language_bundle"]
+    artifacts = [
+        baseline["kernel"],
+        ldb.root,
+        *ldb.package_releases,
+        *ldb.package_conformance_vector_sets,
+    ]
+    observed = max(_shape(artifact)[shape_index] for artifact in artifacts)
+
+    for limit, admitted in ((observed, True), (observed - 1, False)):
+        authority = deepcopy(baseline)
+        authority["kernel"]["resources"][limit_name] = limit
+        _reidentify(authority["kernel"], authority["language_bundle"])
+        kernel_identity = authority["kernel"]["content_identity"]
+        monkeypatch.setattr(
+            production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel_identity
+        )
+        monkeypatch.setitem(globals(), "_SUPPORTED_KERNEL_IDENTITY", kernel_identity)
+
+        first = _consumer_a(authority["kernel"], authority["language_bundle"])
+        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+
+        assert first == second
+        assert first["admitted"] is admitted
+        if not admitted:
+            assert any(
+                code == "kernel.resource_exhausted"
+                for _stage, code, _subject in first["diagnostics"]
+            )

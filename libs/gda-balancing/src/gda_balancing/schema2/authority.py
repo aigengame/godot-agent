@@ -18,13 +18,12 @@ from gda_balancing.schema2.authority_graph import (
     derive_language_index,
 )
 from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
 
 _AUTHORITY_PACKAGE = "gda_balancing.schema2.authorities"
 _BOOTSTRAP_MAX_AUTHORITY_BYTES = 262144
 _BOOTSTRAP_MAX_NESTING_DEPTH = 32
 _BOOTSTRAP_MAX_PACKAGE_MEMBERS = 256
-_PACKAGE_ID = re.compile(r"^[a-z0-9]+(?:\.[a-z0-9]+)*$")
-_PACKAGE_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
 class AuthorityLoadError(Exception):
@@ -98,7 +97,11 @@ def _decode_authority(text: str, name: str, subject: str) -> dict[str, Any]:
 
 
 def _load(
-    name: str, subject: str, *, max_bytes: int = _BOOTSTRAP_MAX_AUTHORITY_BYTES
+    name: str,
+    subject: str,
+    *,
+    max_bytes: int = _BOOTSTRAP_MAX_AUTHORITY_BYTES,
+    require_canonical_bytes: bool = True,
 ) -> tuple[dict[str, Any], int]:
     resource = files(_AUTHORITY_PACKAGE).joinpath(*name.split("/"))
     try:
@@ -123,32 +126,78 @@ def _load(
             subject=subject,
             message=f"packaged authority {name} is not UTF-8",
         ) from err
-    return _decode_authority(text, name, subject), len(data)
+    decoded = _decode_authority(text, name, subject)
+    try:
+        canonical = canonical_bytes(cast(JsonValue, decoded))
+    except (TypeError, ValueError, UnicodeEncodeError) as err:
+        raise AuthorityLoadError(
+            code="kernel.member_set_mismatch",
+            subject=subject,
+            message=f"packaged authority {name} is outside canonical JSON: {err}",
+        ) from err
+    if require_canonical_bytes and data != canonical:
+        raise AuthorityLoadError(
+            code="kernel.member_set_mismatch",
+            subject=subject,
+            message=f"packaged authority {name} is not encoded as canonical JSON bytes",
+        )
+    return decoded, len(canonical if require_canonical_bytes else data)
 
 
-def _package_resource_names(descriptor: dict[str, Any]) -> tuple[str, str]:
+def _matches_coordinate_contract(value: Any, contract: Any) -> bool:
+    if (
+        not isinstance(value, str)
+        or not value
+        or not isinstance(contract, dict)
+        or contract.get("type") != "non-empty-string"
+        or not isinstance(contract.get("pattern"), str)
+    ):
+        return False
+    try:
+        return re.fullmatch(cast(str, contract["pattern"]), value) is not None
+    except re.error:
+        return False
+
+
+def _package_resource_names(
+    descriptor: dict[str, Any], kernel: dict[str, Any]
+) -> tuple[str, str]:
     package_id = descriptor.get("id")
     version = descriptor.get("version")
+    field_types = (
+        kernel.get("meta_format", {})
+        .get("language_bundle", {})
+        .get("package_descriptor", {})
+        .get("field_types")
+    )
+    id_contract = field_types.get("id") if isinstance(field_types, dict) else None
+    version_contract = (
+        field_types.get("version") if isinstance(field_types, dict) else None
+    )
     if (
-        not isinstance(package_id, str)
-        or not isinstance(version, str)
-        or _PACKAGE_ID.fullmatch(package_id) is None
-        or _PACKAGE_VERSION.fullmatch(version) is None
+        not _matches_coordinate_contract(package_id, id_contract)
+        or not _matches_coordinate_contract(version, version_contract)
+        or "/" in cast(str, package_id)
+        or "\\" in cast(str, package_id)
+        or "/" in cast(str, version)
+        or "\\" in cast(str, version)
     ):
         raise AuthorityLoadError(
             code="kernel.member_set_mismatch",
             subject="language-bundle.package_descriptors",
             message="package descriptor coordinate is not a safe canonical coordinate",
         )
-    coordinate = f"{package_id}@{version}"
-    directory = package_id.replace(".", "-")
+    safe_package_id = cast(str, package_id)
+    safe_version = cast(str, version)
+    coordinate = f"{safe_package_id}@{safe_version}"
+    directory = safe_package_id.replace(".", "-")
     prefix = f"packages/{directory}/{coordinate}"
     return f"{prefix}.json", f"{prefix}.conformance-vectors.json"
 
 
 def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     """Load and admit the exact graph before returning a derived consumer index."""
-    kernel, _kernel_size = _load("kernel.json", "kernel")
+    kernel, _kernel_size = _load("kernel.json", "kernel", require_canonical_bytes=False)
     resources = kernel.get("resources")
     if not isinstance(resources, dict):
         raise AuthorityLoadError(
@@ -196,7 +245,7 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
                 subject=f"language-bundle.package_descriptors.{index}",
                 message="package descriptor is not an object",
             )
-        release_name, vector_set_name = _package_resource_names(descriptor)
+        release_name, vector_set_name = _package_resource_names(descriptor, kernel)
         release, release_byte_size = _load(
             release_name,
             f"language-bundle.package_descriptors.{index}",

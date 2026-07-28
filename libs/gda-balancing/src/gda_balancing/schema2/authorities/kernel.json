@@ -19,6 +19,11 @@
               "collection": "language_bundle.language.packages",
               "domain": "domain-package-release-v2",
               "identity_member": "content_identity"
+            },
+            {
+              "collection": "language_bundle.package_conformance_vector_sets",
+              "domain": "package-conformance-vector-set-v2",
+              "identity_member": "content_identity"
             }
           ]
         },
@@ -855,7 +860,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:d64d44cf13c44f4d50a584ed22b7cf82ee91372bcaf63cc1d8b1e3b27fc56d37",
+  "content_identity": "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2118,9 +2123,11 @@
             "const": "domain-package-release"
           },
           "id": {
+            "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
             "type": "non-empty-string"
           },
           "version": {
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
             "type": "non-empty-string"
           },
           "content_identity": {
@@ -3009,9 +3016,11 @@
       "closed": true,
       "field_types": {
         "id": {
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
           "type": "non-empty-string"
         },
         "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
           "type": "non-empty-string"
         }
       },
@@ -3031,6 +3040,7 @@
           "type": "non-empty-string"
         },
         "id": {
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
           "type": "non-empty-string"
         },
         "runtime_semantic_paths": {
@@ -3043,6 +3053,7 @@
           "type": "non-empty-string"
         },
         "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
           "type": "non-empty-string"
         }
       },
@@ -3061,9 +3072,11 @@
               "closed": true,
               "field_types": {
                 "id": {
+                  "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
                   "type": "non-empty-string"
                 },
                 "version": {
+                  "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
                   "type": "non-empty-string"
                 }
               },
@@ -3080,9 +3093,11 @@
               "closed": true,
               "field_types": {
                 "id": {
+                  "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
                   "type": "non-empty-string"
                 },
                 "version": {
+                  "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
                   "type": "non-empty-string"
                 }
               },
@@ -5222,9 +5237,11 @@
           "type": "non-empty-string"
         },
         "package_id": {
+          "pattern": "^[a-z0-9]+(?:\\.[a-z0-9]+)*$",
           "type": "non-empty-string"
         },
         "package_version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
           "type": "non-empty-string"
         },
         "vector_definitions": {

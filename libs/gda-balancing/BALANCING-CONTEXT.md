@@ -68,7 +68,9 @@ binds artifact kind, logical package id/version, canonical content identity, and
 Package Release manifest then binds its exact conformance-vector child. The root manifest is the
 only package-membership authority. Descriptor transport order is normalized by the Kernel-declared
 `id`, then `version` order; physical paths, package-directory names, and Locators are packaging
-metadata and do not enter semantic identity (bADR-0023).
+metadata and do not enter semantic identity. Package id/version grammar and the identity domains
+for the root, Package Release collection, and package-vector collection are Kernel-owned contracts
+projected by loaders, admission, public schemas, and rebuild tooling (bADR-0023).
 _Avoid_: package index (if independently editable), directory listing, remote registry
 
 **Package conformance vector set**:
@@ -79,7 +81,9 @@ identity and byte size are bound by the Package Release manifest; it is not inde
 versioned, selected, published, discovered, or treated as a peer language authority. A vector-only
 change reidentifies this child, the owning Package Release content identity, the whole LDB, and
 downstream exact wrappers, but does not change the Package Release semantic identity when runtime
-semantics are byte-identical (bADR-0016/0023).
+semantics are byte-identical. Its packaged bytes must be the Kernel-canonical encoding of the
+decoded value, and its public schema closes every admitted top-level vector variant
+(bADR-0016/0023).
 _Avoid_: test fixture registry, vector package, independently publishable evidence package
 
 **Admitted language index**:
@@ -95,8 +99,9 @@ judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampl
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
 conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
 refusals, resource units, and canonical behavior; adding a primitive changes the Schema major.
-Every Language Definition Bundle binds one exact kernel-specification
-identity. Host implementations conform to the kernel and bundle; a Python function, reference
+Its identity law also names every authority-artifact identity domain; package meta-format contracts
+own package id/version grammar. Every Language Definition Bundle binds one exact
+kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
 evaluator, or implementation table is never semantic authority (bADR-0012/0022).
 _Avoid_: reference implementation as authority, host semantic kernel, implicit bootstrap
 

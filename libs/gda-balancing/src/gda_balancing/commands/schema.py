@@ -12,6 +12,10 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
+from gda_balancing.commands.package import (
+    package_release_success_schema,
+    package_vector_set_success_schema,
+)
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
 from gda_balancing.schema2.bootstrap import (
@@ -112,7 +116,7 @@ def schema_get_refusal_catalog() -> tuple[tuple[str, str], ...]:
 
 
 def schema_get_success_schema() -> dict[str, object]:
-    """Static closed result shapes; introspection never reads authority bytes."""
+    """Closed result shapes projected from the admitted authority contracts."""
     identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
     admission = {
         "type": "object",
@@ -135,67 +139,11 @@ def schema_get_success_schema() -> dict[str, object]:
             "language_bundle": {},
             "package_releases": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        name: {}
-                        for name in (
-                            "artifact_kind",
-                            "capabilities",
-                            "conformance_vectors",
-                            "content_identity",
-                            "dependencies",
-                            "exports",
-                            "id",
-                            "profiles",
-                            "runtime_semantic_paths",
-                            "semantic_closure",
-                            "semantic_identity",
-                            "version",
-                        )
-                    },
-                    "required": [
-                        "artifact_kind",
-                        "capabilities",
-                        "conformance_vectors",
-                        "content_identity",
-                        "dependencies",
-                        "exports",
-                        "id",
-                        "profiles",
-                        "runtime_semantic_paths",
-                        "semantic_closure",
-                        "semantic_identity",
-                        "version",
-                    ],
-                    "unevaluatedProperties": False,
-                },
+                "items": package_release_success_schema(),
             },
             "package_conformance_vector_sets": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        name: {}
-                        for name in (
-                            "artifact_kind",
-                            "content_identity",
-                            "package_id",
-                            "package_version",
-                            "vector_definitions",
-                            "vectors",
-                        )
-                    },
-                    "required": [
-                        "artifact_kind",
-                        "content_identity",
-                        "package_id",
-                        "package_version",
-                        "vector_definitions",
-                        "vectors",
-                    ],
-                    "unevaluatedProperties": False,
-                },
+                "items": package_vector_set_success_schema(),
             },
             "admission": admission,
         },

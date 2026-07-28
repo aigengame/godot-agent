@@ -45,7 +45,10 @@ admission boundary.
   `game.combat@1.0.0.json` plus
   `game.combat@1.0.0.conformance-vectors.json`. Directory names and locators are distribution
   metadata, not semantic membership or identity authority. Loaders follow only root and manifest
-  descriptors; source/wheel inventory checks reject missing or undeclared directory members.
+  descriptors; source/wheel inventory checks reject missing or undeclared directory members. The
+  Kernel owns the package-id and version patterns used by root descriptors, manifests, vector
+  children, dependencies, public command schemas, loaders, admission, and the rebuild tool. Host
+  code retains only path-confinement checks needed before authority admission.
 
 - **Identity separates evidence, release content, and runtime semantics.** Vector-set identity
   covers the canonical evidence child. Package Release content identity covers the manifest,
@@ -55,7 +58,10 @@ admission boundary.
   existing contracts. A vector-only change therefore changes vector-set, Package Release content,
   root-LDB, and downstream exact identities while preserving Package Release semantic identity and
   selected runtime semantic payload bytes. Descriptor reordering, physical relocation, directory
-  naming, and Locators never enter semantic identity.
+  naming, and Locators never enter semantic identity. The Kernel identity law declares the
+  domain-separated identity target for the Kernel, LDB root, Package Release collection, and
+  package-vector collection; loaders, both bootstrap consumers, and rebuild tooling project those
+  declarations instead of maintaining host-owned domain strings.
 
 - **Admission is atomic and closed.** Before exposing any admitted language, both independent
   bootstrap consumers verify root, Package Release manifest, and vector-child canonical encoding,
@@ -63,7 +69,9 @@ admission boundary.
   resource bounds, package completeness, vector ownership, and cross-package references. Missing,
   unreadable, extra, duplicate, substituted, malformed, digest/size/coordinate-mismatched,
   unresolved, cyclic, or over-limit input produces a deterministic typed refusal. No partial
-  package set or derived index becomes visible.
+  package set or derived index becomes visible. Packaged LDB root, manifest, and vector-child raw
+  bytes must equal the Kernel canonical encoding of their decoded value; alternate whitespace or
+  key order is refused before descriptor sizes or identities can be treated as valid.
 
 - **Resource accounting is graph-aware.** The Kernel bounds root bytes, each JSON child, aggregate
   bytes per Package Release, total graph bytes, package count, package-member count, nesting depth,
@@ -81,7 +89,10 @@ admission boundary.
   coordinates; `package get` retrieves either the exact release manifest or its
   `conformance-vectors` member without regenerating or merging bytes. Source-tree and installed-wheel
   executions expose byte-identical members. A build fails if either declared member is absent or an
-  undeclared JSON file appears in a package directory.
+  undeclared JSON file appears in a package directory. Command success schemas close every vector
+  definition's top-level shape as the Kernel-declared rule, Diagnostic, package-contract,
+  operation-contract, runtime-scenario, or model-program variant; an invented child object cannot
+  pass a public success schema merely because the enclosing vector set is closed.
 
 - **The initial RPG tracer uses mechanic packages, not a genre umbrella.** `game.resource`,
   `game.check`, and `game.combat` own their bADR-0017 mechanics independently. The example composes
