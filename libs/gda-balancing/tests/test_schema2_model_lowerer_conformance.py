@@ -348,6 +348,12 @@ def _reference_check_source(
         for item in language["wire_schemas"]
         if item["artifact_kind"] == "model-source-package"
     )
+    lowering = _reference_lowering(language)
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
     schema_errors = sorted(
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
@@ -362,14 +368,7 @@ def _reference_check_source(
                 for expected, actual in zip(selector, path, strict=True)
             ):
                 return (reasons[check["reason"]]["diagnostic"],)
-        source_contract_reasons = [
-            item
-            for item in reasons.values()
-            if item["stage"] == "static"
-            and item["predicate"]["operation"] == "not-equal"
-        ]
-        assert len(source_contract_reasons) == 1
-        return (source_contract_reasons[0]["diagnostic"],)
+        return (reasons[profile["structural_reason"]]["diagnostic"],)
 
     diagnostics_by_stage: dict[str, list[str]] = {}
     for check in language["model_checks"]:
@@ -386,12 +385,6 @@ def _reference_check_source(
                     reason["diagnostic"]
                 )
 
-    lowering = _reference_lowering(language)
-    profile = next(
-        item
-        for item in language["resolution_profiles"]
-        if item["id"] == lowering["resolution_profile"]
-    )
     resource_reasons = [
         reason
         for reason in reasons.values()
@@ -1943,6 +1936,18 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     kernel, language_bundle = load_authorities()
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
+    assert {
+        "game.combat.model-binding.contract-stale-package",
+        "game.combat.model-binding.contract-stale-version",
+        "game.combat.model-binding.contract-stale-id",
+        "game.combat.model-binding.contract-wrong-type",
+        "game.combat.model-binding.contract-wrong-representation",
+        "game.combat.model-binding.contract-wrong-kind",
+        "game.combat.model-binding.contract-wrong-unit",
+        "game.combat.model-binding.contract-wrong-numeric-policy",
+        "quantity.assignment-policy.optional-override",
+        "game.combat.model-binding.multiple-entrypoints",
+    } <= vector_ids
     vector_owners = {
         vector_id: [
             vector_set
@@ -2064,6 +2069,41 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
             assert current["package-lock"] == reference["package-lock"]
             assert current["rir-semantic-payload"] == reference["rir-semantic-payload"]
             assert current["debug-map"] != reference["debug-map"]
+
+    optional = cast(
+        dict[str, Any],
+        results["quantity.assignment-policy.optional-override"],
+    )
+    optional_contract = optional["rir-semantic-payload"]["entrypoints"][0][
+        "scenario_input_contract"
+    ]
+    optional_target = next(
+        row
+        for row in optional_contract["targets"]
+        if row["target"]["name"] == "parameter_value"
+    )
+    optional_initializer = next(
+        row
+        for row in optional_contract["initializers"]
+        if row["target"]["name"] == "parameter_value"
+    )
+    assert (optional_target["cardinality"], optional_target["override"]) == (
+        "optional",
+        True,
+    )
+    assert optional_initializer["value"] == 10
+
+    multiple = cast(
+        dict[str, Any],
+        results["game.combat.model-binding.multiple-entrypoints"],
+    )
+    entrypoints = multiple["rir-semantic-payload"]["entrypoints"]
+    assert [row["id"] for row in entrypoints] == [
+        "combat.cast",
+        "combat.cast.alternate",
+    ]
+    assert len({row["identity"] for row in entrypoints}) == 2
+    assert len({_reference_encoded(row["arguments"]) for row in entrypoints}) == 2
 
 
 def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):

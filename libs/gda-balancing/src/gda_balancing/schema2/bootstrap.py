@@ -752,6 +752,24 @@ def _package_evidence_vector_header_is_closed(
     )
 
 
+def _diagnostic_catalog_matches_vectors(language_bundle: dict[str, Any]) -> bool:
+    diagnostics = language_bundle.get("diagnostics")
+    vectors = language_bundle.get("vectors")
+    if not isinstance(diagnostics, list) or not isinstance(vectors, list):
+        return False
+    catalog = {
+        (str(item.get("code", "")), str(item.get("stage", "")))
+        for item in diagnostics
+        if isinstance(item, dict)
+    }
+    vector_catalog = {
+        (str(item.get("diagnostic", "")), str(item.get("stage", "")))
+        for item in vectors
+        if isinstance(item, dict) and "diagnostic" in item
+    }
+    return catalog == vector_catalog
+
+
 def _package_semantic_closure_is_closed(
     package: dict[str, Any],
     contract: Any,
@@ -5364,6 +5382,18 @@ def admit_authorities(
         if isinstance(raw_meta_format, dict)
         else None
     )
+    definitions_are_closed = _language_definitions_are_closed(
+        language_bundle,
+        raw_meta_format if isinstance(raw_meta_format, dict) else {},
+    )
+    composition_subjects = (
+        _operation_composition_diagnostic_subjects(language_bundle)
+        if definitions_are_closed
+        else ()
+    )
+    diagnostic_catalog_matches_vectors = _diagnostic_catalog_matches_vectors(
+        language_bundle
+    )
     admitted_packages: list[dict[str, Any]] = []
     semantic_projection_mismatch = False
     if not _package_vector_contract_is_closed(package_vector_contract):
@@ -5405,8 +5435,12 @@ def admit_authorities(
                 )
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
-                or not _package_evidence_vectors_are_closed(
-                    package, vector_set, package_vector_contract
+                or (
+                    not composition_subjects
+                    and diagnostic_catalog_matches_vectors
+                    and not _package_evidence_vectors_are_closed(
+                        package, vector_set, package_vector_contract
+                    )
                 )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
@@ -5489,9 +5523,6 @@ def admit_authorities(
 
     language = cast(dict[str, Any], language_bundle.get("language", {}))
     meta_format = cast(dict[str, Any], kernel.get("meta_format", {}))
-    definitions_are_closed = _language_definitions_are_closed(
-        language_bundle, meta_format
-    )
     if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
     if not _assignment_policy_is_total(language_bundle):
@@ -5501,7 +5532,7 @@ def admit_authorities(
             "language.definitions.assignment-policy",
         )
     if definitions_are_closed:
-        for subject in _operation_composition_diagnostic_subjects(language_bundle):
+        for subject in composition_subjects:
             refuse("kernel.vector_mismatch", "static", subject)
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
@@ -5511,11 +5542,17 @@ def admit_authorities(
             "static",
             "language.embedded-artifact-bindings",
         )
+    ldb_diagnostics = cast(list[dict[str, Any]], language_bundle.get("diagnostics", []))
+    ldb_codes = [str(item.get("code", "")) for item in ldb_diagnostics]
+    if len(ldb_codes) != len(set(ldb_codes)):
+        refuse("kernel.duplicate_identifier", "static", "language-bundle.diagnostics")
+    if not diagnostic_catalog_matches_vectors:
+        refuse("kernel.diagnostic_closure", "static", "language-bundle.diagnostics")
     raw_ldb_vectors = language_bundle.get("vectors")
     ldb_vectors: list[dict[str, Any]] = []
     if not isinstance(raw_ldb_vectors, list):
         refuse("kernel.vector_mismatch", "static", "language-bundle.vectors")
-    else:
+    elif diagnostic_catalog_matches_vectors:
         for vector in raw_ldb_vectors:
             if _vector_header_is_closed(vector, meta_format, language_bundle):
                 ldb_vectors.append(vector)
@@ -5638,22 +5675,6 @@ def admit_authorities(
                 content_identity("rule-vector-projection-v2", cast(JsonValue, output)),
             )
         )
-
-    ldb_diagnostics = cast(list[dict[str, Any]], language_bundle.get("diagnostics", []))
-    ldb_codes = [str(item.get("code", "")) for item in ldb_diagnostics]
-    if len(ldb_codes) != len(set(ldb_codes)):
-        refuse("kernel.duplicate_identifier", "static", "language-bundle.diagnostics")
-    ldb_catalog = {
-        (str(item.get("code", "")), str(item.get("stage", "")))
-        for item in ldb_diagnostics
-    }
-    ldb_vector_catalog = {
-        (str(item["diagnostic"]), str(item.get("stage", "")))
-        for item in ldb_vectors
-        if "diagnostic" in item
-    }
-    if ldb_catalog != ldb_vector_catalog:
-        refuse("kernel.diagnostic_closure", "static", "language-bundle.diagnostics")
 
     reason_ids = [str(item.get("id", "")) for item in reasons]
     if len(reason_ids) != len(set(reason_ids)):

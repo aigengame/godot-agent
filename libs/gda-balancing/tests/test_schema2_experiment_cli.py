@@ -963,6 +963,111 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     }
 
 
+def test_experiment_cannot_rebind_a_resolved_entrypoint(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    value["scenarios"][0]["bindings"] = [
+        {
+            "port": "base_damage",
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "accuracy",
+            },
+        }
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/scenarios/0/bindings"
+
+
+def test_optional_experiment_override_uses_the_model_default_or_exact_override(
+    tmp_path,
+    run_cli,
+):
+    source_value = _rpg_model_source()
+    base_damage = next(
+        symbol
+        for symbol in source_value["modules"][0]["symbols"]
+        if symbol["symbol"] == "base_damage"
+    )
+    base_damage["value_policy"] = {"mode": "experiment-override", "value": 24}
+    source = tmp_path / "optional-override-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "optional-override-model"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    baseline = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=30,
+    )
+
+    observed: dict[str, tuple[int, list[dict[str, int]]]] = {}
+    for case, override in (("default", None), ("override", 30)):
+        specification = deepcopy(baseline)
+        assignments = specification["scenarios"][0]["assignments"]
+        base_assignment = next(
+            assignment
+            for assignment in assignments
+            if assignment["target"]["name"] == "base_damage"
+        )
+        if override is None:
+            assignments.remove(base_assignment)
+        else:
+            base_assignment["value"] = override
+        path = tmp_path / f"optional-{case}.json"
+        path.write_text(json.dumps(specification), encoding="utf-8")
+
+        checked = experiment_runtime_module.check_experiment(str(path))
+        assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+        artifacts = experiment_runtime_module.evaluate_experiment(checked)
+        assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+        event = artifacts.members["event-trace"].value["events"][0]
+        observed[case] = (
+            next(
+                row["integer"]
+                for row in event["facts"]
+                if row["name"] == "damage_dealt"
+            ),
+            event["state_after"],
+        )
+    assert observed == {
+        "default": (
+            18,
+            [
+                {"name": "actor_mana", "value": 22},
+                {"name": "target_health", "value": 82},
+            ],
+        ),
+        "override": (
+            24,
+            [
+                {"name": "actor_mana", "value": 22},
+                {"name": "target_health", "value": 76},
+            ],
+        ),
+    }
+
+
 def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, run_cli):
     source_value = json.loads(
         (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
@@ -1918,7 +2023,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         row
         for call_site in rir["call_sites"]
         if call_site["site"] == "apply-damage"
-        for row in call_site["aliases"]
+        for row in cast(list[dict[str, Any]], call_site["aliases"])
     )
     assert alias == {
         "actual_operand_identity": alias["actual_operand_identity"],

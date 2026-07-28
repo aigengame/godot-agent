@@ -124,8 +124,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   transitive resource closure under the selected LDB composition policy. Model entrypoints apply
   the LDB's total Symbol assignment policy to resolved Model symbols: the policy owns legal
   role/access/result combinations, value ownership, required/optional Experiment modes, and
-  actual-target collapse. Successful lowering gives every actual operand and call site a stable
-  identity and emits Model initializers and Experiment targets in the Scenario Input Contract.
+  actual-target collapse. Each role row classifies its binding as `operand`, `result`, or
+  `internal`; admission rejects an operand mode without either an Experiment value or Model
+  initializer, and rejects a result mode not produced by execution. Successful lowering gives every
+  actual operand and call site a stable identity and emits Model initializers and Experiment targets
+  in the Scenario Input Contract.
 
 - **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
   typing/evaluation laws for exact Model-entrypoint selection, total assignment of the generated

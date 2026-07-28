@@ -4611,6 +4611,273 @@ def _consumer_b_runtime_authority_is_closed(
     return True
 
 
+def _consumer_b_operation_composition_subjects(
+    ldb: dict[str, Any],
+) -> tuple[str, ...]:
+    """Independently close exact nested calls without using production admission."""
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return ()
+    packages = language.get("packages")
+    operations = language.get("operations")
+    if not isinstance(packages, list) or not isinstance(operations, list):
+        return ()
+    owners: dict[str, tuple[str, str]] = {}
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        package_id = package.get("id")
+        package_version = package.get("version")
+        if not isinstance(package_id, str) or not isinstance(package_version, str):
+            continue
+        exports = package.get("exports")
+        exported = exports.get("operations") if isinstance(exports, dict) else None
+        if not isinstance(exported, list):
+            continue
+        for operation_id in exported:
+            if isinstance(operation_id, str):
+                owners[operation_id] = (package_id, package_version)
+    by_coordinate = {
+        (*owners[operation["id"]], operation["id"]): operation
+        for operation in operations
+        if isinstance(operation, dict)
+        and isinstance(operation.get("id"), str)
+        and operation["id"] in owners
+    }
+    found: set[str] = set()
+    closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+
+    def subject(
+        coordinate: tuple[str, str, str],
+        site: str | None,
+        member: str,
+    ) -> str:
+        package, version, operation_id = coordinate
+        base = f"language.operations.{package}@{version}.{operation_id}"
+        return (
+            f"{base}.body.{site}.{member}" if site is not None else f"{base}.{member}"
+        )
+
+    def value_contract_matches(actual: dict[str, Any], formal: dict[str, Any]) -> bool:
+        def canonically_equal(left: Any, right: Any) -> bool:
+            try:
+                return _encoded(left) == _encoded(right)
+            except (TypeError, ValueError, UnicodeEncodeError):
+                return False
+
+        return actual.get("type") == formal.get("type") and all(
+            canonically_equal(actual.get(member), formal.get(member))
+            for member in (
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+            )
+        )
+
+    def aliases_are_admitted(
+        operation: dict[str, Any],
+        aliases: dict[str, list[tuple[str, str]]],
+    ) -> bool:
+        policy = operation.get("alias_policy")
+        if not isinstance(policy, dict):
+            return False
+        groups = policy.get("writable_groups")
+        if not isinstance(groups, list):
+            return False
+        writable = {
+            frozenset(group.get("ports", []))
+            for group in groups
+            if isinstance(group, dict)
+            and group.get("semantics")
+            in {"operation-body-order", "commutative-reducer"}
+        }
+        for uses in aliases.values():
+            if len(uses) < 2 or all(access == "read" for _port, access in uses):
+                continue
+            if frozenset(port for port, _access in uses) not in writable:
+                return False
+        return True
+
+    def close(
+        coordinate: tuple[str, str, str],
+        stack: tuple[tuple[str, str, str], ...],
+    ) -> tuple[set[str], set[str], int] | None:
+        if coordinate in closed:
+            return closed[coordinate]
+        operation = by_coordinate.get(coordinate)
+        if not isinstance(operation, dict):
+            return None
+        parent_ports = {
+            port["id"]: port
+            for port in operation.get("inputs", [])
+            if isinstance(port, dict) and isinstance(port.get("id"), str)
+        }
+        parent_outcomes = {
+            row["id"]
+            for row in operation.get("outcomes", [])
+            if isinstance(row, dict) and isinstance(row.get("id"), str)
+        }
+        locals_: dict[str, dict[str, Any]] = {}
+        effects = set(cast(list[str], operation.get("effects", [])))
+        refusals = set(cast(list[str], operation.get("refusals", [])))
+        body = operation.get("body")
+        if not isinstance(body, list):
+            return None
+        charge = len(body)
+        for instruction in body:
+            if not isinstance(instruction, dict) or instruction.get("node") != "invoke":
+                continue
+            site = instruction.get("site")
+            operation_ref = instruction.get("operation")
+            if (
+                not isinstance(site, str)
+                or not isinstance(operation_ref, dict)
+                or not all(
+                    isinstance(operation_ref.get(member), str)
+                    for member in ("package", "version", "id")
+                )
+            ):
+                found.add(subject(coordinate, cast(str | None, site), "operation"))
+                return None
+            child_coordinate = (
+                operation_ref["package"],
+                operation_ref["version"],
+                operation_ref["id"],
+            )
+            if child_coordinate in stack or child_coordinate == coordinate:
+                found.add(subject(coordinate, "cycle", "operation"))
+                return None
+            child = by_coordinate.get(child_coordinate)
+            if not isinstance(child, dict):
+                found.add(subject(coordinate, site, "operation"))
+                return None
+            child_ports = cast(list[dict[str, Any]], child.get("inputs", []))
+            arguments = instruction.get("arguments")
+            if not isinstance(arguments, list) or [
+                row.get("port") for row in arguments
+            ] != [row.get("id") for row in child_ports]:
+                found.add(subject(coordinate, site, "arguments"))
+                return None
+            aliases: dict[str, list[tuple[str, str]]] = {}
+            for formal, argument in zip(child_ports, arguments, strict=True):
+                operand = argument.get("operand")
+                if not isinstance(operand, dict):
+                    found.add(subject(coordinate, site, "arguments"))
+                    return None
+                kind = operand.get("kind")
+                if kind == "port":
+                    actual = parent_ports.get(operand.get("port"))
+                    if (
+                        not isinstance(actual, dict)
+                        or not value_contract_matches(actual, formal)
+                        or (
+                            formal.get("access") in {"read-write", "write"}
+                            and actual.get("access") not in {"read-write", "write"}
+                        )
+                    ):
+                        found.add(subject(coordinate, site, "arguments"))
+                        return None
+                    alias_key = f"port:{operand['port']}"
+                elif kind == "local":
+                    local_name = operand.get("local")
+                    if not isinstance(local_name, str):
+                        found.add(subject(coordinate, site, "arguments"))
+                        return None
+                    actual = locals_.get(local_name)
+                    if (
+                        not isinstance(actual, dict)
+                        or formal.get("access") != "read"
+                        or not value_contract_matches(actual, formal)
+                    ):
+                        found.add(subject(coordinate, site, "arguments"))
+                        return None
+                    alias_key = f"local:{local_name}"
+                elif kind == "literal":
+                    literal = operand.get("literal")
+                    if (
+                        formal.get("access") != "read"
+                        or not isinstance(literal, int)
+                        or isinstance(literal, bool)
+                    ):
+                        found.add(subject(coordinate, site, "arguments"))
+                        return None
+                    alias_key = f"literal:{literal}"
+                else:
+                    found.add(subject(coordinate, site, "arguments"))
+                    return None
+                aliases.setdefault(alias_key, []).append(
+                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                )
+            if not aliases_are_admitted(child, aliases):
+                found.add(subject(coordinate, site, "aliases"))
+                return None
+            result = instruction.get("result")
+            if not isinstance(result, dict):
+                found.add(subject(coordinate, site, "result"))
+                return None
+            if result.get("kind") == "discard":
+                if child.get("result", {}).get("discardable") is not True:
+                    found.add(subject(coordinate, site, "result"))
+                    return None
+            elif result.get("kind") == "local":
+                local = result.get("name")
+                if not isinstance(local, str) or not local or local in locals_:
+                    found.add(subject(coordinate, site, "result"))
+                    return None
+                locals_[local] = cast(dict[str, Any], child["result"])
+            elif result.get("kind") == "operation-result":
+                if not value_contract_matches(
+                    cast(dict[str, Any], child["result"]),
+                    cast(dict[str, Any], operation["result"]),
+                ):
+                    found.add(subject(coordinate, site, "result"))
+                    return None
+            else:
+                found.add(subject(coordinate, site, "result"))
+                return None
+            child_outcomes = [
+                row.get("id")
+                for row in child.get("outcomes", [])
+                if isinstance(row, dict)
+            ]
+            mappings = instruction.get("outcomes")
+            if (
+                not isinstance(mappings, list)
+                or [row.get("outcome") for row in mappings] != child_outcomes
+                or any(
+                    row.get("action", {}).get("kind") == "propagate"
+                    and row["action"].get("outcome") not in parent_outcomes
+                    for row in mappings
+                )
+            ):
+                found.add(subject(coordinate, site, "outcomes"))
+                return None
+            child_closure = close(child_coordinate, (*stack, coordinate))
+            if child_closure is None:
+                return None
+            child_effects, child_refusals, child_charge = child_closure
+            if not child_effects <= set(cast(list[str], operation["effects"])):
+                found.add(subject(coordinate, site, "effects"))
+                return None
+            if not child_refusals <= set(cast(list[str], operation["refusals"])):
+                found.add(subject(coordinate, site, "refusals"))
+                return None
+            effects.update(child_effects)
+            refusals.update(child_refusals)
+            charge += child_charge
+        if charge > operation.get("resource_bounds", {}).get("max_steps", -1):
+            found.add(subject(coordinate, None, "resource_bounds"))
+            return None
+        closed[coordinate] = (effects, refusals, charge)
+        return closed[coordinate]
+
+    for coordinate in sorted(by_coordinate):
+        close(coordinate, ())
+    return tuple(sorted(found))
+
+
 def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     """A separate, deliberately compact Kernel interpreter for cross-checking."""
     diagnostics: set[tuple[str, str, str]] = set()
@@ -5167,6 +5434,31 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     package_vector_set_contract = (
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
+    composition_subjects = _consumer_b_operation_composition_subjects(ldb)
+    raw_diagnostics = ldb.get("diagnostics")
+    raw_vectors = ldb.get("vectors")
+    early_diagnostic_catalog = (
+        {
+            (str(item.get("code", "")), str(item.get("stage", "")))
+            for item in raw_diagnostics
+            if isinstance(item, dict)
+        }
+        if isinstance(raw_diagnostics, list)
+        else set()
+    )
+    early_vector_catalog = (
+        {
+            (str(item.get("diagnostic", "")), str(item.get("stage", "")))
+            for item in raw_vectors
+            if isinstance(item, dict) and "diagnostic" in item
+        }
+        if isinstance(raw_vectors, list)
+        else set()
+    )
+    diagnostic_catalog_matches_vectors = (
+        isinstance(raw_diagnostics, list)
+        and early_diagnostic_catalog == early_vector_catalog
+    )
     if not _consumer_b_package_vector_contract_is_closed(package_vector_contract):
         refuse(
             "kernel.vector_mismatch",
@@ -5210,8 +5502,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
-                or not _consumer_b_package_evidence_vectors_are_closed(
-                    package, vector_set, package_vector_contract
+                or (
+                    not composition_subjects
+                    and diagnostic_catalog_matches_vectors
+                    and not _consumer_b_package_evidence_vectors_are_closed(
+                        package, vector_set, package_vector_contract
+                    )
                 )
             ):
                 refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
@@ -5280,6 +5576,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.definitions.assignment-policy",
         )
+    for composition_subject in composition_subjects:
+        refuse("kernel.vector_mismatch", "static", composition_subject)
     if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
@@ -5288,11 +5586,16 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.embedded-artifact-bindings",
         )
+    ldb_codes = [item["code"] for item in ldb["diagnostics"]]
+    if len(ldb_codes) != len(set(ldb_codes)):
+        refuse("kernel.duplicate_identifier", "static", "language-bundle.diagnostics")
+    if not diagnostic_catalog_matches_vectors:
+        refuse("kernel.diagnostic_closure", "static", "language-bundle.diagnostics")
     raw_vectors = ldb.get("vectors")
     valid_vectors: list[dict[str, Any]] = []
     if not isinstance(raw_vectors, list):
         refuse("kernel.vector_mismatch", "static", "language-bundle.vectors")
-    else:
+    elif diagnostic_catalog_matches_vectors:
         for vector in raw_vectors:
             if _consumer_b_vector_header_is_closed(vector, meta, ldb):
                 valid_vectors.append(vector)
@@ -5469,18 +5772,6 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             projections.append(
                 (vector["id"], _identity("rule-vector-projection-v2", output))
             )
-
-    ldb_codes = [item["code"] for item in ldb["diagnostics"]]
-    if len(ldb_codes) != len(set(ldb_codes)):
-        refuse("kernel.duplicate_identifier", "static", "language-bundle.diagnostics")
-    ldb_catalog = {(item["code"], item["stage"]) for item in ldb["diagnostics"]}
-    ldb_vector_catalog = {
-        (item["diagnostic"], item["stage"])
-        for item in valid_vectors
-        if "diagnostic" in item
-    }
-    if ldb_catalog != ldb_vector_catalog:
-        refuse("kernel.diagnostic_closure", "static", "language-bundle.diagnostics")
 
     def resolve(path: str) -> Any:
         value: Any = ldb
@@ -6109,6 +6400,113 @@ def test_two_consumers_refuse_assignment_modes_without_an_operand_value_producer
         "static",
         "kernel.vector_mismatch",
         "language.definitions.assignment-policy",
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_subject"),
+    (
+        (
+            "effect",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.effects"
+            ),
+        ),
+        (
+            "refusal",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.refusals"
+            ),
+        ),
+        (
+            "resource",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.resource_bounds"
+            ),
+        ),
+        (
+            "cycle",
+            (
+                "language.operations.game.check@1.0.0."
+                "game.check.hit-v1.body.cycle.operation"
+            ),
+        ),
+        (
+            "argument-contract",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.arguments"
+            ),
+        ),
+    ),
+)
+def test_two_consumers_refuse_every_reidentified_operation_composition_violation(
+    mutation,
+    expected_subject,
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operations = {
+        operation["id"]: operation for operation in ldb["language"]["operations"]
+    }
+    hit = operations["game.check.hit-v1"]
+    cast_operation = operations["game.combat.cast-v1"]
+    if mutation == "effect":
+        hit["effects"].append("hidden.child-effect")
+    elif mutation == "refusal":
+        hit["refusals"].append("hidden.child-refusal")
+    elif mutation == "resource":
+        cast_operation["resource_bounds"]["max_steps"] = 1
+    elif mutation == "argument-contract":
+        defense = next(port for port in hit["inputs"] if port["id"] == "defense")
+        defense["numeric_policy"] = "exact-bool"
+    else:
+        hit["body"] = [
+            {
+                "arguments": [
+                    {
+                        "operand": {"kind": "port", "port": "accuracy"},
+                        "port": "accuracy",
+                    },
+                    {
+                        "operand": {"kind": "port", "port": "defense"},
+                        "port": "defense",
+                    },
+                ],
+                "node": "invoke",
+                "operation": {
+                    "id": "game.check.hit-v1",
+                    "package": "game.check",
+                    "version": "1.0.0",
+                },
+                "outcomes": [
+                    {
+                        "action": {"kind": "continue"},
+                        "outcome": "hit",
+                    },
+                    {
+                        "action": {"kind": "continue"},
+                        "outcome": "miss",
+                    },
+                ],
+                "result": {"kind": "discard"},
+                "site": "self",
+            }
+        ]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        expected_subject,
     ) in first["diagnostics"]
 
 

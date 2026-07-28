@@ -429,7 +429,10 @@ resolved Model-symbol identities, Model-owned value-policy initializers, Experim
 inputs, and optional Experiment overrides of explicit Model defaults. An Experiment scenario must
 assign every required member exactly once, may assign an exported optional member at most once, and
 cannot assign anything else. It references identities and supplies values but does not own or
-duplicate symbol declarations or Operation formal ports (bADR-0012/0013/0022).
+duplicate symbol declarations or Operation formal ports. Each policy role is machine-classified as
+an Operation operand, Operation result, or internal generated value; authority admission rejects an
+operand mode that has neither an Experiment assignment nor a Model initializer, and rejects a
+result mode not produced by execution (bADR-0012/0013/0022).
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:
