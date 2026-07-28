@@ -3626,6 +3626,116 @@ def _consumer_b_language_definitions_are_closed(
     return True
 
 
+def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return False
+    lowerings = language.get("model_lowerings")
+    profiles = language.get("resolution_profiles")
+    quantity = language.get("quantity")
+    schemas = language.get("wire_schemas")
+    if (
+        not isinstance(lowerings, list)
+        or len(lowerings) != 1
+        or not isinstance(profiles, list)
+        or not isinstance(quantity, dict)
+        or not isinstance(quantity.get("symbol_roles"), list)
+        or not isinstance(schemas, list)
+    ):
+        return False
+    lowering = lowerings[0]
+    if not isinstance(lowering, dict):
+        return False
+    selected_profiles = [
+        profile
+        for profile in profiles
+        if isinstance(profile, dict)
+        and profile.get("id") == lowering.get("resolution_profile")
+    ]
+    if len(selected_profiles) != 1:
+        return False
+    modules_member = selected_profiles[0].get("modules_member")
+    symbols_member = selected_profiles[0].get("symbols_member")
+    policy = lowering.get("assignment_policy")
+    if (
+        not isinstance(modules_member, str)
+        or not isinstance(symbols_member, str)
+        or not isinstance(policy, dict)
+        or not isinstance(policy.get("roles"), list)
+    ):
+        return False
+    role_rows = policy["roles"]
+    roles = {
+        row.get("role")
+        for row in role_rows
+        if isinstance(row, dict) and isinstance(row.get("role"), str)
+    }
+    if len(roles) != len(role_rows) or roles != set(quantity["symbol_roles"]):
+        return False
+    coherent_modes = {
+        ("model", "required", "forbidden", False),
+        ("experiment", "forbidden", "required", False),
+        ("model-with-experiment-override", "required", "optional", True),
+        ("execution", "forbidden", "forbidden", False),
+        ("named-random-stream", "forbidden", "forbidden", False),
+        ("resolved-model", "forbidden", "forbidden", False),
+    }
+    declared_modes: set[str] = set()
+    for row in role_rows:
+        modes = row.get("modes")
+        accesses = row.get("entrypoint_operand_access")
+        if (
+            not isinstance(modes, list)
+            or not modes
+            or not isinstance(accesses, list)
+            or any(
+                not isinstance(mode, dict)
+                or not isinstance(mode.get("id"), str)
+                or not mode["id"]
+                or (
+                    mode.get("initialization_source"),
+                    mode.get("value_member"),
+                    mode.get("experiment_cardinality"),
+                    mode.get("override"),
+                )
+                not in coherent_modes
+                for mode in modes
+            )
+            or len({mode["id"] for mode in modes}) != len(modes)
+            or any(
+                access not in {"read", "read-write", "write"}
+                for access in accesses
+            )
+            or (
+                accesses
+                and any(
+                    mode["initialization_source"] == "execution"
+                    for mode in modes
+                )
+            )
+        ):
+            return False
+        declared_modes.update(mode["id"] for mode in modes)
+    model_schemas = [
+        row["schema"]
+        for row in schemas
+        if isinstance(row, dict)
+        and row.get("artifact_kind") == "model-source-package"
+        and isinstance(row.get("schema"), dict)
+    ]
+    if len(model_schemas) != 1:
+        return False
+    try:
+        schema_modes = set(
+            model_schemas[0]["properties"][modules_member]["items"]["properties"][
+                symbols_member
+            ]["items"]["properties"]["value_policy"]["properties"]["mode"]["enum"]
+        )
+    except (KeyError, TypeError):
+        return False
+    return schema_modes == declared_modes
+
+
 def _consumer_b_fact_schemas(
     meta: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
@@ -5148,6 +5258,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     meta = kernel["meta_format"]
     if not _consumer_b_language_definitions_are_closed(ldb, meta):
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if not _consumer_b_assignment_policy_is_total(ldb):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.definitions.assignment-policy",
+        )
     if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
