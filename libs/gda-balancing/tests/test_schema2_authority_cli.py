@@ -491,7 +491,8 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
 def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     release = authority["package_releases"][0]
-    schema = cast(dict[str, Any], package_get_success_schema()["oneOf"][0])
+    success_schema = cast(dict[str, Any], package_get_success_schema())
+    schema = cast(dict[str, Any], success_schema["oneOf"][0])
     invalid_releases = []
 
     invalid_list = deepcopy(release)
