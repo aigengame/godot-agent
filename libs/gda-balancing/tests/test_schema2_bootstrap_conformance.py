@@ -6476,6 +6476,32 @@ def test_two_consumers_refuse_unilateral_embedded_artifact_binding_drift(mutatio
     ) in first["diagnostics"]
 
 
+def test_two_consumers_admit_reidentified_nested_integer_literal():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    cast_operation = next(
+        operation
+        for operation in ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    spend_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "spend-resource"
+    )
+    cost = next(
+        argument for argument in spend_call["arguments"] if argument["port"] == "cost"
+    )
+    cost["operand"] = {"kind": "literal", "literal": 8}
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+
+
 @pytest.mark.parametrize(
     "mutation",
     (

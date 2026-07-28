@@ -334,7 +334,7 @@ def _reference_execute_event(
                         elif operand["kind"] == "local":
                             actual = locals_[operand["local"]]
                         else:
-                            actual = {"value": operand["value"]}
+                            actual = {"value": operand["literal"]}
                         child_arguments[binding["port"]] = actual
                     try:
                         child_outcome, child_result = execute(
@@ -2080,6 +2080,67 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         {"name": "actor_mana", "value": 22},
         {"name": "target_health", "value": 10},
     ]
+
+
+def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    cast_operation = operations["game.combat.cast-v1"]
+    spend_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "spend-resource"
+    )
+    cost = next(
+        argument for argument in spend_call["arguments"] if argument["port"] == "cost"
+    )
+    cost["operand"] = {"kind": "literal", "literal": 8}
+    lowering = checked.language_bundle["language"]["model_lowerings"][0]
+    rir["call_sites"] = model_module._resolved_call_sites(
+        checked.kernel,
+        rir["selected_semantics"],
+        lowering["composition_policy"],
+    )
+    candidate = replace(checked, rir=rir)
+
+    production = experiment_runtime_module.evaluate_experiment(candidate)
+
+    assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
+    production_event = production.members["event-trace"].value["events"][0]
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    reference_event = _reference_execute_event(
+        checked.kernel,
+        cast_operation,
+        operations,
+        checked.value["scenarios"][0],
+        seed=checked.value["seed"]["value"],
+        resolved_entrypoint=entrypoint,
+        resolved_declarations=rir["declarations"],
+        resolved_call_sites=rir["call_sites"],
+    )
+    assert {
+        key: value for key, value in production_event.items() if key != "index"
+    } == reference_event
+    assert production_event["state_after"] == [
+        {"name": "actor_mana", "value": 22},
+        {"name": "target_health", "value": 82},
+    ]
+    call_sites = cast(list[dict[str, Any]], rir["call_sites"])
+    spend_site = next(row for row in call_sites if row["site"] == "spend-resource")
+    cost_operand = next(
+        row["operand"]
+        for row in spend_site["arguments"]
+        if row["port"]["name"] == "cost"
+    )
+    assert cost_operand["kind"] == "literal"
+    assert cost_operand["value"] == 8
+    assert cost_operand["context_type"]["id"] == "quantity.dimensionless-int64"
 
 
 def test_ordered_writable_alias_write_is_visible_to_later_child_call(

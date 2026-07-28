@@ -2488,6 +2488,95 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     ).admitted
 
 
+def test_nested_integer_literal_is_identical_across_lowerers(
+    monkeypatch,
+):
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    cast_operation = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    spend_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "spend-resource"
+    )
+    cost = next(
+        argument for argument in spend_call["arguments"] if argument["port"] == "cost"
+    )
+    cost["operand"] = {"kind": "literal", "literal": 8}
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    monkeypatch.setattr(
+        model_module,
+        "load_authorities",
+        lambda: (kernel, candidate_ldb),
+    )
+
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, candidate_ldb)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    rir = cast(dict[str, Any], production["rir-semantic-payload"])
+    call_sites = cast(list[dict[str, Any]], rir["call_sites"])
+    call_site = next(row for row in call_sites if row["site"] == "spend-resource")
+    operand = next(
+        row["operand"]
+        for row in call_site["arguments"]
+        if row["port"]["name"] == "cost"
+    )
+    assert operand == {
+        "kind": "literal",
+        "value": 8,
+        "context_type": {
+            "domain": {"kind": "actual"},
+            "id": "quantity.dimensionless-int64",
+            "kind": "scalar",
+            "numeric_policy": "exact-int64",
+            "representation": "Int",
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.0.0",
+            },
+            "unit": "1",
+        },
+        "identity": operand["identity"],
+    }
+    assert cast(str, operand["identity"]).startswith("sha256:")
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        }
+    ).admitted
+
+
 def test_resolution_stage_order_is_authoritative_across_independent_consumers(
     tmp_path,
 ):
