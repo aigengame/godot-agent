@@ -234,6 +234,7 @@ jobs:
       - name: Summarize per-file and slow-test durations
         if: ${{ always() }}
         run: |
+          mkdir -p test-results
           if [ -f "test-results/${{ matrix.shard }}-junit.xml" ]; then
             python3 libs/gda-balancing/tools/ci.py summarize-junit \
               --junit "test-results/${{ matrix.shard }}-junit.xml" \
@@ -285,6 +286,7 @@ jobs:
       - name: Summarize subprocess durations
         if: ${{ always() }}
         run: |
+          mkdir -p test-results
           if [ -f test-results/smoke-junit.xml ]; then
             python3 libs/gda-balancing/tools/ci.py summarize-junit \
               --junit test-results/smoke-junit.xml \
@@ -375,6 +377,7 @@ jobs:
       - name: Summarize nightly durations
         if: ${{ always() }}
         run: |
+          mkdir -p test-results
           if [ -f test-results/nightly-junit.xml ]; then
             python3 libs/gda-balancing/tools/ci.py summarize-junit \
               --junit test-results/nightly-junit.xml \

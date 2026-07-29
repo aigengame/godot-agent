@@ -30,6 +30,9 @@ runs:
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.2.0
       with:
+        # Avoid a runtime lookup of the moving "latest" manifest. Parallel CI
+        # shards must not multiply a transient metadata fetch into flaky setup.
+        version: "0.11.19"
         python-version: ${{ inputs.python-version }}
         enable-cache: true
         save-cache: ${{ inputs.save-cache }}
