@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032"
+    "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4435,6 +4435,12 @@ def _operation_composition_diagnostic_subjects(
         if isinstance(runtime_program, dict)
         else None
     )
+    runtime_numeric_policies = (
+        runtime_program.get("numeric", {}).get("compatible_value_numeric_policies")
+        if isinstance(runtime_program, dict)
+        and isinstance(runtime_program.get("numeric"), dict)
+        else None
+    )
     result_source_shapes = (
         invocation_contract.get("result_source_shapes")
         if isinstance(invocation_contract, dict)
@@ -4447,6 +4453,9 @@ def _operation_composition_diagnostic_subjects(
         or not isinstance(result_source_shapes, dict)
         or not isinstance(runtime_nodes, list)
         or not isinstance(fixed_value_contracts, dict)
+        or not isinstance(runtime_numeric_policies, list)
+        or not runtime_numeric_policies
+        or not all(isinstance(policy, str) for policy in runtime_numeric_policies)
     ):
         return ("language.literal-typing-profiles",)
     node_definitions = {
@@ -4627,6 +4636,20 @@ def _operation_composition_diagnostic_subjects(
                         ):
                             refuse(owner, operation, str(instruction_index), "typing")
                             return None
+                    if constraint_kind == "runtime-numeric" and any(
+                        len(
+                            [
+                                candidate
+                                for candidate in candidates
+                                if candidate.get("numeric_policy")
+                                in runtime_numeric_policies
+                            ]
+                        )
+                        != 1
+                        for candidates in referenced
+                    ):
+                        refuse(owner, operation, str(instruction_index), "typing")
+                        return None
                     if constraint_kind == "writable-port" and any(
                         not isinstance(instruction.get(member), str)
                         or instruction[member] not in parent_ports
@@ -6882,6 +6905,7 @@ def _runtime_authority_is_closed(
                 constraint_kind
                 not in {
                     "fixed-value-contract",
+                    "runtime-numeric",
                     "same-value-contract",
                     "writable-port",
                 }
@@ -6926,6 +6950,7 @@ def _runtime_authority_is_closed(
         not isinstance(numeric, dict)
         or numeric
         != {
+            "compatible_value_numeric_policies": ["exact-int64"],
             "id": "signed-int64-v1",
             "minimum": -(1 << 63),
             "maximum": (1 << 63) - 1,

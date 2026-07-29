@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032"
+    "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681"
 )
 
 
@@ -4615,6 +4615,7 @@ def _consumer_b_runtime_authority_is_closed(
                 kind
                 not in {
                     "fixed-value-contract",
+                    "runtime-numeric",
                     "same-value-contract",
                     "writable-port",
                 }
@@ -4644,6 +4645,7 @@ def _consumer_b_runtime_authority_is_closed(
     if (
         runtime.get("numeric")
         != {
+            "compatible_value_numeric_policies": ["exact-int64"],
             "id": "signed-int64-v1",
             "minimum": -(1 << 63),
             "maximum": (1 << 63) - 1,
@@ -4944,6 +4946,12 @@ def _consumer_b_operation_composition_subjects(
         if isinstance(runtime_program, dict)
         else None
     )
+    runtime_numeric_policies = (
+        runtime_program.get("numeric", {}).get("compatible_value_numeric_policies")
+        if isinstance(runtime_program, dict)
+        and isinstance(runtime_program.get("numeric"), dict)
+        else None
+    )
     result_source_shapes = (
         invocation_contract.get("result_source_shapes")
         if isinstance(invocation_contract, dict)
@@ -4956,6 +4964,9 @@ def _consumer_b_operation_composition_subjects(
         or not isinstance(result_source_shapes, dict)
         or not isinstance(runtime_nodes, list)
         or not isinstance(fixed_value_contracts, dict)
+        or not isinstance(runtime_numeric_policies, list)
+        or not runtime_numeric_policies
+        or not all(isinstance(policy, str) for policy in runtime_numeric_policies)
     ):
         return ("language.literal-typing-profiles",)
     node_definitions = {
@@ -5204,6 +5215,16 @@ def _consumer_b_operation_composition_subjects(
                                 subject(coordinate, str(instruction_index), "typing")
                             )
                             return None
+                    if kind == "runtime-numeric" and any(
+                        sum(
+                            candidate.get("numeric_policy") in runtime_numeric_policies
+                            for candidate in candidates
+                        )
+                        != 1
+                        for candidates in resolved
+                    ):
+                        found.add(subject(coordinate, str(instruction_index), "typing"))
+                        return None
                     if kind == "writable-port" and any(
                         not isinstance(instruction.get(member), str)
                         or instruction[member] not in parent_ports
@@ -7497,6 +7518,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "kernel-unit",
     }
     assert runtime["numeric"] == {
+        "compatible_value_numeric_policies": ["exact-int64"],
         "id": "signed-int64-v1",
         "minimum": -(1 << 63),
         "maximum": (1 << 63) - 1,
@@ -8791,6 +8813,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
         "port-shadow",
         "forward-reference",
         "unused-incompatible-node",
+        "unused-non-numeric-node",
     ),
 )
 def test_operation_body_typing_uses_the_complete_sequential_lexical_scope(mutation):
@@ -8820,7 +8843,7 @@ def test_operation_body_typing_uses_the_complete_sequential_lexical_scope(mutati
             if instruction.get("target") == "damage"
         )
         operation["body"].insert(0, operation["body"].pop(producer_index))
-    else:
+    elif mutation == "unused-incompatible-node":
         operation["body"].insert(
             -1,
             {
@@ -8828,6 +8851,17 @@ def test_operation_body_typing_uses_the_complete_sequential_lexical_scope(mutati
                 "target": "unused_bad",
                 "left": "critical",
                 "right": "base_damage",
+            },
+        )
+        operation["resource_bounds"]["max_steps"] += 1
+    else:
+        operation["body"].insert(
+            -1,
+            {
+                "node": "add",
+                "target": "unused_bad",
+                "left": "critical",
+                "right": "critical",
             },
         )
         operation["resource_bounds"]["max_steps"] += 1

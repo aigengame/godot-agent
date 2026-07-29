@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032",
+  "content_identity": "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4725,6 +4725,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [
@@ -4818,6 +4825,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [],
@@ -4898,6 +4912,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [],
@@ -4933,6 +4954,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [],
@@ -4964,6 +4992,13 @@
           "operand_constraints": [
             {
               "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            },
+            {
+              "kind": "runtime-numeric",
               "members": [
                 "left",
                 "right"
@@ -5007,6 +5042,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [
@@ -5042,6 +5084,13 @@
           "operand_constraints": [
             {
               "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            },
+            {
+              "kind": "runtime-numeric",
               "members": [
                 "left",
                 "right"
@@ -5108,6 +5157,13 @@
           "operand_constraints": [
             {
               "kind": "same-value-contract",
+              "members": [
+                "symbol",
+                "value"
+              ]
+            },
+            {
+              "kind": "runtime-numeric",
               "members": [
                 "symbol",
                 "value"
@@ -5216,6 +5272,13 @@
                 "left",
                 "right"
               ]
+            },
+            {
+              "kind": "runtime-numeric",
+              "members": [
+                "left",
+                "right"
+              ]
             }
           ],
           "refusals": [],
@@ -5263,6 +5326,9 @@
         }
       ],
       "numeric": {
+        "compatible_value_numeric_policies": [
+          "exact-int64"
+        ],
         "id": "signed-int64-v1",
         "maximum": 9223372036854775807,
         "minimum": -9223372036854775808,
@@ -5290,6 +5356,13 @@
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "runtime-numeric",
                 "members": [
                   "left",
                   "right"
@@ -5376,6 +5449,13 @@
                   "left",
                   "right"
                 ]
+              },
+              {
+                "kind": "runtime-numeric",
+                "members": [
+                  "left",
+                  "right"
+                ]
               }
             ],
             "operator": "integer-compare",
@@ -5449,6 +5529,13 @@
                   "left",
                   "right"
                 ]
+              },
+              {
+                "kind": "runtime-numeric",
+                "members": [
+                  "left",
+                  "right"
+                ]
               }
             ],
             "operator": "integer-compare",
@@ -5480,6 +5567,13 @@
                   "left",
                   "right"
                 ]
+              },
+              {
+                "kind": "runtime-numeric",
+                "members": [
+                  "left",
+                  "right"
+                ]
               }
             ],
             "operator": "integer-compare",
@@ -5507,6 +5601,13 @@
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "runtime-numeric",
                 "members": [
                   "left",
                   "right"
@@ -5545,6 +5646,13 @@
                   "left",
                   "right"
                 ]
+              },
+              {
+                "kind": "runtime-numeric",
+                "members": [
+                  "left",
+                  "right"
+                ]
               }
             ],
             "operator": "integer-multiply",
@@ -5575,6 +5683,13 @@
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "runtime-numeric",
                 "members": [
                   "left",
                   "right"
@@ -5633,6 +5748,13 @@
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
+                "members": [
+                  "symbol",
+                  "value"
+                ]
+              },
+              {
+                "kind": "runtime-numeric",
                 "members": [
                   "symbol",
                   "value"
@@ -5724,6 +5846,13 @@
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "kind": "runtime-numeric",
                 "members": [
                   "left",
                   "right"
