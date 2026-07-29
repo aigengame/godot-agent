@@ -13,8 +13,10 @@ from typing import Any, cast
 
 import jsonschema
 
-from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
+)
 from gda_balancing.schema2.canonical import (
     JsonValue,
     canonical_bytes,
@@ -25,7 +27,6 @@ from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
-    bootstrap_refusal,
 )
 from gda_balancing.schema2.model import (
     PublicationMember,
@@ -67,6 +68,7 @@ class CheckedExperiment:
     package_lock: dict[str, Any]
     resolved_model: dict[str, Any]
     rir: dict[str, Any]
+    authority_context: AdmittedAuthorityContext | None = None
 
 
 @dataclass(frozen=True)
@@ -261,7 +263,11 @@ def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) 
     return cast(str, matches[0])
 
 
-def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
+def check_experiment(
+    path: str,
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
     try:
         data = Path(path).read_bytes()
@@ -270,10 +276,9 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
 
         raise UnreadableInputError(f"cannot read input document: {path}") from err
 
-    kernel, language_bundle = load_authorities()
-    admission = admit_authorities(kernel, language_bundle)
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    context = authority_context or packaged_authority_context()
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     observed_identity = _raw_identity(data)
     if len(data) > language_bundle["resources"]["max_source_bytes"]:
         return _refusal(
@@ -406,7 +411,8 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             "package-lock": artifacts["package_lock"],
             "resolved-model": artifacts["resolved_model"],
             "rir-semantic-payload": artifacts["rir"],
-        }
+        },
+        authority_context=context,
     ).admitted:
         return _refusal(
             stage="resolution",
@@ -589,6 +595,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
         package_lock=artifacts["package_lock"],
         resolved_model=artifacts["resolved_model"],
         rir=rir,
+        authority_context=context,
     )
 
 

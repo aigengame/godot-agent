@@ -20,11 +20,15 @@ from pydantic.json_schema import (
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import (
+    AuthorityContextProvider,
     AuthorityLoadError,
-    load_authorities,
-    load_descriptor_authorities,
+    packaged_authority_context,
+    resolve_authority_context,
 )
-from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG, admit_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    BootstrapAdmission,
+)
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
     bootstrap_refusal,
@@ -33,7 +37,7 @@ from gda_balancing.schema2.diagnostics import (
 
 
 def _package_coordinate_contracts() -> dict[str, dict[str, Any]]:
-    kernel, _language_bundle = load_descriptor_authorities()
+    kernel = packaged_authority_context().kernel
     field_types = (
         kernel.get("meta_format", {})
         .get("language_bundle", {})
@@ -113,22 +117,19 @@ class PackageArtifact(RootModel[dict[str, Any]]):
     """One admitted package inventory or exact Package Release."""
 
 
-AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
-
-
 def _admitted_package_graph(
-    provider: AuthorityProvider,
+    provider: AuthorityContextProvider,
 ) -> (
     tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]
     | Schema2RefusalReport
 ):
     try:
-        kernel, ldb = provider()
+        context = resolve_authority_context(provider)
     except AuthorityLoadError as err:
         return ingress_refusal(err.code, err.subject, err.message)
-    admission = admit_authorities(kernel, ldb)
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    if isinstance(context, BootstrapAdmission):
+        return bootstrap_refusal(context)
+    ldb = context.language_bundle
     root = getattr(ldb, "root", None)
     releases = getattr(ldb, "package_releases", None)
     vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
@@ -146,7 +147,7 @@ def _admitted_package_graph(
 
 
 def package_list_handler(
-    provider: AuthorityProvider,
+    provider: AuthorityContextProvider,
 ) -> Callable[[PackageListInput], PackageArtifact | Schema2RefusalReport]:
     def _run(_inp: PackageListInput) -> PackageArtifact | Schema2RefusalReport:
         graph = _admitted_package_graph(provider)
@@ -164,7 +165,7 @@ def package_list_handler(
 
 
 def package_get_handler(
-    provider: AuthorityProvider,
+    provider: AuthorityContextProvider,
 ) -> Callable[[PackageGetInput], PackageArtifact | Schema2RefusalReport]:
     def _run(inp: PackageGetInput) -> PackageArtifact | Schema2RefusalReport:
         graph = _admitted_package_graph(provider)
@@ -279,7 +280,9 @@ def _package_contracts() -> tuple[
     dict[str, Any],
     dict[str, Any],
 ]:
-    kernel, language_bundle = load_descriptor_authorities()
+    context = packaged_authority_context()
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     meta_format = cast(dict[str, Any], kernel["meta_format"])
     language_bundle_contract = cast(dict[str, Any], meta_format["language_bundle"])
     return (
@@ -834,7 +837,7 @@ PACKAGE_LIST = CommandDescriptor(
     description="List Package Releases in the admitted Language Definition Bundle.",
     input_model=PackageListInput,
     output_model=PackageArtifact,
-    handler=package_list_handler(load_authorities),
+    handler=package_list_handler(packaged_authority_context),
     fixtures=ConformanceFixtures(),
     schema_major=2,
     structured_params=True,
@@ -850,7 +853,7 @@ PACKAGE_GET = CommandDescriptor(
     description="Get one exact member of a Package Release.",
     input_model=PackageGetInput,
     output_model=PackageArtifact,
-    handler=package_get_handler(load_authorities),
+    handler=package_get_handler(packaged_authority_context),
     fixtures=ConformanceFixtures(
         valid_args=("--id", "core.quantity", "--version", "2.0.0"),
         refusing_args=("--id", "missing.package", "--version", "1.0.0"),

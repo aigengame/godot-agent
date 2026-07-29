@@ -33,10 +33,38 @@ from gda_balancing.commands import REGISTRY
 from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
 from gda_balancing.descriptors import CommandDescriptor
 from gda_balancing.dispatch import dispatch
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
+)
 
 RunResult = tuple[int, str, str]
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(scope="session")
+def pristine_authority_context() -> AdmittedAuthorityContext:
+    """One deeply immutable admitted baseline shared by read-only consumers."""
+    return packaged_authority_context()
+
+
+@pytest.fixture
+def authority_candidate(
+    pristine_authority_context: AdmittedAuthorityContext,
+) -> dict[str, object]:
+    """One independently owned mutable authority candidate for a test boundary."""
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    admission = pristine_authority_context.admission
+    return {
+        "kernel": kernel,
+        "language_bundle": language_bundle,
+        "admission": {
+            "admitted": admission.admitted,
+            "kernel_identity": admission.kernel_identity,
+            "language_bundle_identity": admission.language_bundle_identity,
+        },
+    }
 
 
 @pytest.fixture(autouse=True)

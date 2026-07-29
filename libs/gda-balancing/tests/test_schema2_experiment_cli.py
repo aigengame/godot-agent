@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 
 import gda_balancing.commands.experiment as experiment_command_module
+import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import content_identity
@@ -1146,7 +1147,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     first_metrics = _member(first_receipt, "metric-dataset")
     assert first_trace["events"][0]["operation"] == "game.combat.cast-v1"
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
-    _loaded_kernel, ldb = experiment_runtime_module.load_authorities()
+    _loaded_kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     combat_vectors = next(
         vector_set["vector_definitions"]
@@ -1466,7 +1467,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
 
 
 def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
-    kernel, ldb = experiment_runtime_module.load_authorities()
+    kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
         vector
@@ -2029,7 +2030,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         {"name": "target_health", "value": 100},
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
-    kernel, ldb = experiment_runtime_module.load_authorities()
+    kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     rir = _member(build_receipt, "rir-semantic-payload")
     resolved_entrypoint = next(

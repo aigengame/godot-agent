@@ -2,7 +2,7 @@
 
 from typing import cast
 
-from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue, content_identity
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
@@ -48,7 +48,12 @@ def wire_schema_projection(
     authorities: dict[str, JsonValue] | None = None,
 ) -> dict[str, JsonValue]:
     """Project the exact admitted Kernel and LDB into closed wire schemas."""
-    authorities = authority_set() if authorities is None else authorities
+    if authorities is None:
+        context = packaged_authority_context()
+        authorities = {
+            "kernel": cast(JsonValue, context.kernel),
+            "language_bundle": cast(JsonValue, context.language_bundle),
+        }
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
     public_ldb = getattr(ldb, "root", ldb)
@@ -104,7 +109,12 @@ def diagnostic_catalog_projection(
     authorities: dict[str, JsonValue] | None = None,
 ) -> dict[str, JsonValue]:
     """Project the exact Kernel/LDB diagnostic inventories in stable order."""
-    authorities = authority_set() if authorities is None else authorities
+    if authorities is None:
+        context = packaged_authority_context()
+        authorities = {
+            "kernel": cast(JsonValue, context.kernel),
+            "language_bundle": cast(JsonValue, context.language_bundle),
+        }
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
     entries: list[dict[str, JsonValue]] = []

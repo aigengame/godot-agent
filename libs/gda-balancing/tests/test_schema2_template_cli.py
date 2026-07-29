@@ -11,7 +11,6 @@ from typing import Any, cast
 
 import jsonschema
 import pytest
-import gda_balancing.commands.template as template_command_module
 import gda_balancing.schema2.model as schema2_model
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
@@ -20,7 +19,11 @@ from gda_balancing.commands.template import (
     template_get_handler,
     template_instantiate_handler,
 )
-from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    authority_set,
+)
 from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
@@ -1729,9 +1732,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
     assert (exit_code, stderr) == (0, ""), stdout
 
 
-def test_template_instantiation_uses_the_ldb_owned_source_role_name(
-    tmp_path, run_cli, monkeypatch
-):
+def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, run_cli):
     authority = authority_set()
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
@@ -1761,14 +1762,14 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
         release, old_ldb_identity, language_bundle["content_identity"]
     )
     _reidentify_release(release)
-    monkeypatch.setattr(
-        template_command_module,
-        "load_authorities",
-        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
-    )
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
     descriptor = replace(
         TEMPLATE_INSTANTIATE,
-        handler=template_instantiate_handler(lambda _kernel, _ldb: deepcopy(release)),
+        handler=template_instantiate_handler(
+            lambda _kernel, _ldb: deepcopy(release),
+            authority_context_provider=lambda: context,
+        ),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1792,7 +1793,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
     assert (exit_code, stderr) == (0, ""), (stdout, stderr)
 
 
-def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeypatch):
+def test_template_vector_expected_value_uses_canonical_equality(run_cli):
     authority = authority_set()
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
@@ -1826,14 +1827,14 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeyp
     )
     boundary["payload"]["value"] = 1
     _reidentify_release(release)
-    monkeypatch.setattr(
-        template_command_module,
-        "load_authorities",
-        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
-    )
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: deepcopy(release)),
+        handler=template_get_handler(
+            lambda _kernel, _ldb: deepcopy(release),
+            authority_context_provider=lambda: context,
+        ),
     )
 
     exit_code, stdout, stderr = run_cli(

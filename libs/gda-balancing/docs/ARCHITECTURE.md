@@ -172,6 +172,16 @@ laws, and the Kernel does not absorb ordinary language or game-domain evolution.
 package-coordinate patterns and the identity domains for the root, release, and evidence
 collections; loaders, admission, public schemas, and rebuild tooling project those contracts.
 
+Within one host process, those projections share one deeply immutable
+`AdmittedAuthorityContext`. The authority lifecycle atomically loads, admits, indexes, and freezes
+the exact packaged Kernel/LDB graph before publishing it; every compiler, Runtime, Experiment,
+Template, and CLI consumer borrows that same context. This is a performance and ownership boundary,
+not another authority. Explicitly injected Kernel/LDB candidates are admitted into separate,
+independently owned contexts and cannot mutate or populate the packaged baseline. Canonical
+Wire-Schema meta-validation is cached only by actual schema bytes plus the actual Kernel
+schema-profile bytes. The test and CI verification contract for this lifecycle is documented in
+[`docs/agents/testing.md`](agents/testing.md).
+
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 never semantic authorities. Generated JSON Schema, help text, and SDK types are projections of the
 same authoritative artifacts. They may make the system easier to use but cannot add meaning.

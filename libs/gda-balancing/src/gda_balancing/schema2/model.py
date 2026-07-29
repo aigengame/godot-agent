@@ -21,14 +21,14 @@ from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import (
-    load_authorities,
-    load_descriptor_authorities,
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    packaged_authority_context,
 )
 from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
     BootstrapAdmission,
-    admit_authorities,
 )
 from gda_balancing.schema2.canonical import (
     JsonValue,
@@ -54,8 +54,10 @@ _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
 
 def _descriptor_language_bundle() -> LanguageBundleIndex:
     """Admit the packaged graph once while assembling static command descriptors."""
-    _, language_bundle = load_descriptor_authorities()
-    return language_bundle
+    return cast(
+        LanguageBundleIndex,
+        packaged_authority_context().language_bundle,
+    )
 
 
 def _normalized_absolute_path(value: str) -> Path:
@@ -149,6 +151,7 @@ class CheckedModel:
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
+    authority_context: AdmittedAuthorityContext | None = None
 
 
 @dataclass(frozen=True)
@@ -873,6 +876,7 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
 def check_model_source_value(
     source: dict[str, Any],
     *,
+    authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
     authority_admission: BootstrapAdmission | None = None,
@@ -884,6 +888,7 @@ def check_model_source_value(
         data = b"null\n"
     return _check_model_source_bytes(
         data,
+        authority_context=authority_context,
         kernel=kernel,
         language_bundle=language_bundle,
         authority_admission=authority_admission,
@@ -893,22 +898,35 @@ def check_model_source_value(
 def _check_model_source_bytes(
     data: bytes,
     *,
+    authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
     authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
+    if authority_context is not None and (
+        kernel is not None
+        or language_bundle is not None
+        or authority_admission is not None
+    ):
+        raise ValueError(
+            "authority_context cannot be combined with separate authority inputs"
+        )
     if (kernel is None) != (language_bundle is None):
         raise ValueError("Kernel and LDB must be supplied together")
-    if kernel is None or language_bundle is None:
-        kernel, language_bundle = load_authorities()
-    ldb = language_bundle
-    admission = authority_admission or admit_authorities(kernel, ldb)
-    if admission.kernel_identity != kernel.get(
-        "content_identity"
-    ) or admission.language_bundle_identity != ldb.get("content_identity"):
-        raise ValueError("authority admission belongs to another Kernel/LDB pair")
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    if authority_context is None:
+        if kernel is None or language_bundle is None:
+            authority_context = packaged_authority_context()
+        else:
+            resolved_context = admit_authority_context(
+                kernel,
+                language_bundle,
+                admission=authority_admission,
+            )
+            if isinstance(resolved_context, BootstrapAdmission):
+                return bootstrap_refusal(resolved_context)
+            authority_context = resolved_context
+    kernel = authority_context.kernel
+    ldb = authority_context.language_bundle
     source_size_reason = _unique_reason(
         ldb,
         stage="ingress",
@@ -1007,6 +1025,7 @@ def _check_model_source_bytes(
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
+        authority_context=authority_context,
     )
     invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
     if invalid_policy_pointer is not None:
@@ -3443,15 +3462,13 @@ def _resolved_entrypoint_graph_is_admitted(
 
 def admit_resolved_model(
     artifacts: dict[str, dict[str, Any]],
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
 ) -> ResolvedModelAdmission:
     """Admit a semantic artifact trio against the exact packaged authorities."""
-    kernel, ldb = load_authorities()
-    authority_admission = admit_authorities(kernel, ldb)
-    if not authority_admission.admitted:
-        return ResolvedModelAdmission(
-            False,
-            tuple(item.code for item in authority_admission.diagnostics),
-        )
+    context = authority_context or packaged_authority_context()
+    kernel = context.kernel
+    ldb = context.language_bundle
     lowering = _model_lowering(ldb)
     diagnostic = (
         cast(
@@ -3495,6 +3512,7 @@ def admit_resolved_model(
         source_identity="unbound-for-semantic-admission",
         kernel=kernel,
         language_bundle=ldb,
+        authority_context=context,
     )
     try:
         expected_lock = _package_lock(synthetic)
@@ -3623,8 +3641,27 @@ def _lowering_inputs(
 
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
     """Lower one checked source to the semantic and provenance artifacts."""
-    admission = admit_authorities(checked.kernel, checked.language_bundle)
-    if not admission.admitted:
+    context = checked.authority_context
+    if (
+        context is None
+        or context.kernel is not checked.kernel
+        or context.language_bundle is not checked.language_bundle
+    ):
+        resolved_context = admit_authority_context(
+            checked.kernel,
+            checked.language_bundle,
+        )
+        if isinstance(resolved_context, BootstrapAdmission):
+            raise ValueError("lowerer received authorities that failed admission")
+        context = resolved_context
+        checked = CheckedModel(
+            source=checked.source,
+            source_identity=checked.source_identity,
+            kernel=context.kernel,
+            language_bundle=context.language_bundle,
+            authority_context=context,
+        )
+    if not context.admission.admitted:
         raise ValueError("lowerer received authorities that failed admission")
     lock, declarations, lowering, source_rows = _lowering_inputs(checked)
     profile = _resolution_profile(

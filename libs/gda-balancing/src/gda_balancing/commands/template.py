@@ -13,16 +13,21 @@ from gda_balancing.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import (
-    admit_authorities,
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    AuthorityContextProvider,
+    AuthorityLoadError,
+    packaged_authority_context,
+    resolve_authority_context,
 )
+from gda_balancing.schema2.bootstrap import BootstrapAdmission
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
     bootstrap_refusal,
+    ingress_refusal,
 )
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
@@ -673,6 +678,7 @@ def _execute_template_derivation(
     select: Callable[[Any], list[Any]],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     if kind == "content-identity":
         values = select(arguments[cast(str, evaluation["selector"])])
@@ -708,8 +714,7 @@ def _execute_template_derivation(
     state.source = cast(dict[str, Any], roles[role][0]["payload"])
     checked = check_model_source_value(
         state.source,
-        kernel=cast(dict[str, Any], kernel),
-        language_bundle=cast(dict[str, Any], language_bundle),
+        authority_context=authority_context,
     )
     if isinstance(checked, Schema2RefusalReport):
         return checked
@@ -900,6 +905,7 @@ def _execute_template_vector(
     budget: _TemplateAdmissionBudget,
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> bool:
     role = cast(str, arguments[cast(str, evaluation["role"])])
     if state.source is None:
@@ -935,8 +941,7 @@ def _execute_template_vector(
         result = (
             check_model_source_value(
                 mutated,
-                kernel=cast(dict[str, Any], kernel),
-                language_bundle=cast(dict[str, Any], language_bundle),
+                authority_context=authority_context,
             )
             if mutated is not None
             else None
@@ -972,6 +977,7 @@ def _validate_template_semantics(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     """Interpret the LDB Template artifact-graph program under Kernel primitives."""
     try:
@@ -1118,6 +1124,7 @@ def _validate_template_semantics(
                     select,
                     kernel,
                     language_bundle,
+                    authority_context,
                 )
                 if refusal is not None:
                     return refusal
@@ -1147,6 +1154,7 @@ def _validate_template_semantics(
                     budget,
                     kernel,
                     language_bundle,
+                    authority_context,
                 )
             else:
                 raise ValueError(
@@ -1211,6 +1219,7 @@ def _validate_template_release(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     """Admit one packaged release against its exact Kernel/LDB authority."""
     schema_identities = _member_schema_identities(language_bundle)
@@ -1306,7 +1315,12 @@ def _validate_template_release(
             "/language_bundle_identity",
             "Template release is incompatible with the admitted LDB",
         )
-    return _validate_template_semantics(release, kernel, language_bundle)
+    return _validate_template_semantics(
+        release,
+        kernel,
+        language_bundle,
+        authority_context,
+    )
 
 
 def _minimal_release(
@@ -1564,16 +1578,26 @@ class _AdmittedTemplate:
 
 def _load_admitted_template(
     provider: TemplateProvider,
+    authority_context_provider: AuthorityContextProvider,
 ) -> _AdmittedTemplate | Schema2RefusalReport:
-    kernel, language_bundle = load_authorities()
-    admission = admit_authorities(kernel, language_bundle)
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    try:
+        context = resolve_authority_context(authority_context_provider)
+    except AuthorityLoadError as err:
+        return ingress_refusal(err.code, err.subject, err.message)
+    if isinstance(context, BootstrapAdmission):
+        return bootstrap_refusal(context)
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     release = provider(
         cast(dict[str, JsonValue], kernel),
         cast(dict[str, JsonValue], language_bundle),
     )
-    refusal = _validate_template_release(release, kernel, language_bundle)
+    refusal = _validate_template_release(
+        release,
+        cast(dict[str, JsonValue], kernel),
+        cast(dict[str, JsonValue], language_bundle),
+        context,
+    )
     if refusal is not None:
         return refusal
     return _AdmittedTemplate(
@@ -1587,11 +1611,13 @@ def _load_admitted_template(
 
 def template_list_handler(
     provider: TemplateProvider,
+    *,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[[TemplateListInput], TemplateListResult | Schema2RefusalReport]:
     def _run(
         _inp: TemplateListInput,
     ) -> TemplateListResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release
@@ -1613,11 +1639,13 @@ run_template_list = template_list_handler(_minimal_release)
 
 def template_get_handler(
     provider: TemplateProvider,
+    *,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[[TemplateGetInput], TemplateReleaseResult | Schema2RefusalReport]:
     def _run(
         inp: TemplateGetInput,
     ) -> TemplateReleaseResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release
@@ -1641,6 +1669,7 @@ def template_instantiate_handler(
     provider: TemplateProvider,
     *,
     publication_fault: str | None = None,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[
     [TemplateInstantiateInput],
     TemplateInstantiateResult | Schema2RefusalReport,
@@ -1650,7 +1679,7 @@ def template_instantiate_handler(
     def _run(
         inp: TemplateInstantiateInput,
     ) -> TemplateInstantiateResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release

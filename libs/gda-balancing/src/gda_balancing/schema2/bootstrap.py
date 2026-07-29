@@ -8,6 +8,7 @@ declared generic inputs/result and normative vectors.
 import json
 import re
 from dataclasses import dataclass
+from functools import cache
 from typing import Any, cast
 
 import jsonschema
@@ -1062,6 +1063,36 @@ def _exact_path_value(root: Any, dotted: Any) -> tuple[bool, Any]:
     return True, value
 
 
+@cache
+def _meta_validate_json_schema(
+    canonical_schema_bytes: bytes,
+    canonical_kernel_schema_profile_bytes: bytes,
+) -> bool:
+    """Meta-validate one exact production schema/profile cache key."""
+    try:
+        schema = json.loads(canonical_schema_bytes)
+        profile = json.loads(canonical_kernel_schema_profile_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(schema, dict) or not isinstance(profile, dict):
+        return False
+    try:
+        jsonschema.Draft202012Validator.check_schema(schema)
+    except jsonschema.SchemaError:
+        return False
+    return True
+
+
+def reset_schema_meta_validation_cache_for_tests() -> None:
+    """Reset only the production cache domain for deterministic regressions."""
+    _meta_validate_json_schema.cache_clear()
+
+
+def schema_meta_validation_cache_info() -> Any:
+    """Expose cache counters to performance regression tests."""
+    return _meta_validate_json_schema.cache_info()
+
+
 def _closed_json_schema(value: Any, contract: dict[str, Any]) -> bool:
     allowed = contract.get("allowed_keywords")
     dialect = contract.get("dialect")
@@ -1089,8 +1120,11 @@ def _closed_json_schema(value: Any, contract: dict[str, Any]) -> bool:
     ):
         return False
     try:
-        jsonschema.Draft202012Validator.check_schema(value)
-    except jsonschema.SchemaError:
+        schema_bytes = canonical_bytes(cast(JsonValue, value))
+        profile_bytes = canonical_bytes(cast(JsonValue, contract))
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+    if not _meta_validate_json_schema(schema_bytes, profile_bytes):
         return False
     allowed_set = set(allowed)
 

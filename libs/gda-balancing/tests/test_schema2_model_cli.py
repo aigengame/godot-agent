@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
@@ -26,6 +27,13 @@ from gda_balancing.schema2.authority_graph import (
     derive_language_index,
 )
 from gda_balancing.schema2.surface import descriptor_identity
+
+
+def _inject_authority_context(monkeypatch, kernel, language_bundle):
+    context = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    return context
 
 
 def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
@@ -175,7 +183,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = model_module.load_authorities()
+    kernel, baseline_ldb = authority_module.load_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     seed = next(
@@ -222,9 +230,7 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
     source_document = _model_source()
     source_document["package_requirements"].extend(
         [
@@ -245,7 +251,7 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
 
 
 def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     admission = admit_authorities(kernel, language_bundle)
 
     checked = model_module.check_model_source_value(
@@ -336,14 +342,12 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
         symbol["kind"] = "unknown-kind"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
@@ -1075,14 +1079,12 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
     artifact_dir = _artifact_directory(json.loads(first[1]))
     before = {path.name: path.read_bytes() for path in artifact_dir.iterdir()}
 
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] -= 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -1549,7 +1551,7 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
 
 
 def test_receipt_content_identity_excludes_transport_locators():
-    _, language_bundle = model_module.load_authorities()
+    _, language_bundle = authority_module.load_authorities()
     common = {
         "descriptor_identity": "sha256:" + "1" * 64,
         "invocation_key": "2" * 64,
@@ -1786,7 +1788,7 @@ def _package_vector_set(
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
-    kernel, _ = model_module.load_authorities()
+    kernel, _ = authority_module.load_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -2407,7 +2409,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert isinstance(original_checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(original_checked)
 
-    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
     profile = candidate_ldb["language"]["literal_typing_profiles"][0]
     old_id = profile["id"]
     profile["id"] = "quantity.dimensionless-int64-reidentified"
@@ -2420,11 +2422,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert old_id != profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    monkeypatch.setattr(
-        model_module,
-        "load_authorities",
-        lambda: (kernel, candidate_ldb),
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     changed_checked = model_module.check_model_source(str(source))
     assert isinstance(changed_checked, model_module.CheckedModel)
@@ -3411,7 +3409,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
 def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = model_module.load_authorities()
+    kernel, baseline_ldb = authority_module.load_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     package = deepcopy(
@@ -3564,8 +3562,8 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    assert kernel == model_module.load_authorities()[0]
-    assert baseline_ldb == model_module.load_authorities()[1]
+    assert kernel == authority_module.load_authorities()[0]
+    assert baseline_ldb == authority_module.load_authorities()[1]
 
     source_document = _model_source()
     source_document["package_requirements"] = [
@@ -3612,9 +3610,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     ]
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
@@ -3792,7 +3788,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
     candidate_ldb["resources"]["max_rule_match_steps"] = 1
     boundary = next(
         vector
@@ -3808,9 +3804,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
@@ -3828,7 +3822,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
     candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
     boundary = next(
         vector
@@ -3844,9 +3838,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     output = tmp_path / "published"
     arguments = ["model", command, str(source)]

@@ -9,7 +9,11 @@ from typing import Any, cast
 
 import gda_balancing.schema2.model as model_module
 import jsonschema
-from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    load_authorities,
+)
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
     derive_language_index,
@@ -22,6 +26,13 @@ from gda_balancing.schema2.model import (
     check_model_source,
     lower_checked_model,
 )
+
+
+def _inject_authority_context(monkeypatch, kernel, language_bundle):
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
+    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    return context
 
 
 class _ReferenceRuntimeProjectionExhausted(Exception):
@@ -2515,11 +2526,7 @@ def test_nested_integer_literal_is_identical_across_lowerers(
     cost["operand"] = {"kind": "literal", "literal": 8}
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    monkeypatch.setattr(
-        model_module,
-        "load_authorities",
-        lambda: (kernel, candidate_ldb),
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
@@ -2655,9 +2662,7 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
     vectors["model.refuse.runtime-projection-step-budget"]["input"]["value"] = 2
     _reidentify_language_bundle(language_bundle)
     assert admit_authorities(kernel, language_bundle).admitted
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, language_bundle)
-    )
+    _inject_authority_context(monkeypatch, kernel, language_bundle)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -3006,9 +3011,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
             expect["lock_oracle"]["resolution_profile"] = profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
@@ -3187,9 +3190,7 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
         old_reason, old_diagnostic
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, candidate_ldb)
@@ -3216,9 +3217,7 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
         "model.reason.package-version-unavailable",
         "language.package_version_unavailable",
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, candidate_ldb)
@@ -3272,9 +3271,7 @@ def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host
         kernel, candidate_ldb, renamed = _renamed_reason_authorities(
             reason_id, diagnostic
         )
-        monkeypatch.setattr(
-            model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-        )
+        _inject_authority_context(monkeypatch, kernel, candidate_ldb)
         path = tmp_path / f"failure-{index}.json"
         path.write_bytes(data)
 
@@ -3335,9 +3332,7 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
             },
         )
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     result = admit_resolved_model(semantic_artifacts)
 

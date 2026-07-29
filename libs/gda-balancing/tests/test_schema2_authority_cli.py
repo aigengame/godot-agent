@@ -185,7 +185,14 @@ def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, ru
     assert caught.value.code == "kernel.member_set_mismatch"
     assert caught.value.stage == "ingress"
 
-    exit_code, stdout, stderr = run_cli(["schema", "get", "language-bundle"])
+    injected = replace(
+        SCHEMA_GET,
+        handler=schema_get_handler(authority_module.load_authorities),
+    )
+    exit_code, stdout, stderr = run_cli(
+        ["schema", "get", "language-bundle"],
+        registry=(injected,),
+    )
     assert (exit_code, stderr) == (2, "")
     assert json.loads(stdout)["error"]["stage"] == "ingress"
 
@@ -378,7 +385,11 @@ def test_schema_introspection_does_not_read_runtime_authorities(monkeypatch, run
     def fail_if_loaded():
         raise AssertionError("introspection read runtime authority")
 
-    monkeypatch.setattr(schema_command_module, "load_authorities", fail_if_loaded)
+    monkeypatch.setattr(
+        schema_command_module,
+        "packaged_authority_context",
+        fail_if_loaded,
+    )
 
     for argv in (["schema", "get", "--schema"], ["manifest"]):
         exit_code, stdout, stderr = run_cli(argv)
