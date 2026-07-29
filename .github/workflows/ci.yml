@@ -225,7 +225,7 @@ jobs:
           mkdir -p test-results
           set -o pipefail
           python3 libs/gda-balancing/tools/ci.py shard-paths "${{ matrix.shard }}" |
-            xargs timeout --signal=TERM 480s \
+            xargs timeout --signal=TERM --kill-after=30s 480s \
               uv run --frozen --project libs/gda-balancing pytest \
               -q --durations=50 \
               --junitxml="test-results/${{ matrix.shard }}-junit.xml" \
@@ -270,19 +270,17 @@ jobs:
           sync: member
           save-cache: false
 
-      - name: Run subprocess tests with hard duration bound
+      - name: Run subprocess tests and build with one hard duration bound
         run: |
           mkdir -p test-results
-          set -o pipefail
-          timeout --signal=TERM 480s \
+          timeout --signal=TERM --kill-after=30s 480s bash -euo pipefail -c '
             uv run --frozen --project libs/gda-balancing pytest \
-              libs/gda-balancing/tests/test_e2e_cli.py \
-              -q --durations=50 \
-              --junitxml=test-results/smoke-junit.xml \
-            2>&1 | tee test-results/smoke.log
-
-      - name: Build member sdist and wheel
-        run: uv build --project libs/gda-balancing --out-dir dist-gda-balancing
+                libs/gda-balancing/tests/test_e2e_cli.py \
+                -q --durations=50 \
+                --junitxml=test-results/smoke-junit.xml \
+              2>&1 | tee test-results/smoke.log
+            uv build --project libs/gda-balancing --out-dir dist-gda-balancing
+          '
 
       - name: Summarize subprocess durations
         if: ${{ always() }}
@@ -320,15 +318,27 @@ jobs:
     steps:
       - name: Aggregate stable required result
         env:
+          SCOPE_RESULT: ${{ needs.balancing-scope.result }}
           REQUIRED: ${{ needs.balancing-scope.outputs.required }}
           INVENTORY_RESULT: ${{ needs.balancing-inventory.result }}
           TEST_RESULT: ${{ needs.balancing-tests.result }}
           SMOKE_RESULT: ${{ needs.balancing-smoke.result }}
         run: |
-          if [ "$REQUIRED" != "true" ]; then
-            echo "All changed paths are explicitly unrelated to gda-balancing."
-            exit 0
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "gda-balancing scope classification ended as: $SCOPE_RESULT" >&2
+            exit 1
           fi
+          case "$REQUIRED" in
+            false)
+              echo "All changed paths are explicitly unrelated to gda-balancing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "gda-balancing scope output is absent or invalid: $REQUIRED" >&2
+              exit 1
+              ;;
+          esac
           for result in "$INVENTORY_RESULT" "$TEST_RESULT" "$SMOKE_RESULT"; do
             if [ "$result" != "success" ]; then
               echo "A required gda-balancing dependency ended as: $result" >&2
@@ -356,7 +366,7 @@ jobs:
         run: |
           mkdir -p test-results
           set -o pipefail
-          timeout --signal=TERM 480s \
+          timeout --signal=TERM --kill-after=30s 480s \
             uv run --frozen --project libs/gda-balancing pytest \
               libs/gda-balancing/tests -q --durations=50 \
               --junitxml=test-results/nightly-junit.xml \
