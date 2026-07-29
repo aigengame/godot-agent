@@ -30,6 +30,7 @@ from gda_balancing.schema2.diagnostics import (
 )
 from gda_balancing.schema2.model import (
     PublicationMember,
+    PublishedArtifactIntegrityError,
     admit_resolved_model,
     find_published_artifact,
     identified_artifact,
@@ -252,6 +253,58 @@ def _expanded_operation_body(
     return expanded
 
 
+def derive_scenario_program_requirements(
+    rir: dict[str, Any],
+    entrypoint_id: str,
+    runtime_profile: str,
+    rng_algorithm: str,
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Project one Scenario's evaluator contract from its admitted RIR."""
+    selected = cast(dict[str, Any], rir["selected_semantics"])
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in cast(list[dict[str, Any]], selected["operations"])
+    }
+    entrypoints = {
+        row["id"]: row for row in cast(list[dict[str, Any]], rir["entrypoints"])
+    }
+    entrypoint = entrypoints.get(entrypoint_id)
+    if entrypoint is None:
+        raise ValueError("Scenario entrypoint is absent from the selected RIR")
+    operation = operations.get(entrypoint["operation"]["id"])
+    if operation is None:
+        raise ValueError("Scenario Operation is absent from the selected RIR")
+    if operation["runtime_profile"] != runtime_profile:
+        raise ValueError("Scenario Operation requires another Runtime profile")
+    expanded_body = _expanded_operation_body(operation, operations)
+    instruction_nodes = {instruction["node"] for instruction in expanded_body}
+    requirements = {
+        "operation_kinds": sorted(
+            {
+                operation["operation_kind"],
+                *(
+                    operations[instruction["operation"]["id"]]["operation_kind"]
+                    for instruction in expanded_body
+                    if instruction["node"] == "invoke"
+                ),
+            }
+        ),
+        "instruction_nodes": sorted(instruction_nodes),
+        "effects": sorted(set(operation["effects"])),
+        "numeric_policies": [operation["numeric_policy"]],
+        "rng_algorithms": [rng_algorithm] if "draw" in instruction_nodes else [],
+        "runtime_profiles": [runtime_profile],
+    }
+    named_streams = sorted(
+        {
+            instruction["stream"]
+            for instruction in expanded_body
+            if instruction["node"] == "draw"
+        }
+    )
+    return requirements, named_streams
+
+
 def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) -> str:
     matches = [
         reason["diagnostic"]
@@ -392,11 +445,20 @@ def check_experiment(
     }
     artifacts: dict[str, dict[str, Any]] = {}
     for name, kind in artifact_kinds.items():
-        artifact = find_published_artifact(
-            model[identity_members[name]],
-            kind,
-            language_bundle,
-        )
+        try:
+            artifact = find_published_artifact(
+                model[identity_members[name]],
+                kind,
+                language_bundle,
+            )
+        except PublishedArtifactIntegrityError as err:
+            return _refusal(
+                stage="resolution",
+                code="language.resolved_authority_mismatch",
+                identity=experiment_identity,
+                pointer=f"/model/{identity_members[name]}",
+                message=f"Exact {kind} publication failed integrity verification: {err}",
+            )
         if artifact is None:
             return _refusal(
                 stage="resolution",
@@ -495,7 +557,12 @@ def check_experiment(
                 message="Scenario entrypoint requires another Runtime profile",
             )
         try:
-            expanded_body = _expanded_operation_body(operation, operations)
+            requirements, named_streams = derive_scenario_program_requirements(
+                rir,
+                scenario["entrypoint"],
+                required_profile,
+                value["seed"]["algorithm"],
+            )
         except ValueError:
             return _refusal(
                 stage="resolution",
@@ -504,19 +571,11 @@ def check_experiment(
                 pointer=f"/scenarios/{scenario_index}/entrypoint",
                 message="Scenario Operation composition is not closed",
             )
-        required_operation_kinds.update(
-            operations[instruction["operation"]["id"]]["operation_kind"]
-            for instruction in expanded_body
-            if instruction["node"] == "invoke"
-        )
-        required_operation_kinds.add(operation["operation_kind"])
-        required_instruction_nodes.update(
-            instruction["node"] for instruction in expanded_body
-        )
-        required_effects.update(operation["effects"])
-        required_numeric_policies.add(operation["numeric_policy"])
-        if any(instruction["node"] == "draw" for instruction in expanded_body):
-            required_rng_algorithms.add(value["seed"]["algorithm"])
+        required_operation_kinds.update(requirements["operation_kinds"])
+        required_instruction_nodes.update(requirements["instruction_nodes"])
+        required_effects.update(requirements["effects"])
+        required_numeric_policies.update(requirements["numeric_policies"])
+        required_rng_algorithms.update(requirements["rng_algorithms"])
         contract_targets = cast(
             list[dict[str, Any]],
             entrypoint["scenario_input_contract"]["targets"],
@@ -541,12 +600,7 @@ def check_experiment(
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message="Scenario assignments do not close the Scenario Input Contract",
             )
-        draws = {
-            instruction["stream"]
-            for instruction in expanded_body
-            if instruction["node"] == "draw"
-        }
-        if draws != set(scenario["named_streams"]):
+        if set(named_streams) != set(scenario["named_streams"]):
             return _refusal(
                 stage="static",
                 code="language.source_contract_mismatch",
@@ -621,6 +675,14 @@ class _NamedRng:
             contract["algorithm"] != "splitmix64-v1"
             or contract["word_bits"] != 64
             or contract["seed_encoding"] != "unsigned-modulo-2^64"
+            or contract["candidate_encoding"]
+            != {
+                "alphabet": "0123456789abcdef",
+                "case": "lowercase",
+                "radix": 16,
+                "width_bits": 64,
+                "zero_pad": True,
+            }
         ):
             raise ValueError("unsupported admitted Named-stream RNG contract")
         self._contract = contract
@@ -628,6 +690,10 @@ class _NamedRng:
         self._seed = seed & self._mask
         self._states: dict[str, int] = {}
         self._indices: dict[str, int] = {}
+
+    def encode_candidate(self, candidate: int) -> str:
+        width = self._contract["candidate_encoding"]["width_bits"] // 4
+        return f"{candidate:0{width}x}"
 
     def draw(
         self, stream: str, minimum: int, maximum: int
@@ -1292,7 +1358,7 @@ def evaluate_experiment(
                         {
                             "stream": instruction["stream"],
                             "index": index,
-                            "candidate_hex": f"{candidate:016x}",
+                            "candidate_hex": rng.encode_candidate(candidate),
                             "accepted": accepted,
                             "minimum": instruction["minimum"],
                             "maximum": instruction["maximum"],

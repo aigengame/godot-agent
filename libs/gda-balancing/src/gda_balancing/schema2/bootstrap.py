@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681"
+    "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -555,9 +555,21 @@ def _package_evidence_vectors_are_closed(
     package: dict[str, Any],
     vector_set: dict[str, Any],
     contract: Any,
+    candidate_encoding: Any,
 ) -> bool:
-    if not _package_vector_contract_is_closed(contract):
+    if (
+        not _package_vector_contract_is_closed(contract)
+        or not isinstance(candidate_encoding, dict)
+        or candidate_encoding.get("radix") != 16
+        or candidate_encoding.get("zero_pad") is not True
+        or not isinstance(candidate_encoding.get("width_bits"), int)
+        or candidate_encoding["width_bits"] % 4 != 0
+        or not isinstance(candidate_encoding.get("alphabet"), str)
+        or not candidate_encoding["alphabet"]
+    ):
         return False
+    candidate_width = candidate_encoding["width_bits"] // 4
+    candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
     vectors = vector_set.get("vector_definitions")
     if (
@@ -698,9 +710,9 @@ def _package_evidence_vectors_are_closed(
             isinstance(item, dict)
             and set(item) == set(kind["rng_draw_members"])
             and isinstance(item.get("candidate_hex"), str)
-            and len(item["candidate_hex"]) == 16
+            and len(item["candidate_hex"]) == candidate_width
             and all(
-                character in "0123456789abcdef" for character in item["candidate_hex"]
+                character in candidate_alphabet for character in item["candidate_hex"]
             )
             and isinstance(item.get("stream"), str)
             and item["stream"]
@@ -3591,6 +3603,7 @@ def _template_admission_profiles_are_closed(
         "id",
         "judgments",
         "max_steps_path",
+        "member_identity_domain",
         "member_roles",
         "resource_diagnostic",
         "structural_diagnostic",
@@ -3631,6 +3644,8 @@ def _template_admission_profiles_are_closed(
         )
         or not isinstance(judgments, list)
         or not judgments
+        or not isinstance(profile.get("member_identity_domain"), str)
+        or not profile["member_identity_domain"]
         or profile.get("max_steps_path") != accounting.get("limit_path")
         or profile.get("resource_diagnostic") != accounting.get("exhaustion_diagnostic")
         or profile.get("resource_diagnostic") not in diagnostics
@@ -6005,6 +6020,21 @@ def admit_authorities(
         if isinstance(raw_meta_format, dict)
         else None
     )
+    runtime_program_contract = (
+        raw_meta_format.get("runtime_program")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
+    named_rng_contract = (
+        runtime_program_contract.get("named_rng")
+        if isinstance(runtime_program_contract, dict)
+        else None
+    )
+    candidate_encoding_contract = (
+        named_rng_contract.get("candidate_encoding")
+        if isinstance(named_rng_contract, dict)
+        else None
+    )
     definitions_are_closed = _language_definitions_are_closed(
         language_bundle,
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
@@ -6067,7 +6097,10 @@ def admit_authorities(
                     and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _package_evidence_vectors_are_closed(
-                        package, vector_set, package_vector_contract
+                        package,
+                        vector_set,
+                        package_vector_contract,
+                        candidate_encoding_contract,
                     )
                 )
             ):
@@ -7050,6 +7083,7 @@ def _runtime_authority_is_closed(
         or set(rng)
         != {
             "algorithm",
+            "candidate_encoding",
             "word_bits",
             "seed_encoding",
             "stream_name_encoding",
@@ -7059,6 +7093,14 @@ def _runtime_authority_is_closed(
             "trace_members",
         }
         or rng.get("algorithm") != "splitmix64-v1"
+        or rng.get("candidate_encoding")
+        != {
+            "alphabet": "0123456789abcdef",
+            "case": "lowercase",
+            "radix": 16,
+            "width_bits": 64,
+            "zero_pad": True,
+        }
         or rng.get("word_bits") != 64
         or rng.get("seed_encoding") != "unsigned-modulo-2^64"
         or rng.get("stream_name_encoding") != "utf-8"

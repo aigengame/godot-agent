@@ -29,6 +29,7 @@ from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
 from gda_balancing.commands.package import (
     package_get_success_schema,
     package_list_success_schema,
+    package_vector_set_success_schema,
 )
 from gda_balancing.commands.schema import (
     SCHEMA_GET,
@@ -253,6 +254,51 @@ def test_rebuild_tool_projects_kernel_package_coordinate_patterns(tmp_path):
 
     with pytest.raises(ValueError, match="Kernel-valid package coordinate"):
         tool["_build"](candidate)
+
+
+def test_rebuild_tool_reproduces_every_committed_authority_byte():
+    tool = runpy.run_path(
+        str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
+    )
+    source = Path(authority_module.__file__).parent / "authorities"
+    root_bytes, package_bytes = tool["_build"](source)
+    expected = {
+        source / "language-bundle.json": root_bytes,
+        **package_bytes,
+    }
+
+    assert expected
+    assert all(path.read_bytes() == data for path, data in expected.items())
+
+
+def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
+    _kernel, language_bundle = authority_module.load_authorities()
+    schema = package_vector_set_success_schema()
+    vector_sets = language_bundle.package_conformance_vector_sets
+    combat = deepcopy(
+        next(row for row in vector_sets if row["package_id"] == "game.combat")
+    )
+    jsonschema.validate(combat, schema)
+    runtime_vector = next(
+        row
+        for row in combat["vector_definitions"]
+        if row["id"] == "game.combat.cast.positive"
+    )
+    runtime_vector["expect"]["rng_draws"][0]["candidate_hex"] = "f"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(combat, schema)
+
+    quantity = deepcopy(
+        next(row for row in vector_sets if row["package_id"] == "core.quantity")
+    )
+    model_vector = next(
+        row
+        for row in quantity["vector_definitions"]
+        if row["id"] == "model.compile.negative-duplicate"
+    )
+    model_vector["expect"]["diagnostics"][0]["pointer"] = "/bad~2escape"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(quantity, schema)
 
 
 @pytest.mark.parametrize(

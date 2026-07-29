@@ -425,9 +425,9 @@ One statically bounded nested invocation of an exact versioned Operation owned b
 `Operation specification` body. It owns a stable site id, exact formal-to-actual bindings,
 result/outcome binding, and resolved effect/refusal/resource closure. Typed HIR resolves it before
 RIR; RIR identifies it; an EIR may optimize it but must preserve the same bindings and observable
-provenance. It is distinct from a root `Model entrypoint`, and from a Formula evaluation site, which
-issue #590 may add as another expression-shaped actual operand without changing this call contract
-(bADR-0013/0016/0022).
+provenance. It is distinct from a root `Model entrypoint`, and from the Formula evaluation site
+owned by issue #590. That accepted contract introduces a statically resolved expression-shaped
+actual operand without changing this call contract (bADR-0013/0016/0022).
 _Avoid_: dynamic dispatch, operation name alone, evaluator callback
 
 **Model entrypoint**:
@@ -834,14 +834,13 @@ the command's ingress stage, every expected domain failure is a typed refusal, n
 _Avoid_: refusal (the domain word), invalid input (ambiguous)
 
 **Effective seed**:
-The seed that actually drove a stochastic run — supplied via `--seed` (unsigned
-32-bit) or drawn fresh — always echoed in the structured result together with the
-toolkit version, and carried by any failure envelope once drawn, so every stochastic
-outcome keeps its own reproduction key (bADR-0008/0010). For Standard Schema 2.x it is
-the root of named streams and is reproducible only together with the exact Resolved Model,
-Experiment Specification, Resolved Runtime profile, and external-input identities (bADR-0014); the
-Resolved Runtime profile already closes evaluator, platform, Numeric, RNG, scheduler, effect, and
-budget choices. The current CLI encoding remains in force until the 2.x CLI contract supersedes it.
+The seed that actually drove a stochastic run. In Standard Schema 1.x it is supplied through the
+legacy `--seed` surface or drawn fresh (bADR-0008/0010). In Standard Schema 2.x it is owned by the
+exact Experiment Specification; no free CLI flag or evaluator default may override it. It is the
+root of named streams and is reproducible only together with the exact Resolved Model, Experiment
+Specification, Resolved Runtime profile, and external-input identities (bADR-0014/0021). The
+reproduction receipt records that complete binding; the Resolved Runtime profile closes evaluator,
+platform, Numeric, RNG, scheduler, effect, and budget choices.
 _Avoid_: random seed (ambiguous), default seed
 
 ### Runtime

@@ -337,11 +337,18 @@ def _closed_named_value_schema(members: list[str]) -> dict[str, object]:
     }
 
 
-def _package_vector_schemas(contract: dict[str, Any]) -> list[dict[str, object]]:
-    categories = contract.get("categories")
-    kinds = contract.get("kinds")
+def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, object]]:
+    contract = meta_format.get("package_vector")
+    runtime = meta_format.get("runtime_program")
+    named_rng = runtime.get("named_rng") if isinstance(runtime, dict) else None
+    candidate_encoding = (
+        named_rng.get("candidate_encoding") if isinstance(named_rng, dict) else None
+    )
+    categories = contract.get("categories") if isinstance(contract, dict) else None
+    kinds = contract.get("kinds") if isinstance(contract, dict) else None
     if (
-        contract.get("closed") is not True
+        not isinstance(contract, dict)
+        or contract.get("closed") is not True
         or not isinstance(categories, list)
         or not categories
         or not all(isinstance(category, str) for category in categories)
@@ -349,6 +356,21 @@ def _package_vector_schemas(contract: dict[str, Any]) -> list[dict[str, object]]
         or not kinds
     ):
         raise ValueError("Kernel package-vector contract is incomplete")
+    if (
+        not isinstance(candidate_encoding, dict)
+        or candidate_encoding.get("radix") != 16
+        or candidate_encoding.get("case") != "lowercase"
+        or candidate_encoding.get("zero_pad") is not True
+        or not isinstance(candidate_encoding.get("alphabet"), str)
+        or not candidate_encoding["alphabet"]
+        or not isinstance(candidate_encoding.get("width_bits"), int)
+        or candidate_encoding["width_bits"] % 4 != 0
+    ):
+        raise ValueError("Kernel RNG candidate encoding is incomplete")
+    candidate_width = candidate_encoding["width_bits"] // 4
+    candidate_pattern = (
+        f"^[{re.escape(candidate_encoding['alphabet'])}]{{{candidate_width}}}$"
+    )
 
     variants: list[dict[str, object]] = []
     for kind in kinds:
@@ -432,7 +454,7 @@ def _package_vector_schemas(contract: dict[str, Any]) -> list[dict[str, object]]
                             "properties": {
                                 "candidate_hex": {
                                     "type": "string",
-                                    "pattern": "^[0-9a-f]+$",
+                                    "pattern": candidate_pattern,
                                 },
                                 "index": {
                                     "type": "integer",
@@ -640,7 +662,10 @@ def _model_program_vector_schemas(
                 "properties": {
                     "code": {"const": code},
                     "stage": {"const": stage},
-                    "pointer": {"type": "string", "pattern": "^(?:$|/)"},
+                    "pointer": {
+                        "type": "string",
+                        "pattern": r"^(?:/(?:[^~/]|~[01])*)*$",
+                    },
                 },
                 "required": diagnostic_members,
                 "unevaluatedProperties": False,
@@ -758,7 +783,7 @@ def _conformance_vector_schema(
         "oneOf": [
             _rule_vector_schema(meta_format),
             _diagnostic_vector_schema(meta_format),
-            *_package_vector_schemas(package_vector),
+            *_package_vector_schemas(meta_format),
             *_model_program_vector_schemas(meta_format, language_bundle),
         ]
     }

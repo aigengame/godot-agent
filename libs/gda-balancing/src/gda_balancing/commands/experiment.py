@@ -2,7 +2,9 @@
 
 import json
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,7 +20,8 @@ from gda_balancing.commands.model import (
     ModelBuildResult,
     run_model_build,
 )
-from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.authority import packaged_authority_context
+from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
@@ -27,6 +30,7 @@ from gda_balancing.schema2.experiment import (
     CheckedExperiment,
     RuntimeRefusalOutcome,
     check_experiment,
+    derive_scenario_program_requirements,
     evaluate_experiment,
     experiment_input_identity,
     runtime_terminal_audit_members,
@@ -293,99 +297,21 @@ def experiment_run_handler(
 run_experiment_run = experiment_run_handler()
 
 
-def _conformance_quantity(name: str, role: str) -> dict[str, object]:
-    return {
-        "symbol": name,
-        "type": "quantity",
-        "role": role,
-        "representation": "Int",
-        "kind": "scalar",
-        "unit": "1",
-        "domain_kind": "closed-interval",
-        "domain": {"minimum": 0, "maximum": 1000},
-        "numeric_policy": "exact-int64",
-        "value_policy": {
-            "mode": (
-                "experiment-required"
-                if role not in {"derived", "output", "random"}
-                else "none"
-            )
-        },
-    }
-
-
 def _prepare_valid_experiment(root: Path, token: int) -> str:
-    """Materialize the public Model prerequisite for registry conformance."""
-    source_value = {
-        "schema_version": "2.0.0",
-        "manifest": {
-            "id": "conformance.rpg-combat",
-            "version": "1.0.0",
-            "entry_module": "combat",
-        },
-        "package_requirements": [
-            {"id": "core.quantity", "version": "2.0.0"},
-            {"id": "game.combat", "version": "1.0.0"},
-        ],
-        "modules": [
-            {
-                "id": "combat",
-                "imports": [
-                    {
-                        "alias": "quantity",
-                        "package": "core.quantity",
-                        "version": "2.0.0",
-                        "symbol": "Quantity",
-                    }
-                ],
-                "symbols": [
-                    _conformance_quantity("actor_mana", "state"),
-                    _conformance_quantity("action_cost", "parameter"),
-                    _conformance_quantity("accuracy", "parameter"),
-                    _conformance_quantity("base_damage", "parameter"),
-                    _conformance_quantity("critical_threshold", "parameter"),
-                    _conformance_quantity("target_defense", "input"),
-                    _conformance_quantity("target_health", "state"),
-                    _conformance_quantity("damage_dealt", "output"),
-                ],
-            }
-        ],
-        "entrypoints": [
-            {
-                "id": "combat.cast",
-                "operation": {
-                    "package": "game.combat",
-                    "version": "1.0.0",
-                    "id": "game.combat.cast-v1",
-                },
-                "arguments": [
-                    {
-                        "port": port,
-                        "operand": {
-                            "kind": "symbol",
-                            "module": "combat",
-                            "symbol": symbol,
-                        },
-                    }
-                    for port, symbol in (
-                        ("actor_resource", "actor_mana"),
-                        ("action_cost", "action_cost"),
-                        ("accuracy", "accuracy"),
-                        ("base_damage", "base_damage"),
-                        ("critical_threshold", "critical_threshold"),
-                        ("hit_defense", "target_defense"),
-                        ("damage_mitigation", "target_defense"),
-                        ("target_health", "target_health"),
-                    )
-                ],
-                "result": {
-                    "kind": "symbol",
-                    "module": "combat",
-                    "symbol": "damage_dealt",
-                },
-            }
-        ],
-    }
+    """Materialize conformance from package-owned source and runtime vectors."""
+    context = packaged_authority_context()
+    language_bundle = cast(LanguageBundleIndex, context.language_bundle)
+    vector_set = next(
+        row
+        for row in language_bundle.package_conformance_vector_sets
+        if row["package_id"] == "game.combat" and row["package_version"] == "1.0.0"
+    )
+    vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
+    source_fixture = vectors["game.combat.model-binding.positive"]["source_fixture"]
+    runtime_vector = vectors["game.combat.cast.positive"]
+    if source_fixture["mode"] != "literal":
+        raise RuntimeError("Experiment conformance source fixture is not literal")
+    source_value = deepcopy(source_fixture["source"])
     source = root / f"experiment-model-{token}.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     built = run_model_build(
@@ -399,7 +325,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
         raise RuntimeError("Experiment conformance prerequisite was refused")
     receipt = built.model_dump(mode="json")
 
-    def member(logical_name: str) -> dict[str, object]:
+    def member(logical_name: str) -> dict[str, Any]:
         locator = next(
             row["locator"]
             for row in receipt["member_locators"]
@@ -411,75 +337,75 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
     lock = member("package-lock")
     resolved = member("resolved-model")
     rir = member("rir-semantic-payload")
+    entrypoint = next(
+        row
+        for row in rir["entrypoints"]
+        if row["operation"]["id"] == runtime_vector["operation"]
+    )
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    operation = operations[entrypoint["operation"]["id"]]
+    rng_algorithm = context.kernel["meta_format"]["runtime_program"]["named_rng"][
+        "algorithm"
+    ]
+    requirements, named_streams = derive_scenario_program_requirements(
+        rir,
+        entrypoint["id"],
+        operation["runtime_profile"],
+        rng_algorithm,
+    )
+    targets_by_port = {
+        row["port"]["name"]: row["operand"]["symbol"]
+        for row in entrypoint["arguments"]
+        if row["operand"]["kind"] == "symbol"
+    }
+    assigned: dict[tuple[str, str, str], tuple[dict[str, str], int]] = {}
+    for value in runtime_vector["input"]["values"]:
+        target = targets_by_port[value["name"]]
+        key = (target["model"], target["module"], target["name"])
+        previous = assigned.get(key)
+        if previous is not None and previous[1] != value["value"]:
+            raise RuntimeError(
+                "Package vector assigns conflicting values to one Model symbol"
+            )
+        assigned[key] = (target, value["value"])
+    assignments = [
+        {"target": target, "value": value}
+        for target, value in (assigned[key] for key in sorted(assigned))
+    ]
+    result = entrypoint["result"]
+    if result["kind"] != "symbol":
+        raise RuntimeError("Experiment conformance entrypoint result is not observable")
     specification = {
         "schema_version": "2.0.0",
-        "id": "conformance.experiment",
+        "id": f"{source_value['manifest']['id']}.conformance",
         "version": "1.0.0",
         "kernel_identity": build["kernel_identity"],
         "language_bundle_identity": build["language_bundle_identity"],
         "model": {
-            "source_identity": content_identity(
-                "model-source-package-v2", source_value
-            ),
+            "source_identity": build["source_identity"],
             "build_receipt_identity": build["content_identity"],
             "resolved_model_identity": resolved["content_identity"],
             "package_lock_identity": lock["content_identity"],
             "rir_identity": rir["content_identity"],
         },
         "runtime": {
-            "profile": "standard.exact-int64-event-v1",
-            "required_evaluator": {
-                "operation_kinds": ["event-fragment", "event-program"],
-                "instruction_nodes": [
-                    "add",
-                    "constant",
-                    "draw",
-                    "if",
-                    "invoke",
-                    "less-than-or-equal",
-                    "maximum",
-                    "multiply",
-                    "precondition-greater-than-or-equal",
-                    "subtract",
-                    "subtract-state",
-                ],
-                "effects": [
-                    "event.commit",
-                    "metric.observe",
-                    "rng.named-stream",
-                    "snapshot.commit",
-                ],
-                "numeric_policies": ["exact-int64"],
-                "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["standard.exact-int64-event-v1"],
-            },
+            "profile": operation["runtime_profile"],
+            "required_evaluator": requirements,
         },
-        "seed": {"algorithm": "splitmix64-v1", "value": 1},
+        "seed": {
+            "algorithm": rng_algorithm,
+            "value": runtime_vector["input"]["seed"],
+        },
         "external_inputs": [],
         "scenarios": [
             {
-                "id": "one",
-                "entrypoint": "combat.cast",
-                "assignments": [
-                    {
-                        "target": {
-                            "model": "conformance.rpg-combat",
-                            "module": "combat",
-                            "name": name,
-                        },
-                        "value": value,
-                    }
-                    for name, value in (
-                        ("actor_mana", 30),
-                        ("action_cost", 8),
-                        ("accuracy", 85),
-                        ("base_damage", 24),
-                        ("critical_threshold", 0),
-                        ("target_defense", 6),
-                        ("target_health", 100),
-                    )
-                ],
-                "named_streams": ["critical", "hit"],
+                "id": runtime_vector["id"],
+                "entrypoint": entrypoint["id"],
+                "assignments": assignments,
+                "named_streams": named_streams,
                 "terminal_condition": {"kind": "event-count", "maximum": 1},
             }
         ],
@@ -496,8 +422,8 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 "censoring": "none",
                 "observation": {
                     "source": "event",
-                    "name": "cast-resolved",
-                    "member": "damage_dealt",
+                    "name": operation["default_outcome"],
+                    "member": result["symbol"]["name"],
                 },
                 "target": {"minimum": 0, "maximum": 1000},
             }

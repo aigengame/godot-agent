@@ -306,23 +306,49 @@ jq '.samples[] | {
 }' "$METRIC_PATH"
 ```
 
-With the committed example values, `base_damage = 24` produces `damage_dealt = 18`; target health
-changes from `100` to `82`, and actor mana changes from `30` to `22`.
+With the committed example values, `base_damage = 40` produces `damage_dealt = 50`; target health
+changes from `100` to `50`, and actor mana changes from `30` to `22`.
 
-The random draws are observable in the Event trace, but a different seed changes the final state
-only when a draw crosses a modeled branch threshold. A changed draw that remains on the same
-hit/critical branches can legitimately produce the same damage and health.
+The committed values deliberately make both random branches reachable:
+
+- `accuracy = 20` and `target_defense = 30`, so a hit roll of at least `10` hits;
+- `critical_threshold = 50`, so a critical roll of at most `50` doubles base damage.
+
+Seed `20260726` draws hit `10` and critical `45`, producing the committed critical hit. To prove
+that the seed affects modeled behavior—not just trace metadata—run the same Experiment with seed
+`4`:
+
+```sh
+jq '.seed.value = 4' \
+  examples/schema2/rpg-combat-cast/experiment.json \
+  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-seed-4.json"
+
+export SEED_4_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
+export SEED_4_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/seed-4-set-receipt.json"
+
+uv run gda-balancing experiment run \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-seed-4.json" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/seed-4-evaluation-run.json" \
+  --invocation-key "$SEED_4_RUN_INVOCATION_KEY" \
+  | tee "$SEED_4_SET_RECEIPT"
+```
+
+Seed `4` draws hit `22` and critical `72`. It still hits, but takes the non-critical branch:
+damage is `10`, target health is `90`, and actor mana is `22`. The two fixed seeds therefore
+exercise different critical outcomes and different terminal states while keeping the Model,
+scenario assignments, and Metric policy unchanged. A different seed can still produce the same
+result when its draws remain on the same modeled branches.
 
 ## 6. Tune a value and run again
 
-Create a working copy that raises `base_damage` from `24` to `40`:
+Create a working copy that raises `base_damage` from `40` to `60`:
 
 ```sh
 jq '(.scenarios[0].assignments[]
   | select(.target.name == "base_damage")
-  | .value) = 40' \
+  | .value) = 60' \
   examples/schema2/rpg-combat-cast/experiment.json \
-  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-40.json"
+  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json"
 ```
 
 The Experiment input changed, so generate a new Invocation key and choose new output/receipt
@@ -333,11 +359,11 @@ export TUNED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
 export TUNED_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-set-receipt.json"
 
 uv run gda-balancing experiment check \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-40.json" \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json" \
   | jq .
 
 uv run gda-balancing experiment run \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-40.json" \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-evaluation-run.json" \
   --invocation-key "$TUNED_RUN_INVOCATION_KEY" \
   | tee "$TUNED_SET_RECEIPT"
@@ -357,7 +383,7 @@ jq '.samples[]
   | {metric, value, within_target}' "$TUNED_METRIC_PATH"
 ```
 
-For the committed seed and branch outcome, damage increases from `18` to `34`. The Experiment,
+For the committed seed and branch outcome, damage increases from `50` to `90`. The Experiment,
 trace, snapshots, Metrics, reproduction receipt, and Resolved Runtime profile receive new content
 identities, while the exact Model, Package Lock, and RIR bindings remain unchanged. This is the
 core tuning loop: change scenario/design intent, check it, run it, inspect evidence, and repeat.
@@ -366,7 +392,40 @@ If you instead change `model-source.json`—for example, a symbol's type, role, 
 domain—you must run `model build` again and create an Experiment Specification that binds the new
 build identities.
 
-## 7. Understand the artifact store
+## 7. Exercise a rejected Verdict
+
+An admitted and fully executed Experiment can still fail its declared Metric targets. Create a
+copy whose damage target is impossible for this scenario:
+
+```sh
+jq '(.metrics[]
+  | select(.id == "damage_dealt")
+  | .target) = {"minimum": 1000, "maximum": 1000}' \
+  examples/schema2/rpg-combat-cast/experiment.json \
+  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-rejected.json"
+
+export REJECTED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
+export REJECTED_RESULT="$GDA_BALANCING_TUTORIAL_ROOT/rejected-result.json"
+
+set +e
+uv run gda-balancing experiment run \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-rejected.json" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/rejected-primary.json" \
+  --invocation-key "$REJECTED_RUN_INVOCATION_KEY" \
+  > "$REJECTED_RESULT"
+export REJECTED_EXIT="$?"
+set -e
+
+test "$REJECTED_EXIT" -eq 1
+jq '{outcome, failed_metrics, artifact_set}' "$REJECTED_RESULT"
+```
+
+Exit status `1` is a completed negative Verdict, not a usage or runtime refusal. The result names
+`damage_dealt` in `failed_metrics` and publishes a typed `experiment-verdict` artifact set with
+the trace, snapshots, Metrics, reproduction receipt, Runtime profile, and evaluator manifest. It
+does not publish a false `evaluation-run` success artifact.
+
+## 8. Understand the artifact store
 
 `GDA_BALANCING_STORE_DIR` is the durable local publication store. If it is unset, the default is
 `$XDG_STATE_HOME/gda-balancing/store-v2`, or
@@ -459,7 +518,7 @@ jq . "$EVENT_TRACE_PATH"
 jq -C . "$EVENT_TRACE_PATH" | less -R
 ```
 
-## 8. How the architecture fits together
+## 9. How the architecture fits together
 
 The tutorial crosses several Standard Schema 2.0 boundaries:
 

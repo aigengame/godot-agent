@@ -2,13 +2,13 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681",
-  "language_bundle_identity": "sha256:ec580beea9a522fcb5246cb3faf5d763fef5be106aff4c08a3751ed77d9a9de1",
+  "kernel_identity": "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6",
+  "language_bundle_identity": "sha256:d58876e797d2e670505767a56926e412cb16a84872b1ad0a0b2da38d022e6b44",
   "model": {
     "source_identity": "sha256:30912df260463ddd5a1e191606b4ae85112662cde387cb6d4c14d7936bbe9994",
-    "build_receipt_identity": "sha256:f2d1521ba3a3cd3fdd92e343ad2acafa01927d1390dc9184d63e4981f2e32f26",
-    "resolved_model_identity": "sha256:963157aeea891383aa85a2dcfdf975d4abac8a77c62814ba11aa180c455161c1",
-    "package_lock_identity": "sha256:a920f2ce836fe30b7dac181e0ef61f5a0c316c857642175b3b3c9297a3f0cb5b",
+    "build_receipt_identity": "sha256:1a098dcd091b82901c75250e8f57f2c7da11fda3cb53c5a5a675edd1d73e4dbc",
+    "resolved_model_identity": "sha256:ab528977ccc57a42199e9cbbbd86887a2c510b6203c9f149f86c39e62b95caf0",
+    "package_lock_identity": "sha256:11574ee28805af04977c1e11780c034d35c76a3d9981966c895790df1ed9eaba",
     "rir_identity": "sha256:161fd4075e930b85f79f1061dabcc333d7f677b32a3ade1208aec2cabf4f9c39"
   },
   "runtime": {
@@ -80,7 +80,7 @@
             "module": "combat",
             "name": "accuracy"
           },
-          "value": 85
+          "value": 20
         },
         {
           "target": {
@@ -88,7 +88,7 @@
             "module": "combat",
             "name": "base_damage"
           },
-          "value": 24
+          "value": 40
         },
         {
           "target": {
@@ -96,7 +96,7 @@
             "module": "combat",
             "name": "critical_threshold"
           },
-          "value": 0
+          "value": 50
         },
         {
           "target": {
@@ -104,7 +104,7 @@
             "module": "combat",
             "name": "target_defense"
           },
-          "value": 6
+          "value": 30
         },
         {
           "target": {

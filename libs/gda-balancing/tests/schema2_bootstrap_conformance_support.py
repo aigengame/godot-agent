@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681"
+    "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6"
 )
 
 
@@ -589,9 +589,21 @@ def _consumer_b_package_evidence_vectors_are_closed(
     package: dict[str, Any],
     vector_set: dict[str, Any],
     contract: Any,
+    candidate_encoding: Any,
 ) -> bool:
-    if not _consumer_b_package_vector_contract_is_closed(contract):
+    if (
+        not _consumer_b_package_vector_contract_is_closed(contract)
+        or not isinstance(candidate_encoding, dict)
+        or candidate_encoding.get("radix") != 16
+        or candidate_encoding.get("zero_pad") is not True
+        or not isinstance(candidate_encoding.get("width_bits"), int)
+        or candidate_encoding["width_bits"] % 4 != 0
+        or not isinstance(candidate_encoding.get("alphabet"), str)
+        or not candidate_encoding["alphabet"]
+    ):
         return False
+    candidate_width = candidate_encoding["width_bits"] // 4
+    candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
     vectors = vector_set.get("vector_definitions")
     if (
@@ -737,9 +749,9 @@ def _consumer_b_package_evidence_vectors_are_closed(
             isinstance(item, dict)
             and set(item) == set(kind["rng_draw_members"])
             and isinstance(item.get("candidate_hex"), str)
-            and len(item["candidate_hex"]) == 16
+            and len(item["candidate_hex"]) == candidate_width
             and all(
-                character in "0123456789abcdef" for character in item["candidate_hex"]
+                character in candidate_alphabet for character in item["candidate_hex"]
             )
             and isinstance(item.get("stream"), str)
             and item["stream"]
@@ -3154,6 +3166,7 @@ def _consumer_b_template_admission_is_closed(
         "id",
         "judgments",
         "max_steps_path",
+        "member_identity_domain",
         "member_roles",
         "resource_diagnostic",
         "structural_diagnostic",
@@ -3193,6 +3206,8 @@ def _consumer_b_template_admission_is_closed(
         != len(roles)
         or not isinstance(judgments, list)
         or not judgments
+        or not isinstance(profile.get("member_identity_domain"), str)
+        or not profile["member_identity_domain"]
         or profile.get("max_steps_path") != accounting["limit_path"]
         or profile.get("resource_diagnostic") != accounting["exhaustion_diagnostic"]
         or profile.get("resource_diagnostic") not in diagnostics
@@ -4685,6 +4700,14 @@ def _consumer_b_runtime_authority_is_closed(
         }
         or not isinstance(rng, dict)
         or rng.get("algorithm") != "splitmix64-v1"
+        or rng.get("candidate_encoding")
+        != {
+            "alphabet": "0123456789abcdef",
+            "case": "lowercase",
+            "radix": 16,
+            "width_bits": 64,
+            "zero_pad": True,
+        }
         or rng.get("interval_sampling", {}).get("bias_policy")
         != "accepted-modulo-bias-v1"
         or runtime.get("outcome_contract")
@@ -6254,7 +6277,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _consumer_b_package_evidence_vectors_are_closed(
-                        package, vector_set, package_vector_contract
+                        package,
+                        vector_set,
+                        package_vector_contract,
+                        meta.get("runtime_program", {})
+                        .get("named_rng", {})
+                        .get("candidate_encoding"),
                     )
                 )
             ):

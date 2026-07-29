@@ -155,4 +155,5 @@ witness, not bADR-0016's stronger public Extension Invariance Receipt or a genre
 - bADR-0016
 - bADR-0017
 - bADR-0022
-- OCI Image Specification descriptor and Merkle-DAG model (design input only)
+- [OCI Image Specification v1.1.1, Content Descriptor: Merkle DAG, `digest`, `size`, and verification](https://specs.opencontainers.org/image-spec/descriptor/?v=v1.1.1)
+  (design input only; this bADR does not claim OCI wire-format compatibility)

@@ -395,6 +395,13 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "word_bits": 64,
         "seed_encoding": "unsigned-modulo-2^64",
         "stream_name_encoding": "utf-8",
+        "candidate_encoding": {
+            "alphabet": "0123456789abcdef",
+            "case": "lowercase",
+            "radix": 16,
+            "width_bits": 64,
+            "zero_pad": True,
+        },
         "stream_derivation": {
             "hash": "sha256",
             "digest_slice": {"offset": 0, "length": 8},

@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:165ff5ccd3fa7aadecde63ba29be9f1907a3a7ec2b88825fd284de63339a5681",
+  "content_identity": "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2963,6 +2963,9 @@
             "structural_diagnostic": {
               "type": "non-empty-string"
             },
+            "member_identity_domain": {
+              "type": "non-empty-string"
+            },
             "member_roles": {
               "items": {
                 "field_types": {
@@ -3036,6 +3039,7 @@
             "max_steps_path",
             "resource_diagnostic",
             "structural_diagnostic",
+            "member_identity_domain",
             "member_roles",
             "judgments"
           ]
@@ -4670,6 +4674,13 @@
       },
       "named_rng": {
         "algorithm": "splitmix64-v1",
+        "candidate_encoding": {
+          "alphabet": "0123456789abcdef",
+          "case": "lowercase",
+          "radix": 16,
+          "width_bits": 64,
+          "zero_pad": true
+        },
         "interval_sampling": {
           "bias_policy": "accepted-modulo-bias-v1",
           "bounds": "inclusive",

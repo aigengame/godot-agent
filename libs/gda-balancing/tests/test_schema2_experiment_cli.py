@@ -14,7 +14,7 @@ import gda_balancing.commands.experiment as experiment_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
-from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.surface import descriptor_identity
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -185,10 +185,11 @@ def _reference_rng_draw(
     index = indices[stream]
     indices[stream] = index + 1
     value = minimum + candidate % (maximum - minimum + 1)
+    candidate_width = contract["candidate_encoding"]["width_bits"] // 4
     return {
         "stream": stream,
         "index": index,
-        "candidate_hex": f"{candidate:016x}",
+        "candidate_hex": f"{candidate:0{candidate_width}x}",
         "accepted": True,
         "minimum": minimum,
         "maximum": maximum,
@@ -1119,7 +1120,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "package_lock_identity": build_record["package_lock_identity"],
         "rir_identity": build_record["rir_identity"],
     }
-    first_path = tmp_path / "experiment-24.json"
+    first_path = tmp_path / "experiment-40.json"
     first_path.write_text(json.dumps(first_spec), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -1135,7 +1136,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "run",
             str(first_path),
             "--out",
-            str(tmp_path / "evaluation-24.json"),
+            str(tmp_path / "evaluation-40.json"),
             "--invocation-key",
             "2" * 64,
         ]
@@ -1205,7 +1206,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for item in first_trace["events"][0]["facts"]
             if item["name"] == "base_damage"
         )
-        == 24
+        == 40
     )
     first_damage = next(
         sample["value"]
@@ -1219,8 +1220,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         for row in tuned_spec["scenarios"][0]["assignments"]
         if row["target"]["name"] == "base_damage"
     )
-    base_damage["value"] = 40
-    tuned_path = tmp_path / "experiment-40.json"
+    base_damage["value"] = 60
+    tuned_path = tmp_path / "experiment-60.json"
     tuned_path.write_text(json.dumps(tuned_spec), encoding="utf-8")
     tuned_exit, tuned_stdout, tuned_stderr = run_cli(
         [
@@ -1228,7 +1229,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "run",
             str(tuned_path),
             "--out",
-            str(tmp_path / "evaluation-40.json"),
+            str(tmp_path / "evaluation-60.json"),
             "--invocation-key",
             "3" * 64,
         ]
@@ -1249,7 +1250,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for item in tuned_trace["events"][0]["facts"]
             if item["name"] == "base_damage"
         )
-        == 40
+        == 60
     )
     assert tuned_damage > first_damage
     assert (
@@ -1261,6 +1262,129 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
     public_tuned_expect["state_after"][0]["name"] = "actor_mana"
     assert vector_projection(tuned_trace["events"][0]) == public_tuned_expect
+
+    alternate_seed_spec = deepcopy(first_spec)
+    alternate_seed_spec["seed"]["value"] = 4
+    alternate_seed_path = tmp_path / "experiment-seed-4.json"
+    alternate_seed_path.write_text(
+        json.dumps(alternate_seed_spec),
+        encoding="utf-8",
+    )
+    alternate_exit, alternate_stdout, alternate_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(alternate_seed_path),
+            "--out",
+            str(tmp_path / "evaluation-seed-4.json"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+
+    assert (alternate_exit, alternate_stderr) == (0, "")
+    alternate_receipt = json.loads(alternate_stdout)
+    alternate_trace = _member(alternate_receipt, "event-trace")
+    alternate_metrics = _member(alternate_receipt, "metric-dataset")
+    alternate_event = alternate_trace["events"][0]
+    assert alternate_event["outcome"]["id"] == "cast-resolved"
+    assert [
+        (draw["stream"], draw["value"]) for draw in alternate_event["rng_draws"]
+    ] == [
+        ("hit", 22),
+        ("critical", 72),
+    ]
+    assert alternate_event["state_after"] == [
+        {"name": "actor_mana", "value": 22},
+        {"name": "target_health", "value": 90},
+    ]
+    assert (
+        next(
+            sample["value"]
+            for sample in alternate_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 10
+    )
+    assert (
+        alternate_trace["content_identity"] != first_trace["content_identity"]
+        and alternate_metrics["content_identity"] != first_metrics["content_identity"]
+    )
+
+    repeat_exit, repeat_stdout, repeat_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(first_path),
+            "--out",
+            str(tmp_path / "evaluation-40-repeat.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+    assert (repeat_exit, repeat_stderr) == (0, "")
+    repeat_receipt = json.loads(repeat_stdout)
+    first_locators = {
+        row["logical_name"]: Path(row["locator"])
+        for row in first_receipt["member_locators"]
+    }
+    repeat_locators = {
+        row["logical_name"]: Path(row["locator"])
+        for row in repeat_receipt["member_locators"]
+    }
+    assert set(repeat_locators) == set(first_locators)
+    assert all(
+        repeat_locators[name].read_bytes() == first_locators[name].read_bytes()
+        for name in first_locators
+    )
+
+    evaluator = _member(first_receipt, "evaluator-capability-manifest")
+    resolved_runtime = _member(first_receipt, "resolved-runtime-profile")
+    runtime_definition = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == first_spec["runtime"]["profile"]
+    )
+    assert resolved_runtime["runtime_profile"] == {
+        "id": runtime_definition["id"],
+        "version": runtime_definition["version"],
+        "evaluation": runtime_definition["evaluation"],
+        "numeric_policy": runtime_definition["numeric_policy"],
+        "runtime_program_version": runtime_definition["runtime_program_version"],
+        "numeric_law": runtime_definition["numeric_law"],
+        "rng": runtime_definition["rng"],
+        "budget_scopes": runtime_definition["budget_scopes"],
+        "effects": runtime_definition["effects"],
+        "max_steps": runtime_definition["resource_bounds"]["max_steps"],
+    }
+    identity_nodes = {
+        evaluator["content_identity"],
+        resolved_runtime["content_identity"],
+    }
+
+    def referenced_nodes(value: Any) -> set[str]:
+        if isinstance(value, dict):
+            return {
+                reference
+                for child in value.values()
+                for reference in referenced_nodes(child)
+            }
+        if isinstance(value, list):
+            return {
+                reference for child in value for reference in referenced_nodes(child)
+            }
+        return {value} if isinstance(value, str) and value in identity_nodes else set()
+
+    identity_graph = {
+        evaluator["content_identity"]: referenced_nodes(evaluator)
+        - {evaluator["content_identity"]},
+        resolved_runtime["content_identity"]: referenced_nodes(resolved_runtime)
+        - {resolved_runtime["content_identity"]},
+    }
+    assert identity_graph == {
+        evaluator["content_identity"]: set(),
+        resolved_runtime["content_identity"]: {evaluator["content_identity"]},
+    }
 
 
 def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
@@ -1416,6 +1540,72 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
     assert numeric_projection(baseline_artifacts) == numeric_projection(
         renamed_artifacts
     )
+
+
+def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corruption(
+    tmp_path,
+    run_cli,
+):
+    source_value = _rpg_model_source()
+    source = tmp_path / "lookup-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "lookup-resolved-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification_path = tmp_path / "lookup-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    unrelated_anchor = (
+        Path(os.environ["GDA_BALANCING_STORE_DIR"])
+        / "anchors"
+        / "unrelated"
+        / "damaged.json"
+    )
+    unrelated_anchor.parent.mkdir(parents=True)
+    unrelated_anchor.write_text("not-json", encoding="utf-8")
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, "")
+    assert json.loads(check_stdout)["checked"] is True
+
+    build_locator = next(
+        Path(row["locator"])
+        for row in build_receipt["member_locators"]
+        if row["logical_name"] == "build-receipt"
+    )
+    corrupted = json.loads(build_locator.read_text(encoding="utf-8"))
+    corrupted["source_identity"] = "sha256:" + "0" * 64
+    build_locator.write_bytes(canonical_bytes(corrupted))
+
+    refused_exit, refused_stdout, refused_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (refused_exit, refused_stderr) == (2, "")
+    error = json.loads(refused_stdout)["error"]
+    assert error["stage"] == "resolution"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "language.resolved_authority_mismatch"
+    ]
+    assert "failed integrity verification" in error["diagnostics"][0]["message"]
 
 
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():

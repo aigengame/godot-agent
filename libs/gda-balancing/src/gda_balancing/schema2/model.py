@@ -52,6 +52,10 @@ _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
 
 
+class PublishedArtifactIntegrityError(RuntimeError):
+    """An authenticated publication named the target but failed verification."""
+
+
 def _descriptor_language_bundle() -> LanguageBundleIndex:
     """Admit the packaged graph once while assembling static command descriptors."""
     return cast(
@@ -1324,22 +1328,35 @@ def find_published_artifact(
                     or not isinstance(member.get("logical_name"), str)
                 ):
                     continue
-                artifact = _read_canonical_artifact(
-                    invocation_path / f"{member['logical_name']}.json"
-                )
-                if (
+                try:
+                    artifact = _read_canonical_artifact(
+                        invocation_path / f"{member['logical_name']}.json"
+                    )
+                except (OSError, RuntimeError, UsageError, ValueError) as err:
+                    raise PublishedArtifactIntegrityError(
+                        "authenticated publication member is unreadable or non-canonical"
+                    ) from err
+                if not (
                     _verify_artifact(artifact, language_bundle)
                     and artifact.get("artifact_kind") == artifact_kind
                     and artifact.get("content_identity") == content_identity_value
                 ):
-                    matches.append(artifact)
+                    raise PublishedArtifactIntegrityError(
+                        "authenticated publication member failed schema or identity "
+                        "verification"
+                    )
+                matches.append(artifact)
+        except PublishedArtifactIntegrityError:
+            raise
         except (OSError, RuntimeError, UsageError, ValueError):
             continue
     if not matches:
         return None
     canonical = canonical_bytes(cast(JsonValue, matches[0]))
     if any(canonical_bytes(cast(JsonValue, item)) != canonical for item in matches[1:]):
-        raise RuntimeError("one content identity resolved to different artifacts")
+        raise PublishedArtifactIntegrityError(
+            "one content identity resolved to different authenticated artifacts"
+        )
     return matches[0]
 
 

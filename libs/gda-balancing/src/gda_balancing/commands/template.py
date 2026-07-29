@@ -155,6 +155,8 @@ def _member(
     member_kind: str,
     member_schema_identity: str,
     payload: JsonValue,
+    *,
+    identity_domain: str,
 ) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "logical_name": logical_name,
@@ -164,8 +166,41 @@ def _member(
     }
     return {
         **body,
-        "content_identity": content_identity("template-member-v2", body),
+        "content_identity": content_identity(identity_domain, body),
     }
+
+
+def _artifact_identity_domain(
+    language_bundle: dict[str, JsonValue],
+    artifact_kind: str,
+) -> str:
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    matches = [
+        cast(str, item["identity_domain"])
+        for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(matches) != 1 or not matches[0]:
+        raise ValueError(f"exact identity domain is unavailable for {artifact_kind}")
+    return matches[0]
+
+
+def _template_source_identity_domain(profile: dict[str, JsonValue]) -> str:
+    matches: list[str] = []
+    for judgment in cast(list[dict[str, JsonValue]], profile["judgments"]):
+        arguments = judgment["arguments"]
+        if (
+            judgment["operation"] == "derive-content-identity"
+            and isinstance(arguments, dict)
+            and arguments.get("result") == "source_identity"
+            and isinstance(arguments.get("identity_domain"), str)
+        ):
+            matches.append(cast(str, arguments["identity_domain"]))
+    if len(matches) != 1 or not matches[0]:
+        raise ValueError(
+            "Template profile does not own one Model Source identity domain"
+        )
+    return matches[0]
 
 
 def _member_schema_identities(
@@ -1230,6 +1265,11 @@ def _validate_template_release(
         for item in cast(list[dict[str, JsonValue]], language[collection])
     }
     try:
+        profile = _template_admission_profile(language_bundle)
+        member_identity_domain = cast(str, profile["member_identity_domain"])
+        release_identity_domain = _artifact_identity_domain(
+            language_bundle, "template-release"
+        )
         jsonschema.validate(release, schemas["template-release"])
         if release["wire_schema_identity"] != schema_identities["template-release"]:
             return _template_contract_refusal(
@@ -1241,7 +1281,7 @@ def _validate_template_release(
             key: value for key, value in release.items() if key != "content_identity"
         }
         if release["content_identity"] != content_identity(
-            "template-release-v2", release_body
+            release_identity_domain, release_body
         ):
             return _template_contract_refusal(
                 release,
@@ -1284,7 +1324,7 @@ def _validate_template_release(
                 key: value for key, value in member.items() if key != "content_identity"
             }
             if member["content_identity"] != content_identity(
-                "template-member-v2", member_body
+                member_identity_domain, member_body
             ):
                 return _template_contract_refusal(
                     release,
@@ -1396,20 +1436,41 @@ def _minimal_release(
         ],
         "entrypoints": [],
     }
-    starter_identity = content_identity("model-source-package-v2", starter)
+    profile = _template_admission_profile(language_bundle)
+    member_identity_domain = cast(str, profile["member_identity_domain"])
+    source_identity_domain = _template_source_identity_domain(profile)
+    release_identity_domain = _artifact_identity_domain(
+        language_bundle, "template-release"
+    )
+    starter_identity = content_identity(source_identity_domain, starter)
     experiment_id = "standard.quantity-minimal.experiment"
     golden_id = "standard.quantity-minimal.golden"
     negative_id = "standard.quantity-minimal.invalid-domain"
     boundary_id = "standard.quantity-minimal.maximum-boundary"
     schema_identities = _member_schema_identities(language_bundle)
+
+    def build_member(
+        logical_name: str,
+        member_kind: str,
+        member_schema_identity: str,
+        payload: JsonValue,
+    ) -> dict[str, JsonValue]:
+        return _member(
+            logical_name,
+            member_kind,
+            member_schema_identity,
+            payload,
+            identity_domain=member_identity_domain,
+        )
+
     members = [
-        _member(
+        build_member(
             "starter-model-source",
             "model-source-package",
             schema_identities["model-source-package"],
             starter,
         ),
-        _member(
+        build_member(
             "experiment-specification",
             "experiment-template",
             schema_identities["experiment-template"],
@@ -1431,7 +1492,7 @@ def _minimal_release(
                 ],
             },
         ),
-        _member(
+        build_member(
             "declared-package-dependencies",
             "declared-package-dependencies",
             schema_identities["declared-package-dependencies"],
@@ -1447,7 +1508,7 @@ def _minimal_release(
                 ],
             },
         ),
-        _member(
+        build_member(
             "defaults",
             "template-defaults",
             schema_identities["template-defaults"],
@@ -1456,7 +1517,7 @@ def _minimal_release(
                 "symbol_values": [{"symbol": "main.value", "value": 50}],
             },
         ),
-        _member(
+        build_member(
             "compatibility",
             "template-compatibility",
             schema_identities["template-compatibility"],
@@ -1467,7 +1528,7 @@ def _minimal_release(
                 "packages": [{"id": "core.quantity", "version": "2.0.0"}],
             },
         ),
-        _member(
+        build_member(
             "documentation",
             "template-documentation",
             schema_identities["template-documentation"],
@@ -1477,7 +1538,7 @@ def _minimal_release(
                 "text": "A minimal editable Quantity Model Source Package.",
             },
         ),
-        _member(
+        build_member(
             "coverage-matrix",
             "genre-coverage-matrix",
             schema_identities["genre-coverage-matrix"],
@@ -1498,7 +1559,7 @@ def _minimal_release(
                 ],
             },
         ),
-        _member(
+        build_member(
             "golden-scenario",
             "golden-scenario",
             schema_identities["golden-scenario"],
@@ -1511,7 +1572,7 @@ def _minimal_release(
                 "value": 50,
             },
         ),
-        _member(
+        build_member(
             "negative-vector",
             "negative-vector",
             schema_identities["negative-vector"],
@@ -1525,7 +1586,7 @@ def _minimal_release(
                 },
             },
         ),
-        _member(
+        build_member(
             "boundary-vector",
             "boundary-vector",
             schema_identities["boundary-vector"],
@@ -1563,7 +1624,7 @@ def _minimal_release(
     }
     return {
         **body,
-        "content_identity": content_identity("template-release-v2", body),
+        "content_identity": content_identity(release_identity_domain, body),
     }
 
 
@@ -1712,7 +1773,8 @@ def template_instantiate_handler(
             starter_member["payload"],
         )
         source = cast(dict[str, JsonValue], deepcopy(starter))
-        starter_identity = content_identity("model-source-package-v2", starter)
+        source_identity_domain = _template_source_identity_domain(admitted.profile)
+        starter_identity = content_identity(source_identity_domain, starter)
         manifest = cast(dict[str, JsonValue], source["manifest"])
         manifest["id"] = inp.package_id
         manifest["template_provenance"] = {
@@ -1721,7 +1783,7 @@ def template_instantiate_handler(
             "template_identity": release["content_identity"],
             "starter_identity": starter_identity,
         }
-        source_identity = content_identity("model-source-package-v2", source)
+        source_identity = content_identity(source_identity_domain, source)
         schema_identities = admitted.schema_identities
         command_input = identified_artifact(
             language_bundle,
@@ -1759,7 +1821,7 @@ def template_instantiate_handler(
                 except jsonschema.ValidationError:
                     return False
                 return (
-                    content_identity("model-source-package-v2", cast(JsonValue, value))
+                    content_identity(source_identity_domain, cast(JsonValue, value))
                     == source_identity
                 )
             return verify_artifact(value, language_bundle)

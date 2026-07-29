@@ -390,8 +390,8 @@ Typed HIR closes every invocation before RIR:
 Renaming a Model symbol while updating its entrypoint and Scenario assignments is an authored
 semantic change: the actual-operand, call-site, RIR, and Resolved-Model identities change. Reusing
 one symbol for two compatible read-only ports is explicit aliasing, not duplication. A writable
-alias is legal only when the selected Operation contract explicitly admits it. Formula evaluation
-under #590 may introduce another Kernel-admitted expression operand, but it does not replace or
+alias is legal only when the selected Operation contract explicitly admits it. The accepted #590
+Formula contract introduces another Kernel-admitted expression operand, but it does not replace or
 weaken the same entrypoint/call-site closure.
 
 A literal has no host-default type. Each type package may independently export Literal Typing
@@ -910,6 +910,10 @@ classified by the same vocabulary used above:
 | Refined—adopted | `operation-body-order` aliases shared one state location inside a child call, but the parent frame refreshed only ports passed to that child. A write through one alias could therefore be invisible to a later sibling call through another alias. Runtime now refreshes the complete parent alias group after every child return, preserving shared-location semantics across continue/propagate and rollback boundaries. | Runtime invocation semantics plus cross-child differential regression; implementation and conformance updated |
 | Confirmed—narrowly | One Model symbol intentionally supplies the cast's two compatible read-only defense ports. Package-owned Model Program vectors also cover distinct defense symbols, a source-symbol rename, multiple entrypoints selecting the same exact Operation with different bindings, stale Operation coordinates, and every value-contract axis. The `core.quantity` vector proves an `experiment-override` entrypoint emits both a Model initializer and an optional override target. Dual-consumer mutation tests close effect/refusal/resource/cycle violations; Experiment tests refuse under/over/duplicate assignments, raw-Operation selection, and rebinding. | `game.combat.model-binding.*`, `quantity.assignment-policy.optional-override`, plus bounded dual-consumer conformance tests; retained |
 | Confirmed—narrowly | An independent lowerer derives byte-identical entrypoint, call-site, alias, closure, Scenario Input Contract, and identity graphs. A second evaluator builds its root frame only from RIR resolved operands and agrees with production on the committed cast's typed outcome, facts, state, RNG and call provenance. It validates every runtime-node contract vector and executes every RNG vector; nodes outside the cast are not claimed as independently executed semantics. | Bounded differential witness for `rpg.combat.cast-v1`; retained as a test, not generalized |
+| Refined—adopted | The descriptor conformance fixture repeated the complete RPG source, evaluator requirements, seed, and seven scenario values in Python after the package already owned source/runtime vectors. The fixture now selects those package vectors, builds their Model Source through the public command, and derives assignments, streams, and evaluator closure from admitted RIR/Kernel authority. | Descriptor conformance plus `game.combat` vector ownership; host copies removed |
+| Refined—adopted | Template member identities and RNG candidate formatting were implemented as host literals even though release identities and RNG laws were otherwise authoritative. The Template profile now declares its member identity domain, the Kernel declares the exact 64-bit lowercase hexadecimal candidate encoding, and Template/runtime/public-schema consumers project those declarations. | Kernel Specification plus `standard.schema` Template profile; both bootstrap consumers and public schemas updated |
+| Refined—adopted | Artifact discovery skipped every malformed publication, including a member that an authenticated manifest explicitly named as the requested exact artifact. Unrelated damaged anchors still remain non-blocking, but corruption after authenticated target selection now returns a precise typed authority-integrity refusal instead of masquerading as absence. | Publication adapter and Experiment resolution boundary; adversarial regression retained |
+| Confirmed—narrowly | Fixed seeds `20260726` and `4` cross the critical threshold under the same Model, assignments, Runtime profile, and Metrics, producing byte-deterministic but observably different draws, damage, and terminal health. Repeating either exact input through a different Invocation key produces byte-identical semantic artifact members. | RPG tutorial plus direct deterministic-run conformance; retained |
 | Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
 
 The public outcome algebra is also confirmed for this slice: completed success and negative Verdict
@@ -917,8 +921,8 @@ publish only their declared complete sets, admission/evaluation refusal publishe
 post-dispatch Runtime refusal rolls back the current Event and publishes only terminal audit, and
 post-commit delivery recovery covers all three published outcomes without evaluator rerun.
 
-The human product/architecture gate on #540 must accept, condition, or reopen this path before #585
-or #541–#545 proceeds.
+The human product/architecture gate on #540 must accept, condition, or reopen this path before #590,
+#585, or #541–#545 proceeds.
 
 ### 12.6 Sealed orthogonal LDB dogfooding
 
