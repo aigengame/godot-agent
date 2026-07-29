@@ -2686,3 +2686,73 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             **error["diagnostics"][0],
         }
     assert out.exists()
+
+
+@pytest.mark.parametrize(
+    "presentation",
+    ["invocation-member", "store-member", "symlink-ancestor"],
+)
+def test_committed_recovery_revalidates_the_presentation_trust_boundary(
+    tmp_path, run_cli, monkeypatch, presentation
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    key = "4" * 64
+    first = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "first-evaluation.json"),
+            "--invocation-key",
+            key,
+        ]
+    )
+    assert first[0] == 0
+    receipt = json.loads(first[1])
+    invocation_path = Path(receipt["manifest_locator"]).parent
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    if presentation == "invocation-member":
+        recovered_out = invocation_path / "recovered-evaluation.json"
+    elif presentation == "store-member":
+        recovered_out = store / "recovered-evaluation.json"
+    else:
+        actual_parent = tmp_path / "actual-presentation"
+        actual_parent.mkdir()
+        alias_parent = tmp_path / "presentation-alias"
+        alias_parent.symlink_to(actual_parent, target_is_directory=True)
+        recovered_out = alias_parent / "recovered-evaluation.json"
+    store_before = {
+        path.relative_to(store): path.read_bytes()
+        for path in store.rglob("*")
+        if path.is_file()
+    }
+
+    def evaluator_must_not_run(_checked):
+        raise AssertionError("invalid recovery presentation reran the evaluator")
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "evaluate_experiment",
+        evaluator_must_not_run,
+    )
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(recovered_out),
+            "--invocation-key",
+            key,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "argument_conflict"
+    assert not recovered_out.exists()
+    assert {
+        path.relative_to(store): path.read_bytes()
+        for path in store.rglob("*")
+        if path.is_file()
+    } == store_before

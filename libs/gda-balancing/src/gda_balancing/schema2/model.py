@@ -4019,6 +4019,31 @@ def _ensure_directory_chain(path: Path) -> None:
     _assert_directory_without_symlink(path)
 
 
+def _validate_presentation_path(out_path: Path, invocation_path: Path) -> None:
+    """Keep every presentation outside the immutable store and symlink aliases."""
+    store_root = _store_root()
+    if (
+        out_path == store_root
+        or store_root in out_path.parents
+        or out_path in store_root.parents
+        or out_path == invocation_path
+        or invocation_path in out_path.parents
+        or out_path in invocation_path.parents
+    ):
+        raise UsageError(
+            "argument_conflict",
+            "--out must not overlap the immutable publication store",
+        )
+    parent = out_path.parent
+    _assert_ancestor_chain_without_symlink(parent)
+    if parent.is_symlink() or not parent.is_dir():
+        raise UsageError(
+            "unwritable_output", f"cannot write output directory: {out_path}"
+        )
+    if out_path.is_symlink():
+        raise UsageError("argument_conflict", "--out must not be a symlink")
+
+
 def _materialize_primary(out_path: Path, resolved: dict[str, Any]) -> None:
     data = canonical_bytes(cast(JsonValue, resolved))
     if out_path.is_symlink():
@@ -4260,32 +4285,16 @@ def publish_artifact_set(
         raise RuntimeError("prepared output failed artifact-schema admission")
 
     out_path = _normalized_absolute_path(out)
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    _validate_presentation_path(out_path, invocation_path)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
         raise UsageError(
             "argument_conflict", "Invocation-key lock must not be a symlink"
-        )
+    )
     with _invocation_lock(lock_path):
-        invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
         anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-        if (
-            out_path == invocation_path
-            or invocation_path in out_path.parents
-            or out_path in invocation_path.parents
-        ):
-            raise UsageError(
-                "argument_conflict",
-                "--out must not overlap the Invocation-key publication path",
-            )
-        parent = out_path.parent
-        _assert_ancestor_chain_without_symlink(parent)
-        if parent.is_symlink() or not parent.is_dir():
-            raise UsageError(
-                "unwritable_output", f"cannot write output directory: {out_path}"
-            )
-        if out_path.is_symlink():
-            raise UsageError("argument_conflict", "--out must not be a symlink")
         _assert_ancestor_chain_without_symlink(invocation_path)
         if invocation_path.is_symlink():
             raise UsageError(
@@ -4343,9 +4352,10 @@ def recover_committed_artifact_set(
         authentication_key = publication_authentication_key()
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    out_path = _normalized_absolute_path(out)
+    _validate_presentation_path(out_path, invocation_path)
     if not invocation_path.exists() or not anchor_path.exists():
         return None
-    out_path = _normalized_absolute_path(out)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     with _invocation_lock(lock_path):
@@ -4664,6 +4674,8 @@ def publish_model_artifacts(
         authentication_key = publication_authentication_key()
     out_path = _normalized_absolute_path(out)
     reject_input_aliasing(out_path, source_path, input_is_known_path=True)
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    _validate_presentation_path(out_path, invocation_path)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
@@ -4694,23 +4706,6 @@ def _publish_model_artifacts_locked(
     """Atomically publish one complete build set while its invocation lock is held."""
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-    if (
-        out_path == invocation_path
-        or invocation_path in out_path.parents
-        or out_path in invocation_path.parents
-    ):
-        raise UsageError(
-            "argument_conflict",
-            "--out must not overlap the Invocation-key publication path",
-        )
-    parent = out_path.parent
-    _assert_ancestor_chain_without_symlink(parent)
-    if parent.is_symlink() or not parent.is_dir():
-        raise UsageError(
-            "unwritable_output", f"cannot write output directory: {out_path}"
-        )
-    if out_path.is_symlink():
-        raise UsageError("argument_conflict", "--out must not be a symlink")
     command_input = _identified_artifact(
         checked.language_bundle,
         "model-build-command-input",
