@@ -1153,6 +1153,7 @@ def evaluate_experiment(
             nonlocal event_steps, total_steps
             operation_before: dict[bytes, int] = dict(state)
             variables: dict[str, Any] = dict(arguments)
+            operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
             for instruction in selected_operation["body"]:
@@ -1232,6 +1233,8 @@ def evaluate_experiment(
                     result_binding = instruction["result"]
                     if result_binding["kind"] == "local":
                         variables[result_binding["name"]] = child_result
+                    elif result_binding["kind"] == "operation-result":
+                        operation_results[instruction["site"]] = child_result
                     for alias, actual in state_references.items():
                         variables[alias] = state[actual]
                     mapping = next(
@@ -1346,12 +1349,14 @@ def evaluate_experiment(
                 state.clear()
                 state.update(operation_before)
             result_source = selected_operation["result"]["source"]
-            result = (
-                variables[result_source["name"]]
-                if result_source["kind"] == "local"
-                and outcome_definition["kind"] == "success"
-                else None
-            )
+            if outcome_definition["kind"] != "success":
+                result = None
+            elif result_source["kind"] in {"local", "port"}:
+                result = variables[result_source["name"]]
+            elif result_source["kind"] == "operation-result":
+                result = operation_results[result_source["site"]]
+            else:
+                result = None
             return cast(str, outcome), result
 
         root_arguments: dict[str, Any] = {}

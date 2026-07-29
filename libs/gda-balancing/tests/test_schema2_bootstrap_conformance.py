@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:2711b2177664b53fd74cf4803d0c767482e49029cc12e27f260ee5cf5a73b61c"
+    "sha256:518f02a7cbcc8a545fc8e6bac03971d0e69fc08de5cf6a432c7139db85cf2362"
 )
 
 
@@ -4592,6 +4592,15 @@ def _consumer_b_runtime_authority_is_closed(
         != {"port", "local", "literal", "expression"}
         or set(invocation_contract.get("result_binding_kinds", []))
         != {"local", "operation-result", "discard"}
+        or invocation_contract.get("result_source_shapes")
+        != {
+            "local": ["kind", "name"],
+            "operation-result": ["kind", "site"],
+            "port": ["kind", "name"],
+            "unit": ["kind"],
+        }
+        or invocation_contract.get("result_producer_cardinality")
+        != "exactly-one-compatible-producer-on-every-success-path"
         or set(invocation_contract.get("outcome_actions", []))
         != {"continue", "propagate"}
     ):
@@ -4722,6 +4731,28 @@ def _consumer_b_runtime_authority_is_closed(
         operation_kind = operation.get("operation_kind")
         if operation_kind not in {"event-program", "event-fragment"}:
             continue
+        result = operation.get("result")
+        source = result.get("source") if isinstance(result, dict) else None
+        source_kind = source.get("kind") if isinstance(source, dict) else None
+        source_members = invocation_contract["result_source_shapes"].get(source_kind)
+        source_value = (
+            source.get("site")
+            if source_kind == "operation-result" and isinstance(source, dict)
+            else source.get("name")
+            if source_kind in {"local", "port"} and isinstance(source, dict)
+            else None
+        )
+        if (
+            not isinstance(source, dict)
+            or not isinstance(source_members, list)
+            or set(source) != set(source_members)
+            or (
+                source_kind in {"local", "port", "operation-result"}
+                and (not isinstance(source_value, str) or not source_value)
+            )
+            or source_kind not in {"local", "port", "operation-result", "unit"}
+        ):
+            return False
         referenced = referenced_outcomes(operation, set())
         if referenced is None:
             return False
@@ -4758,10 +4789,21 @@ def _consumer_b_operation_composition_subjects(
         return ()
     literal_profiles = language.get("literal_typing_profiles")
     literal_contract = kernel.get("meta_format", {}).get("literal_typing")
+    invocation_contract = (
+        kernel.get("meta_format", {})
+        .get("runtime_program", {})
+        .get("invocation_contract")
+    )
+    result_source_shapes = (
+        invocation_contract.get("result_source_shapes")
+        if isinstance(invocation_contract, dict)
+        else None
+    )
     if (
         not isinstance(literal_contract, dict)
         or literal_contract.get("selection") != "unique-formal-match"
         or not isinstance(literal_profiles, list)
+        or not isinstance(result_source_shapes, dict)
     ):
         return ("language.literal-typing-profiles",)
     owners: dict[str, tuple[str, str]] = {}
@@ -4866,25 +4908,76 @@ def _consumer_b_operation_composition_subjects(
         operation = by_coordinate.get(coordinate)
         if not isinstance(operation, dict):
             return None
+        result = operation.get("result")
+        source = result.get("source") if isinstance(result, dict) else None
+        source_kind = source.get("kind") if isinstance(source, dict) else None
+        source_members = (
+            result_source_shapes.get(source_kind)
+            if isinstance(source_kind, str)
+            else None
+        )
+        source_value = (
+            source.get("site")
+            if source_kind == "operation-result" and isinstance(source, dict)
+            else source.get("name")
+            if source_kind in {"local", "port"} and isinstance(source, dict)
+            else None
+        )
+        if (
+            not isinstance(source, dict)
+            or not isinstance(source_members, list)
+            or set(source) != set(source_members)
+            or (
+                source_kind in {"local", "port", "operation-result"}
+                and (not isinstance(source_value, str) or not source_value)
+            )
+            or source_kind not in {"local", "port", "operation-result", "unit"}
+        ):
+            found.add(subject(coordinate, None, "result.source"))
+            return None
+        source_site = (
+            cast(str, source["site"]) if source_kind == "operation-result" else None
+        )
         parent_ports = {
             port["id"]: port
             for port in operation.get("inputs", [])
             if isinstance(port, dict) and isinstance(port.get("id"), str)
         }
-        parent_outcomes = {
-            row["id"]
+        parent_outcome_definitions = {
+            row["id"]: row
             for row in operation.get("outcomes", [])
             if isinstance(row, dict) and isinstance(row.get("id"), str)
         }
+        parent_outcomes = set(parent_outcome_definitions)
+        parent_successes = {
+            outcome_id
+            for outcome_id, definition in parent_outcome_definitions.items()
+            if definition.get("kind") == "success"
+        }
         locals_: dict[str, dict[str, Any]] = {}
+        local_producers: dict[str, int] = {}
         effects = set(cast(list[str], operation.get("effects", [])))
         refusals = set(cast(list[str], operation.get("refusals", [])))
         body = operation.get("body")
         if not isinstance(body, list):
             return None
         charge = len(body)
+        operation_result_sites: set[str] = set()
+        source_producer_reached = False
         for instruction in body:
-            if not isinstance(instruction, dict) or instruction.get("node") != "invoke":
+            if not isinstance(instruction, dict):
+                return None
+            target = instruction.get("target")
+            if isinstance(target, str):
+                local_producers[target] = local_producers.get(target, 0) + 1
+            if instruction.get("node") != "invoke":
+                if (
+                    source_kind == "operation-result"
+                    and not source_producer_reached
+                    and instruction.get("outcome") in parent_successes
+                ):
+                    found.add(subject(coordinate, None, "result.source"))
+                    return None
                 continue
             site = instruction.get("site")
             operation_ref = instruction.get("operation")
@@ -4982,6 +5075,7 @@ def _consumer_b_operation_composition_subjects(
                     found.add(subject(coordinate, site, "result"))
                     return None
                 locals_[local] = cast(dict[str, Any], child["result"])
+                local_producers[local] = local_producers.get(local, 0) + 1
             elif result.get("kind") == "operation-result":
                 if not value_contract_matches(
                     cast(dict[str, Any], child["result"]),
@@ -4989,6 +5083,7 @@ def _consumer_b_operation_composition_subjects(
                 ):
                     found.add(subject(coordinate, site, "result"))
                     return None
+                operation_result_sites.add(site)
             else:
                 found.add(subject(coordinate, site, "result"))
                 return None
@@ -5009,6 +5104,41 @@ def _consumer_b_operation_composition_subjects(
             ):
                 found.add(subject(coordinate, site, "outcomes"))
                 return None
+            child_outcome_definitions = {
+                row["id"]: row
+                for row in child.get("outcomes", [])
+                if isinstance(row, dict) and isinstance(row.get("id"), str)
+            }
+            if source_kind == "operation-result":
+                reaches_parent_success = any(
+                    (
+                        mapping["action"].get("kind") == "continue"
+                        or (
+                            mapping["action"].get("kind") == "propagate"
+                            and mapping["action"].get("outcome") in parent_successes
+                        )
+                    )
+                    and child_outcome_definitions[mapping["outcome"]].get("kind")
+                    != "success"
+                    for mapping in cast(list[dict[str, Any]], mappings)
+                )
+                exits_success_before_source = (
+                    not source_producer_reached
+                    and site != source_site
+                    and any(
+                        mapping["action"].get("kind") == "propagate"
+                        and mapping["action"].get("outcome") in parent_successes
+                        for mapping in cast(list[dict[str, Any]], mappings)
+                    )
+                )
+                if (
+                    (site == source_site and reaches_parent_success)
+                    or exits_success_before_source
+                ):
+                    found.add(subject(coordinate, None, "result.source"))
+                    return None
+                if site == source_site:
+                    source_producer_reached = True
             child_closure = close(child_coordinate, (*stack, coordinate))
             if child_closure is None:
                 return None
@@ -5022,6 +5152,40 @@ def _consumer_b_operation_composition_subjects(
             effects.update(child_effects)
             refusals.update(child_refusals)
             charge += child_charge
+        result_contract = cast(dict[str, Any], operation["result"])
+        source_is_compatible = (
+            source_kind == "operation-result"
+            and source_site in operation_result_sites
+            and source_producer_reached
+        ) or (
+            source_kind == "port"
+            and isinstance(parent_ports.get(source.get("name")), dict)
+            and value_contract_matches(
+                cast(dict[str, Any], parent_ports[source["name"]]),
+                result_contract,
+            )
+        ) or (
+            source_kind == "local"
+            and local_producers.get(cast(str, source.get("name"))) == 1
+            and (
+                source.get("name") not in locals_
+                or value_contract_matches(
+                    locals_[cast(str, source["name"])], result_contract
+                )
+            )
+        ) or (
+            source_kind == "unit"
+            and result_contract.get("type")
+            == {"package": "kernel", "version": "2.0.0", "id": "Unit"}
+            and result_contract.get("representation") == "Unit"
+            and result_contract.get("kind") == "unit"
+            and result_contract.get("unit") == "1"
+            and result_contract.get("domain") == {"kind": "unit"}
+            and result_contract.get("numeric_policy") == "exact-unit"
+        )
+        if not source_is_compatible:
+            found.add(subject(coordinate, None, "result.source"))
+            return None
         if charge > operation.get("resource_bounds", {}).get("max_steps", -1):
             found.add(subject(coordinate, None, "resource_bounds"))
             return None
@@ -8194,6 +8358,110 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
     assert first == second
     assert first["admitted"] is False
     assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+
+
+def test_reidentified_operation_result_source_cannot_invent_host_semantics():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.damage-v1"
+    )
+    operation["result"]["source"] = {"kind": "host-callback", "name": "execute"}
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+    ) in first["diagnostics"]
+
+
+def test_reidentified_operation_result_source_requires_its_exact_call_producer():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.cast-v1"
+    )
+    operation["result"]["source"] = {
+        "kind": "operation-result",
+        "site": "apply-damage",
+    }
+    damage_call = next(
+        instruction
+        for instruction in operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    damage_call["result"] = {"kind": "local", "name": "damage"}
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+    ) in first["diagnostics"]
+
+
+def test_operation_result_source_refuses_a_non_successful_producer_path():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operations = {
+        row["id"]: row
+        for row in ldb["language"]["operations"]
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    damage = operations["game.combat.damage-v1"]
+    damage["outcomes"].append(
+        {
+            "id": "no-damage",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        }
+    )
+    damage["body"].insert(
+        0,
+        {
+            "node": "precondition-greater-than-or-equal",
+            "left": "base_damage",
+            "right": "mitigation",
+            "outcome": "no-damage",
+        },
+    )
+    damage["resource_bounds"]["max_steps"] += 1
+    cast_operation = operations["game.combat.cast-v1"]
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    damage_call["outcomes"].append(
+        {"outcome": "no-damage", "action": {"kind": "continue"}}
+    )
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+    ) in first["diagnostics"]
 
 
 def test_malformed_quantity_inventory_returns_a_typed_refusal_from_both_consumers():

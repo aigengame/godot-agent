@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:2711b2177664b53fd74cf4803d0c767482e49029cc12e27f260ee5cf5a73b61c",
+  "content_identity": "sha256:518f02a7cbcc8a545fc8e6bac03971d0e69fc08de5cf6a432c7139db85cf2362",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5429,15 +5429,33 @@
           "literal",
           "expression"
         ],
-        "result_binding_kinds": [
-          "local",
-          "operation-result",
-          "discard"
+      "result_binding_kinds": [
+        "local",
+        "operation-result",
+        "discard"
+      ],
+      "result_source_shapes": {
+        "local": [
+          "kind",
+          "name"
         ],
-        "outcome_actions": [
-          "continue",
-          "propagate"
+        "operation-result": [
+          "kind",
+          "site"
         ],
+        "port": [
+          "kind",
+          "name"
+        ],
+        "unit": [
+          "kind"
+        ]
+      },
+      "result_producer_cardinality": "exactly-one-compatible-producer-on-every-success-path",
+      "outcome_actions": [
+        "continue",
+        "propagate"
+      ],
         "outcome_mapping": "exactly-once-and-exhaustive",
         "scope": "lexical-call-frame",
         "ambient_capture": "forbidden",

@@ -306,6 +306,7 @@ def _reference_execute_event(
     ) -> tuple[str, Any]:
         assert selected["id"] not in stack
         locals_: dict[str, dict[str, Any]] = {}
+        operation_results: dict[str, Any] = {}
         frame_cells = {id(cell): cell for cell in arguments.values()}
         snapshot = {key: cell["value"] for key, cell in frame_cells.items()}
         outcome = selected["default_outcome"]
@@ -380,6 +381,8 @@ def _reference_execute_event(
                     result_binding = instruction["result"]
                     if result_binding["kind"] == "local":
                         write_local(result_binding["name"], child_result)
+                    elif result_binding["kind"] == "operation-result":
+                        operation_results[instruction["site"]] = child_result
                     action = next(
                         row["action"]
                         for row in instruction["outcomes"]
@@ -475,10 +478,14 @@ def _reference_execute_event(
             for key, value in snapshot.items():
                 frame_cells[key]["value"] = value
         source = selected["result"]["source"]
-        if source["kind"] == "local":
-            result = locals_.get(source["name"], {"value": 0})["value"]
+        if outcome_definition["kind"] != "success":
+            result = None
+        elif source["kind"] == "local":
+            result = locals_[source["name"]]["value"]
         elif source["kind"] == "port":
             result = arguments[source["name"]]["value"]
+        elif source["kind"] == "operation-result":
+            result = operation_results[source["site"]]
         else:
             assert source["kind"] == "unit"
             result = None
@@ -2141,6 +2148,59 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     assert cost_operand["kind"] == "literal"
     assert cost_operand["value"] == 8
     assert cost_operand["context_type"]["id"] == "quantity.dimensionless-int64"
+
+
+def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    cast_operation = operations["game.combat.cast-v1"]
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    damage_call["result"] = {"kind": "operation-result"}
+    cast_operation["result"]["source"] = {
+        "kind": "operation-result",
+        "site": "apply-damage",
+    }
+    lowering = checked.language_bundle["language"]["model_lowerings"][0]
+    rir["call_sites"] = model_module._resolved_call_sites(
+        checked.kernel,
+        rir["selected_semantics"],
+        lowering["composition_policy"],
+    )
+    candidate = replace(checked, rir=rir)
+
+    production = experiment_runtime_module.evaluate_experiment(candidate)
+
+    assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
+    production_event = production.members["event-trace"].value["events"][0]
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    reference_event = _reference_execute_event(
+        checked.kernel,
+        cast_operation,
+        operations,
+        checked.value["scenarios"][0],
+        seed=checked.value["seed"]["value"],
+        resolved_entrypoint=entrypoint,
+        resolved_declarations=rir["declarations"],
+        resolved_call_sites=rir["call_sites"],
+    )
+    assert {
+        key: value for key, value in production_event.items() if key != "index"
+    } == reference_event
+    assert next(
+        row["integer"]
+        for row in production_event["facts"]
+        if row["name"] == "damage_dealt"
+    ) == 18
 
 
 def test_ordered_writable_alias_write_is_visible_to_later_child_call(
