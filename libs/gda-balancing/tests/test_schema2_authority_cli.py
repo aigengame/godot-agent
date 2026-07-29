@@ -645,6 +645,119 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
             jsonschema.validate(invalid_authority, authority_schema)
 
 
+@pytest.mark.parametrize(
+    ("vector_id", "mutation"),
+    [
+        ("model.compile.positive", "outcome-host"),
+        ("model.compile.negative-duplicate", "outcome-host"),
+        ("model.compile.boundary-max-symbols", "outcome-host"),
+        ("model.compile.boundary-max-symbols-plus-one", "outcome-host"),
+        ("model.compile.mutation-role-change", "outcome-host"),
+        ("model.compile.semantic-equivalent-order", "outcome-host"),
+        ("model.compile.positive", "source-not-object"),
+        ("model.compile.positive", "lock-oracle-open"),
+        ("model.compile.positive", "rir-identity-not-string"),
+        ("model.compile.positive", "debug-identity-not-string"),
+        ("model.compile.positive", "semantic-artifacts-false"),
+        ("model.compile.positive", "declaration-count-zero"),
+        ("model.compile.positive", "admitted-diagnostics-nonempty"),
+        ("model.compile.positive", "relation-kind-incompatible"),
+        ("model.compile.positive", "independent-reference-non-null"),
+        ("model.compile.negative-duplicate", "refused-lock-oracle-non-null"),
+        ("model.compile.negative-duplicate", "refused-diagnostic-host"),
+        ("model.compile.boundary-max-symbols", "collection-path-empty"),
+        ("model.compile.boundary-max-symbols", "count-resource-path-empty"),
+        ("model.compile.boundary-max-symbols", "count-offset-invalid"),
+        ("model.compile.boundary-max-symbols", "template-not-object"),
+        ("model.compile.boundary-max-symbols", "index-member-empty"),
+        ("model.compile.boundary-max-symbols", "index-prefix-empty"),
+        ("model.compile.boundary-max-symbols", "index-width-invalid"),
+        ("model.compile.boundary-max-symbols", "index-encoding-host"),
+    ],
+)
+def test_public_schemas_reject_every_invalid_model_program_vector_variant(
+    run_cli, vector_id, mutation
+):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    vector_set_index, vector_index = next(
+        (set_index, definition_index)
+        for set_index, vector_set in enumerate(
+            authority["package_conformance_vector_sets"]
+        )
+        for definition_index, vector in enumerate(vector_set["vector_definitions"])
+        if vector.get("id") == vector_id
+    )
+    invalid_child = deepcopy(
+        authority["package_conformance_vector_sets"][vector_set_index]
+    )
+    vector = invalid_child["vector_definitions"][vector_index]
+    fixture = vector["source_fixture"]
+    expect = vector["expect"]
+    if mutation == "outcome-host":
+        expect["outcome"] = "host-owned"
+    elif mutation == "source-not-object":
+        fixture["source"] = 7
+    elif mutation == "lock-oracle-open":
+        expect["lock_oracle"] = {"host": "invented"}
+    elif mutation == "rir-identity-not-string":
+        expect["rir_identity"] = 7
+    elif mutation == "debug-identity-not-string":
+        expect["debug_map_identity"] = 7
+    elif mutation == "semantic-artifacts-false":
+        expect["semantic_artifacts"] = False
+    elif mutation == "declaration-count-zero":
+        expect["declaration_count"] = 0
+    elif mutation == "admitted-diagnostics-nonempty":
+        expect["diagnostics"] = [
+            {"code": "host.invented", "stage": "static", "pointer": ""}
+        ]
+    elif mutation == "relation-kind-incompatible":
+        expect["relation"] = {"kind": "semantic-change", "reference": vector_id}
+    elif mutation == "independent-reference-non-null":
+        expect["relation"]["reference"] = vector_id
+    elif mutation == "refused-lock-oracle-non-null":
+        expect["lock_oracle"] = {
+            member: []
+            for member in authority["kernel"]["meta_format"]["model_program_vector"][
+                "lock_oracle_members"
+            ]
+        }
+    elif mutation == "refused-diagnostic-host":
+        expect["diagnostics"] = [
+            {"code": "host.invented", "stage": "static", "pointer": ""}
+        ]
+    elif mutation == "collection-path-empty":
+        fixture["collection_path"] = []
+    elif mutation == "count-resource-path-empty":
+        fixture["count_resource_path"] = ""
+    elif mutation == "count-offset-invalid":
+        fixture["count_offset"] = 2
+    elif mutation == "template-not-object":
+        fixture["template"] = []
+    elif mutation == "index-member-empty":
+        fixture["index_member"] = ""
+    elif mutation == "index-prefix-empty":
+        fixture["index_prefix"] = ""
+    elif mutation == "index-width-invalid":
+        fixture["index_width"] = 0
+    else:
+        fixture["index_encoding"] = "host-owned"
+
+    package_schema = cast(
+        dict[str, Any],
+        cast(list[dict[str, Any]], package_get_success_schema()["oneOf"])[1],
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(invalid_child, package_schema)
+
+    invalid_authority = deepcopy(authority)
+    invalid_authority["package_conformance_vector_sets"][vector_set_index] = (
+        invalid_child
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(invalid_authority, schema_get_success_schema())
+
+
 def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     tmp_path, run_cli
 ):

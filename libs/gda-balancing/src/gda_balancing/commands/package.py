@@ -277,8 +277,9 @@ def _package_contracts() -> tuple[
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
+    dict[str, Any],
 ]:
-    kernel, _language_bundle = load_descriptor_authorities()
+    kernel, language_bundle = load_descriptor_authorities()
     meta_format = cast(dict[str, Any], kernel["meta_format"])
     language_bundle_contract = cast(dict[str, Any], meta_format["language_bundle"])
     return (
@@ -289,11 +290,22 @@ def _package_contracts() -> tuple[
         cast(dict[str, Any], meta_format["package_release"]),
         cast(dict[str, Any], meta_format["package_conformance_vector_set"]),
         meta_format,
+        language_bundle,
     )
 
 
 def _non_empty_string_schema() -> dict[str, object]:
     return {"type": "string", "minLength": 1}
+
+
+def _opaque_object_schema() -> dict[str, object]:
+    """Describe a Kernel-validated object without claiming its member contract.
+
+    Model-program fixtures intentionally carry malformed source/template objects
+    for refusal vectors.  Their surrounding fixture is closed here, while the
+    Bootstrap owns validation of the opaque object's members.
+    """
+    return {"type": ["object"]}
 
 
 def _signed_int64_schema() -> dict[str, object]:
@@ -521,12 +533,17 @@ def _diagnostic_vector_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     }
 
 
-def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, object]:
+def _model_program_vector_schemas(
+    meta_format: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> list[dict[str, object]]:
     contract = meta_format.get("model_program_vector")
     if not isinstance(contract, dict):
         raise ValueError("Kernel model-program vector contract is incomplete")
     required = contract.get("required_members")
     categories = contract.get("categories")
+    category_outcomes = contract.get("category_outcomes")
+    category_relations = contract.get("category_relations")
     fixture_modes = contract.get("fixture_modes")
     expect_members = contract.get("expect_members")
     diagnostic_members = contract.get("diagnostic_members")
@@ -536,6 +553,8 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
         not isinstance(required, list)
         or set(required) != {"category", "expect", "id", "source_fixture"}
         or not isinstance(categories, list)
+        or not isinstance(category_outcomes, dict)
+        or not isinstance(category_relations, dict)
         or not isinstance(fixture_modes, dict)
         or not isinstance(expect_members, list)
         or diagnostic_members != ["code", "stage", "pointer"]
@@ -543,6 +562,7 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
         or not isinstance(lock_members, list)
     ):
         raise ValueError("Kernel model-program vector members are incomplete")
+
     fixture_variants: list[dict[str, object]] = []
     for mode, mode_contract in fixture_modes.items():
         mode_required = (
@@ -557,9 +577,38 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
             or "source" not in mode_required
         ):
             raise ValueError("Kernel model-program fixture contract is incomplete")
-        properties: dict[str, object] = {member: {} for member in mode_required}
-        properties["mode"] = {"const": mode}
-        properties["source"] = {}
+        properties: dict[str, object] = {
+            "mode": {"const": mode},
+            "source": _opaque_object_schema(),
+        }
+        if mode == "indexed-repeat":
+            index_encoding = mode_contract.get("index_encoding")
+            if not isinstance(index_encoding, str) or not index_encoding:
+                raise ValueError("Kernel indexed-repeat fixture contract is incomplete")
+            properties.update(
+                {
+                    "collection_path": {
+                        "type": "array",
+                        "items": _non_empty_string_schema(),
+                        "minItems": 1,
+                    },
+                    "count_resource_path": _non_empty_string_schema(),
+                    "count_offset": {"enum": [0, 1]},
+                    "template": _opaque_object_schema(),
+                    "index_member": _non_empty_string_schema(),
+                    "index_prefix": _non_empty_string_schema(),
+                    "index_width": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 18,
+                    },
+                    "index_encoding": {"const": index_encoding},
+                }
+            )
+        elif mode != "literal":
+            raise ValueError(f"unknown Kernel model-program fixture mode: {mode}")
+        if set(properties) != set(mode_required):
+            raise ValueError("Kernel model-program fixture members are incomplete")
         fixture_variants.append(
             {
                 "type": "object",
@@ -568,63 +617,134 @@ def _model_program_vector_schema(meta_format: dict[str, Any]) -> dict[str, objec
                 "unevaluatedProperties": False,
             }
         )
-    expect_properties: dict[str, object] = {member: {} for member in expect_members}
-    expect_properties.update(
-        {
-            "declaration_count": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 2**63 - 1,
-            },
-            "diagnostics": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "code": _non_empty_string_schema(),
-                        "stage": _non_empty_string_schema(),
-                        "pointer": {
-                            "type": "string",
-                            "pattern": "^(?:$|/)",
-                        },
-                    },
-                    "required": diagnostic_members,
-                    "unevaluatedProperties": False,
-                },
-            },
-            "relation": {
+
+    diagnostic_pairs = {
+        (item.get("code"), item.get("stage"))
+        for item in cast(list[dict[str, Any]], language_bundle.get("diagnostics", []))
+        if isinstance(item, dict)
+        and isinstance(item.get("code"), str)
+        and isinstance(item.get("stage"), str)
+    }
+    if not diagnostic_pairs:
+        raise ValueError("LDB model-program diagnostic catalog is incomplete")
+    diagnostic_schema: dict[str, object] = {
+        "oneOf": [
+            {
                 "type": "object",
                 "properties": {
-                    "kind": {"enum": relation_kinds},
-                    "reference": {
-                        "oneOf": [_non_empty_string_schema(), {"type": "null"}]
-                    },
+                    "code": {"const": code},
+                    "stage": {"const": stage},
+                    "pointer": {"type": "string", "pattern": "^(?:$|/)"},
                 },
-                "required": ["kind", "reference"],
+                "required": diagnostic_members,
                 "unevaluatedProperties": False,
-            },
-            "semantic_artifacts": {"type": "boolean"},
-        }
-    )
-    return {
+            }
+            for code, stage in sorted(diagnostic_pairs)
+        ]
+    }
+    lock_schema: dict[str, object] = {
         "type": "object",
-        "properties": {
-            "category": {"enum": categories},
-            "expect": {
-                "type": "object",
-                "properties": expect_properties,
-                "required": expect_members,
-                "unevaluatedProperties": False,
-            },
-            "id": _non_empty_string_schema(),
-            "source_fixture": {"oneOf": fixture_variants},
-        },
-        "required": required,
+        "properties": {member: {} for member in lock_members},
+        "required": lock_members,
         "unevaluatedProperties": False,
     }
+    identity_schema = _non_empty_string_schema()
+
+    def relation_schema(allowed: list[str]) -> dict[str, object]:
+        variants: list[dict[str, object]] = []
+        for kind in allowed:
+            if kind not in relation_kinds:
+                raise ValueError(
+                    "Kernel model-program category relation is not declared"
+                )
+            variants.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"const": kind},
+                        "reference": (
+                            {"type": "null"}
+                            if kind == "independent"
+                            else _non_empty_string_schema()
+                        ),
+                    },
+                    "required": ["kind", "reference"],
+                    "unevaluatedProperties": False,
+                }
+            )
+        if not variants:
+            raise ValueError("Kernel model-program category has no relation")
+        return {"oneOf": variants}
+
+    vector_variants: list[dict[str, object]] = []
+    for category in categories:
+        outcomes = category_outcomes.get(category)
+        relations = category_relations.get(category)
+        if (
+            not isinstance(category, str)
+            or not category
+            or not isinstance(outcomes, list)
+            or not outcomes
+            or not all(outcome in {"admitted", "refused"} for outcome in outcomes)
+            or not isinstance(relations, list)
+            or not all(isinstance(kind, str) for kind in relations)
+        ):
+            raise ValueError("Kernel model-program category contract is incomplete")
+        for outcome in outcomes:
+            admitted = outcome == "admitted"
+            expect_properties: dict[str, object] = {
+                "outcome": {"const": outcome},
+                "diagnostics": {
+                    "type": "array",
+                    "items": diagnostic_schema,
+                    **({"maxItems": 0} if admitted else {"minItems": 1}),
+                },
+                "semantic_artifacts": {"const": admitted},
+                "declaration_count": (
+                    {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2**63 - 1,
+                    }
+                    if admitted
+                    else {"const": 0}
+                ),
+                "rir_identity": identity_schema if admitted else {"type": "null"},
+                "debug_map_identity": (
+                    identity_schema if admitted else {"type": "null"}
+                ),
+                "lock_oracle": lock_schema if admitted else {"type": "null"},
+                "relation": relation_schema(relations),
+            }
+            if set(expect_properties) != set(expect_members):
+                raise ValueError(
+                    "Kernel model-program expectation members are incomplete"
+                )
+            vector_variants.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "category": {"const": category},
+                        "expect": {
+                            "type": "object",
+                            "properties": expect_properties,
+                            "required": expect_members,
+                            "unevaluatedProperties": False,
+                        },
+                        "id": _non_empty_string_schema(),
+                        "source_fixture": {"oneOf": fixture_variants},
+                    },
+                    "required": required,
+                    "unevaluatedProperties": False,
+                }
+            )
+    return vector_variants
 
 
-def _conformance_vector_schema(meta_format: dict[str, Any]) -> dict[str, object]:
+def _conformance_vector_schema(
+    meta_format: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> dict[str, object]:
     package_vector = meta_format.get("package_vector")
     if not isinstance(package_vector, dict):
         raise ValueError("Kernel package-vector contract is incomplete")
@@ -633,23 +753,37 @@ def _conformance_vector_schema(meta_format: dict[str, Any]) -> dict[str, object]
             _rule_vector_schema(meta_format),
             _diagnostic_vector_schema(meta_format),
             *_package_vector_schemas(package_vector),
-            _model_program_vector_schema(meta_format),
+            *_model_program_vector_schemas(meta_format, language_bundle),
         ]
     }
 
 
 def package_release_success_schema() -> dict[str, object]:
-    _identity, _descriptor, release, _vector_set, _meta_format = _package_contracts()
+    (
+        _identity,
+        _descriptor,
+        release,
+        _vector_set,
+        _meta_format,
+        _language_bundle,
+    ) = _package_contracts()
     return _closed_contract_schema(release)
 
 
 def package_vector_set_success_schema() -> dict[str, object]:
-    _identity, _descriptor, _release, vector_set, meta_format = _package_contracts()
+    (
+        _identity,
+        _descriptor,
+        _release,
+        vector_set,
+        meta_format,
+        language_bundle,
+    ) = _package_contracts()
     schema = _closed_contract_schema(vector_set)
     properties = cast(dict[str, object], schema["properties"])
     properties["vector_definitions"] = {
         "type": "array",
-        "items": _conformance_vector_schema(meta_format),
+        "items": _conformance_vector_schema(meta_format, language_bundle),
     }
     return schema
 
@@ -661,6 +795,7 @@ def package_list_success_schema() -> dict[str, object]:
         _release_contract,
         _vector_set_contract,
         _meta_format,
+        _language_bundle,
     ) = _package_contracts()
     return {
         "type": "object",
@@ -683,6 +818,7 @@ def package_get_success_schema() -> dict[str, object]:
         _release_contract,
         _vector_set_contract,
         _meta_format,
+        _language_bundle,
     ) = _package_contracts()
     return {
         "oneOf": [
