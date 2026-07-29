@@ -6092,7 +6092,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "ingress",
             "language-bundle.language",
         )
-    meta = kernel.get("meta_format")
+    meta = cast(dict[str, Any], kernel.get("meta_format", {}))
     ldb_contract = (
         meta.get("admitted_language_index") if isinstance(meta, dict) else None
     )
@@ -6141,7 +6141,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     package_vector_set_contract = (
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
-    composition_subjects = _consumer_b_operation_composition_subjects(kernel, ldb)
+    definitions_are_closed = _consumer_b_language_definitions_are_closed(ldb, meta)
+    composition_subjects = (
+        _consumer_b_operation_composition_subjects(kernel, ldb)
+        if definitions_are_closed
+        else ()
+    )
     raw_diagnostics = ldb.get("diagnostics")
     raw_vectors = ldb.get("vectors")
     early_diagnostic_catalog = (
@@ -6210,7 +6215,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    not composition_subjects
+                    definitions_are_closed
+                    and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _consumer_b_package_evidence_vectors_are_closed(
                         package, vector_set, package_vector_contract
@@ -6275,7 +6281,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         refuse("kernel.diagnostic_closure", "static", "kernel.diagnostics")
 
     meta = kernel["meta_format"]
-    if not _consumer_b_language_definitions_are_closed(ldb, meta):
+    if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
     if not _consumer_b_assignment_policy_is_total(ldb):
         refuse(
@@ -6283,7 +6289,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.definitions.assignment-policy",
         )
-    if not _consumer_b_literal_typing_profiles_are_closed(kernel, ldb):
+    if definitions_are_closed and not _consumer_b_literal_typing_profiles_are_closed(
+        kernel, ldb
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",

@@ -6025,7 +6025,8 @@ def admit_authorities(
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    not composition_subjects
+                    definitions_are_closed
+                    and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _package_evidence_vectors_are_closed(
                         package, vector_set, package_vector_contract
@@ -6120,7 +6121,9 @@ def admit_authorities(
             "static",
             "language.definitions.assignment-policy",
         )
-    if not _literal_typing_profiles_are_closed(kernel, language_bundle):
+    if definitions_are_closed and not _literal_typing_profiles_are_closed(
+        kernel, language_bundle
+    ):
         refuse(
             "kernel.vector_mismatch",
             "static",
