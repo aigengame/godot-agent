@@ -1882,6 +1882,77 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
         assert sample["provenance"]["scenario"]
 
 
+def test_metric_dataset_canonicalizes_reversed_authored_metrics(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    value["metrics"].sort(
+        key=experiment_runtime_module._metric_definition_identity,
+        reverse=True,
+    )
+    authored_identities = [
+        experiment_runtime_module._metric_definition_identity(metric)
+        for metric in value["metrics"]
+    ]
+    assert authored_identities == sorted(authored_identities, reverse=True)
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "reversed-metrics.json"),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    dataset = _member(json.loads(stdout), "metric-dataset")
+    assert dataset["metric_definition_identities"] == sorted(authored_identities)
+    sample_order = [
+        (
+            sample["metric_definition_identity"],
+            sample["replication_identity"],
+        )
+        for sample in dataset["samples"]
+    ]
+    assert sample_order == sorted(sample_order)
+
+
+def test_metric_dataset_canonicalizer_orders_multiple_replications():
+    samples = [
+        {
+            "metric_definition_identity": "sha256:b",
+            "replication_identity": "replication-b",
+        },
+        {
+            "metric_definition_identity": "sha256:a",
+            "replication_identity": "replication-b",
+        },
+        {
+            "metric_definition_identity": "sha256:a",
+            "replication_identity": "replication-a",
+        },
+    ]
+
+    identities, ordered = experiment_runtime_module._canonical_metric_dataset(samples)
+
+    assert identities == ["sha256:a", "sha256:b"]
+    assert [
+        (
+            sample["metric_definition_identity"],
+            sample["replication_identity"],
+        )
+        for sample in ordered
+    ] == [
+        ("sha256:a", "replication-a"),
+        ("sha256:a", "replication-b"),
+        ("sha256:b", "replication-b"),
+    ]
+
+
 def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
     source_value = _rpg_model_source()
     base_damage = next(
@@ -2196,11 +2267,14 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     assert {
         key: value for key, value in production_event.items() if key != "index"
     } == reference_event
-    assert next(
-        row["integer"]
-        for row in production_event["facts"]
-        if row["name"] == "damage_dealt"
-    ) == 18
+    assert (
+        next(
+            row["integer"]
+            for row in production_event["facts"]
+            if row["name"] == "damage_dealt"
+        )
+        == 18
+    )
 
 
 def test_ordered_writable_alias_write_is_visible_to_later_child_call(

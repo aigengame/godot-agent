@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -747,6 +748,25 @@ def _metric_definition_identity(metric: dict[str, Any]) -> str:
     )
 
 
+def _canonical_metric_dataset(
+    samples: Sequence[Mapping[str, JsonValue]],
+) -> tuple[list[str], list[dict[str, JsonValue]]]:
+    """Apply the Metric Dataset's declared identity/replication ordering."""
+
+    def sample_key(sample: Mapping[str, JsonValue]) -> tuple[bytes, bytes]:
+        return (
+            cast(str, sample["metric_definition_identity"]).encode("utf-8"),
+            cast(str, sample["replication_identity"]).encode("utf-8"),
+        )
+
+    ordered = [dict(sample) for sample in sorted(samples, key=sample_key)]
+    identities = sorted(
+        {cast(str, sample["metric_definition_identity"]) for sample in ordered},
+        key=lambda identity: identity.encode("utf-8"),
+    )
+    return identities, ordered
+
+
 @cache
 def _evaluator_build_identity(root: Path | None = None) -> str:
     """Bind evaluator provenance to the installed Python source build."""
@@ -1452,10 +1472,8 @@ def evaluate_experiment(
         )
 
     samples: list[dict[str, JsonValue]] = []
-    metric_definition_identities: list[str] = []
     for metric in checked.value["metrics"]:
         metric_identity = _metric_definition_identity(metric)
-        metric_definition_identities.append(metric_identity)
         observation = metric["observation"]
         matched: list[tuple[str, int]] = []
         for scenario in checked.value["scenarios"]:
@@ -1513,6 +1531,7 @@ def evaluate_experiment(
             }
         )
 
+    metric_definition_identities, samples = _canonical_metric_dataset(samples)
     trace = _artifact(
         checked,
         "event-trace",
