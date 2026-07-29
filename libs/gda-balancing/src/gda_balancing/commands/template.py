@@ -1657,7 +1657,7 @@ def template_get_handler(
                 "/id",
                 f"Template release {inp.id}@{inp.version} is unavailable",
             )
-        return TemplateReleaseResult(root=cast(dict[str, Any], release))
+        return TemplateReleaseResult(root=deepcopy(cast(dict[str, Any], release)))
 
     return _run
 

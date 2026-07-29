@@ -3,6 +3,7 @@
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
+from schema2_bootstrap_production_support import *
 
 
 def test_reidentified_numeric_policy_cannot_invent_overflow_semantics():

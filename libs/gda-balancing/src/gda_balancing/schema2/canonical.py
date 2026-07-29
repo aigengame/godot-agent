@@ -24,9 +24,10 @@ def canonical_bytes(value: JsonValue) -> bytes:
     Floats and lone surrogate code points are outside the profile.
     """
     _validate(value)
+    materialized = _materialize(value)
     return (
         json.dumps(
-            value,
+            materialized,
             ensure_ascii=False,
             allow_nan=False,
             separators=(",", ":"),
@@ -34,6 +35,15 @@ def canonical_bytes(value: JsonValue) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+def _materialize(value: JsonValue) -> JsonValue:
+    """Copy dict/list-compatible immutable views into JSON builtin containers."""
+    if isinstance(value, list):
+        return [_materialize(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _materialize(item) for key, item in value.items()}
+    return value
 
 
 def content_identity(domain: str, value: JsonValue) -> str:

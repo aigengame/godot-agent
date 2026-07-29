@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from importlib.resources import files
+from types import MappingProxyType
 from typing import Any, Never, cast
 
 from gda_balancing.schema2.authority_graph import (
@@ -30,12 +31,38 @@ _BOOTSTRAP_MAX_NESTING_DEPTH = 32
 _BOOTSTRAP_MAX_PACKAGE_MEMBERS = 256
 
 
-class _FrozenDict(dict[Any, Any]):
-    """A dict-compatible read-only view for admitted authority data."""
+class _FrozenDict(Mapping[str, Any]):
+    """A dict-compatible view that does not inherit a mutable builtin.
+
+    ``__class__`` preserves the existing structural ``isinstance(value, dict)``
+    consumer contract. Unlike a ``dict`` subclass, unbound builtin mutators
+    cannot bypass this boundary because the object has no mutable dict storage.
+    """
+
+    __slots__ = ("_values",)
+
+    def __init__(self, values: Mapping[str, Any]) -> None:
+        object.__setattr__(self, "_values", MappingProxyType(dict(values)))
+
+    @property
+    def __class__(self) -> type[dict[str, Any]]:
+        return dict
+
+    def __getitem__(self, key: str) -> Any:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
 
     @staticmethod
     def _reject(*_args: Any, **_kwargs: Any) -> Never:
         raise TypeError("admitted authority data is immutable")
+
+    def __setattr__(self, _name: str, _value: Any) -> None:
+        self._reject()
 
     __setitem__ = _reject
     __delitem__ = _reject
@@ -46,14 +73,34 @@ class _FrozenDict(dict[Any, Any]):
     update = _reject
     __ior__ = _reject
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Mapping):
+            return dict(self.items()) == dict(other.items())
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
     def __deepcopy__(self, memo: dict[int, Any]) -> dict[Any, Any]:
         duplicate = deepcopy(dict(self), memo)
         memo[id(self)] = duplicate
         return duplicate
 
 
-class _FrozenList(list[Any]):
-    """A list-compatible read-only view for admitted authority data."""
+class _FrozenList(tuple[Any, ...]):
+    """A list-compatible immutable sequence backed by a tuple."""
+
+    @property
+    def __class__(self) -> type[list[Any]]:
+        return list
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, (list, tuple)):
+            return tuple(self) == tuple(other)
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
 
     @staticmethod
     def _reject(*_args: Any, **_kwargs: Any) -> Never:
@@ -92,72 +139,64 @@ def _deep_freeze(value: Any) -> Any:
     return value
 
 
-class _FrozenLanguageBundleIndex(LanguageBundleIndex):
-    """LanguageBundleIndex preserving dict compatibility without writable aliases."""
+class _FrozenLanguageBundleIndex(_FrozenDict):
+    """Immutable lookup view carrying its exact admitted graph source."""
+
+    __slots__ = (
+        "_package_byte_sizes",
+        "_package_conformance_vector_sets",
+        "_package_releases",
+        "_root",
+        "_root_byte_size",
+        "_vector_set_byte_sizes",
+    )
 
     def __init__(self, source: LanguageBundleIndex) -> None:
-        self._authority_frozen = False
-        super().__init__(
-            deepcopy(dict(source)),
-            root=deepcopy(source.root),
-            package_releases=deepcopy(source.package_releases),
-            package_conformance_vector_sets=deepcopy(
-                source.package_conformance_vector_sets
-            ),
-            root_byte_size=source.root_byte_size,
-            package_byte_sizes=list(source.package_byte_sizes),
-            vector_set_byte_sizes=list(source.vector_set_byte_sizes),
+        super().__init__({key: _deep_freeze(child) for key, child in source.items()})
+        object.__setattr__(self, "_root", _deep_freeze(source.root))
+        object.__setattr__(
+            self, "_package_releases", _deep_freeze(source.package_releases)
         )
-        for key, child in list(dict.items(self)):
-            dict.__setitem__(self, key, _deep_freeze(child))
-        self.root = _deep_freeze(self.root)
-        self.package_releases = _deep_freeze(self.package_releases)
-        self.package_conformance_vector_sets = _deep_freeze(
-            self.package_conformance_vector_sets
+        object.__setattr__(
+            self,
+            "_package_conformance_vector_sets",
+            _deep_freeze(source.package_conformance_vector_sets),
         )
-        self._authority_frozen = True
+        object.__setattr__(self, "_root_byte_size", source.root_byte_size)
+        object.__setattr__(
+            self, "_package_byte_sizes", tuple(source.package_byte_sizes)
+        )
+        object.__setattr__(
+            self, "_vector_set_byte_sizes", tuple(source.vector_set_byte_sizes)
+        )
 
-    def _reject_when_frozen(self) -> None:
-        if self._authority_frozen:
-            raise TypeError("admitted authority data is immutable")
+    @property
+    def __class__(self) -> type[LanguageBundleIndex]:
+        return LanguageBundleIndex
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        if getattr(self, "_authority_frozen", False):
-            raise TypeError("admitted authority data is immutable")
-        super().__setattr__(name, value)
+    @property
+    def root(self) -> dict[str, Any]:
+        return cast(dict[str, Any], self._root)
 
-    def __setitem__(self, key: str, value: Any) -> None:
-        self._reject_when_frozen()
-        super().__setitem__(key, value)
+    @property
+    def package_releases(self) -> list[dict[str, Any]]:
+        return cast(list[dict[str, Any]], self._package_releases)
 
-    def __delitem__(self, key: str) -> None:
-        self._reject_when_frozen()
-        super().__delitem__(key)
+    @property
+    def package_conformance_vector_sets(self) -> list[dict[str, Any]]:
+        return cast(list[dict[str, Any]], self._package_conformance_vector_sets)
 
-    def clear(self) -> None:
-        self._reject_when_frozen()
-        super().clear()
+    @property
+    def root_byte_size(self) -> int:
+        return self._root_byte_size
 
-    def pop(self, key: str, default: Any = None) -> Any:
-        self._reject_when_frozen()
-        return super().pop(key, default)
+    @property
+    def package_byte_sizes(self) -> tuple[int, ...]:
+        return self._package_byte_sizes
 
-    def popitem(self) -> tuple[str, Any]:
-        self._reject_when_frozen()
-        return super().popitem()
-
-    def setdefault(self, key: str, default: Any = None) -> Any:
-        self._reject_when_frozen()
-        return super().setdefault(key, default)
-
-    def update(self, *args: Any, **kwargs: Any) -> None:
-        self._reject_when_frozen()
-        super().update(*args, **kwargs)
-
-    def __ior__(self, value: Any) -> "_FrozenLanguageBundleIndex":
-        self._reject_when_frozen()
-        super().__ior__(value)
-        return self
+    @property
+    def vector_set_byte_sizes(self) -> tuple[int, ...]:
+        return self._vector_set_byte_sizes
 
     def __deepcopy__(self, memo: dict[int, Any]) -> LanguageBundleIndex:
         duplicate = LanguageBundleIndex(
@@ -216,7 +255,7 @@ AuthorityContextProvider = Callable[[], AuthorityProviderValue]
 
 _PACKAGED_CONTEXT_LOCK = threading.Lock()
 _PACKAGED_CONTEXT: AdmittedAuthorityContext | None = None
-_PACKAGED_CONTEXT_ERROR: AuthorityLoadError | None = None
+_PACKAGED_CONTEXT_ERROR: _AuthorityFailureSnapshot | None = None
 _PACKAGED_CONTEXT_ADMISSION_ATTEMPTS = 0
 
 
@@ -230,6 +269,22 @@ class AuthorityLoadError(Exception):
         self.code = code
         self.subject = subject
         self.message = message
+
+
+@dataclass(frozen=True)
+class _AuthorityFailureSnapshot:
+    """Immutable cached refusal data; callers receive fresh exceptions."""
+
+    code: str
+    subject: str
+    message: str
+
+    def exception(self) -> AuthorityLoadError:
+        return AuthorityLoadError(
+            code=self.code,
+            subject=self.subject,
+            message=self.message,
+        )
 
 
 def _raw_nesting_depth(data: bytes) -> int:
@@ -573,17 +628,18 @@ def packaged_authority_context() -> AdmittedAuthorityContext:
         if _PACKAGED_CONTEXT is not None:
             return _PACKAGED_CONTEXT
         if _PACKAGED_CONTEXT_ERROR is not None:
-            raise AuthorityLoadError(
-                code=_PACKAGED_CONTEXT_ERROR.code,
-                subject=_PACKAGED_CONTEXT_ERROR.subject,
-                message=_PACKAGED_CONTEXT_ERROR.message,
-            )
+            raise _PACKAGED_CONTEXT_ERROR.exception()
         try:
             _PACKAGED_CONTEXT_ADMISSION_ATTEMPTS += 1
             context = _load_packaged_authority_context_uncached()
         except AuthorityLoadError as err:
-            _PACKAGED_CONTEXT_ERROR = err
-            raise
+            failure = _AuthorityFailureSnapshot(
+                code=err.code,
+                subject=err.subject,
+                message=err.message,
+            )
+            _PACKAGED_CONTEXT_ERROR = failure
+            raise failure.exception() from err
         _PACKAGED_CONTEXT = context
         return context
 
@@ -621,9 +677,9 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
 
 
 def load_descriptor_authorities() -> tuple[dict[str, Any], dict[str, Any]]:
-    """Borrow the immutable packaged pair while assembling command descriptors."""
+    """Return a serializer-compatible snapshot for descriptor assembly."""
     context = packaged_authority_context()
-    return context.kernel, context.language_bundle
+    return context.mutable_pair()
 
 
 def authority_set() -> dict[str, Any]:

@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from copy import deepcopy
 from typing import Any, Literal, cast
 
 from pydantic import (
@@ -129,7 +130,9 @@ def _admitted_package_graph(
         return ingress_refusal(err.code, err.subject, err.message)
     if isinstance(context, BootstrapAdmission):
         return bootstrap_refusal(context)
-    ldb = context.language_bundle
+    # Package results cross the Pydantic serialization boundary, so operate on
+    # an independently owned builtin-container snapshot.
+    _kernel, ldb = context.mutable_pair()
     root = getattr(ldb, "root", None)
     releases = getattr(ldb, "package_releases", None)
     vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
@@ -175,7 +178,7 @@ def package_get_handler(
         for release, vector_set in zip(releases, vector_sets, strict=True):
             if release.get("id") == inp.id and release.get("version") == inp.version:
                 selected = release if inp.member == "release" else vector_set
-                return PackageArtifact(root=cast(dict[str, Any], selected))
+                return PackageArtifact(root=deepcopy(cast(dict[str, Any], selected)))
         return ingress_refusal(
             "kernel.binding_mismatch",
             f"{inp.id}@{inp.version}",

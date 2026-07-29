@@ -12,6 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 
+import gda_balancing.schema2.migration as migration_module
 from gda_balancing.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
@@ -1012,6 +1013,34 @@ def test_refusal_detail_extension_is_closed_to_the_migration_report() -> None:
             field_name=cast(Any, "ambient_extension"),
             schema=lambda: {},
         )
+
+
+@pytest.mark.parametrize("special_source", ("device", "fifo"))
+def test_source_observation_never_reads_a_non_regular_file(
+    tmp_path: Path,
+    special_source: str,
+    monkeypatch,
+) -> None:
+    if special_source == "device":
+        source = Path("/dev/zero")
+        if not source.exists():
+            pytest.skip("/dev/zero is unavailable")
+    else:
+        source = tmp_path / "legacy.fifo"
+        os.mkfifo(source)
+    reads = 0
+
+    def forbidden_read(_descriptor: int, _size: int) -> bytes:
+        nonlocal reads
+        reads += 1
+        raise AssertionError("non-regular input reached os.read")
+
+    monkeypatch.setattr(migration_module.os, "read", forbidden_read)
+
+    with pytest.raises(migration_module.UnreadableInputError):
+        migration_module.load_design_source_observation(str(source))
+
+    assert reads == 0
 
 
 @pytest.mark.parametrize("special_source", ("device", "fifo"))

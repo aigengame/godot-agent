@@ -3,7 +3,7 @@
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -111,6 +111,41 @@ def test_concurrent_packaged_refusal_is_single_flight_and_deterministic(monkeypa
     }
 
 
+def test_mutating_first_refusal_cannot_poison_cached_failure(monkeypatch):
+    authority_module.reset_packaged_authority_context_for_tests()
+
+    def refusing():
+        raise authority_module.AuthorityLoadError(
+            code="kernel.member_set_mismatch",
+            subject="kernel",
+            message="deterministic test refusal",
+        )
+
+    monkeypatch.setattr(
+        authority_module, "_load_packaged_authority_context_uncached", refusing
+    )
+
+    with pytest.raises(authority_module.AuthorityLoadError) as first:
+        authority_module.packaged_authority_context()
+    first.value.code = "poisoned"
+    first.value.subject = "poisoned"
+    first.value.message = "poisoned"
+
+    with pytest.raises(authority_module.AuthorityLoadError) as later:
+        authority_module.packaged_authority_context()
+
+    assert later.value is not first.value
+    assert (
+        later.value.code,
+        later.value.subject,
+        later.value.message,
+    ) == (
+        "kernel.member_set_mismatch",
+        "kernel",
+        "deterministic test refusal",
+    )
+
+
 def test_packaged_context_exposes_no_nested_mutation_alias():
     authority_module.reset_packaged_authority_context_for_tests()
     context = authority_module.packaged_authority_context()
@@ -143,6 +178,47 @@ def test_packaged_context_exposes_no_nested_mutation_alias():
 
     assert context.kernel["content_identity"] == kernel_identity
     assert len(context.language_bundle["language"]["packages"]) == package_count
+
+
+def test_mutable_builtin_descriptors_cannot_bypass_authority_freeze():
+    authority_module.reset_packaged_authority_context_for_tests()
+    context = authority_module.packaged_authority_context()
+    language_bundle = cast(LanguageBundleIndex, context.language_bundle)
+    before = (
+        context.canonical_kernel_bytes,
+        context.canonical_language_bundle_bytes,
+        context.kernel["content_identity"],
+        language_bundle["content_identity"],
+    )
+
+    with pytest.raises(TypeError):
+        dict.__setitem__(context.kernel, "content_identity", "poisoned")
+    with pytest.raises(TypeError):
+        dict.__setitem__(context.kernel["admission"], "laws", [])
+    with pytest.raises(TypeError):
+        list.append(context.kernel["admission"]["laws"], {"id": "poisoned"})
+    with pytest.raises(TypeError):
+        dict.__setitem__(language_bundle, "content_identity", "poisoned")
+    with pytest.raises(TypeError):
+        dict.__setitem__(language_bundle.root, "content_identity", "poisoned")
+    with pytest.raises(TypeError):
+        list.append(language_bundle.package_releases, {})
+    with pytest.raises(TypeError):
+        list.append(
+            language_bundle.package_conformance_vector_sets,
+            {},
+        )
+    with pytest.raises(TypeError):
+        list.append(language_bundle["language"]["packages"], {})
+
+    later = authority_module.packaged_authority_context()
+    assert later is context
+    assert (
+        later.canonical_kernel_bytes,
+        later.canonical_language_bundle_bytes,
+        later.kernel["content_identity"],
+        later.language_bundle["content_identity"],
+    ) == before
 
 
 def test_refused_injected_context_cannot_poison_packaged_observations():
@@ -336,6 +412,20 @@ def test_consumer_b_functions_do_not_call_production_admission_or_cache():
     path = Path(consumer_support.__file__)
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     violations: list[str] = []
+
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module in {
+            "gda_balancing.schema2.authority",
+            "gda_balancing.schema2.bootstrap",
+        }:
+            violations.append(f"module:{node.lineno}:{node.module}")
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in {
+                    "gda_balancing.schema2.authority",
+                    "gda_balancing.schema2.bootstrap",
+                }:
+                    violations.append(f"module:{node.lineno}:{alias.name}")
 
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):

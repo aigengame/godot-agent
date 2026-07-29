@@ -63,7 +63,9 @@ _AFFECTING_EXACT: Final = {
     ".release-please-manifest.json",
     "pyproject.toml",
     "release-please-config.json",
+    "scripts/release_scope_guard.py",
     "scripts/release_tags.py",
+    "tests/test_release_scope_guard.py",
     "tests/test_release_tags.py",
     "uv.lock",
 }

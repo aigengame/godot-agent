@@ -72,8 +72,10 @@ def schema_get_handler(
             return ingress_refusal(err.code, err.subject, err.message)
         if isinstance(context, BootstrapAdmission):
             return bootstrap_refusal(context)
-        kernel = context.kernel
-        ldb = context.language_bundle
+        # This command publishes authority content through Pydantic. Give that
+        # serializer an independently owned builtin-container snapshot while
+        # keeping the process context itself structurally immutable.
+        kernel, ldb = context.mutable_pair()
         admission = context.admission
         authorities: dict[str, JsonValue] = {
             "kernel": cast(JsonValue, kernel),

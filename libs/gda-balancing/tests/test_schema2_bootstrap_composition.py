@@ -3,6 +3,7 @@
 # ruff: noqa: F403, F405
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
+from schema2_bootstrap_production_support import *
 
 
 def test_two_consumers_admit_reidentified_nested_integer_literal():

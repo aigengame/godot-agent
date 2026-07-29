@@ -20,7 +20,9 @@ def test_balancing_paths_and_shared_release_surfaces_are_affecting():
             "libs/gda-balancing/uv.lock",
             ".github/actions/setup-python-env/action.yml",
             ".github/workflows/release.yml",
+            "scripts/release_scope_guard.py",
             "scripts/release_tags.py",
+            "tests/test_release_scope_guard.py",
             "tests/test_release_tags.py",
         ]
     )

@@ -50,7 +50,9 @@ ownership:
 - `test_schema2_bootstrap_resources.py`: resource and adversarial boundaries.
 
 Shared Consumer B implementation remains single-source in
-`schema2_bootstrap_conformance_support.py`.
+`schema2_bootstrap_conformance_support.py`, which imports no production
+admission or authority-cache module. Consumer A and mutable-fixture adapters
+live separately in `schema2_bootstrap_production_support.py`.
 
 ## Inventory closure
 
@@ -141,10 +143,10 @@ OS process per command, and `/usr/bin/time -p`:
 | `model check examples/schema2/rpg-combat-cast/model-source.json` | 2.56 s | 0.83 s |
 | `template list` | 2.33 s | 0.73 s |
 
-The final unfiltered local verification collected 1,058 tests and completed in
-176.20 seconds: 968 passed and the same 90 pre-existing cases skipped. Parallel
-local shard verification completed in 11.80 seconds (`fast`), 67.41 seconds
-(`authority`), 50.35 seconds (`language`), and 59.86 seconds (`composition`).
+The final unfiltered local verification collected 1,062 tests and completed in
+203.89 seconds: 972 passed and the same 90 pre-existing cases skipped. Parallel
+local shard verification completed in 21.87 seconds (`fast`), 171.84 seconds
+(`authority`), 117.73 seconds (`language`), and 164.03 seconds (`composition`).
 Command timings and local suite timings are diagnostic evidence; the CI
 service-level measurement below is the merge gate.
 
