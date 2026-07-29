@@ -4584,6 +4584,16 @@ def _operation_composition_diagnostic_subjects(
                 candidates.append(visible)
             return candidates
 
+        def narrow_reference(
+            instruction: dict[str, Any],
+            member: str,
+            candidates: tuple[dict[str, Any], ...],
+        ) -> None:
+            name = cast(str, instruction[member])
+            lexical_environment[name] = candidates
+            if name in locals_:
+                locals_[name] = candidates
+
         for instruction_index, instruction in enumerate(
             cast(list[dict[str, Any]], operation["body"])
         ):
@@ -4612,44 +4622,84 @@ def _operation_composition_diagnostic_subjects(
                         refuse(owner, operation, str(instruction_index), "typing")
                         return None
                     constraint_kind = constraint["kind"]
-                    if (
-                        constraint_kind == "same-value-contract"
-                        and not compatible_candidates(referenced)
-                    ):
-                        refuse(owner, operation, str(instruction_index), "typing")
-                        return None
-                    if constraint_kind == "fixed-value-contract":
-                        expected = fixed_value_contracts[constraint["contract"]]
-                        if any(
-                            len(
-                                [
-                                    candidate
-                                    for candidate in candidates
-                                    if _operation_value_contract_matches(
-                                        candidate,
-                                        expected,
-                                    )
-                                ]
-                            )
-                            != 1
-                            for candidates in referenced
-                        ):
+                    if constraint_kind == "same-value-contract":
+                        shared = compatible_candidates(referenced)
+                        if not shared:
                             refuse(owner, operation, str(instruction_index), "typing")
                             return None
-                    if constraint_kind == "runtime-numeric" and any(
-                        len(
-                            [
+                        for member, candidates in zip(
+                            members,
+                            referenced,
+                            strict=True,
+                        ):
+                            narrow_reference(
+                                instruction,
+                                member,
+                                tuple(
+                                    candidate
+                                    for candidate in candidates
+                                    if any(
+                                        _operation_value_contract_matches(
+                                            candidate,
+                                            common,
+                                        )
+                                        for common in shared
+                                    )
+                                ),
+                            )
+                    if constraint_kind == "fixed-value-contract":
+                        expected = fixed_value_contracts[constraint["contract"]]
+                        for member, candidates in zip(
+                            members,
+                            referenced,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if _operation_value_contract_matches(
+                                    candidate,
+                                    expected,
+                                )
+                            )
+                            if not narrowed:
+                                refuse(
+                                    owner,
+                                    operation,
+                                    str(instruction_index),
+                                    "typing",
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
+                    if constraint_kind == "runtime-numeric":
+                        for member, candidates in zip(
+                            members,
+                            referenced,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
                                 candidate
                                 for candidate in candidates
                                 if candidate.get("numeric_policy")
                                 in runtime_numeric_policies
-                            ]
-                        )
-                        != 1
-                        for candidates in referenced
-                    ):
-                        refuse(owner, operation, str(instruction_index), "typing")
-                        return None
+                            )
+                            if not narrowed:
+                                refuse(
+                                    owner,
+                                    operation,
+                                    str(instruction_index),
+                                    "typing",
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
                     if constraint_kind == "writable-port" and any(
                         not isinstance(instruction.get(member), str)
                         or instruction[member] not in parent_ports

@@ -5171,6 +5171,16 @@ def _consumer_b_operation_composition_subjects(
                 resolved.append(candidates)
             return resolved
 
+        def narrow_reference(
+            instruction: dict[str, Any],
+            member: str,
+            candidates: tuple[dict[str, Any], ...],
+        ) -> None:
+            name = cast(str, instruction[member])
+            scope[name] = candidates
+            if name in locals_:
+                locals_[name] = candidates
+
         for instruction_index, instruction in enumerate(body):
             if not isinstance(instruction, dict):
                 return None
@@ -5198,33 +5208,84 @@ def _consumer_b_operation_composition_subjects(
                         found.add(subject(coordinate, str(instruction_index), "typing"))
                         return None
                     kind = constraint.get("kind")
-                    if kind == "same-value-contract" and not shared_contracts(resolved):
-                        found.add(subject(coordinate, str(instruction_index), "typing"))
-                        return None
-                    if kind == "fixed-value-contract":
-                        expected = fixed_value_contracts.get(constraint.get("contract"))
-                        if not isinstance(expected, dict) or any(
-                            sum(
-                                value_contract_matches(candidate, expected)
-                                for candidate in candidates
-                            )
-                            != 1
-                            for candidates in resolved
-                        ):
+                    if kind == "same-value-contract":
+                        shared = shared_contracts(resolved)
+                        if not shared:
                             found.add(
                                 subject(coordinate, str(instruction_index), "typing")
                             )
                             return None
-                    if kind == "runtime-numeric" and any(
-                        sum(
-                            candidate.get("numeric_policy") in runtime_numeric_policies
-                            for candidate in candidates
-                        )
-                        != 1
-                        for candidates in resolved
-                    ):
-                        found.add(subject(coordinate, str(instruction_index), "typing"))
-                        return None
+                        for member, candidates in zip(
+                            members,
+                            resolved,
+                            strict=True,
+                        ):
+                            narrow_reference(
+                                instruction,
+                                member,
+                                tuple(
+                                    candidate
+                                    for candidate in candidates
+                                    if any(
+                                        value_contract_matches(candidate, common)
+                                        for common in shared
+                                    )
+                                ),
+                            )
+                    if kind == "fixed-value-contract":
+                        expected = fixed_value_contracts.get(constraint.get("contract"))
+                        if not isinstance(expected, dict):
+                            return None
+                        for member, candidates in zip(
+                            members,
+                            resolved,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if value_contract_matches(candidate, expected)
+                            )
+                            if not narrowed:
+                                found.add(
+                                    subject(
+                                        coordinate,
+                                        str(instruction_index),
+                                        "typing",
+                                    )
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
+                    if kind == "runtime-numeric":
+                        for member, candidates in zip(
+                            members,
+                            resolved,
+                            strict=True,
+                        ):
+                            narrowed = tuple(
+                                candidate
+                                for candidate in candidates
+                                if candidate.get("numeric_policy")
+                                in runtime_numeric_policies
+                            )
+                            if not narrowed:
+                                found.add(
+                                    subject(
+                                        coordinate,
+                                        str(instruction_index),
+                                        "typing",
+                                    )
+                                )
+                                return None
+                            narrow_reference(
+                                instruction,
+                                member,
+                                narrowed,
+                            )
                     if kind == "writable-port" and any(
                         not isinstance(instruction.get(member), str)
                         or instruction[member] not in parent_ports
@@ -7140,6 +7201,59 @@ def test_two_consumers_refuse_unclosed_or_ambiguous_literal_typing_profiles(
         "kernel.vector_mismatch",
         "language.literal-typing-profiles",
     ) in first["diagnostics"]
+
+
+def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admission():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    owner = next(
+        package for package in language["packages"] if package["id"] == "core.quantity"
+    )
+    currency_constructor = deepcopy(
+        next(
+            constructor
+            for constructor in language["constructors"]
+            if constructor["id"] == "core.quantity"
+        )
+    )
+    currency_constructor["id"] = "core.currency"
+    language["constructors"].append(currency_constructor)
+    currency_profile = deepcopy(language["literal_typing_profiles"][0])
+    currency_profile["id"] = "currency.dimensionless-int64"
+    currency_profile["type"]["id"] = "Currency"
+    language["literal_typing_profiles"].append(currency_profile)
+    owner["exports"]["literal_typing_profiles"].append(currency_profile["id"])
+    owner["exports"]["types"].append({"constructor": "core.currency", "id": "Currency"})
+    currency_identity = deepcopy(
+        next(
+            operation
+            for operation in language["operations"]
+            if operation["id"] == "quantity.identity"
+        )
+    )
+    currency_identity["id"] = "currency.identity"
+    for contract in [*currency_identity["inputs"], currency_identity["result"]]:
+        contract["type"]["id"] = "Currency"
+    language["operations"].append(currency_identity)
+    owner["exports"]["operations"].append(currency_identity["id"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    assert production_bootstrap._literal_typing_profiles_are_closed(kernel, ldb)
+    assert _consumer_b_literal_typing_profiles_are_closed(kernel, ldb)
+    assert (
+        production_bootstrap._operation_composition_diagnostic_subjects(
+            kernel,
+            ldb,
+        )
+        == ()
+    )
+    assert _consumer_b_operation_composition_subjects(kernel, ldb) == ()
+    first = _consumer_a(kernel, ldb)
+    second = _consumer_b(kernel, ldb)
+    assert first == second
+    assert first["admitted"] is True
 
 
 @pytest.mark.parametrize(
