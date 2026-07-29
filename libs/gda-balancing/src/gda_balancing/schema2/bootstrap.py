@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5"
+    "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4301,12 +4301,28 @@ def _literal_matches_operation_contract(
     formal: dict[str, Any],
     literal_profiles: Any,
 ) -> bool:
+    return len(
+        matches := [
+            contract
+            for contract in _literal_operation_contracts(
+                value,
+                literal_profiles,
+            )
+            if _operation_value_contract_matches(contract, formal)
+        ]
+    ) == 1 and bool(matches)
+
+
+def _literal_operation_contracts(
+    value: Any,
+    literal_profiles: Any,
+) -> tuple[dict[str, Any], ...]:
     if (
         not isinstance(value, int)
         or isinstance(value, bool)
         or not isinstance(literal_profiles, list)
     ):
-        return False
+        return ()
     matches = [
         profile
         for profile in literal_profiles
@@ -4317,9 +4333,8 @@ def _literal_matches_operation_contract(
         and isinstance(profile.get("maximum"), int)
         and not isinstance(profile["maximum"], bool)
         and profile["minimum"] <= value <= profile["maximum"]
-        and _operation_value_contract_matches(profile, formal)
     ]
-    return len(matches) == 1
+    return tuple(cast(list[dict[str, Any]], matches))
 
 
 def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
@@ -4516,21 +4531,55 @@ def _operation_composition_diagnostic_subjects(
             for outcome_id, definition in parent_outcome_definitions.items()
             if definition.get("kind") == "success"
         }
-        locals_: dict[str, dict[str, Any]] = {}
+        locals_: dict[str, tuple[dict[str, Any], ...]] = {}
+        lexical_environment: dict[str, tuple[dict[str, Any], ...]] = {
+            name: (contract,) for name, contract in parent_ports.items()
+        }
         local_producers: dict[str, int] = {}
-        body_local_producers: dict[str, dict[str, Any]] = {}
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
         charge = 0
         seen_sites: set[str] = set()
         operation_result_sites: set[str] = set()
         source_producer_reached = False
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
+
+        def compatible_candidates(
+            candidate_sets: list[tuple[dict[str, Any], ...]],
+        ) -> tuple[dict[str, Any], ...]:
+            if not candidate_sets:
+                return ()
+            return tuple(
+                candidate
+                for candidate in candidate_sets[0]
+                if all(
+                    any(
+                        _operation_value_contract_matches(candidate, other)
+                        for other in candidates
+                    )
+                    for candidates in candidate_sets[1:]
+                )
+            )
+
+        def referenced_candidates(
+            instruction: dict[str, Any],
+            members: list[str],
+        ) -> list[tuple[dict[str, Any], ...]] | None:
+            candidates: list[tuple[dict[str, Any], ...]] = []
+            for member in members:
+                name = instruction.get(member)
+                visible = (
+                    lexical_environment.get(name) if isinstance(name, str) else None
+                )
+                if not visible:
+                    return None
+                candidates.append(visible)
+            return candidates
+
+        for instruction_index, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
             charge += 1
             target = instruction.get("target")
-            if isinstance(target, str):
-                local_producers[target] = local_producers.get(target, 0) + 1
-                body_local_producers[target] = instruction
             if instruction.get("node") != "invoke":
                 if (
                     source_kind in {"local", "operation-result"}
@@ -4541,8 +4590,97 @@ def _operation_composition_diagnostic_subjects(
                         f"language.operations.{owner}.{operation['id']}.result.source"
                     )
                     return None
-                if source_kind == "local" and target == source.get("name"):
-                    source_producer_reached = True
+                node = node_definitions.get(instruction.get("node"))
+                if not isinstance(node, dict):
+                    refuse(owner, operation, str(instruction_index), "node")
+                    return None
+                for constraint in cast(
+                    list[dict[str, Any]], node["operand_constraints"]
+                ):
+                    members = cast(list[str], constraint["members"])
+                    referenced = referenced_candidates(instruction, members)
+                    if referenced is None:
+                        refuse(owner, operation, str(instruction_index), "typing")
+                        return None
+                    constraint_kind = constraint["kind"]
+                    if (
+                        constraint_kind == "same-value-contract"
+                        and not compatible_candidates(referenced)
+                    ):
+                        refuse(owner, operation, str(instruction_index), "typing")
+                        return None
+                    if constraint_kind == "fixed-value-contract":
+                        expected = fixed_value_contracts[constraint["contract"]]
+                        if any(
+                            len(
+                                [
+                                    candidate
+                                    for candidate in candidates
+                                    if _operation_value_contract_matches(
+                                        candidate,
+                                        expected,
+                                    )
+                                ]
+                            )
+                            != 1
+                            for candidates in referenced
+                        ):
+                            refuse(owner, operation, str(instruction_index), "typing")
+                            return None
+                    if constraint_kind == "writable-port" and any(
+                        not isinstance(instruction.get(member), str)
+                        or instruction[member] not in parent_ports
+                        or parent_ports[instruction[member]].get("access")
+                        not in {"read-write", "write"}
+                        for member in members
+                    ):
+                        refuse(owner, operation, str(instruction_index), "typing")
+                        return None
+                result_definition = cast(dict[str, Any], node["result"])
+                if result_definition["kind"] in {"local", "draw"}:
+                    if (
+                        not isinstance(target, str)
+                        or not target
+                        or target in lexical_environment
+                    ):
+                        refuse(owner, operation, str(instruction_index), "target")
+                        return None
+                    typing = cast(dict[str, Any], result_definition["typing"])
+                    typing_kind = typing["kind"]
+                    if typing_kind == "fixed":
+                        result_candidates = (
+                            cast(
+                                dict[str, Any],
+                                fixed_value_contracts[typing["contract"]],
+                            ),
+                        )
+                    elif typing_kind == "same-as-references":
+                        referenced = referenced_candidates(
+                            instruction,
+                            cast(list[str], typing["members"]),
+                        )
+                        result_candidates = (
+                            compatible_candidates(referenced)
+                            if referenced is not None
+                            else ()
+                        )
+                    else:
+                        literal_candidates = [
+                            _literal_operation_contracts(
+                                instruction.get(member),
+                                literal_profiles,
+                            )
+                            for member in cast(list[str], typing["members"])
+                        ]
+                        result_candidates = compatible_candidates(literal_candidates)
+                    if not result_candidates:
+                        refuse(owner, operation, str(instruction_index), "typing")
+                        return None
+                    locals_[target] = result_candidates
+                    lexical_environment[target] = result_candidates
+                    local_producers[target] = 1
+                    if source_kind == "local" and target == source.get("name"):
+                        source_producer_reached = True
                 continue
             site = instruction.get("site")
             if not isinstance(site, str) or not site or site in seen_sites:
@@ -4596,15 +4734,22 @@ def _operation_composition_diagnostic_subjects(
                     alias_key = f"port:{operand['port']}"
                 elif kind == "local":
                     operand_local = operand.get("local")
-                    actual = (
+                    actual_candidates = (
                         locals_.get(operand_local)
                         if isinstance(operand_local, str)
                         else None
                     )
                     if (
-                        actual is None
+                        not actual_candidates
                         or formal["access"] != "read"
-                        or not _operation_value_contract_matches(actual, formal)
+                        or len(
+                            [
+                                actual
+                                for actual in actual_candidates
+                                if _operation_value_contract_matches(actual, formal)
+                            ]
+                        )
+                        != 1
                     ):
                         refuse(owner, operation, site, "arguments")
                         return None
@@ -4640,11 +4785,13 @@ def _operation_composition_diagnostic_subjects(
                     return None
             elif result.get("kind") == "local":
                 name = result.get("name")
-                if not isinstance(name, str) or not name or name in locals_:
+                if not isinstance(name, str) or not name or name in lexical_environment:
                     refuse(owner, operation, site, "result")
                     return None
-                locals_[name] = cast(dict[str, Any], child["result"])
-                local_producers[name] = local_producers.get(name, 0) + 1
+                child_result = cast(dict[str, Any], child["result"])
+                locals_[name] = (child_result,)
+                lexical_environment[name] = (child_result,)
+                local_producers[name] = 1
             elif result.get("kind") == "operation-result":
                 if not _operation_value_contract_matches(
                     cast(dict[str, Any], child["result"]),
@@ -4728,63 +4875,12 @@ def _operation_composition_diagnostic_subjects(
             refusals.update(child_refusals)
             charge += child_charge
 
-        def reference_matches(
-            name: Any,
-            expected: dict[str, Any],
-            visiting: frozenset[str] = frozenset(),
-        ) -> bool:
-            if not isinstance(name, str) or not name or name in visiting:
-                return False
-            if name in parent_ports:
-                return _operation_value_contract_matches(parent_ports[name], expected)
-            if name in locals_:
-                return _operation_value_contract_matches(locals_[name], expected)
-            producer = body_local_producers.get(name)
-            if not isinstance(producer, dict) or local_producers.get(name) != 1:
-                return False
-            node = node_definitions.get(producer.get("node"))
-            result_definition = node.get("result") if isinstance(node, dict) else None
-            typing = (
-                result_definition.get("typing")
-                if isinstance(result_definition, dict)
-                else None
-            )
-            if not isinstance(typing, dict):
-                return False
-            rule = typing.get("kind")
-            if rule == "fixed":
-                contract = fixed_value_contracts.get(typing.get("contract"))
-                return isinstance(contract, dict) and (
-                    _operation_value_contract_matches(contract, expected)
-                )
-            members = typing.get("members")
-            if (
-                not isinstance(members, list)
-                or not members
-                or not all(isinstance(member, str) for member in members)
-            ):
-                return False
-            if rule == "same-as-references":
-                return all(
-                    reference_matches(
-                        producer.get(member),
-                        expected,
-                        visiting | {name},
-                    )
-                    for member in members
-                )
-            if rule == "literal-profile":
-                return all(
-                    _literal_matches_operation_contract(
-                        producer.get(member),
-                        expected,
-                        literal_profiles,
-                    )
-                    for member in members
-                )
-            return False
-
         result_contract = cast(dict[str, Any], operation["result"])
+        local_result_candidates = (
+            locals_.get(cast(str, source.get("name")))
+            if source_kind == "local"
+            else None
+        )
         source_is_compatible = (
             (
                 source_kind == "operation-result"
@@ -4803,10 +4899,21 @@ def _operation_composition_diagnostic_subjects(
                 source_kind == "local"
                 and local_producers.get(cast(str, source.get("name"))) == 1
                 and source_producer_reached
-                and reference_matches(
-                    source.get("name"),
-                    result_contract,
+                and bool(local_result_candidates)
+                and len(
+                    [
+                        candidate
+                        for candidate in cast(
+                            tuple[dict[str, Any], ...],
+                            local_result_candidates,
+                        )
+                        if _operation_value_contract_matches(
+                            candidate,
+                            result_contract,
+                        )
+                    ]
                 )
+                == 1
             )
             or (
                 source_kind == "unit"
@@ -6708,6 +6815,7 @@ def _runtime_authority_is_closed(
             != {
                 "family",
                 "id",
+                "operand_constraints",
                 "refusals",
                 "required_members",
                 "resource_charge",
@@ -6726,6 +6834,7 @@ def _runtime_authority_is_closed(
             or not node["semantics"]["operator"]
             or not isinstance(node.get("result"), dict)
             or not isinstance(node["result"].get("kind"), str)
+            or not isinstance(node.get("operand_constraints"), list)
             or not isinstance(node.get("refusals"), list)
             or node.get("resource_charge") != {"counter": "event-steps", "amount": 1}
             or node["id"] in nodes
@@ -6761,6 +6870,40 @@ def _runtime_authority_is_closed(
                 return False
         elif set(result) != {"kind"}:
             return False
+        for constraint in cast(
+            list[Any],
+            node["operand_constraints"],
+        ):
+            if not isinstance(constraint, dict):
+                return False
+            constraint_kind = constraint.get("kind")
+            members = constraint.get("members")
+            if (
+                constraint_kind
+                not in {
+                    "fixed-value-contract",
+                    "same-value-contract",
+                    "writable-port",
+                }
+                or not isinstance(members, list)
+                or not members
+                or len(members) != len(set(members))
+                or not all(
+                    isinstance(member, str)
+                    and member in node["required_members"]
+                    and member not in {"node", "target"}
+                    for member in members
+                )
+            ):
+                return False
+            if constraint_kind == "fixed-value-contract":
+                if (
+                    set(constraint) != {"contract", "kind", "members"}
+                    or constraint.get("contract") not in fixed_value_contracts
+                ):
+                    return False
+            elif set(constraint) != {"kind", "members"}:
+                return False
         nodes[node["id"]] = node
     for family, member in family_members.items():
         inventory = runtime.get(member)
@@ -6894,6 +7037,7 @@ def _runtime_authority_is_closed(
     for node_id, node in nodes.items():
         expected = {
             "charge": 1,
+            "operand_constraints": node["operand_constraints"],
             "operator": node["semantics"]["operator"],
             "result_kind": node["result"]["kind"],
         }

@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5"
+    "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032"
 )
 
 
@@ -4556,6 +4556,7 @@ def _consumer_b_runtime_authority_is_closed(
         != {
             "family",
             "id",
+            "operand_constraints",
             "refusals",
             "required_members",
             "resource_charge",
@@ -4567,6 +4568,7 @@ def _consumer_b_runtime_authority_is_closed(
         or not node["required_members"]
         or node["required_members"][0] != "node"
         or node.get("resource_charge") != {"counter": "event-steps", "amount": 1}
+        or not isinstance(node.get("operand_constraints"), list)
         or not isinstance(node.get("semantics"), dict)
         or not isinstance(node["semantics"].get("operator"), str)
         or not isinstance(node.get("result"), dict)
@@ -4603,6 +4605,41 @@ def _consumer_b_runtime_authority_is_closed(
         for node in nodes
     ):
         return False
+    for node in cast(list[dict[str, Any]], nodes):
+        for constraint in node["operand_constraints"]:
+            if not isinstance(constraint, dict):
+                return False
+            kind = constraint.get("kind")
+            members = constraint.get("members")
+            if (
+                kind
+                not in {
+                    "fixed-value-contract",
+                    "same-value-contract",
+                    "writable-port",
+                }
+                or not isinstance(members, list)
+                or not members
+                or len(members) != len(set(members))
+                or any(
+                    not isinstance(member, str)
+                    or member not in node["required_members"]
+                    or member in {"node", "target"}
+                    for member in members
+                )
+                or (
+                    kind == "fixed-value-contract"
+                    and (
+                        set(constraint) != {"contract", "kind", "members"}
+                        or constraint.get("contract") not in fixed_value_contracts
+                    )
+                )
+                or (
+                    kind != "fixed-value-contract"
+                    and set(constraint) != {"kind", "members"}
+                )
+            ):
+                return False
     rng = runtime.get("named_rng")
     if (
         runtime.get("numeric")
@@ -4687,6 +4724,7 @@ def _consumer_b_runtime_authority_is_closed(
     for node in nodes:
         expected = {
             "charge": 1,
+            "operand_constraints": node["operand_constraints"],
             "operator": node["semantics"]["operator"],
             "result_kind": node["result"]["kind"],
         }
@@ -5006,9 +5044,17 @@ def _consumer_b_operation_composition_subjects(
         return True
 
     def literal_matches(value: Any, formal: dict[str, Any]) -> bool:
-        if type(value) is not int:
-            return False
         matches = [
+            profile
+            for profile in literal_contracts(value)
+            if value_contract_matches(profile, formal)
+        ]
+        return len(matches) == 1
+
+    def literal_contracts(value: Any) -> tuple[dict[str, Any], ...]:
+        if type(value) is not int:
+            return ()
+        return tuple(
             profile
             for profile in literal_profiles
             if isinstance(profile, dict)
@@ -5016,9 +5062,7 @@ def _consumer_b_operation_composition_subjects(
             and type(profile.get("minimum")) is int
             and type(profile.get("maximum")) is int
             and profile["minimum"] <= value <= profile["maximum"]
-            and value_contract_matches(profile, formal)
-        ]
-        return len(matches) == 1
+        )
 
     def close(
         coordinate: tuple[str, str, str],
@@ -5075,9 +5119,11 @@ def _consumer_b_operation_composition_subjects(
             for outcome_id, definition in parent_outcome_definitions.items()
             if definition.get("kind") == "success"
         }
-        locals_: dict[str, dict[str, Any]] = {}
+        locals_: dict[str, tuple[dict[str, Any], ...]] = {}
+        scope: dict[str, tuple[dict[str, Any], ...]] = {
+            name: (contract,) for name, contract in parent_ports.items()
+        }
         local_producers: dict[str, int] = {}
-        body_local_producers: dict[str, dict[str, Any]] = {}
         effects = set(cast(list[str], operation.get("effects", [])))
         refusals = set(cast(list[str], operation.get("refusals", [])))
         body = operation.get("body")
@@ -5086,13 +5132,38 @@ def _consumer_b_operation_composition_subjects(
         charge = len(body)
         operation_result_sites: set[str] = set()
         source_producer_reached = False
-        for instruction in body:
+
+        def shared_contracts(
+            groups: list[tuple[dict[str, Any], ...]],
+        ) -> tuple[dict[str, Any], ...]:
+            if not groups:
+                return ()
+            return tuple(
+                candidate
+                for candidate in groups[0]
+                if all(
+                    any(value_contract_matches(candidate, other) for other in group)
+                    for group in groups[1:]
+                )
+            )
+
+        def references(
+            instruction: dict[str, Any],
+            members: list[str],
+        ) -> list[tuple[dict[str, Any], ...]] | None:
+            resolved: list[tuple[dict[str, Any], ...]] = []
+            for member in members:
+                name = instruction.get(member)
+                candidates = scope.get(name) if isinstance(name, str) else None
+                if not candidates:
+                    return None
+                resolved.append(candidates)
+            return resolved
+
+        for instruction_index, instruction in enumerate(body):
             if not isinstance(instruction, dict):
                 return None
             target = instruction.get("target")
-            if isinstance(target, str):
-                local_producers[target] = local_producers.get(target, 0) + 1
-                body_local_producers[target] = instruction
             if instruction.get("node") != "invoke":
                 if (
                     source_kind in {"local", "operation-result"}
@@ -5101,8 +5172,91 @@ def _consumer_b_operation_composition_subjects(
                 ):
                     found.add(subject(coordinate, None, "result.source"))
                     return None
-                if source_kind == "local" and target == source.get("name"):
-                    source_producer_reached = True
+                node = node_definitions.get(instruction.get("node"))
+                if not isinstance(node, dict):
+                    found.add(subject(coordinate, str(instruction_index), "node"))
+                    return None
+                for constraint in node.get("operand_constraints", []):
+                    if not isinstance(constraint, dict):
+                        return None
+                    members = constraint.get("members")
+                    if not isinstance(members, list):
+                        return None
+                    resolved = references(instruction, members)
+                    if resolved is None:
+                        found.add(subject(coordinate, str(instruction_index), "typing"))
+                        return None
+                    kind = constraint.get("kind")
+                    if kind == "same-value-contract" and not shared_contracts(resolved):
+                        found.add(subject(coordinate, str(instruction_index), "typing"))
+                        return None
+                    if kind == "fixed-value-contract":
+                        expected = fixed_value_contracts.get(constraint.get("contract"))
+                        if not isinstance(expected, dict) or any(
+                            sum(
+                                value_contract_matches(candidate, expected)
+                                for candidate in candidates
+                            )
+                            != 1
+                            for candidates in resolved
+                        ):
+                            found.add(
+                                subject(coordinate, str(instruction_index), "typing")
+                            )
+                            return None
+                    if kind == "writable-port" and any(
+                        not isinstance(instruction.get(member), str)
+                        or instruction[member] not in parent_ports
+                        or parent_ports[instruction[member]].get("access")
+                        not in {"read-write", "write"}
+                        for member in members
+                    ):
+                        found.add(subject(coordinate, str(instruction_index), "typing"))
+                        return None
+                result_definition = node.get("result")
+                if isinstance(result_definition, dict) and result_definition.get(
+                    "kind"
+                ) in {"local", "draw"}:
+                    if not isinstance(target, str) or not target or target in scope:
+                        found.add(subject(coordinate, str(instruction_index), "target"))
+                        return None
+                    typing = result_definition.get("typing")
+                    if not isinstance(typing, dict):
+                        return None
+                    kind = typing.get("kind")
+                    if kind == "fixed":
+                        contract = fixed_value_contracts.get(typing.get("contract"))
+                        produced = (contract,) if isinstance(contract, dict) else ()
+                    elif kind == "same-as-references":
+                        members = typing.get("members")
+                        resolved = (
+                            references(instruction, members)
+                            if isinstance(members, list)
+                            else None
+                        )
+                        produced = (
+                            shared_contracts(resolved) if resolved is not None else ()
+                        )
+                    else:
+                        members = typing.get("members")
+                        produced = (
+                            shared_contracts(
+                                [
+                                    literal_contracts(instruction.get(member))
+                                    for member in members
+                                ]
+                            )
+                            if isinstance(members, list)
+                            else ()
+                        )
+                    if not produced:
+                        found.add(subject(coordinate, str(instruction_index), "typing"))
+                        return None
+                    locals_[target] = produced
+                    scope[target] = produced
+                    local_producers[target] = 1
+                    if source_kind == "local" and target == source.get("name"):
+                        source_producer_reached = True
                 continue
             site = instruction.get("site")
             operation_ref = instruction.get("operation")
@@ -5160,11 +5314,15 @@ def _consumer_b_operation_composition_subjects(
                     if not isinstance(local_name, str):
                         found.add(subject(coordinate, site, "arguments"))
                         return None
-                    actual = locals_.get(local_name)
+                    actual_candidates = locals_.get(local_name)
                     if (
-                        not isinstance(actual, dict)
+                        not actual_candidates
                         or formal.get("access") != "read"
-                        or not value_contract_matches(actual, formal)
+                        or sum(
+                            value_contract_matches(actual, formal)
+                            for actual in actual_candidates
+                        )
+                        != 1
                     ):
                         found.add(subject(coordinate, site, "arguments"))
                         return None
@@ -5196,11 +5354,13 @@ def _consumer_b_operation_composition_subjects(
                     return None
             elif result.get("kind") == "local":
                 local = result.get("name")
-                if not isinstance(local, str) or not local or local in locals_:
+                if not isinstance(local, str) or not local or local in scope:
                     found.add(subject(coordinate, site, "result"))
                     return None
-                locals_[local] = cast(dict[str, Any], child["result"])
-                local_producers[local] = local_producers.get(local, 0) + 1
+                child_result = cast(dict[str, Any], child["result"])
+                locals_[local] = (child_result,)
+                scope[local] = (child_result,)
+                local_producers[local] = 1
             elif result.get("kind") == "operation-result":
                 if not value_contract_matches(
                     cast(dict[str, Any], child["result"]),
@@ -5284,60 +5444,12 @@ def _consumer_b_operation_composition_subjects(
             refusals.update(child_refusals)
             charge += child_charge
 
-        def reference_matches(
-            name: Any,
-            expected: dict[str, Any],
-            visiting: frozenset[str] = frozenset(),
-        ) -> bool:
-            if not isinstance(name, str) or not name or name in visiting:
-                return False
-            if name in parent_ports:
-                return value_contract_matches(parent_ports[name], expected)
-            if name in locals_:
-                return value_contract_matches(locals_[name], expected)
-            producer = body_local_producers.get(name)
-            if not isinstance(producer, dict) or local_producers.get(name) != 1:
-                return False
-            node = node_definitions.get(producer.get("node"))
-            result_definition = node.get("result") if isinstance(node, dict) else None
-            typing = (
-                result_definition.get("typing")
-                if isinstance(result_definition, dict)
-                else None
-            )
-            if not isinstance(typing, dict):
-                return False
-            rule = typing.get("kind")
-            if rule == "fixed":
-                contract = fixed_value_contracts.get(typing.get("contract"))
-                return isinstance(contract, dict) and value_contract_matches(
-                    contract,
-                    expected,
-                )
-            members = typing.get("members")
-            if (
-                not isinstance(members, list)
-                or not members
-                or not all(isinstance(member, str) for member in members)
-            ):
-                return False
-            if rule == "same-as-references":
-                return all(
-                    reference_matches(
-                        producer.get(member),
-                        expected,
-                        visiting | {name},
-                    )
-                    for member in members
-                )
-            if rule == "literal-profile":
-                return all(
-                    literal_matches(producer.get(member), expected)
-                    for member in members
-                )
-            return False
-
         result_contract = cast(dict[str, Any], operation["result"])
+        local_result_candidates = (
+            locals_.get(cast(str, source.get("name")))
+            if source_kind == "local"
+            else None
+        )
         source_is_compatible = (
             (
                 source_kind == "operation-result"
@@ -5356,10 +5468,15 @@ def _consumer_b_operation_composition_subjects(
                 source_kind == "local"
                 and local_producers.get(cast(str, source.get("name"))) == 1
                 and source_producer_reached
-                and reference_matches(
-                    source.get("name"),
-                    result_contract,
+                and bool(local_result_candidates)
+                and sum(
+                    value_contract_matches(candidate, result_contract)
+                    for candidate in cast(
+                        tuple[dict[str, Any], ...],
+                        local_result_candidates,
+                    )
                 )
+                == 1
             )
             or (
                 source_kind == "unit"
@@ -7349,6 +7466,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         assert set(node) == {
             "family",
             "id",
+            "operand_constraints",
             "refusals",
             "required_members",
             "resource_charge",
@@ -7372,6 +7490,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
                 "same-as-references",
                 "literal-profile",
             }
+        assert isinstance(node["operand_constraints"], list)
 
     assert set(runtime["fixed_value_contracts"]) == {
         "kernel-boolean",
@@ -7440,6 +7559,10 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
     }
     assert set(node_vectors) == set(nodes)
     for node_id, node in nodes.items():
+        assert (
+            node_vectors[node_id]["expect"]["operand_constraints"]
+            == node["operand_constraints"]
+        )
         assert node_vectors[node_id]["expect"].get("result_typing") == node[
             "result"
         ].get("typing")
@@ -8660,6 +8783,62 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
         "kernel.vector_mismatch",
         "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "port-shadow",
+        "forward-reference",
+        "unused-incompatible-node",
+    ),
+)
+def test_operation_body_typing_uses_the_complete_sequential_lexical_scope(mutation):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.damage-v1"
+    )
+    if mutation == "port-shadow":
+        operation["body"].insert(
+            -1,
+            {
+                "node": "less-than",
+                "target": "base_damage",
+                "left": "base_damage",
+                "right": "mitigation",
+            },
+        )
+        operation["result"]["source"] = {"kind": "local", "name": "base_damage"}
+        operation["resource_bounds"]["max_steps"] += 1
+    elif mutation == "forward-reference":
+        producer_index = next(
+            index
+            for index, instruction in enumerate(operation["body"])
+            if instruction.get("target") == "damage"
+        )
+        operation["body"].insert(0, operation["body"].pop(producer_index))
+    else:
+        operation["body"].insert(
+            -1,
+            {
+                "node": "add",
+                "target": "unused_bad",
+                "left": "critical",
+                "right": "base_damage",
+            },
+        )
+        operation["resource_bounds"]["max_steps"] += 1
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
 
 
 def test_local_result_source_must_exist_before_every_successful_exit_path():

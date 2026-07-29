@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5",
+  "content_identity": "sha256:beede3dd85dee12641384d1793608778db9bc8b959ac9b32260370273448f032",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4718,6 +4718,15 @@
         {
           "family": "expression",
           "id": "add",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -4748,6 +4757,7 @@
         {
           "family": "expression",
           "id": "constant",
+          "operand_constraints": [],
           "refusals": [],
           "required_members": [
             "node",
@@ -4774,6 +4784,7 @@
         {
           "family": "expression",
           "id": "copy",
+          "operand_constraints": [],
           "refusals": [],
           "required_members": [
             "node",
@@ -4800,6 +4811,15 @@
         {
           "family": "expression",
           "id": "greater-than-or-equal",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [],
           "required_members": [
             "node",
@@ -4826,6 +4846,22 @@
         {
           "family": "expression",
           "id": "if",
+          "operand_constraints": [
+            {
+              "contract": "kernel-boolean",
+              "kind": "fixed-value-contract",
+              "members": [
+                "condition"
+              ]
+            },
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "when_true",
+                "when_false"
+              ]
+            }
+          ],
           "refusals": [],
           "required_members": [
             "node",
@@ -4855,6 +4891,15 @@
         {
           "family": "expression",
           "id": "less-than",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [],
           "required_members": [
             "node",
@@ -4881,6 +4926,15 @@
         {
           "family": "expression",
           "id": "less-than-or-equal",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [],
           "required_members": [
             "node",
@@ -4907,6 +4961,15 @@
         {
           "family": "expression",
           "id": "maximum",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -4937,6 +5000,15 @@
         {
           "family": "expression",
           "id": "multiply",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -4967,6 +5039,15 @@
         {
           "family": "expression",
           "id": "subtract",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -4997,6 +5078,7 @@
         {
           "family": "expression",
           "id": "value",
+          "operand_constraints": [],
           "refusals": [],
           "required_members": [
             "node",
@@ -5023,6 +5105,21 @@
         {
           "family": "effect",
           "id": "subtract-state",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "symbol",
+                "value"
+              ]
+            },
+            {
+              "kind": "writable-port",
+              "members": [
+                "symbol"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -5045,6 +5142,21 @@
         {
           "family": "effect",
           "id": "write-state",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "symbol",
+                "value"
+              ]
+            },
+            {
+              "kind": "writable-port",
+              "members": [
+                "symbol"
+              ]
+            }
+          ],
           "refusals": [
             "numeric-overflow"
           ],
@@ -5067,6 +5179,7 @@
         {
           "family": "control",
           "id": "draw",
+          "operand_constraints": [],
           "refusals": [],
           "required_members": [
             "node",
@@ -5096,6 +5209,15 @@
         {
           "family": "control",
           "id": "precondition-greater-than-or-equal",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
           "refusals": [],
           "required_members": [
             "node",
@@ -5118,6 +5240,7 @@
         {
           "family": "control",
           "id": "invoke",
+          "operand_constraints": [],
           "refusals": [],
           "required_members": [
             "node",
@@ -5164,6 +5287,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-add",
             "result_kind": "local",
             "result_typing": {
@@ -5189,6 +5321,7 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
             "operator": "integer-literal",
             "result_kind": "local",
             "result_typing": {
@@ -5212,6 +5345,7 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
             "operator": "copy-value",
             "result_kind": "local",
             "result_typing": {
@@ -5235,6 +5369,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-compare",
             "result_kind": "local",
             "result_typing": {
@@ -5257,6 +5400,22 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": [
+                  "condition"
+                ]
+              },
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "when_true",
+                  "when_false"
+                ]
+              }
+            ],
             "operator": "select-value",
             "result_kind": "local",
             "result_typing": {
@@ -5283,6 +5442,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-compare",
             "result_kind": "local",
             "result_typing": {
@@ -5305,6 +5473,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-compare",
             "result_kind": "local",
             "result_typing": {
@@ -5327,6 +5504,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-maximum",
             "result_kind": "local",
             "result_typing": {
@@ -5352,6 +5538,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-multiply",
             "result_kind": "local",
             "result_typing": {
@@ -5377,6 +5572,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "integer-subtract",
             "result_kind": "local",
             "result_typing": {
@@ -5402,6 +5606,7 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
             "operator": "copy-value",
             "result_kind": "local",
             "result_typing": {
@@ -5425,6 +5630,21 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "symbol",
+                  "value"
+                ]
+              },
+              {
+                "kind": "writable-port",
+                "members": [
+                  "symbol"
+                ]
+              }
+            ],
             "operator": "state-integer-subtract",
             "result_kind": "state-write"
           },
@@ -5442,6 +5662,21 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "symbol",
+                  "value"
+                ]
+              },
+              {
+                "kind": "writable-port",
+                "members": [
+                  "symbol"
+                ]
+              }
+            ],
             "operator": "state-write",
             "result_kind": "state-write"
           },
@@ -5459,6 +5694,7 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
             "operator": "named-integer-draw",
             "result_kind": "draw",
             "result_typing": {
@@ -5485,6 +5721,15 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
             "operator": "gameplay-precondition",
             "result_kind": "outcome"
           },
@@ -5567,6 +5812,7 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
             "operator": "invoke-operation",
             "result_kind": "composition"
           },

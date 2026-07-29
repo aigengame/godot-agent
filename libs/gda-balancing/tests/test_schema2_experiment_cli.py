@@ -1427,6 +1427,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         node = nodes[vector["node"]]
         assert vector["input"]["contract-probe"] == node["required_members"]
         expected = {
+            "operand_constraints": node["operand_constraints"],
             "operator": node["semantics"]["operator"],
             "result_kind": node["result"]["kind"],
             "charge": node["resource_charge"]["amount"],
