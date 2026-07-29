@@ -312,6 +312,16 @@ def _resolution_profile(
     return matches[0]
 
 
+def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:
+    """Return the single admitted Model Source identity authority."""
+    domain = _resolution_profile(language_bundle).get("source_identity_domain")
+    if not isinstance(domain, str) or not domain:
+        raise ValueError(
+            "the admitted resolution profile has no source identity domain"
+        )
+    return domain
+
+
 def _model_lowering(
     language_bundle: dict[str, Any],
     profile_id: str | None = None,
@@ -1315,10 +1325,42 @@ def find_published_artifact(
             manifest = _read_canonical_artifact(
                 invocation_path / "artifact-set-manifest.json"
             )
-            if not _verify_artifact(manifest, language_bundle):
+            receipt = _read_canonical_artifact(
+                invocation_path / "artifact-set-receipt.json"
+            )
+            if (
+                not _verify_artifact(receipt, language_bundle)
+                or receipt.get("content_identity") != index.get("receipt_identity")
+                or receipt.get("descriptor_identity")
+                != index.get("descriptor_identity")
+                or receipt.get("invocation_key") != index.get("invocation_key")
+                or receipt.get("manifest_locator")
+                != str((invocation_path / "artifact-set-manifest.json").absolute())
+                or not _verify_artifact(manifest, language_bundle)
+                or manifest.get("content_identity") != receipt.get("manifest_identity")
+            ):
                 continue
             members = manifest.get("members")
-            if not isinstance(members, list):
+            member_locators = receipt.get("member_locators")
+            if (
+                not isinstance(members, list)
+                or not isinstance(member_locators, list)
+                or member_locators
+                != [
+                    {
+                        "logical_name": member.get("logical_name"),
+                        "locator": str(
+                            (
+                                invocation_path / f"{member.get('logical_name')}.json"
+                            ).absolute()
+                        ),
+                    }
+                    for member in members
+                    if isinstance(member, dict)
+                    and isinstance(member.get("logical_name"), str)
+                ]
+                or len(member_locators) != len(members)
+            ):
                 continue
             for member in members:
                 if (

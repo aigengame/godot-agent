@@ -1592,6 +1592,36 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
         for row in build_receipt["member_locators"]
         if row["logical_name"] == "build-receipt"
     )
+    manifest_path = build_locator.parent / "artifact-set-manifest.json"
+    manifest_bytes = manifest_path.read_bytes()
+    replacement_manifest = json.loads(manifest_bytes)
+    unrelated_member = next(
+        row
+        for row in replacement_manifest["members"]
+        if row["logical_name"] != "build-receipt"
+    )
+    unrelated_member["content_identity"] = "sha256:" + "0" * 64
+    replacement_body = {
+        key: value
+        for key, value in replacement_manifest.items()
+        if key != "content_identity"
+    }
+    replacement_manifest["content_identity"] = content_identity(
+        "artifact-set-manifest-v2",
+        replacement_body,
+    )
+    manifest_path.write_bytes(canonical_bytes(replacement_manifest))
+    context = authority_module.packaged_authority_context()
+    assert (
+        model_module.find_published_artifact(
+            build_record["content_identity"],
+            "build-receipt",
+            context.language_bundle,
+        )
+        is None
+    )
+    manifest_path.write_bytes(manifest_bytes)
+
     corrupted = json.loads(build_locator.read_text(encoding="utf-8"))
     corrupted["source_identity"] = "sha256:" + "0" * 64
     build_locator.write_bytes(canonical_bytes(corrupted))

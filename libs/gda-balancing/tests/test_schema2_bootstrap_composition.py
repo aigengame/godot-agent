@@ -321,6 +321,24 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
     assert first["admitted"] is False
 
 
+def test_two_consumers_refuse_template_model_source_identity_domain_drift():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    judgment = next(
+        row
+        for row in ldb["language"]["template_admission_profiles"][0]["judgments"]
+        if row["id"] == "template.derive-source-identity"
+    )
+    judgment["arguments"]["identity_domain"] = "template-only-model-source-v2"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+
+
 def test_runtime_program_contract_is_independently_executable_and_profile_bound():
     authority = _authority_candidate()
     runtime = authority["kernel"]["meta_format"]["runtime_program"]

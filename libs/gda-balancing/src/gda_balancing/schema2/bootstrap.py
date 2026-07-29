@@ -3657,6 +3657,28 @@ def _template_admission_profiles_are_closed(
         for row in role_rows
         if isinstance(row, dict) and isinstance(row.get("role"), str)
     }
+    model_source_roles = {
+        row["role"]
+        for row in role_rows
+        if isinstance(row, dict)
+        and row.get("member_kind") == "model-source-package"
+        and isinstance(row.get("role"), str)
+    }
+    resolution_profiles = language.get("resolution_profiles")
+    default_source_domains = (
+        {
+            row.get("source_identity_domain")
+            for row in resolution_profiles
+            if isinstance(row, dict)
+            and row.get("default") is True
+            and isinstance(row.get("source_identity_domain"), str)
+            and row["source_identity_domain"]
+        }
+        if isinstance(resolution_profiles, list)
+        else set()
+    )
+    if len(model_source_roles) != 1 or len(default_source_domains) != 1:
+        return False
     try:
         limit = _exact_path_value(language_bundle, profile["max_steps_path"])
     except (KeyError, TypeError):
@@ -3673,6 +3695,7 @@ def _template_admission_profiles_are_closed(
     consulted_primitives: set[str] = set()
     role_operations: set[tuple[str, str]] = set()
     produced_derived: set[str] = set()
+    model_source_identity_domains: set[str] = set()
     selector_members = {"inventory", "left", "right", "selector", "source", "target"}
     for judgment in judgments:
         if (
@@ -3699,6 +3722,15 @@ def _template_admission_profiles_are_closed(
             produced_derived=produced_derived,
         ):
             return False
+        if primitive["evaluation"]["kind"] == "content-identity":
+            selector = arguments.get("selector")
+            if (
+                isinstance(selector, dict)
+                and selector.get("root") == "role"
+                and selector.get("name") in model_source_roles
+                and isinstance(arguments.get("identity_domain"), str)
+            ):
+                model_source_identity_domains.add(arguments["identity_domain"])
         selectors: list[dict[str, Any]] = []
         for name, value in arguments.items():
             if name in selector_members:
@@ -3792,6 +3824,7 @@ def _template_admission_profiles_are_closed(
         consulted_operations == set(operations_by_id)
         and consulted_primitives == set(primitives_by_id)
         and required_role_operations <= role_operations
+        and model_source_identity_domains == default_source_domains
     )
 
 

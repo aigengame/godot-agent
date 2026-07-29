@@ -3214,6 +3214,28 @@ def _consumer_b_template_admission_is_closed(
         or profile.get("structural_diagnostic") not in diagnostics
     ):
         return False
+    model_source_roles = {
+        row["role"]
+        for row in roles
+        if isinstance(row, dict)
+        and row.get("member_kind") == "model-source-package"
+        and isinstance(row.get("role"), str)
+    }
+    resolution_profiles = language.get("resolution_profiles")
+    default_source_domains = (
+        {
+            row.get("source_identity_domain")
+            for row in resolution_profiles
+            if isinstance(row, dict)
+            and row.get("default") is True
+            and isinstance(row.get("source_identity_domain"), str)
+            and row["source_identity_domain"]
+        }
+        if isinstance(resolution_profiles, list)
+        else set()
+    )
+    if len(model_source_roles) != 1 or len(default_source_domains) != 1:
+        return False
     found, limit = _consumer_b_exact_path(ldb, profile["max_steps_path"])
     if not found or isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         return False
@@ -3223,6 +3245,7 @@ def _consumer_b_template_admission_is_closed(
     used_primitives: set[str] = set()
     role_operations: set[tuple[str, str]] = set()
     produced: set[str] = set()
+    model_source_identity_domains: set[str] = set()
     selector_members = {"inventory", "left", "right", "selector", "source", "target"}
     roots = set(selector["roots"])
 
@@ -3325,6 +3348,15 @@ def _consumer_b_template_admission_is_closed(
             for name, type_id in primitive["argument_types"].items()
         ):
             return False
+        if primitive["evaluation"]["kind"] == "content-identity":
+            source_selector = arguments.get("selector")
+            if (
+                isinstance(source_selector, dict)
+                and source_selector.get("root") == "role"
+                and source_selector.get("name") in model_source_roles
+                and isinstance(arguments.get("identity_domain"), str)
+            ):
+                model_source_identity_domains.add(arguments["identity_domain"])
         selected: list[dict[str, Any]] = []
         for name, value in arguments.items():
             if name in selector_members:
@@ -3428,6 +3460,7 @@ def _consumer_b_template_admission_is_closed(
         used_operations == set(operations)
         and used_primitives == set(primitives)
         and required_pairs <= role_operations
+        and model_source_identity_domains == default_source_domains
     )
 
 

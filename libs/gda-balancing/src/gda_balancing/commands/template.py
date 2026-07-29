@@ -36,6 +36,7 @@ from gda_balancing.schema2.model import (
     check_model_source_value,
     checked_model_template_facts,
     identified_artifact,
+    model_source_identity_domain,
     publication_authentication_key,
     publish_artifact_set,
     verify_artifact,
@@ -182,24 +183,6 @@ def _artifact_identity_domain(
     ]
     if len(matches) != 1 or not matches[0]:
         raise ValueError(f"exact identity domain is unavailable for {artifact_kind}")
-    return matches[0]
-
-
-def _template_source_identity_domain(profile: dict[str, JsonValue]) -> str:
-    matches: list[str] = []
-    for judgment in cast(list[dict[str, JsonValue]], profile["judgments"]):
-        arguments = judgment["arguments"]
-        if (
-            judgment["operation"] == "derive-content-identity"
-            and isinstance(arguments, dict)
-            and arguments.get("result") == "source_identity"
-            and isinstance(arguments.get("identity_domain"), str)
-        ):
-            matches.append(cast(str, arguments["identity_domain"]))
-    if len(matches) != 1 or not matches[0]:
-        raise ValueError(
-            "Template profile does not own one Model Source identity domain"
-        )
     return matches[0]
 
 
@@ -1438,7 +1421,7 @@ def _minimal_release(
     }
     profile = _template_admission_profile(language_bundle)
     member_identity_domain = cast(str, profile["member_identity_domain"])
-    source_identity_domain = _template_source_identity_domain(profile)
+    source_identity_domain = model_source_identity_domain(language_bundle)
     release_identity_domain = _artifact_identity_domain(
         language_bundle, "template-release"
     )
@@ -1773,7 +1756,7 @@ def template_instantiate_handler(
             starter_member["payload"],
         )
         source = cast(dict[str, JsonValue], deepcopy(starter))
-        source_identity_domain = _template_source_identity_domain(admitted.profile)
+        source_identity_domain = model_source_identity_domain(language_bundle)
         starter_identity = content_identity(source_identity_domain, starter)
         manifest = cast(dict[str, JsonValue], source["manifest"])
         manifest["id"] = inp.package_id
