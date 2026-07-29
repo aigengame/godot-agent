@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:518f02a7cbcc8a545fc8e6bac03971d0e69fc08de5cf6a432c7139db85cf2362"
+    "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5"
 )
 
 
@@ -4499,6 +4499,7 @@ def _consumer_b_runtime_authority_is_closed(
             "closed",
             "version",
             "evaluation_order",
+            "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",
             "control_nodes",
@@ -4514,8 +4515,27 @@ def _consumer_b_runtime_authority_is_closed(
     ):
         return False
     nodes = runtime.get("nodes")
-    if not isinstance(nodes, list):
+    fixed_value_contracts = runtime.get("fixed_value_contracts")
+    if not isinstance(nodes, list) or fixed_value_contracts != {
+        "kernel-boolean": {
+            "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+            "representation": "Bool",
+            "kind": "boolean",
+            "unit": "1",
+            "domain": {"kind": "boolean"},
+            "numeric_policy": "exact-bool",
+        },
+        "kernel-unit": {
+            "type": {"package": "kernel", "version": "2.0.0", "id": "Unit"},
+            "representation": "Unit",
+            "kind": "unit",
+            "unit": "1",
+            "domain": {"kind": "unit"},
+            "numeric_policy": "exact-unit",
+        },
+    }:
         return False
+    assert isinstance(fixed_value_contracts, dict)
     families = {
         "expression": "expression_nodes",
         "effect": "effect_nodes",
@@ -4550,7 +4570,36 @@ def _consumer_b_runtime_authority_is_closed(
         or not isinstance(node.get("semantics"), dict)
         or not isinstance(node["semantics"].get("operator"), str)
         or not isinstance(node.get("result"), dict)
-        or set(node["result"]) != {"kind"}
+        or (
+            (
+                node["result"].get("kind") in {"local", "draw"}
+                and (
+                    set(node["result"]) != {"kind", "typing"}
+                    or not isinstance(node["result"].get("typing"), dict)
+                    or (
+                        node["result"]["typing"].get("kind") == "fixed"
+                        and node["result"]["typing"].get("contract")
+                        not in fixed_value_contracts
+                    )
+                    or (
+                        node["result"]["typing"].get("kind")
+                        in {"same-as-references", "literal-profile"}
+                        and (
+                            not isinstance(
+                                node["result"]["typing"].get("members"), list
+                            )
+                            or not node["result"]["typing"]["members"]
+                        )
+                    )
+                    or node["result"]["typing"].get("kind")
+                    not in {"fixed", "same-as-references", "literal-profile"}
+                )
+            )
+            or (
+                node["result"].get("kind") not in {"local", "draw"}
+                and set(node["result"]) != {"kind"}
+            )
+        )
         for node in nodes
     ):
         return False
@@ -4606,10 +4655,64 @@ def _consumer_b_runtime_authority_is_closed(
     ):
         return False
     vectors = runtime.get("vectors")
-    if not isinstance(vectors, list) or {
-        item.get("node") for item in vectors if item.get("kind") == "node"
-    } != {node["id"] for node in nodes}:
+    node_vectors = (
+        {
+            item.get("node"): item
+            for item in vectors
+            if isinstance(item, dict) and item.get("kind") == "node"
+        }
+        if isinstance(vectors, list)
+        else {}
+    )
+    invocation_vectors = (
+        {
+            item.get("id"): item
+            for item in vectors
+            if isinstance(item, dict)
+            and item.get("kind") == "invocation-result-contract"
+        }
+        if isinstance(vectors, list)
+        else {}
+    )
+    if (
+        not isinstance(vectors, list)
+        or set(node_vectors) != {node["id"] for node in nodes}
+        or set(invocation_vectors)
+        != {
+            "runtime.invocation.result-contract-compatible",
+            "runtime.invocation.result-contract-incompatible",
+        }
+    ):
         return False
+    for node in nodes:
+        expected = {
+            "charge": 1,
+            "operator": node["semantics"]["operator"],
+            "result_kind": node["result"]["kind"],
+        }
+        if "typing" in node["result"]:
+            expected["result_typing"] = node["result"]["typing"]
+        vector = node_vectors[node["id"]]
+        if (
+            vector.get("id") != f"runtime.node.{node['id']}"
+            or vector.get("input") != {"contract-probe": node["required_members"]}
+            or vector.get("expect") != expected
+        ):
+            return False
+    for vector in invocation_vectors.values():
+        inp = vector.get("input")
+        expect = vector.get("expect")
+        if not isinstance(inp, dict) or not isinstance(expect, dict):
+            return False
+        producer_contract = fixed_value_contracts.get(inp.get("producer_contract"))
+        result_contract = fixed_value_contracts.get(inp.get("result_contract"))
+        if (
+            not isinstance(producer_contract, dict)
+            or not isinstance(result_contract, dict)
+            or expect.get("admitted")
+            is not (_encoded(producer_contract) == _encoded(result_contract))
+        ):
+            return False
     for profile in ldb.get("language", {}).get("runtime_profiles", []):
         if profile.get("evaluation") == runtime.get("version") and (
             profile.get("runtime_program_version") != runtime.get("version")
@@ -4794,6 +4897,15 @@ def _consumer_b_operation_composition_subjects(
         .get("runtime_program", {})
         .get("invocation_contract")
     )
+    runtime_program = kernel.get("meta_format", {}).get("runtime_program")
+    runtime_nodes = (
+        runtime_program.get("nodes") if isinstance(runtime_program, dict) else None
+    )
+    fixed_value_contracts = (
+        runtime_program.get("fixed_value_contracts")
+        if isinstance(runtime_program, dict)
+        else None
+    )
     result_source_shapes = (
         invocation_contract.get("result_source_shapes")
         if isinstance(invocation_contract, dict)
@@ -4804,8 +4916,17 @@ def _consumer_b_operation_composition_subjects(
         or literal_contract.get("selection") != "unique-formal-match"
         or not isinstance(literal_profiles, list)
         or not isinstance(result_source_shapes, dict)
+        or not isinstance(runtime_nodes, list)
+        or not isinstance(fixed_value_contracts, dict)
     ):
         return ("language.literal-typing-profiles",)
+    node_definitions = {
+        node["id"]: node
+        for node in runtime_nodes
+        if isinstance(node, dict) and isinstance(node.get("id"), str)
+    }
+    if len(node_definitions) != len(runtime_nodes):
+        return ("kernel.meta-format.runtime-program.nodes",)
     owners: dict[str, tuple[str, str]] = {}
     for package in packages:
         if not isinstance(package, dict):
@@ -4956,6 +5077,7 @@ def _consumer_b_operation_composition_subjects(
         }
         locals_: dict[str, dict[str, Any]] = {}
         local_producers: dict[str, int] = {}
+        body_local_producers: dict[str, dict[str, Any]] = {}
         effects = set(cast(list[str], operation.get("effects", [])))
         refusals = set(cast(list[str], operation.get("refusals", [])))
         body = operation.get("body")
@@ -4970,14 +5092,17 @@ def _consumer_b_operation_composition_subjects(
             target = instruction.get("target")
             if isinstance(target, str):
                 local_producers[target] = local_producers.get(target, 0) + 1
+                body_local_producers[target] = instruction
             if instruction.get("node") != "invoke":
                 if (
-                    source_kind == "operation-result"
+                    source_kind in {"local", "operation-result"}
                     and not source_producer_reached
                     and instruction.get("outcome") in parent_successes
                 ):
                     found.add(subject(coordinate, None, "result.source"))
                     return None
+                if source_kind == "local" and target == source.get("name"):
+                    source_producer_reached = True
                 continue
             site = instruction.get("site")
             operation_ref = instruction.get("operation")
@@ -5109,7 +5234,14 @@ def _consumer_b_operation_composition_subjects(
                 for row in child.get("outcomes", [])
                 if isinstance(row, dict) and isinstance(row.get("id"), str)
             }
-            if source_kind == "operation-result":
+            produces_source = (
+                source_kind == "operation-result" and site == source_site
+            ) or (
+                source_kind == "local"
+                and result.get("kind") == "local"
+                and result.get("name") == source.get("name")
+            )
+            if source_kind in {"local", "operation-result"}:
                 reaches_parent_success = any(
                     (
                         mapping["action"].get("kind") == "continue"
@@ -5124,7 +5256,7 @@ def _consumer_b_operation_composition_subjects(
                 )
                 exits_success_before_source = (
                     not source_producer_reached
-                    and site != source_site
+                    and not produces_source
                     and any(
                         mapping["action"].get("kind") == "propagate"
                         and mapping["action"].get("outcome") in parent_successes
@@ -5132,11 +5264,11 @@ def _consumer_b_operation_composition_subjects(
                     )
                 )
                 if (
-                    site == source_site and reaches_parent_success
+                    produces_source and reaches_parent_success
                 ) or exits_success_before_source:
                     found.add(subject(coordinate, None, "result.source"))
                     return None
-                if site == source_site:
+                if produces_source:
                     source_producer_reached = True
             child_closure = close(child_coordinate, (*stack, coordinate))
             if child_closure is None:
@@ -5151,6 +5283,60 @@ def _consumer_b_operation_composition_subjects(
             effects.update(child_effects)
             refusals.update(child_refusals)
             charge += child_charge
+
+        def reference_matches(
+            name: Any,
+            expected: dict[str, Any],
+            visiting: frozenset[str] = frozenset(),
+        ) -> bool:
+            if not isinstance(name, str) or not name or name in visiting:
+                return False
+            if name in parent_ports:
+                return value_contract_matches(parent_ports[name], expected)
+            if name in locals_:
+                return value_contract_matches(locals_[name], expected)
+            producer = body_local_producers.get(name)
+            if not isinstance(producer, dict) or local_producers.get(name) != 1:
+                return False
+            node = node_definitions.get(producer.get("node"))
+            result_definition = node.get("result") if isinstance(node, dict) else None
+            typing = (
+                result_definition.get("typing")
+                if isinstance(result_definition, dict)
+                else None
+            )
+            if not isinstance(typing, dict):
+                return False
+            rule = typing.get("kind")
+            if rule == "fixed":
+                contract = fixed_value_contracts.get(typing.get("contract"))
+                return isinstance(contract, dict) and value_contract_matches(
+                    contract,
+                    expected,
+                )
+            members = typing.get("members")
+            if (
+                not isinstance(members, list)
+                or not members
+                or not all(isinstance(member, str) for member in members)
+            ):
+                return False
+            if rule == "same-as-references":
+                return all(
+                    reference_matches(
+                        producer.get(member),
+                        expected,
+                        visiting | {name},
+                    )
+                    for member in members
+                )
+            if rule == "literal-profile":
+                return all(
+                    literal_matches(producer.get(member), expected)
+                    for member in members
+                )
+            return False
+
         result_contract = cast(dict[str, Any], operation["result"])
         source_is_compatible = (
             (
@@ -5169,11 +5355,10 @@ def _consumer_b_operation_composition_subjects(
             or (
                 source_kind == "local"
                 and local_producers.get(cast(str, source.get("name"))) == 1
-                and (
-                    source.get("name") not in locals_
-                    or value_contract_matches(
-                        locals_[cast(str, source["name"])], result_contract
-                    )
+                and source_producer_reached
+                and reference_matches(
+                    source.get("name"),
+                    result_contract,
                 )
             )
             or (
@@ -5826,8 +6011,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    not composition_subjects
-                    and diagnostic_catalog_matches_vectors
+                    diagnostic_catalog_matches_vectors
                     and not _consumer_b_package_evidence_vectors_are_closed(
                         package, vector_set, package_vector_contract
                     )
@@ -7142,6 +7326,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "closed",
         "version",
         "evaluation_order",
+        "fixed_value_contracts",
         "expression_nodes",
         "effect_nodes",
         "control_nodes",
@@ -7181,7 +7366,17 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         assert node["semantics"]["operator"]
         assert isinstance(node["result"]["kind"], str)
         assert node["result"]["kind"]
+        if node["result"]["kind"] in {"local", "draw"}:
+            assert node["result"]["typing"]["kind"] in {
+                "fixed",
+                "same-as-references",
+                "literal-profile",
+            }
 
+    assert set(runtime["fixed_value_contracts"]) == {
+        "kernel-boolean",
+        "kernel-unit",
+    }
     assert runtime["numeric"] == {
         "id": "signed-int64-v1",
         "minimum": -(1 << 63),
@@ -7241,15 +7436,30 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "exactly-once-and-exhaustive"
     )
     node_vectors = {
-        item["node"] for item in runtime["vectors"] if item["kind"] == "node"
+        item["node"]: item for item in runtime["vectors"] if item["kind"] == "node"
     }
-    assert node_vectors == set(nodes)
+    assert set(node_vectors) == set(nodes)
+    for node_id, node in nodes.items():
+        assert node_vectors[node_id]["expect"].get("result_typing") == node[
+            "result"
+        ].get("typing")
     assert {item["id"] for item in runtime["vectors"] if item["kind"] == "rng"} == {
         "rng.first-draw",
         "rng.multi-draw",
         "rng.cross-stream",
         "rng.interval-boundary",
     }
+    invocation_vectors = {
+        item["id"]: item
+        for item in runtime["vectors"]
+        if item["kind"] == "invocation-result-contract"
+    }
+    assert invocation_vectors["runtime.invocation.result-contract-compatible"][
+        "expect"
+    ] == {"admitted": True}
+    assert invocation_vectors["runtime.invocation.result-contract-incompatible"][
+        "expect"
+    ] == {"admitted": False}
 
     profile = next(
         item
@@ -8416,6 +8626,78 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
         "static",
         "kernel.vector_mismatch",
         "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+    ) in first["diagnostics"]
+
+
+def test_reidentified_local_result_source_requires_a_compatible_node_producer():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.damage-v1"
+    )
+    operation["body"].insert(
+        -1,
+        {
+            "node": "less-than",
+            "target": "bad_result",
+            "left": "base_damage",
+            "right": "mitigation",
+        },
+    )
+    operation["resource_bounds"]["max_steps"] += 1
+    operation["result"]["source"] = {"kind": "local", "name": "bad_result"}
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+    ) in first["diagnostics"]
+
+
+def test_local_result_source_must_exist_before_every_successful_exit_path():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.damage-v1"
+    )
+    operation["outcomes"].append(
+        {
+            "id": "early-applied",
+            "kind": "success",
+            "state_policy": "commit",
+        }
+    )
+    operation["body"].insert(
+        0,
+        {
+            "node": "precondition-greater-than-or-equal",
+            "left": "base_damage",
+            "right": "mitigation",
+            "outcome": "early-applied",
+        },
+    )
+    operation["resource_bounds"]["max_steps"] += 1
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

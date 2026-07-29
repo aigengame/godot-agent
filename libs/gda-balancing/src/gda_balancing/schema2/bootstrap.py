@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:518f02a7cbcc8a545fc8e6bac03971d0e69fc08de5cf6a432c7139db85cf2362"
+    "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4411,6 +4411,15 @@ def _operation_composition_diagnostic_subjects(
         .get("runtime_program", {})
         .get("invocation_contract")
     )
+    runtime_program = kernel.get("meta_format", {}).get("runtime_program")
+    runtime_nodes = (
+        runtime_program.get("nodes") if isinstance(runtime_program, dict) else None
+    )
+    fixed_value_contracts = (
+        runtime_program.get("fixed_value_contracts")
+        if isinstance(runtime_program, dict)
+        else None
+    )
     result_source_shapes = (
         invocation_contract.get("result_source_shapes")
         if isinstance(invocation_contract, dict)
@@ -4421,8 +4430,17 @@ def _operation_composition_diagnostic_subjects(
         or literal_contract.get("selection") != "unique-formal-match"
         or not isinstance(literal_profiles, list)
         or not isinstance(result_source_shapes, dict)
+        or not isinstance(runtime_nodes, list)
+        or not isinstance(fixed_value_contracts, dict)
     ):
         return ("language.literal-typing-profiles",)
+    node_definitions = {
+        node["id"]: node
+        for node in runtime_nodes
+        if isinstance(node, dict) and isinstance(node.get("id"), str)
+    }
+    if len(node_definitions) != len(runtime_nodes):
+        return ("kernel.meta-format.runtime-program.nodes",)
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
         package_id = package.get("id")
@@ -4500,6 +4518,7 @@ def _operation_composition_diagnostic_subjects(
         }
         locals_: dict[str, dict[str, Any]] = {}
         local_producers: dict[str, int] = {}
+        body_local_producers: dict[str, dict[str, Any]] = {}
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
         charge = 0
@@ -4511,9 +4530,10 @@ def _operation_composition_diagnostic_subjects(
             target = instruction.get("target")
             if isinstance(target, str):
                 local_producers[target] = local_producers.get(target, 0) + 1
+                body_local_producers[target] = instruction
             if instruction.get("node") != "invoke":
                 if (
-                    source_kind == "operation-result"
+                    source_kind in {"local", "operation-result"}
                     and not source_producer_reached
                     and instruction.get("outcome") in parent_successes
                 ):
@@ -4521,6 +4541,8 @@ def _operation_composition_diagnostic_subjects(
                         f"language.operations.{owner}.{operation['id']}.result.source"
                     )
                     return None
+                if source_kind == "local" and target == source.get("name"):
+                    source_producer_reached = True
                 continue
             site = instruction.get("site")
             if not isinstance(site, str) or not site or site in seen_sites:
@@ -4654,7 +4676,14 @@ def _operation_composition_diagnostic_subjects(
                 item["id"]: item
                 for item in cast(list[dict[str, Any]], child.get("outcomes", []))
             }
-            if source_kind == "operation-result":
+            produces_source = (
+                source_kind == "operation-result" and site == source_site
+            ) or (
+                source_kind == "local"
+                and result.get("kind") == "local"
+                and result.get("name") == source.get("name")
+            )
+            if source_kind in {"local", "operation-result"}:
                 reaches_parent_success = any(
                     (
                         mapping["action"].get("kind") == "continue"
@@ -4669,7 +4698,7 @@ def _operation_composition_diagnostic_subjects(
                 )
                 exits_success_before_source = (
                     not source_producer_reached
-                    and site != source_site
+                    and not produces_source
                     and any(
                         mapping["action"].get("kind") == "propagate"
                         and mapping["action"].get("outcome") in parent_successes
@@ -4677,13 +4706,13 @@ def _operation_composition_diagnostic_subjects(
                     )
                 )
                 if (
-                    site == source_site and reaches_parent_success
+                    produces_source and reaches_parent_success
                 ) or exits_success_before_source:
                     found.add(
                         f"language.operations.{owner}.{operation['id']}.result.source"
                     )
                     return None
-                if site == source_site:
+                if produces_source:
                     source_producer_reached = True
             child_closure = close(cast(tuple[str, str, str], child_key), (*stack, key))
             if child_closure is None:
@@ -4698,6 +4727,63 @@ def _operation_composition_diagnostic_subjects(
             effects.update(child_effects)
             refusals.update(child_refusals)
             charge += child_charge
+
+        def reference_matches(
+            name: Any,
+            expected: dict[str, Any],
+            visiting: frozenset[str] = frozenset(),
+        ) -> bool:
+            if not isinstance(name, str) or not name or name in visiting:
+                return False
+            if name in parent_ports:
+                return _operation_value_contract_matches(parent_ports[name], expected)
+            if name in locals_:
+                return _operation_value_contract_matches(locals_[name], expected)
+            producer = body_local_producers.get(name)
+            if not isinstance(producer, dict) or local_producers.get(name) != 1:
+                return False
+            node = node_definitions.get(producer.get("node"))
+            result_definition = node.get("result") if isinstance(node, dict) else None
+            typing = (
+                result_definition.get("typing")
+                if isinstance(result_definition, dict)
+                else None
+            )
+            if not isinstance(typing, dict):
+                return False
+            rule = typing.get("kind")
+            if rule == "fixed":
+                contract = fixed_value_contracts.get(typing.get("contract"))
+                return isinstance(contract, dict) and (
+                    _operation_value_contract_matches(contract, expected)
+                )
+            members = typing.get("members")
+            if (
+                not isinstance(members, list)
+                or not members
+                or not all(isinstance(member, str) for member in members)
+            ):
+                return False
+            if rule == "same-as-references":
+                return all(
+                    reference_matches(
+                        producer.get(member),
+                        expected,
+                        visiting | {name},
+                    )
+                    for member in members
+                )
+            if rule == "literal-profile":
+                return all(
+                    _literal_matches_operation_contract(
+                        producer.get(member),
+                        expected,
+                        literal_profiles,
+                    )
+                    for member in members
+                )
+            return False
+
         result_contract = cast(dict[str, Any], operation["result"])
         source_is_compatible = (
             (
@@ -4716,11 +4802,10 @@ def _operation_composition_diagnostic_subjects(
             or (
                 source_kind == "local"
                 and local_producers.get(cast(str, source.get("name"))) == 1
-                and (
-                    source.get("name") not in locals_
-                    or _operation_value_contract_matches(
-                        locals_[cast(str, source["name"])], result_contract
-                    )
+                and source_producer_reached
+                and reference_matches(
+                    source.get("name"),
+                    result_contract,
                 )
             )
             or (
@@ -6569,6 +6654,7 @@ def _runtime_authority_is_closed(
             "closed",
             "version",
             "evaluation_order",
+            "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",
             "control_nodes",
@@ -6591,6 +6677,27 @@ def _runtime_authority_is_closed(
         "control": "control_nodes",
     }
     raw_nodes = runtime.get("nodes")
+    fixed_value_contracts = runtime.get("fixed_value_contracts")
+    if fixed_value_contracts != {
+        "kernel-boolean": {
+            "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+            "representation": "Bool",
+            "kind": "boolean",
+            "unit": "1",
+            "domain": {"kind": "boolean"},
+            "numeric_policy": "exact-bool",
+        },
+        "kernel-unit": {
+            "type": {"package": "kernel", "version": "2.0.0", "id": "Unit"},
+            "representation": "Unit",
+            "kind": "unit",
+            "unit": "1",
+            "domain": {"kind": "unit"},
+            "numeric_policy": "exact-unit",
+        },
+    }:
+        return False
+    assert isinstance(fixed_value_contracts, dict)
     if not isinstance(raw_nodes, list):
         return False
     nodes: dict[str, dict[str, Any]] = {}
@@ -6618,12 +6725,41 @@ def _runtime_authority_is_closed(
             or not isinstance(node["semantics"].get("operator"), str)
             or not node["semantics"]["operator"]
             or not isinstance(node.get("result"), dict)
-            or set(node["result"]) != {"kind"}
-            or not isinstance(node["result"]["kind"], str)
+            or not isinstance(node["result"].get("kind"), str)
             or not isinstance(node.get("refusals"), list)
             or node.get("resource_charge") != {"counter": "event-steps", "amount": 1}
             or node["id"] in nodes
         ):
+            return False
+        result = cast(dict[str, Any], node["result"])
+        typing = result.get("typing")
+        if result["kind"] in {"local", "draw"}:
+            if not isinstance(typing, dict) or set(result) != {"kind", "typing"}:
+                return False
+            typing_kind = typing.get("kind")
+            if typing_kind == "fixed":
+                if (
+                    set(typing) != {"kind", "contract"}
+                    or typing.get("contract") not in fixed_value_contracts
+                ):
+                    return False
+            elif typing_kind in {"same-as-references", "literal-profile"}:
+                members = typing.get("members")
+                if (
+                    set(typing) != {"kind", "members"}
+                    or not isinstance(members, list)
+                    or not members
+                    or not all(
+                        isinstance(member, str)
+                        and member in node["required_members"]
+                        and member not in {"node", "target"}
+                        for member in members
+                    )
+                ):
+                    return False
+            else:
+                return False
+        elif set(result) != {"kind"}:
             return False
         nodes[node["id"]] = node
     for family, member in family_members.items():
@@ -6719,10 +6855,28 @@ def _runtime_authority_is_closed(
         return False
     assert isinstance(invocation, dict)
     vectors = runtime.get("vectors")
+    node_vectors = (
+        {
+            item.get("node"): item
+            for item in vectors
+            if isinstance(item, dict) and item.get("kind") == "node"
+        }
+        if isinstance(vectors, list)
+        else {}
+    )
+    invocation_vectors = (
+        {
+            item.get("id"): item
+            for item in vectors
+            if isinstance(item, dict)
+            and item.get("kind") == "invocation-result-contract"
+        }
+        if isinstance(vectors, list)
+        else {}
+    )
     if (
         not isinstance(vectors, list)
-        or {item.get("node") for item in vectors if item.get("kind") == "node"}
-        != set(nodes)
+        or set(node_vectors) != set(nodes)
         or {item.get("id") for item in vectors if item.get("kind") == "rng"}
         != {
             "rng.first-draw",
@@ -6730,8 +6884,53 @@ def _runtime_authority_is_closed(
             "rng.cross-stream",
             "rng.interval-boundary",
         }
+        or set(invocation_vectors)
+        != {
+            "runtime.invocation.result-contract-compatible",
+            "runtime.invocation.result-contract-incompatible",
+        }
     ):
         return False
+    for node_id, node in nodes.items():
+        expected = {
+            "charge": 1,
+            "operator": node["semantics"]["operator"],
+            "result_kind": node["result"]["kind"],
+        }
+        if "typing" in node["result"]:
+            expected["result_typing"] = node["result"]["typing"]
+        vector = node_vectors[node_id]
+        if (
+            set(vector) != {"expect", "id", "input", "kind", "node"}
+            or vector.get("id") != f"runtime.node.{node_id}"
+            or vector.get("input") != {"contract-probe": node["required_members"]}
+            or vector.get("expect") != expected
+        ):
+            return False
+    for vector in invocation_vectors.values():
+        inp = vector.get("input")
+        expect = vector.get("expect")
+        if (
+            set(vector) != {"expect", "id", "input", "kind"}
+            or not isinstance(inp, dict)
+            or set(inp) != {"producer_contract", "result_contract"}
+            or not isinstance(expect, dict)
+            or set(expect) != {"admitted"}
+            or not isinstance(expect.get("admitted"), bool)
+        ):
+            return False
+        producer_contract = fixed_value_contracts.get(inp["producer_contract"])
+        result_contract = fixed_value_contracts.get(inp["result_contract"])
+        if (
+            not isinstance(producer_contract, dict)
+            or not isinstance(result_contract, dict)
+            or expect["admitted"]
+            is not _operation_value_contract_matches(
+                producer_contract,
+                result_contract,
+            )
+        ):
+            return False
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         return False

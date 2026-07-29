@@ -1426,11 +1426,14 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
     for vector in node_vectors:
         node = nodes[vector["node"]]
         assert vector["input"]["contract-probe"] == node["required_members"]
-        assert vector["expect"] == {
+        expected = {
             "operator": node["semantics"]["operator"],
             "result_kind": node["result"]["kind"],
             "charge": node["resource_charge"]["amount"],
         }
+        if "typing" in node["result"]:
+            expected["result_typing"] = node["result"]["typing"]
+        assert vector["expect"] == expected
 
     rng_vectors = [vector for vector in runtime["vectors"] if vector["kind"] == "rng"]
     assert {vector["id"] for vector in rng_vectors} == {

@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:518f02a7cbcc8a545fc8e6bac03971d0e69fc08de5cf6a432c7139db85cf2362",
+  "content_identity": "sha256:fc7c0b5daedbbfe01563121b12d2d0235bf0017a067efa8a9904c8eaad9c7bd5",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4610,6 +4610,36 @@
         "effects",
         "facts"
       ],
+      "fixed_value_contracts": {
+        "kernel-boolean": {
+          "domain": {
+            "kind": "boolean"
+          },
+          "kind": "boolean",
+          "numeric_policy": "exact-bool",
+          "representation": "Bool",
+          "type": {
+            "id": "Boolean",
+            "package": "kernel",
+            "version": "2.0.0"
+          },
+          "unit": "1"
+        },
+        "kernel-unit": {
+          "domain": {
+            "kind": "unit"
+          },
+          "kind": "unit",
+          "numeric_policy": "exact-unit",
+          "representation": "Unit",
+          "type": {
+            "id": "Unit",
+            "package": "kernel",
+            "version": "2.0.0"
+          },
+          "unit": "1"
+        }
+      },
       "expression_nodes": [
         "add",
         "constant",
@@ -4702,7 +4732,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "semantics": {
             "operator": "integer-add"
@@ -4722,7 +4759,13 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "literal-profile",
+              "members": [
+                "literal"
+              ]
+            }
           },
           "semantics": {
             "operator": "integer-literal"
@@ -4742,7 +4785,13 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
           },
           "semantics": {
             "operator": "copy-value"
@@ -4763,7 +4812,11 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "semantics": {
             "comparison": "greater-than-or-equal",
@@ -4786,7 +4839,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "when_true",
+                "when_false"
+              ]
+            }
           },
           "semantics": {
             "operator": "select-value"
@@ -4807,7 +4867,11 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "semantics": {
             "comparison": "less-than",
@@ -4829,7 +4893,11 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "semantics": {
             "comparison": "less-than-or-equal",
@@ -4853,7 +4921,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "semantics": {
             "operator": "integer-maximum"
@@ -4876,7 +4951,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "semantics": {
             "operator": "integer-multiply"
@@ -4899,7 +4981,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "semantics": {
             "operator": "integer-subtract"
@@ -4919,7 +5008,13 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "local"
+            "kind": "local",
+            "typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
           },
           "semantics": {
             "operator": "copy-value"
@@ -4985,7 +5080,14 @@
             "counter": "event-steps"
           },
           "result": {
-            "kind": "draw"
+            "kind": "draw",
+            "typing": {
+              "kind": "literal-profile",
+              "members": [
+                "minimum",
+                "maximum"
+              ]
+            }
           },
           "semantics": {
             "operator": "named-integer-draw"
@@ -5063,7 +5165,14 @@
           "expect": {
             "charge": 1,
             "operator": "integer-add",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "id": "runtime.node.add",
           "input": {
@@ -5081,7 +5190,13 @@
           "expect": {
             "charge": 1,
             "operator": "integer-literal",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "literal-profile",
+              "members": [
+                "literal"
+              ]
+            }
           },
           "id": "runtime.node.constant",
           "input": {
@@ -5098,7 +5213,13 @@
           "expect": {
             "charge": 1,
             "operator": "copy-value",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
           },
           "id": "runtime.node.copy",
           "input": {
@@ -5115,7 +5236,11 @@
           "expect": {
             "charge": 1,
             "operator": "integer-compare",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "id": "runtime.node.greater-than-or-equal",
           "input": {
@@ -5133,7 +5258,14 @@
           "expect": {
             "charge": 1,
             "operator": "select-value",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "when_true",
+                "when_false"
+              ]
+            }
           },
           "id": "runtime.node.if",
           "input": {
@@ -5152,7 +5284,11 @@
           "expect": {
             "charge": 1,
             "operator": "integer-compare",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "id": "runtime.node.less-than",
           "input": {
@@ -5170,7 +5306,11 @@
           "expect": {
             "charge": 1,
             "operator": "integer-compare",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
           },
           "id": "runtime.node.less-than-or-equal",
           "input": {
@@ -5188,7 +5328,14 @@
           "expect": {
             "charge": 1,
             "operator": "integer-maximum",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "id": "runtime.node.maximum",
           "input": {
@@ -5206,7 +5353,14 @@
           "expect": {
             "charge": 1,
             "operator": "integer-multiply",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "id": "runtime.node.multiply",
           "input": {
@@ -5224,7 +5378,14 @@
           "expect": {
             "charge": 1,
             "operator": "integer-subtract",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
           },
           "id": "runtime.node.subtract",
           "input": {
@@ -5242,7 +5403,13 @@
           "expect": {
             "charge": 1,
             "operator": "copy-value",
-            "result_kind": "local"
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "same-as-references",
+              "members": [
+                "value"
+              ]
+            }
           },
           "id": "runtime.node.value",
           "input": {
@@ -5293,7 +5460,14 @@
           "expect": {
             "charge": 1,
             "operator": "named-integer-draw",
-            "result_kind": "draw"
+            "result_kind": "draw",
+            "result_typing": {
+              "kind": "literal-profile",
+              "members": [
+                "minimum",
+                "maximum"
+              ]
+            }
           },
           "id": "runtime.node.draw",
           "input": {
@@ -5409,6 +5583,28 @@
           },
           "kind": "node",
           "node": "invoke"
+        },
+        {
+          "expect": {
+            "admitted": true
+          },
+          "id": "runtime.invocation.result-contract-compatible",
+          "input": {
+            "producer_contract": "kernel-boolean",
+            "result_contract": "kernel-boolean"
+          },
+          "kind": "invocation-result-contract"
+        },
+        {
+          "expect": {
+            "admitted": false
+          },
+          "id": "runtime.invocation.result-contract-incompatible",
+          "input": {
+            "producer_contract": "kernel-boolean",
+            "result_contract": "kernel-unit"
+          },
+          "kind": "invocation-result-contract"
         }
       ],
       "invocation_contract": {
