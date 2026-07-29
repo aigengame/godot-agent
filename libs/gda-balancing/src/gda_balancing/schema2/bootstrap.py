@@ -5975,9 +5975,13 @@ def admit_authorities(
         language_bundle,
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
     )
+    literal_typing_profiles_are_closed = (
+        definitions_are_closed
+        and _literal_typing_profiles_are_closed(kernel, language_bundle)
+    )
     composition_subjects = (
         _operation_composition_diagnostic_subjects(kernel, language_bundle)
-        if definitions_are_closed
+        if literal_typing_profiles_are_closed
         else ()
     )
     diagnostic_catalog_matches_vectors = _diagnostic_catalog_matches_vectors(
@@ -6025,7 +6029,7 @@ def admit_authorities(
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    definitions_are_closed
+                    literal_typing_profiles_are_closed
                     and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _package_evidence_vectors_are_closed(
@@ -6121,9 +6125,7 @@ def admit_authorities(
             "static",
             "language.definitions.assignment-policy",
         )
-    if definitions_are_closed and not _literal_typing_profiles_are_closed(
-        kernel, language_bundle
-    ):
+    if definitions_are_closed and not literal_typing_profiles_are_closed:
         refuse(
             "kernel.vector_mismatch",
             "static",

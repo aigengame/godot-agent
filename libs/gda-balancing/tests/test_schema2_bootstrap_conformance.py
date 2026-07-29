@@ -6142,9 +6142,13 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
     definitions_are_closed = _consumer_b_language_definitions_are_closed(ldb, meta)
+    literal_typing_profiles_are_closed = (
+        definitions_are_closed
+        and _consumer_b_literal_typing_profiles_are_closed(kernel, ldb)
+    )
     composition_subjects = (
         _consumer_b_operation_composition_subjects(kernel, ldb)
-        if definitions_are_closed
+        if literal_typing_profiles_are_closed
         else ()
     )
     raw_diagnostics = ldb.get("diagnostics")
@@ -6215,7 +6219,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    definitions_are_closed
+                    literal_typing_profiles_are_closed
                     and not composition_subjects
                     and diagnostic_catalog_matches_vectors
                     and not _consumer_b_package_evidence_vectors_are_closed(
@@ -6289,9 +6293,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "static",
             "language.definitions.assignment-policy",
         )
-    if definitions_are_closed and not _consumer_b_literal_typing_profiles_are_closed(
-        kernel, ldb
-    ):
+    if definitions_are_closed and not literal_typing_profiles_are_closed:
         refuse(
             "kernel.vector_mismatch",
             "static",
@@ -7210,6 +7212,167 @@ def test_two_consumers_refuse_unclosed_or_ambiguous_literal_typing_profiles(
         "kernel.vector_mismatch",
         "language.literal-typing-profiles",
     ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected_prefix"),
+    (
+        ("invalid-definitions", (1, 0, 0, 0)),
+        ("invalid-literal-profiles", (1, 1, 0, 0)),
+        ("invalid-composition", (1, 1, 1, 0)),
+        ("valid", (1, 1, 1, None)),
+    ),
+)
+def test_bootstrap_consumers_gate_dependent_semantic_phases_in_order(
+    monkeypatch,
+    phase,
+    expected_prefix,
+):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    if phase == "invalid-definitions":
+        language["operations"].append({"host_semantics": "invented", "id": "host.op"})
+        package = language["packages"][0]
+        package["exports"]["operations"].append("host.op")
+        operation_entry = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+        operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
+        _reidentify_package_release(package)
+        _reidentify_graph_root(ldb)
+    elif phase == "invalid-literal-profiles":
+        overlapping = deepcopy(language["literal_typing_profiles"][0])
+        overlapping["id"] = "quantity.dimensionless-int64-overlap"
+        language["literal_typing_profiles"].append(overlapping)
+        owner = next(
+            package
+            for package in language["packages"]
+            if package["id"] == "core.quantity"
+        )
+        owner["exports"]["literal_typing_profiles"].append(overlapping["id"])
+        _refresh_package_closure_and_reidentify(ldb)
+    elif phase == "invalid-composition":
+        operation = next(
+            operation
+            for operation in language["operations"]
+            if operation["id"] == "game.combat.cast-v1"
+        )
+        operation["resource_bounds"]["max_steps"] = 1
+        _refresh_package_closure_and_reidentify(ldb)
+
+    names = ("definitions", "literal-profiles", "composition", "evidence")
+    calls = {
+        "production": dict.fromkeys(names, 0),
+        "consumer-b": dict.fromkeys(names, 0),
+    }
+    production_definitions = production_bootstrap._language_definitions_are_closed
+    production_literals = production_bootstrap._literal_typing_profiles_are_closed
+    production_composition = (
+        production_bootstrap._operation_composition_diagnostic_subjects
+    )
+    production_evidence = production_bootstrap._package_evidence_vectors_are_closed
+    consumer_definitions = _consumer_b_language_definitions_are_closed
+    consumer_literals = _consumer_b_literal_typing_profiles_are_closed
+    consumer_composition = _consumer_b_operation_composition_subjects
+    consumer_evidence = _consumer_b_package_evidence_vectors_are_closed
+
+    def count_production_definitions(*args: Any, **kwargs: Any) -> bool:
+        calls["production"]["definitions"] += 1
+        return production_definitions(*args, **kwargs)
+
+    def count_production_literals(*args: Any, **kwargs: Any) -> bool:
+        calls["production"]["literal-profiles"] += 1
+        return production_literals(*args, **kwargs)
+
+    def count_production_composition(*args: Any, **kwargs: Any) -> tuple[str, ...]:
+        calls["production"]["composition"] += 1
+        return production_composition(*args, **kwargs)
+
+    def count_production_evidence(*args: Any, **kwargs: Any) -> bool:
+        calls["production"]["evidence"] += 1
+        return production_evidence(*args, **kwargs)
+
+    def count_consumer_definitions(*args: Any, **kwargs: Any) -> bool:
+        calls["consumer-b"]["definitions"] += 1
+        return consumer_definitions(*args, **kwargs)
+
+    def count_consumer_literals(*args: Any, **kwargs: Any) -> bool:
+        calls["consumer-b"]["literal-profiles"] += 1
+        return consumer_literals(*args, **kwargs)
+
+    def count_consumer_composition(*args: Any, **kwargs: Any) -> tuple[str, ...]:
+        calls["consumer-b"]["composition"] += 1
+        return consumer_composition(*args, **kwargs)
+
+    def count_consumer_evidence(*args: Any, **kwargs: Any) -> bool:
+        calls["consumer-b"]["evidence"] += 1
+        return consumer_evidence(*args, **kwargs)
+
+    monkeypatch.setattr(
+        production_bootstrap,
+        "_language_definitions_are_closed",
+        count_production_definitions,
+    )
+    monkeypatch.setattr(
+        production_bootstrap,
+        "_literal_typing_profiles_are_closed",
+        count_production_literals,
+    )
+    monkeypatch.setattr(
+        production_bootstrap,
+        "_operation_composition_diagnostic_subjects",
+        count_production_composition,
+    )
+    monkeypatch.setattr(
+        production_bootstrap,
+        "_package_evidence_vectors_are_closed",
+        count_production_evidence,
+    )
+    monkeypatch.setitem(
+        globals(),
+        "_consumer_b_language_definitions_are_closed",
+        count_consumer_definitions,
+    )
+    monkeypatch.setitem(
+        globals(),
+        "_consumer_b_literal_typing_profiles_are_closed",
+        count_consumer_literals,
+    )
+    monkeypatch.setitem(
+        globals(),
+        "_consumer_b_operation_composition_subjects",
+        count_consumer_composition,
+    )
+    monkeypatch.setitem(
+        globals(),
+        "_consumer_b_package_evidence_vectors_are_closed",
+        count_consumer_evidence,
+    )
+
+    first = _consumer_a(kernel, ldb)
+    second = _consumer_b(kernel, ldb)
+
+    assert first == second
+    assert first["admitted"] is (phase == "valid")
+    expected = dict(
+        zip(
+            names,
+            (
+                expected_prefix[0],
+                expected_prefix[1],
+                expected_prefix[2],
+                len(language["packages"])
+                if expected_prefix[3] is None
+                else expected_prefix[3],
+            ),
+            strict=True,
+        )
+    )
+    assert calls == {"production": expected, "consumer-b": expected}
 
 
 def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admission():
