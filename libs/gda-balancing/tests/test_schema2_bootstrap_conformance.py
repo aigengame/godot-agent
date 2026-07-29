@@ -6210,7 +6210,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 or vector_set.get("package_id") != package.get("id")
                 or vector_set.get("package_version") != package.get("version")
                 or (
-                    diagnostic_catalog_matches_vectors
+                    not composition_subjects
+                    and diagnostic_catalog_matches_vectors
                     and not _consumer_b_package_evidence_vectors_are_closed(
                         package, vector_set, package_vector_contract
                     )
