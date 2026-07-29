@@ -1044,7 +1044,10 @@ def test_model_migrate_rejects_non_regular_sources_without_blocking(
         check=False,
         capture_output=True,
         text=True,
-        timeout=1,
+        # This is a deadlock watchdog, not a cold-process latency budget. The
+        # semantic assertions below prove that the CLI rejects before reading
+        # the device/FIFO; allow for Python startup variance on hosted runners.
+        timeout=5,
     )
 
     assert (completed.returncode, completed.stdout) == (3, "")
