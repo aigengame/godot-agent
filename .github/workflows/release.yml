@@ -298,8 +298,23 @@ jobs:
 
       # The member is engine- and game-agnostic by construction (its isolation
       # gate is part of this suite), so there is no e2e tier to install Godot for.
+      - name: Verify gda-balancing test and vector inventory
+        run: |
+          mkdir -p test-results
+          uv run --frozen --project libs/gda-balancing \
+            python libs/gda-balancing/tools/ci.py verify-inventory \
+            --report test-results/inventory.json
+
       - name: Run gda-balancing tests
         run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
+
+      - name: Upload release validation inventory
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-release-validation
+          path: test-results/inventory.json
+          if-no-files-found: error
+          overwrite: true
 
       # Same derivation as the root build job — scripts/release_tags.py is the
       # one authority. The tag prefix is NOT restated here: it follows from the
