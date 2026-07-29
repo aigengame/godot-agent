@@ -5132,9 +5132,8 @@ def _consumer_b_operation_composition_subjects(
                     )
                 )
                 if (
-                    (site == source_site and reaches_parent_success)
-                    or exits_success_before_source
-                ):
+                    site == source_site and reaches_parent_success
+                ) or exits_success_before_source:
                     found.add(subject(coordinate, None, "result.source"))
                     return None
                 if site == source_site:
@@ -5154,34 +5153,39 @@ def _consumer_b_operation_composition_subjects(
             charge += child_charge
         result_contract = cast(dict[str, Any], operation["result"])
         source_is_compatible = (
-            source_kind == "operation-result"
-            and source_site in operation_result_sites
-            and source_producer_reached
-        ) or (
-            source_kind == "port"
-            and isinstance(parent_ports.get(source.get("name")), dict)
-            and value_contract_matches(
-                cast(dict[str, Any], parent_ports[source["name"]]),
-                result_contract,
+            (
+                source_kind == "operation-result"
+                and source_site in operation_result_sites
+                and source_producer_reached
             )
-        ) or (
-            source_kind == "local"
-            and local_producers.get(cast(str, source.get("name"))) == 1
-            and (
-                source.get("name") not in locals_
-                or value_contract_matches(
-                    locals_[cast(str, source["name"])], result_contract
+            or (
+                source_kind == "port"
+                and isinstance(parent_ports.get(source.get("name")), dict)
+                and value_contract_matches(
+                    cast(dict[str, Any], parent_ports[source["name"]]),
+                    result_contract,
                 )
             )
-        ) or (
-            source_kind == "unit"
-            and result_contract.get("type")
-            == {"package": "kernel", "version": "2.0.0", "id": "Unit"}
-            and result_contract.get("representation") == "Unit"
-            and result_contract.get("kind") == "unit"
-            and result_contract.get("unit") == "1"
-            and result_contract.get("domain") == {"kind": "unit"}
-            and result_contract.get("numeric_policy") == "exact-unit"
+            or (
+                source_kind == "local"
+                and local_producers.get(cast(str, source.get("name"))) == 1
+                and (
+                    source.get("name") not in locals_
+                    or value_contract_matches(
+                        locals_[cast(str, source["name"])], result_contract
+                    )
+                )
+            )
+            or (
+                source_kind == "unit"
+                and result_contract.get("type")
+                == {"package": "kernel", "version": "2.0.0", "id": "Unit"}
+                and result_contract.get("representation") == "Unit"
+                and result_contract.get("kind") == "unit"
+                and result_contract.get("unit") == "1"
+                and result_contract.get("domain") == {"kind": "unit"}
+                and result_contract.get("numeric_policy") == "exact-unit"
+            )
         )
         if not source_is_compatible:
             found.add(subject(coordinate, None, "result.source"))

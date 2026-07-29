@@ -4292,7 +4292,7 @@ def publish_artifact_set(
     if lock_path.is_symlink():
         raise UsageError(
             "argument_conflict", "Invocation-key lock must not be a symlink"
-    )
+        )
     with _invocation_lock(lock_path):
         anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
         _assert_ancestor_chain_without_symlink(invocation_path)
