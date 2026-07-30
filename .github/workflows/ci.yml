@@ -129,11 +129,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
-          # Keep the established required context complete during the ruleset
-          # cutover. Once `gda-balancing required` is required by the ruleset,
-          # the member sync/tests/build below can move exclusively to the
-          # bounded jobs without opening a protection gap.
-          sync: both
+          # gda-balancing has its own required matrix and stable aggregator.
+          # Keep this required root context scoped to the root project.
+          sync: root
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
@@ -146,14 +144,8 @@ jobs:
       - name: Run Panda Adventure pure-Python tests
         run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
-      - name: Run gda-balancing tests during required-context cutover
-        run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
-
       - name: Build distributions
         run: uv build
-
-      - name: Build gda-balancing distributions during required-context cutover
-        run: uv build --project libs/gda-balancing --out-dir dist-gda-balancing
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7.0.1
