@@ -71,9 +71,12 @@ class ConformanceFixtures:
     never a file path**: the harness materializes each to a tmp file and
     appends that path as the positional argument (a committed ``.json`` file
     would both be cwd-dependent and trip the isolation gate's per-game-config
-    scan). ``refusing_document`` — a document that provokes a *stable* funnel
-    refusal — is required for a document-taking command (bADR-0011's refusal
-    row); a command that takes no document leaves both ``None``.
+    scan). A stateful command may instead provide ``prepare_valid_document``;
+    the public prerequisite path it drives is then the only valid-document
+    authority. ``refusing_document`` — a document that provokes a *stable*
+    funnel refusal — is required for a document-taking command (bADR-0011's
+    refusal row); a command that takes no document leaves both sources
+    ``None``.
     """
 
     valid_args: tuple[str, ...] = ()
@@ -84,6 +87,13 @@ class ConformanceFixtures:
     # declared public prerequisites inside the isolated conformance store.
     prepare_valid_document: Callable[[Path, int], str] | None = None
     prepare_verdict_document: Callable[[Path, int], str] | None = None
+
+    @property
+    def has_valid_document(self) -> bool:
+        """Whether the harness owns one static or prepared valid document."""
+        return (
+            self.valid_document is not None or self.prepare_valid_document is not None
+        )
 
 
 @dataclass(frozen=True)

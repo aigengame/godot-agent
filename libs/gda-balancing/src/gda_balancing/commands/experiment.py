@@ -442,59 +442,6 @@ def _prepare_verdict_experiment(root: Path, token: int) -> str:
     return json.dumps(specification)
 
 
-_VALID_EXPERIMENT = """{
-  "schema_version": "2.0.0",
-  "id": "conformance.experiment",
-  "version": "1.0.0",
-  "kernel_identity": "sha256:fixture",
-  "language_bundle_identity": "sha256:fixture",
-  "model": {
-    "source_identity": "sha256:fixture",
-    "build_receipt_identity": "sha256:fixture",
-    "resolved_model_identity": "sha256:fixture",
-    "package_lock_identity": "sha256:fixture",
-    "rir_identity": "sha256:fixture"
-  },
-  "runtime": {
-    "profile": "standard.exact-int64-event-v1",
-    "required_evaluator": {
-      "operation_kinds": ["event-fragment", "event-program"],
-      "instruction_nodes": ["constant"],
-      "effects": ["event.commit"],
-      "numeric_policies": ["exact-int64"],
-      "rng_algorithms": ["splitmix64-v1"],
-      "runtime_profiles": ["standard.exact-int64-event-v1"]
-    }
-  },
-  "seed": {"algorithm": "splitmix64-v1", "value": 1},
-  "external_inputs": [],
-  "scenarios": [{
-    "id": "one",
-    "entrypoint": "main",
-    "assignments": [{
-      "target": {"model": "fixture", "module": "main", "name": "value"},
-      "value": 1
-    }],
-    "named_streams": [],
-    "terminal_condition": {"kind": "event-count", "maximum": 1}
-  }],
-  "metrics": [{
-    "id": "value",
-    "kind": "scalar",
-    "unit": "1",
-    "dimensions": [],
-    "window": {"kind": "scenario", "name": "terminal-event"},
-    "aggregation": "single",
-    "replication": {"unit": "scenario"},
-    "missing": "refuse",
-    "censoring": "none",
-    "observation": {"source": "snapshot", "name": "terminal", "member": "value"},
-    "target": {"minimum": 0, "maximum": 1}
-  }],
-  "acceptance": {"policy": "all-metrics-within-target"}
-}"""
-
-
 EXPERIMENT_CHECK = CommandDescriptor(
     group="experiment",
     command="check",
@@ -503,7 +450,6 @@ EXPERIMENT_CHECK = CommandDescriptor(
     output_model=ExperimentCheckResult,
     handler=run_experiment_check,
     fixtures=ConformanceFixtures(
-        valid_document=_VALID_EXPERIMENT,
         prepare_valid_document=_prepare_valid_experiment,
     ),
     positional_field="specification",
@@ -528,7 +474,6 @@ EXPERIMENT_RUN = CommandDescriptor(
     verdict_model=ExperimentVerdictResult,
     handler=run_experiment_run,
     fixtures=ConformanceFixtures(
-        valid_document=_VALID_EXPERIMENT,
         prepare_valid_document=_prepare_valid_experiment,
         prepare_verdict_document=_prepare_verdict_experiment,
     ),

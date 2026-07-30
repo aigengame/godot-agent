@@ -881,6 +881,13 @@ identity to match. Comparing two different evaluator-bound profiles is a `Cross-
 comparison`, not a replay (bADR-0014/0018).
 _Avoid_: Runtime profile definition, ambient environment, runtime config
 
+**Runtime profile definition identity**:
+The Kernel-domain-separated content identity of one complete LDB-owned Runtime profile definition.
+The Resolved Runtime profile binds it together with the Evaluator Capability Manifest identity;
+the definition and evaluator manifest never refer back to that generated artifact, keeping runtime
+admission identities acyclic (bADR-0014).
+_Avoid_: Resolved Runtime profile identity, profile id alone, host runtime preset
+
 **Evaluator Capability Manifest**:
 An immutable implementation-provenance artifact published by one evaluator build. It declares the
 exact Kernel law versions, constructors, Numeric/RNG policies, scheduler/effect features, artifact

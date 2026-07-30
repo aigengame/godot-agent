@@ -236,7 +236,7 @@ PRD #534 remains open until a later implementation/specification PR supplies and
    HIR-to-RIR lowering;
 3. RIR semantic normal form with a separately identified Debug Map and independent-lowerer vectors;
 4. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
-   Runtime profile definition, Resolved Runtime
+   content-identified Runtime profile definition, Resolved Runtime
    profile, Experiment, Metrics, Evaluation run, Replay comparison, Cross-evaluator comparison,
    Evidence, artifact-envelope, receipt, and publication schemas;
 5. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;

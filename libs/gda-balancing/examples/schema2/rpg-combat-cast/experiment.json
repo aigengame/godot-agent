@@ -2,12 +2,12 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6",
-  "language_bundle_identity": "sha256:d58876e797d2e670505767a56926e412cb16a84872b1ad0a0b2da38d022e6b44",
+  "kernel_identity": "sha256:e1ab483833cee54663fffc7d954d01381d6d614975de528a695ed0746a20817b",
+  "language_bundle_identity": "sha256:c3a430b38533f97479c4dc9566344994768fb58aff187d50894ed118075a1258",
   "model": {
     "source_identity": "sha256:30912df260463ddd5a1e191606b4ae85112662cde387cb6d4c14d7936bbe9994",
-    "build_receipt_identity": "sha256:1a098dcd091b82901c75250e8f57f2c7da11fda3cb53c5a5a675edd1d73e4dbc",
-    "resolved_model_identity": "sha256:ab528977ccc57a42199e9cbbbd86887a2c510b6203c9f149f86c39e62b95caf0",
+    "build_receipt_identity": "sha256:6e1e7cbec9191670c5cd396bb9de32922be9f77426a4e932692d19123e5b7977",
+    "resolved_model_identity": "sha256:5b4c4431364861c1fd7088ffcb300ef5d6328efb16c0c5f5a2bdd2326f1d2aab",
     "package_lock_identity": "sha256:11574ee28805af04977c1e11780c034d35c76a3d9981966c895790df1ed9eaba",
     "rir_identity": "sha256:161fd4075e930b85f79f1061dabcc333d7f677b32a3ade1208aec2cabf4f9c39"
   },
@@ -64,7 +64,7 @@
             "module": "combat",
             "name": "actor_mana"
           },
-          "value": 30
+          "value": 35
         },
         {
           "target": {
@@ -72,7 +72,7 @@
             "module": "combat",
             "name": "action_cost"
           },
-          "value": 8
+          "value": 9
         },
         {
           "target": {
@@ -80,7 +80,7 @@
             "module": "combat",
             "name": "accuracy"
           },
-          "value": 20
+          "value": 25
         },
         {
           "target": {
@@ -88,7 +88,7 @@
             "module": "combat",
             "name": "base_damage"
           },
-          "value": 40
+          "value": 45
         },
         {
           "target": {

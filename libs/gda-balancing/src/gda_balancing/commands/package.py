@@ -337,6 +337,19 @@ def _closed_named_value_schema(members: list[str]) -> dict[str, object]:
     }
 
 
+def _json_pointer_schema(meta_format: dict[str, Any]) -> dict[str, object]:
+    contract = meta_format.get("json_pointer")
+    schema = contract.get("schema") if isinstance(contract, dict) else None
+    if (
+        not isinstance(contract, dict)
+        or contract.get("encoding") != "RFC6901"
+        or contract.get("target_policy") != "existing-target"
+        or not isinstance(schema, dict)
+    ):
+        raise ValueError("Kernel JSON Pointer contract is incomplete")
+    return deepcopy(cast(dict[str, object], schema))
+
+
 def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, object]]:
     contract = meta_format.get("package_vector")
     runtime = meta_format.get("runtime_program")
@@ -566,6 +579,7 @@ def _model_program_vector_schemas(
     language_bundle: dict[str, Any],
 ) -> list[dict[str, object]]:
     contract = meta_format.get("model_program_vector")
+    pointer_schema = _json_pointer_schema(meta_format)
     if not isinstance(contract, dict):
         raise ValueError("Kernel model-program vector contract is incomplete")
     required = contract.get("required_members")
@@ -663,8 +677,7 @@ def _model_program_vector_schemas(
                     "code": {"const": code},
                     "stage": {"const": stage},
                     "pointer": {
-                        "type": "string",
-                        "pattern": r"^(?:/(?:[^~/]|~[01])*)*$",
+                        **pointer_schema,
                     },
                 },
                 "required": diagnostic_members,

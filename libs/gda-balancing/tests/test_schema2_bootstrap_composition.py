@@ -614,6 +614,60 @@ def test_two_consumers_refuse_an_incomplete_template_primitive_spec(
 
 @pytest.mark.parametrize(
     "mutation",
+    (
+        "runtime-profile-definition-domain",
+        "json-pointer-schema",
+        "wire-schema-identity-domain",
+        "ambiguous-wire-schema-identity-domain",
+    ),
+)
+def test_two_consumers_refuse_incomplete_identity_or_pointer_meta_contracts(
+    mutation,
+    monkeypatch,
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    if mutation == "runtime-profile-definition-domain":
+        kernel["meta_format"]["runtime_profile_definition"]["domain"] = ""
+        subject = "language.runtime"
+    elif mutation == "json-pointer-schema":
+        kernel["meta_format"]["json_pointer"]["schema"] = {
+            "type": "missing-json-schema-type"
+        }
+        subject = "kernel.meta-format.json-pointer"
+    elif mutation == "wire-schema-identity-domain":
+        ldb["language"]["wire_schemas"][0].pop("wire_schema_identity_domain")
+        _refresh_package_closure_and_reidentify(ldb)
+        subject = "language.wire-schema-identity-domains"
+    else:
+        artifact_schema = ldb["language"]["artifact_wire_schemas"][0]
+        artifact_schema["wire_schema_identity_domain"] = "competing-domain"
+        _refresh_package_closure_and_reidentify(ldb)
+        subject = "language.wire-schema-identity-domains"
+    _reidentify(kernel, ldb)
+    kernel_identity = kernel["content_identity"]
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel_identity
+    )
+    monkeypatch.setattr(
+        bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel_identity
+    )
+
+    first = _consumer_a(kernel, ldb)
+    second = _consumer_b(kernel, ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        subject,
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
     ("empty-non-empty-string", "selector-root-list", "binding-source-list"),
 )
 def test_two_consumers_execute_template_primitive_argument_types(mutation):

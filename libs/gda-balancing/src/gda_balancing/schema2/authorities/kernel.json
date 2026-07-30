@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6",
+  "content_identity": "sha256:e1ab483833cee54663fffc7d954d01381d6d614975de528a695ed0746a20817b",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2297,11 +2297,17 @@
               "references": "forbidden",
               "type": "closed-json-schema",
               "type_form": "single-string"
+            },
+            "wire_schema_identity_domain": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
             "artifact_kind",
             "schema"
+          ],
+          "optional_members": [
+            "wire_schema_identity_domain"
           ]
         },
         "capabilities": {
@@ -3148,11 +3154,17 @@
               "references": "forbidden",
               "type": "closed-json-schema",
               "type_form": "single-string"
+            },
+            "wire_schema_identity_domain": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
             "artifact_kind",
             "schema"
+          ],
+          "optional_members": [
+            "wire_schema_identity_domain"
           ]
         },
         "literal_typing_profiles": {
@@ -6191,6 +6203,26 @@
       "ownership": "profile-owner-must-own-exact-type-export",
       "formal_closure": "at-least-one-exact-operation-value-contract",
       "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract"
+    },
+    "runtime_profile_definition": {
+      "domain": "runtime-profile-definition-v1",
+      "projection": "complete-definition"
+    },
+    "json_pointer": {
+      "encoding": "RFC6901",
+      "schema": {
+        "anyOf": [
+          {
+            "const": ""
+          },
+          {
+            "pattern": "^/"
+          }
+        ],
+        "pattern": "^(/([^/~]|~[01])*)*$",
+        "type": "string"
+      },
+      "target_policy": "existing-target"
     }
   },
   "resources": {

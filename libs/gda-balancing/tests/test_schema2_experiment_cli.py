@@ -23,6 +23,54 @@ _AUTHORITY_DIR = (
 )
 
 
+def test_experiment_conformance_uses_only_prepared_public_documents():
+    for descriptor in (
+        experiment_command_module.EXPERIMENT_CHECK,
+        experiment_command_module.EXPERIMENT_RUN,
+    ):
+        assert descriptor.fixtures.valid_document is None
+        assert descriptor.fixtures.prepare_valid_document is not None
+        assert descriptor.fixtures.has_valid_document is True
+
+
+def test_tutorial_tuning_values_are_not_package_conformance_configuration():
+    specification = json.loads(
+        (_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    tutorial_values = {
+        row["target"]["name"]: row["value"]
+        for row in specification["scenarios"][0]["assignments"]
+    }
+    _kernel, language_bundle = authority_module.load_authorities()
+    combat_vectors = next(
+        row
+        for row in language_bundle.package_conformance_vector_sets
+        if row["package_id"] == "game.combat"
+    )
+    positive = next(
+        row
+        for row in combat_vectors["vector_definitions"]
+        if row["id"] == "game.combat.cast.positive"
+    )
+    vector_values = {row["name"]: row["value"] for row in positive["input"]["values"]}
+
+    assert {
+        name: tutorial_values[name]
+        for name in ("action_cost", "accuracy", "base_damage")
+    } == {
+        "action_cost": 9,
+        "accuracy": 25,
+        "base_damage": 45,
+    }
+    assert {
+        name: vector_values[name] for name in ("action_cost", "accuracy", "base_damage")
+    } == {
+        "action_cost": 8,
+        "accuracy": 20,
+        "base_damage": 40,
+    }
+
+
 def _rpg_value(name: str, role: str) -> dict[str, Any]:
     return {
         "symbol": name,
@@ -1120,7 +1168,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "package_lock_identity": build_record["package_lock_identity"],
         "rir_identity": build_record["rir_identity"],
     }
-    first_path = tmp_path / "experiment-40.json"
+    first_path = tmp_path / "experiment-45.json"
     first_path.write_text(json.dumps(first_spec), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -1136,7 +1184,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "run",
             str(first_path),
             "--out",
-            str(tmp_path / "evaluation-40.json"),
+            str(tmp_path / "evaluation-45.json"),
             "--invocation-key",
             "2" * 64,
         ]
@@ -1150,36 +1198,6 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     _loaded_kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
-    combat_vectors = next(
-        vector_set["vector_definitions"]
-        for vector_set in ldb.package_conformance_vector_sets
-        if vector_set["package_id"] == "game.combat"
-        and vector_set["package_version"] == "1.0.0"
-    )
-    combat_vectors = {
-        vector["id"]: vector
-        for vector in combat_vectors
-        if vector.get("kind") == "runtime-scenario"
-    }
-
-    def vector_projection(event):
-        return {
-            "outcome": event["outcome"]["id"],
-            "rng_draws": [
-                {
-                    member: draw[member]
-                    for member in ("candidate_hex", "index", "stream", "value")
-                }
-                for draw in event["rng_draws"]
-            ],
-            "state_after": event["state_after"],
-        }
-
-    public_positive_expect = json.loads(
-        json.dumps(combat_vectors["game.combat.cast.positive"]["expect"])
-    )
-    public_positive_expect["state_after"][0]["name"] = "actor_mana"
-    assert vector_projection(first_trace["events"][0]) == public_positive_expect
     operation = next(
         row for row in operations.values() if row["id"] == "game.combat.cast-v1"
     )
@@ -1206,13 +1224,18 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for item in first_trace["events"][0]["facts"]
             if item["name"] == "base_damage"
         )
-        == 40
+        == 45
     )
+    assert first_trace["events"][0]["state_after"] == [
+        {"name": "actor_mana", "value": 26},
+        {"name": "target_health", "value": 40},
+    ]
     first_damage = next(
         sample["value"]
         for sample in first_metrics["samples"]
         if sample["metric"] == "damage_dealt"
     )
+    assert first_damage == 60
 
     tuned_spec = json.loads(json.dumps(first_spec))
     base_damage = next(
@@ -1220,8 +1243,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         for row in tuned_spec["scenarios"][0]["assignments"]
         if row["target"]["name"] == "base_damage"
     )
-    base_damage["value"] = 60
-    tuned_path = tmp_path / "experiment-60.json"
+    base_damage["value"] = 65
+    tuned_path = tmp_path / "experiment-65.json"
     tuned_path.write_text(json.dumps(tuned_spec), encoding="utf-8")
     tuned_exit, tuned_stdout, tuned_stderr = run_cli(
         [
@@ -1229,7 +1252,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "run",
             str(tuned_path),
             "--out",
-            str(tmp_path / "evaluation-60.json"),
+            str(tmp_path / "evaluation-65.json"),
             "--invocation-key",
             "3" * 64,
         ]
@@ -1250,19 +1273,17 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for item in tuned_trace["events"][0]["facts"]
             if item["name"] == "base_damage"
         )
-        == 60
+        == 65
     )
-    assert tuned_damage > first_damage
+    assert tuned_damage == 100 > first_damage
+    assert tuned_trace["events"][0]["state_after"] == [
+        {"name": "actor_mana", "value": 26},
+        {"name": "target_health", "value": 0},
+    ]
     assert (
         tuned_trace["content_identity"] != first_trace["content_identity"]
         and tuned_metrics["content_identity"] != first_metrics["content_identity"]
     )
-    public_tuned_expect = json.loads(
-        json.dumps(combat_vectors["game.combat.cast.tuned-damage"]["expect"])
-    )
-    public_tuned_expect["state_after"][0]["name"] = "actor_mana"
-    assert vector_projection(tuned_trace["events"][0]) == public_tuned_expect
-
     alternate_seed_spec = deepcopy(first_spec)
     alternate_seed_spec["seed"]["value"] = 4
     alternate_seed_path = tmp_path / "experiment-seed-4.json"
@@ -1295,8 +1316,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         ("critical", 72),
     ]
     assert alternate_event["state_after"] == [
-        {"name": "actor_mana", "value": 22},
-        {"name": "target_health", "value": 90},
+        {"name": "actor_mana", "value": 26},
+        {"name": "target_health", "value": 85},
     ]
     assert (
         next(
@@ -1304,7 +1325,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for sample in alternate_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 10
+        == 15
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -1317,7 +1338,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "run",
             str(first_path),
             "--out",
-            str(tmp_path / "evaluation-40-repeat.json"),
+            str(tmp_path / "evaluation-45-repeat.json"),
             "--invocation-key",
             "5" * 64,
         ]
@@ -1345,6 +1366,30 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         for row in rir["selected_semantics"]["runtime_profiles"]
         if row["id"] == first_spec["runtime"]["profile"]
     )
+    checked_experiment = experiment_runtime_module.check_experiment(str(first_path))
+    assert isinstance(
+        checked_experiment,
+        experiment_runtime_module.CheckedExperiment,
+    )
+    runtime_definition_identity = (
+        experiment_runtime_module._runtime_profile_definition_identity(
+            checked_experiment,
+            runtime_definition,
+        )
+    )
+    assert (
+        resolved_runtime["runtime_profile_definition_identity"]
+        == runtime_definition_identity
+    )
+    changed_definition = deepcopy(runtime_definition)
+    changed_definition["resource_bounds"]["max_steps"] += 1
+    assert (
+        experiment_runtime_module._runtime_profile_definition_identity(
+            checked_experiment,
+            changed_definition,
+        )
+        != runtime_definition_identity
+    )
     assert resolved_runtime["runtime_profile"] == {
         "id": runtime_definition["id"],
         "version": runtime_definition["version"],
@@ -1358,6 +1403,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "max_steps": runtime_definition["resource_bounds"]["max_steps"],
     }
     identity_nodes = {
+        runtime_definition_identity,
         evaluator["content_identity"],
         resolved_runtime["content_identity"],
     }
@@ -1376,14 +1422,19 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         return {value} if isinstance(value, str) and value in identity_nodes else set()
 
     identity_graph = {
+        runtime_definition_identity: referenced_nodes(runtime_definition),
         evaluator["content_identity"]: referenced_nodes(evaluator)
         - {evaluator["content_identity"]},
         resolved_runtime["content_identity"]: referenced_nodes(resolved_runtime)
         - {resolved_runtime["content_identity"]},
     }
     assert identity_graph == {
+        runtime_definition_identity: set(),
         evaluator["content_identity"]: set(),
-        resolved_runtime["content_identity"]: {evaluator["content_identity"]},
+        resolved_runtime["content_identity"]: {
+            runtime_definition_identity,
+            evaluator["content_identity"],
+        },
     }
 
 

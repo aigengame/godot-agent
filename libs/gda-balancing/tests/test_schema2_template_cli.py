@@ -15,6 +15,7 @@ import gda_balancing.schema2.model as schema2_model
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
+    _member_schema_identities,
     _minimal_release,
     template_get_handler,
     template_instantiate_handler,
@@ -898,12 +899,26 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:246bfffb22120d7dba0870eb40b490a09309b5eec4d58800f6d6f2e7e45cd932"
+                    "sha256:5c33801e420e5f4eabda920cabf30cba332d0186364c926d5ca6535a0bcb1a34"
                 ),
             }
         ]
     }
     assert result["templates"][0]["content_identity"].startswith("sha256:")
+
+
+def test_template_schema_identity_refuses_a_missing_authority_contract():
+    authority = authority_set()
+    language_bundle = authority["language_bundle"]
+    source_schema = cast(Any, language_bundle["language"])["wire_schemas"][0]
+    schema_kind = source_schema["artifact_kind"]
+    source_schema.pop("wire_schema_identity_domain")
+
+    with pytest.raises(
+        ValueError,
+        match=f"exact wire-schema identity domain is unavailable for {schema_kind}",
+    ):
+        _member_schema_identities(language_bundle)
 
 
 def test_minimal_release_derives_every_authority_identity_from_its_inputs():

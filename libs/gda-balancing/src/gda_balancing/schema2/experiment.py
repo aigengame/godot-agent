@@ -821,6 +821,25 @@ def _metric_definition_identity(metric: dict[str, Any]) -> str:
     )
 
 
+def _runtime_profile_definition_identity(
+    checked: CheckedExperiment,
+    definition: dict[str, Any],
+) -> str:
+    contract = checked.kernel["meta_format"].get("runtime_profile_definition")
+    if (
+        not isinstance(contract, dict)
+        or set(contract) != {"domain", "projection"}
+        or not isinstance(contract.get("domain"), str)
+        or not contract["domain"]
+        or contract.get("projection") != "complete-definition"
+    ):
+        raise ValueError("Kernel Runtime-profile-definition identity is incomplete")
+    return content_identity(
+        cast(str, contract["domain"]),
+        cast(JsonValue, definition),
+    )
+
+
 def _canonical_metric_dataset(
     samples: Sequence[Mapping[str, JsonValue]],
 ) -> tuple[list[str], list[dict[str, JsonValue]]]:
@@ -926,7 +945,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 "snapshot.commit",
             ],
             "numeric_policies": ["exact-int64"],
-            "rng_algorithms": ["splitmix64-v1"],
+            "rng_algorithms": [runtime_contract["named_rng"]["algorithm"]],
             "runtime_profiles": supported_profiles,
         },
     )
@@ -947,7 +966,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 "snapshot.commit",
             ],
             "numeric_policies": ["exact-int64"],
-            "rng_algorithms": ["splitmix64-v1"],
+            "rng_algorithms": [runtime_contract["named_rng"]["algorithm"]],
             "runtime_profiles": supported_profiles,
         },
     )
@@ -962,6 +981,7 @@ def _resolved_runtime_profile(
         for row in checked.rir["selected_semantics"]["runtime_profiles"]
         if row["id"] == profile_id
     )
+    definition_identity = _runtime_profile_definition_identity(checked, definition)
     return _artifact(
         checked,
         "resolved-runtime-profile",
@@ -973,6 +993,7 @@ def _resolved_runtime_profile(
             "resolved_model_identity": checked.resolved_model["content_identity"],
             "rir_identity": checked.rir["content_identity"],
             "evaluator_manifest_identity": evaluator.content_identity,
+            "runtime_profile_definition_identity": definition_identity,
             "runtime_profile": {
                 "id": definition["id"],
                 "version": definition["version"],

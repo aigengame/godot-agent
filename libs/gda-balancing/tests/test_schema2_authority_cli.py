@@ -272,8 +272,25 @@ def test_rebuild_tool_reproduces_every_committed_authority_byte():
 
 
 def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
-    _kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     schema = package_vector_set_success_schema()
+    pointer_schema = kernel["meta_format"]["json_pointer"]["schema"]
+    projected_pointer_schemas = []
+
+    def visit(value):
+        if isinstance(value, dict):
+            properties = value.get("properties")
+            if isinstance(properties, dict) and "pointer" in properties:
+                projected_pointer_schemas.append(properties["pointer"])
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(schema)
+    assert projected_pointer_schemas
+    assert all(item == pointer_schema for item in projected_pointer_schemas)
     vector_sets = language_bundle.package_conformance_vector_sets
     combat = deepcopy(
         next(row for row in vector_sets if row["package_id"] == "game.combat")

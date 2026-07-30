@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5abfb7fa09a2558569d5addbaeee88008f2e8499fcb1f166eca24911f28f2fe6"
+    "sha256:e1ab483833cee54663fffc7d954d01381d6d614975de528a695ed0746a20817b"
 )
 
 
@@ -1376,6 +1376,49 @@ def _consumer_b_embedded_artifact_bindings_are_closed(ldb: dict[str, Any]) -> bo
             if kind in observed and observed[kind] != encoded:
                 return False
             observed[kind] = encoded
+    return True
+
+
+def _consumer_b_wire_schema_identity_domains_are_closed(
+    ldb: dict[str, Any],
+) -> bool:
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return False
+    raw_contracts = language.get("artifact_contracts")
+    if not isinstance(raw_contracts, list):
+        return False
+    contract_domains = {
+        item.get("artifact_kind"): item.get("wire_schema_identity_domain")
+        for item in raw_contracts
+        if isinstance(item, dict)
+        and isinstance(item.get("artifact_kind"), str)
+        and isinstance(item.get("wire_schema_identity_domain"), str)
+    }
+    if len(contract_domains) != len(raw_contracts):
+        return False
+    seen: set[str] = set()
+    for collection in ("wire_schemas", "artifact_wire_schemas"):
+        entries = language.get(collection)
+        if not isinstance(entries, list):
+            return False
+        for item in entries:
+            if not isinstance(item, dict):
+                return False
+            kind = item.get("artifact_kind")
+            inline_domain = item.get("wire_schema_identity_domain")
+            if (
+                not isinstance(kind, str)
+                or not kind
+                or kind in seen
+                or (inline_domain is None) == (kind not in contract_domains)
+                or (
+                    inline_domain is not None
+                    and (not isinstance(inline_domain, str) or not inline_domain)
+                )
+            ):
+                return False
+            seen.add(kind)
     return True
 
 
@@ -4567,12 +4610,42 @@ def _consumer_b_vector_header_is_closed(
     return False
 
 
+def _consumer_b_json_pointer_authority_is_closed(kernel: dict[str, Any]) -> bool:
+    meta = kernel.get("meta_format")
+    json_pointer = meta.get("json_pointer") if isinstance(meta, dict) else None
+    pointer_schema = (
+        json_pointer.get("schema") if isinstance(json_pointer, dict) else None
+    )
+    try:
+        if isinstance(pointer_schema, dict):
+            jsonschema.Draft202012Validator.check_schema(pointer_schema)
+    except jsonschema.SchemaError:
+        return False
+    return (
+        isinstance(json_pointer, dict)
+        and set(json_pointer) == {"encoding", "schema", "target_policy"}
+        and json_pointer.get("encoding") == "RFC6901"
+        and json_pointer.get("target_policy") == "existing-target"
+        and isinstance(pointer_schema, dict)
+        and pointer_schema.get("type") == "string"
+    )
+
+
 def _consumer_b_runtime_authority_is_closed(
     kernel: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
-    runtime = kernel.get("meta_format", {}).get("runtime_program")
+    meta = kernel.get("meta_format")
+    runtime = meta.get("runtime_program") if isinstance(meta, dict) else None
+    profile_identity = (
+        meta.get("runtime_profile_definition") if isinstance(meta, dict) else None
+    )
     if (
         not isinstance(runtime, dict)
+        or profile_identity
+        != {
+            "domain": "runtime-profile-definition-v1",
+            "projection": "complete-definition",
+        }
         or set(runtime)
         != {
             "closed",
@@ -6393,8 +6466,20 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         )
     for composition_subject in composition_subjects:
         refuse("kernel.vector_mismatch", "static", composition_subject)
+    if not _consumer_b_json_pointer_authority_is_closed(kernel):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "kernel.meta-format.json-pointer",
+        )
     if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
+    if not _consumer_b_wire_schema_identity_domains_are_closed(ldb):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.wire-schema-identity-domains",
+        )
     if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
         refuse(
             "kernel.vector_mismatch",

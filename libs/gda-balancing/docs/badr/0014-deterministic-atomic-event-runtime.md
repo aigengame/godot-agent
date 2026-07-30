@@ -155,6 +155,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   concrete deterministic budgets. A missing, incompatible, or out-of-profile primitive/effect is a
   stage-appropriate refusal; host code may not execute behavior merely because it implements it.
   During execution, budget and declared-effect accounting is deterministic and observable.
+  The Kernel owns the definition identity domain and its complete-definition projection. Runtime
+  admission derives that identity from the selected LDB definition and binds it into the Resolved
+  Runtime profile alongside the Evaluator Capability Manifest identity. Neither authority artifact
+  refers back to the generated profile, so the three identities are distinct and acyclic.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel

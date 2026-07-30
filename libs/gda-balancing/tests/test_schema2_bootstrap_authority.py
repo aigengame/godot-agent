@@ -132,6 +132,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "rule_selection",
         "binding_substitution",
         "diagnostic_reason",
+        "json_pointer",
         "language_bundle",
         "language_definitions",
         "literal_typing",
@@ -142,6 +143,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "package_vector",
         "resolution_judgment",
         "runtime_program",
+        "runtime_profile_definition",
         "runtime_projection",
         "template_admission",
     }

@@ -84,6 +84,10 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Kernel/LDB and applicable artifact-schema authorities, or the implementation is exhaustively
   reverse-conformance checked against those exact artifacts. Before those authorities exist, a
   locally hashed envelope is research data, not a permanent Schema artifact.
+  An Artifact Contract is the sole identity-domain authority for its artifact schema. A
+  non-artifact Wire-Schema definition instead owns its identity domain inline. Admission requires
+  exactly one of those authority paths for every Wire Schema, so a host-derived kind-name fallback
+  and two competing declarations are both non-conforming.
 
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one

@@ -306,12 +306,14 @@ jq '.samples[] | {
 }' "$METRIC_PATH"
 ```
 
-With the committed example values, `base_damage = 40` produces `damage_dealt = 50`; target health
-changes from `100` to `50`, and actor mana changes from `30` to `22`.
+With the committed example values, `base_damage = 45` produces `damage_dealt = 60`; target health
+changes from `100` to `40`, and actor mana changes from `35` to `26`. These tutorial inputs are
+intentionally independent from the package's normative conformance-vector inputs: the public loop
+consumes the same admitted semantics without treating package evidence as product configuration.
 
 The committed values deliberately make both random branches reachable:
 
-- `accuracy = 20` and `target_defense = 30`, so a hit roll of at least `10` hits;
+- `accuracy = 25` and `target_defense = 30`, so a hit roll of at least `5` hits;
 - `critical_threshold = 50`, so a critical roll of at most `50` doubles base damage.
 
 Seed `20260726` draws hit `10` and critical `45`, producing the committed critical hit. To prove
@@ -334,21 +336,21 @@ uv run gda-balancing experiment run \
 ```
 
 Seed `4` draws hit `22` and critical `72`. It still hits, but takes the non-critical branch:
-damage is `10`, target health is `90`, and actor mana is `22`. The two fixed seeds therefore
+damage is `15`, target health is `85`, and actor mana is `26`. The two fixed seeds therefore
 exercise different critical outcomes and different terminal states while keeping the Model,
 scenario assignments, and Metric policy unchanged. A different seed can still produce the same
 result when its draws remain on the same modeled branches.
 
 ## 6. Tune a value and run again
 
-Create a working copy that raises `base_damage` from `40` to `60`:
+Create a working copy that raises `base_damage` from `45` to `65`:
 
 ```sh
 jq '(.scenarios[0].assignments[]
   | select(.target.name == "base_damage")
-  | .value) = 60' \
+  | .value) = 65' \
   examples/schema2/rpg-combat-cast/experiment.json \
-  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json"
+  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json"
 ```
 
 The Experiment input changed, so generate a new Invocation key and choose new output/receipt
@@ -359,11 +361,11 @@ export TUNED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
 export TUNED_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-set-receipt.json"
 
 uv run gda-balancing experiment check \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json" \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json" \
   | jq .
 
 uv run gda-balancing experiment run \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-60.json" \
+  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-evaluation-run.json" \
   --invocation-key "$TUNED_RUN_INVOCATION_KEY" \
   | tee "$TUNED_SET_RECEIPT"
@@ -383,7 +385,7 @@ jq '.samples[]
   | {metric, value, within_target}' "$TUNED_METRIC_PATH"
 ```
 
-For the committed seed and branch outcome, damage increases from `50` to `90`. The Experiment,
+For the committed seed and branch outcome, damage increases from `60` to `100`. The Experiment,
 trace, snapshots, Metrics, reproduction receipt, and Resolved Runtime profile receive new content
 identities, while the exact Model, Package Lock, and RIR bindings remain unchanged. This is the
 core tuning loop: change scenario/design intent, check it, run it, inspect evidence, and repeat.

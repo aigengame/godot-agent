@@ -174,7 +174,7 @@ class TestPerDescriptorRows:
 
     def test_input_immutability_row(self, descriptor, run_cli, invocation):
         # A document-taking command never rewrites its input (bADR-0011).
-        if descriptor.fixtures.valid_document is None:
+        if not descriptor.fixtures.has_valid_document:
             pytest.skip("no input document: not a document-taking command")
         argv = invocation(descriptor)
         document_path = Path(argv[-1])  # the positional path is appended last
@@ -251,7 +251,7 @@ class TestPerDescriptorRows:
     ):
         # No command writes to its input path (bADR-0009): `--out <the input
         # path>` is a usage `argument_conflict`, and the input file is untouched.
-        if not descriptor.artifact_sink or descriptor.fixtures.valid_document is None:
+        if not descriptor.artifact_sink or not descriptor.fixtures.has_valid_document:
             pytest.skip("not an artifact-sink command with a document input")
         argv = invocation(descriptor)
         input_path = argv[-1]  # the positional path is appended last
