@@ -17,6 +17,7 @@ from gda_balancing.commands.template import (
     TEMPLATE_INSTANTIATE,
     _member_schema_identities,
     _minimal_release,
+    _validate_template_release,
     template_get_handler,
     template_instantiate_handler,
 )
@@ -1028,6 +1029,62 @@ def test_artifact_identity_follows_its_contract_schema_kind():
             "extension-audit-schema",
         )
         == expected
+    )
+
+
+def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    language = cast(Any, language_bundle["language"])
+    schema_definition = next(
+        item
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "negative-vector"
+    )
+    wire_identity_domain = schema_definition.pop("wire_schema_identity_domain")
+    schema_definition["artifact_kind"] = "negative-vector-schema"
+    language["artifact_contracts"].append(
+        {
+            "artifact_kind": "negative-vector",
+            "identity_domain": "negative-vector-v2",
+            "identity_excluded_members": [],
+            "schema_kind": "negative-vector-schema",
+            "wire_schema_identity_domain": wire_identity_domain,
+        }
+    )
+    package = next(
+        item for item in language["packages"] if item["id"] == "standard.schema"
+    )
+    package["exports"]["artifact_contracts"].append("negative-vector")
+    schema_exports = package["exports"]["artifact_wire_schemas"]
+    schema_exports[schema_exports.index("negative-vector")] = "negative-vector-schema"
+    _reidentify_language_bundle(kernel, language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+
+    assert isinstance(context, AdmittedAuthorityContext)
+    release = _minimal_release(
+        cast(Any, context.kernel),
+        cast(Any, context.language_bundle),
+    )
+    member = next(
+        item
+        for item in cast(list[dict[str, Any]], release["members"])
+        if item["member_kind"] == "negative-vector"
+    )
+
+    assert member["member_schema_identity"] == artifact_wire_schema_identity(
+        context.language_bundle,
+        "negative-vector",
+    )
+    assert (
+        _validate_template_release(
+            release,
+            cast(Any, context.kernel),
+            cast(Any, context.language_bundle),
+            context,
+        )
+        is None
     )
 
 

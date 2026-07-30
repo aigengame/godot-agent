@@ -48,7 +48,11 @@ from gda_balancing.schema2.template_contract import (
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
 )
-from gda_balancing.schema2.wire_schema import wire_schema_identity
+from gda_balancing.schema2.wire_schema import (
+    wire_schema_for_kind,
+    wire_schema_identity,
+    wire_schema_identity_for_kind,
+)
 
 
 class TemplateListInput(BaseModel):
@@ -191,12 +195,29 @@ def _member_schema_identities(
     language_bundle: dict[str, JsonValue],
 ) -> dict[str, str]:
     language = cast(dict[str, JsonValue], language_bundle["language"])
-    identities: dict[str, str] = {}
-    for collection in ("wire_schemas", "artifact_wire_schemas"):
-        for item in cast(list[dict[str, JsonValue]], language[collection]):
-            kind = cast(str, item["artifact_kind"])
-            identities[kind] = wire_schema_identity(language_bundle, kind)
-    return identities
+    definitions = [
+        item
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for item in cast(list[dict[str, JsonValue]], language[collection])
+    ]
+    for item in definitions:
+        wire_schema_identity(
+            language_bundle,
+            cast(str, item["artifact_kind"]),
+        )
+    standalone_kinds = {
+        cast(str, item["artifact_kind"])
+        for item in definitions
+        if "wire_schema_identity_domain" in item
+    }
+    artifact_kinds = {
+        cast(str, item["artifact_kind"])
+        for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
+    }
+    return {
+        kind: wire_schema_identity_for_kind(language_bundle, kind)
+        for kind in standalone_kinds | artifact_kinds
+    }
 
 
 def _template_contract_refusal(
@@ -1234,11 +1255,9 @@ def _validate_template_release(
 ) -> Schema2RefusalReport | None:
     """Admit one packaged release against its exact Kernel/LDB authority."""
     schema_identities = _member_schema_identities(language_bundle)
-    language = cast(dict[str, JsonValue], language_bundle["language"])
     schemas = {
-        cast(str, item["artifact_kind"]): cast(dict[str, JsonValue], item["schema"])
-        for collection in ("wire_schemas", "artifact_wire_schemas")
-        for item in cast(list[dict[str, JsonValue]], language[collection])
+        kind: cast(dict[str, JsonValue], wire_schema_for_kind(language_bundle, kind))
+        for kind in schema_identities
     }
     try:
         profile = _template_admission_profile(language_bundle)

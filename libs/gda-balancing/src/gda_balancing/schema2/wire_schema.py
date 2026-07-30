@@ -74,25 +74,17 @@ def artifact_wire_schema_identity(
     artifact_kind: str,
 ) -> str:
     """Identify an artifact's schema through its exact Artifact Contract."""
-    language = cast(dict[str, Any], language_bundle["language"])
-    contracts = [
-        item
-        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
-        if item.get("artifact_kind") == artifact_kind
-    ]
-    if len(contracts) != 1:
-        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
-    schema_kind = contracts[0].get("schema_kind")
-    if not isinstance(schema_kind, str) or not schema_kind:
-        raise ValueError(f"artifact schema kind is unavailable for {artifact_kind}")
-    return wire_schema_identity(language_bundle, schema_kind)
+    return wire_schema_identity(
+        language_bundle,
+        wire_schema_kind_for_kind(language_bundle, artifact_kind),
+    )
 
 
-def wire_schema_identity_for_kind(
+def wire_schema_kind_for_kind(
     language_bundle: dict[str, Any],
     kind: str,
 ) -> str:
-    """Identify an artifact kind or a standalone non-artifact schema kind."""
+    """Resolve an artifact kind to its schema kind, or retain a standalone kind."""
     language = cast(dict[str, Any], language_bundle["language"])
     contracts = [
         item
@@ -101,6 +93,33 @@ def wire_schema_identity_for_kind(
     ]
     if len(contracts) > 1:
         raise ValueError(f"artifact contract is not unique: {kind}")
-    if contracts:
-        return artifact_wire_schema_identity(language_bundle, kind)
-    return wire_schema_identity(language_bundle, kind)
+    if not contracts:
+        return kind
+    schema_kind = contracts[0].get("schema_kind")
+    if not isinstance(schema_kind, str) or not schema_kind:
+        raise ValueError(f"artifact schema kind is unavailable for {kind}")
+    return schema_kind
+
+
+def wire_schema_for_kind(
+    language_bundle: dict[str, Any],
+    kind: str,
+) -> dict[str, Any]:
+    """Resolve one artifact or standalone kind to its exact admitted Wire Schema."""
+    schema_kind = wire_schema_kind_for_kind(language_bundle, kind)
+    definition = _wire_schema_definition(language_bundle, schema_kind)
+    schema = definition.get("schema")
+    if not isinstance(schema, dict):
+        raise ValueError(f"wire schema body is unavailable for {schema_kind}")
+    return schema
+
+
+def wire_schema_identity_for_kind(
+    language_bundle: dict[str, Any],
+    kind: str,
+) -> str:
+    """Identify an artifact kind or a standalone non-artifact schema kind."""
+    return wire_schema_identity(
+        language_bundle,
+        wire_schema_kind_for_kind(language_bundle, kind),
+    )

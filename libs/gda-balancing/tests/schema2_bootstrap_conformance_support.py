@@ -3218,12 +3218,18 @@ def _consumer_b_template_admission_is_closed(
     roles = profile.get("member_roles")
     judgments = profile.get("judgments")
     role_names = {row.get("role") for row in roles or [] if isinstance(row, dict)}
-    schema_kinds = {
+    standalone_schema_kinds = {
         row.get("artifact_kind")
         for collection in ("wire_schemas", "artifact_wire_schemas")
         for row in language.get(collection, [])
+        if isinstance(row, dict) and "wire_schema_identity_domain" in row
+    }
+    artifact_schema_kinds = {
+        row.get("artifact_kind")
+        for row in language.get("artifact_contracts", [])
         if isinstance(row, dict)
     }
+    schema_kinds = standalone_schema_kinds | artifact_schema_kinds
     if (
         not isinstance(roles, list)
         or not roles

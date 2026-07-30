@@ -3654,12 +3654,18 @@ def _template_admission_profiles_are_closed(
         return False
     role_rows = profile.get("member_roles")
     judgments = profile.get("judgments")
-    schema_kinds = {
+    standalone_schema_kinds = {
         row.get("artifact_kind")
         for collection in ("wire_schemas", "artifact_wire_schemas")
         for row in cast(list[dict[str, Any]], language.get(collection, []))
+        if isinstance(row, dict) and "wire_schema_identity_domain" in row
+    }
+    artifact_schema_kinds = {
+        row.get("artifact_kind")
+        for row in cast(list[dict[str, Any]], language.get("artifact_contracts", []))
         if isinstance(row, dict)
     }
+    schema_kinds = standalone_schema_kinds | artifact_schema_kinds
     if (
         not isinstance(role_rows, list)
         or not role_rows

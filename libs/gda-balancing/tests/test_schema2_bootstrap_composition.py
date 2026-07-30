@@ -32,6 +32,41 @@ def test_two_consumers_admit_reidentified_nested_integer_literal():
     assert first["admitted"] is True
 
 
+def test_two_consumers_admit_a_template_role_with_distinct_artifact_schema_kind():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    schema_definition = next(
+        item
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "negative-vector"
+    )
+    wire_identity_domain = schema_definition.pop("wire_schema_identity_domain")
+    schema_definition["artifact_kind"] = "negative-vector-schema"
+    language["artifact_contracts"].append(
+        {
+            "artifact_kind": "negative-vector",
+            "identity_domain": "negative-vector-v2",
+            "identity_excluded_members": [],
+            "schema_kind": "negative-vector-schema",
+            "wire_schema_identity_domain": wire_identity_domain,
+        }
+    )
+    package = next(
+        item for item in language["packages"] if item["id"] == "standard.schema"
+    )
+    package["exports"]["artifact_contracts"].append("negative-vector")
+    schema_exports = package["exports"]["artifact_wire_schemas"]
+    schema_exports[schema_exports.index("negative-vector")] = "negative-vector-schema"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+
+
 @pytest.mark.parametrize(
     "initialization_source",
     ("named-random-stream", "resolved-model"),
