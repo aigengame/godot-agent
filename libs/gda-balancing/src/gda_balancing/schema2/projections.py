@@ -4,6 +4,7 @@ from typing import cast
 
 from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.wire_schema import wire_schema_identity_domain
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
@@ -71,25 +72,18 @@ def wire_schema_projection(
         },
     ]
     language = cast(dict[str, JsonValue], ldb["language"])
-    artifact_contracts = {
-        cast(str, cast(dict[str, JsonValue], raw)["artifact_kind"]): cast(
-            str, cast(dict[str, JsonValue], raw)["wire_schema_identity_domain"]
-        )
-        for raw in cast(list[JsonValue], language.get("artifact_contracts", []))
-    }
     for collection in ("wire_schemas", "artifact_wire_schemas"):
         for raw in cast(list[JsonValue], language.get(collection, [])):
             item = cast(dict[str, JsonValue], raw)
             artifact_kind = cast(str, item["artifact_kind"])
             schema = cast(dict[str, JsonValue], item["schema"])
-            identity_domain = artifact_contracts.get(
-                artifact_kind, f"{artifact_kind}-wire-schema-v2"
-            )
             schemas.append(
                 {
                     "artifact_kind": artifact_kind,
                     "schema": _identified_ldb_schema(
-                        artifact_kind, schema, identity_domain
+                        artifact_kind,
+                        schema,
+                        wire_schema_identity_domain(ldb, artifact_kind),
                     ),
                 }
             )

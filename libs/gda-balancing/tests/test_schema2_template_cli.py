@@ -33,6 +33,7 @@ from gda_balancing.schema2.model import (
     check_model_source_value,
     checked_model_template_facts,
 )
+from gda_balancing.schema2.projections import wire_schema_projection
 
 
 def _reidentify_release(release):
@@ -919,6 +920,48 @@ def test_template_schema_identity_refuses_a_missing_authority_contract():
         match=f"exact wire-schema identity domain is unavailable for {schema_kind}",
     ):
         _member_schema_identities(language_bundle)
+
+
+def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    source_schema = cast(Any, language_bundle["language"])["wire_schemas"][0]
+    source_schema["wire_schema_identity_domain"] = "extension-owned-wire-v9"
+    _reidentify_language_bundle(kernel, language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+
+    assert isinstance(context, AdmittedAuthorityContext)
+    schema_body = {
+        key: value for key, value in source_schema["schema"].items() if key != "$id"
+    }
+    expected = content_identity("extension-owned-wire-v9", schema_body)
+    projection = wire_schema_projection(
+        {
+            "kernel": cast(Any, context.kernel),
+            "language_bundle": cast(Any, context.language_bundle),
+        }
+    )
+    projected_source_schema = next(
+        row["schema"]
+        for row in cast(list[dict[str, Any]], projection["schemas"])
+        if row["artifact_kind"] == "model-source-package"
+    )
+
+    assert _member_schema_identities(context.language_bundle)[
+        "model-source-package"
+    ] == schema2_model._wire_schema_identity_for_kind(
+        context.language_bundle,
+        "model-source-package",
+    )
+    assert (
+        schema2_model._wire_schema_identity_for_kind(
+            context.language_bundle,
+            "model-source-package",
+        )
+        == expected
+    )
+    assert projected_source_schema["$id"].endswith(expected.removeprefix("sha256:"))
 
 
 def test_minimal_release_derives_every_authority_identity_from_its_inputs():

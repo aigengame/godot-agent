@@ -44,6 +44,9 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
     reason_by_id,
 )
+from gda_balancing.schema2.wire_schema import (
+    wire_schema_identity as authority_wire_schema_identity,
+)
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
@@ -1190,30 +1193,7 @@ def _artifact_schema(
 def _wire_schema_identity_for_kind(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> str:
-    language = _language(language_bundle)
-    schemas = [
-        item["schema"]
-        for collection in ("wire_schemas", "artifact_wire_schemas")
-        for item in cast(list[dict[str, Any]], language[collection])
-        if item["artifact_kind"] == artifact_kind
-    ]
-    if len(schemas) != 1:
-        raise ValueError(f"wire schema is not unique: {artifact_kind}")
-    contracts = [
-        item
-        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
-        if item["artifact_kind"] == artifact_kind
-    ]
-    if len(contracts) > 1:
-        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
-    domain = (
-        cast(str, contracts[0]["wire_schema_identity_domain"])
-        if contracts
-        else f"{artifact_kind}-wire-schema-v2"
-    )
-    schema = cast(dict[str, Any], schemas[0])
-    body = {key: value for key, value in schema.items() if key != "$id"}
-    return content_identity(domain, cast(JsonValue, body))
+    return authority_wire_schema_identity(language_bundle, artifact_kind)
 
 
 def _identified_artifact(

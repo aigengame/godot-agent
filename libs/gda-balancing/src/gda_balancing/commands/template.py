@@ -48,6 +48,7 @@ from gda_balancing.schema2.template_contract import (
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
 )
+from gda_balancing.schema2.wire_schema import wire_schema_identity
 
 
 class TemplateListInput(BaseModel):
@@ -190,34 +191,11 @@ def _member_schema_identities(
     language_bundle: dict[str, JsonValue],
 ) -> dict[str, str]:
     language = cast(dict[str, JsonValue], language_bundle["language"])
-    contracts = {
-        cast(str, item["artifact_kind"]): cast(str, item["wire_schema_identity_domain"])
-        for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
-    }
     identities: dict[str, str] = {}
     for collection in ("wire_schemas", "artifact_wire_schemas"):
         for item in cast(list[dict[str, JsonValue]], language[collection]):
             kind = cast(str, item["artifact_kind"])
-            schema = cast(dict[str, JsonValue], item["schema"])
-            inline_domain = item.get("wire_schema_identity_domain")
-            contract_domain = contracts.get(kind)
-            if inline_domain is None and contract_domain is None:
-                raise ValueError(
-                    f"exact wire-schema identity domain is unavailable for {kind}"
-                )
-            if inline_domain is not None and contract_domain is not None:
-                raise ValueError(
-                    f"wire-schema identity-domain authority is ambiguous for {kind}"
-                )
-            domain = inline_domain if inline_domain is not None else contract_domain
-            if not isinstance(domain, str) or not domain:
-                raise ValueError(
-                    f"exact wire-schema identity domain is unavailable for {kind}"
-                )
-            identities[kind] = content_identity(
-                domain,
-                schema,
-            )
+            identities[kind] = wire_schema_identity(language_bundle, kind)
     return identities
 
 
