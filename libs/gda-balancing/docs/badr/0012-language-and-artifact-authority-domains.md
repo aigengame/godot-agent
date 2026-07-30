@@ -31,8 +31,11 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   - stable post-admission diagnostic-code definitions;
   - package manifests, capabilities, dependencies, and compatibility rules.
   bADR-0022 fixes the Kernel-Specification boundary, canonical bundle, structured-rule meta-format,
-  Semantic kernel, and conformance boundary. A host compiler, evaluator, bootstrap interpreter, or
-  reference implementation conforms to this chain; its source code is never another authority.
+  Semantic kernel, and conformance boundary. bADR-0023 fixes the LDB's physical and identity form:
+  one sealed root manifest plus complete content-addressed package members constitute one exact
+  artifact graph, while post-admission flat indexes are derived non-authorities. A host compiler,
+  evaluator, bootstrap interpreter, or reference implementation conforms to this chain; its source
+  code is never another authority.
   Field-level wire projections remain generated implementation artifacts.
 
 - **Every other language-description surface is a projection or a conforming implementation.**
@@ -45,10 +48,14 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 - **Authored facts are divided into three non-overlapping authority domains:**
   1. The **Model Source Package** is the sole editable authority for a game's model definitions and
-     declared dependency requirements. It contains an authored manifest and model modules.
+     declared dependency requirements. It contains an authored manifest, model modules, symbols
+     with value policies, and Model entrypoints that bind those symbols to exact LDB Operation
+     interfaces.
   2. The **Experiment Specification** is the authority for scenarios, model inputs, metrics,
-     targets, observation/calibration policy, and other evaluation intent. It references an exact
-     resolved-model identity or an explicit compatibility contract and cannot redefine the model.
+     targets, observation/calibration policy, and other evaluation intent. Each scenario selects a
+     Model entrypoint and totally assigns its generated Scenario Input Contract. It references an
+     exact resolved-model identity or an explicit compatibility contract and cannot redefine the
+     model, select a raw LDB Operation, or invent a model input.
   3. The **Approval Record** is the immutable governance authority for one approval decision. It
      binds the exact model, experiment, evidence, evaluator, policy, and attestation identities and
      cannot mutate or copy their owned facts.
@@ -62,7 +69,7 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   immutable wrapper binding that payload to the exact Kernel, whole LDB, and Lock identities. The
   wrapper is the execution authority for the exact build it represents, but none of these generated
   artifacts may be edited as a substitute for source. A complete content-addressed Domain package
-  release is normative content inside the LDB, never an ambient peer registry.
+  release is one root-declared child in the sealed LDB graph, never an ambient peer registry.
 
 - **Artifact identity is independent of storage and transport.** Every public artifact has a closed
   envelope that binds its artifact kind, wire-schema identity, content identity, and normative
@@ -77,6 +84,13 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Kernel/LDB and applicable artifact-schema authorities, or the implementation is exhaustively
   reverse-conformance checked against those exact artifacts. Before those authorities exist, a
   locally hashed envelope is research data, not a permanent Schema artifact.
+  An Artifact Contract is the sole identity-domain authority for its artifact schema. A
+  non-artifact Wire-Schema definition instead owns its identity domain inline. Admission requires
+  exactly one of those authority paths for every Wire Schema, so a host-derived kind-name fallback
+  and two competing declarations are both non-conforming. The two irreducible root-authority
+  projections have no containing LDB definition or Artifact Contract: the Kernel therefore owns
+  the fixed identity domains for the exact Kernel and LDB public Wire Schemas. This root exception
+  does not enumerate Domain-package or extension schema kinds in the Kernel.
 
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one
@@ -145,6 +159,12 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   exactly one Resolved Model before execution and publish a final binding receipt containing the
   selector, resolver identity, selected exact identity, and review disposition. Zero or multiple
   matches are `resolution` refusals; silent or in-place rebinding is prohibited.
+
+- **Invocation authority is a one-way chain.** The LDB Operation is the sole authority for formal
+  ports and reusable behavior. Model Source symbols are game-owned actual operands, and a Model
+  entrypoint owns their explicit binding to one exact Operation interface. RIR derives the resolved
+  call graph and Scenario Input Contract. Experiment assigns only those derived symbol identities.
+  No layer copies a peer input declaration or infers a binding from equal names.
 
 - **Schema and product versions remain independent.** “Standard Schema 2.0” identifies the
   language/specification major. It does not imply a `gda-balancing` 2.0.0 release; product version

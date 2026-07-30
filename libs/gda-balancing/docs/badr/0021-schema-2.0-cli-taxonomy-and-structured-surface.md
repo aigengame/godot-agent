@@ -25,7 +25,7 @@ structured-params adapter part of the first vertical tracer.
   | Group | Commands | Authority/artifact boundary |
   |---|---|---|
   | `schema` | `get language-bundle`, `get wire-schema`, `get diagnostic-catalog` | emit the Language Definition Bundle or a named generated projection |
-  | `package` | `list`, `get` | enumerate or retrieve package definitions from one exact language bundle |
+  | `package` | `list`, `get` | enumerate root-declared packages or retrieve an exact Package Release manifest/conformance-vector member from one exact language bundle |
   | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | validate/resolve source, build or compare RIR artifacts, or attempt limited 1.x source conversion |
   | `template` | `list`, `get`, `instantiate` | enumerate template releases or create a new Model Source Package identity |
   | `experiment` | `check`, `run`, `replay`, `compare` | validate Experiment Specifications or produce/compare deterministic Evaluation runs and Metric datasets |
@@ -49,6 +49,12 @@ structured-params adapter part of the first vertical tracer.
   Language Definition Bundle/resolution inputs, then returns identities/receipts for the generated
   Package Lock, Resolved Model (RIR), Capability manifest, and compiler provenance.
   `model check` performs the same gated front end without claiming or emitting a build artifact.
+
+- **`package get` preserves Package Release member boundaries.** The exact package coordinate and
+  closed `member` selector retrieve either `release` (the default manifest) or
+  `conformance-vectors`. The command returns the stored canonical member without merging,
+  regenerating, or treating the vector child as an independently selectable package. Its success
+  schema is derived from the admitted Kernel contracts for both member kinds.
 
 - **`experiment run` is the public execution/evaluation boundary.** It admits artifact identities
   rather than redefining source values in flags and returns the completed Evaluation run, Metric

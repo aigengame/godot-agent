@@ -13,16 +13,21 @@ from gda_balancing.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import (
-    admit_authorities,
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    AuthorityContextProvider,
+    AuthorityLoadError,
+    packaged_authority_context,
+    resolve_authority_context,
 )
+from gda_balancing.schema2.bootstrap import BootstrapAdmission
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
     bootstrap_refusal,
+    ingress_refusal,
 )
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
@@ -31,6 +36,7 @@ from gda_balancing.schema2.model import (
     check_model_source_value,
     checked_model_template_facts,
     identified_artifact,
+    model_source_identity_domain,
     publication_authentication_key,
     publish_artifact_set,
     verify_artifact,
@@ -41,6 +47,11 @@ from gda_balancing.schema2.template_contract import (
     TEMPLATE_PRIMITIVE_EVALUATIONS,
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
+)
+from gda_balancing.schema2.wire_schema import (
+    wire_schema_for_kind,
+    wire_schema_identity,
+    wire_schema_identity_for_kind,
 )
 
 
@@ -150,6 +161,8 @@ def _member(
     member_kind: str,
     member_schema_identity: str,
     payload: JsonValue,
+    *,
+    identity_domain: str,
 ) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "logical_name": logical_name,
@@ -159,28 +172,52 @@ def _member(
     }
     return {
         **body,
-        "content_identity": content_identity("template-member-v2", body),
+        "content_identity": content_identity(identity_domain, body),
     }
+
+
+def _artifact_identity_domain(
+    language_bundle: dict[str, JsonValue],
+    artifact_kind: str,
+) -> str:
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    matches = [
+        cast(str, item["identity_domain"])
+        for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(matches) != 1 or not matches[0]:
+        raise ValueError(f"exact identity domain is unavailable for {artifact_kind}")
+    return matches[0]
 
 
 def _member_schema_identities(
     language_bundle: dict[str, JsonValue],
 ) -> dict[str, str]:
     language = cast(dict[str, JsonValue], language_bundle["language"])
-    contracts = {
-        cast(str, item["artifact_kind"]): cast(str, item["wire_schema_identity_domain"])
+    definitions = [
+        item
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for item in cast(list[dict[str, JsonValue]], language[collection])
+    ]
+    for item in definitions:
+        wire_schema_identity(
+            language_bundle,
+            cast(str, item["artifact_kind"]),
+        )
+    standalone_kinds = {
+        cast(str, item["artifact_kind"])
+        for item in definitions
+        if "wire_schema_identity_domain" in item
+    }
+    artifact_kinds = {
+        cast(str, item["artifact_kind"])
         for item in cast(list[dict[str, JsonValue]], language["artifact_contracts"])
     }
-    identities: dict[str, str] = {}
-    for collection in ("wire_schemas", "artifact_wire_schemas"):
-        for item in cast(list[dict[str, JsonValue]], language[collection]):
-            kind = cast(str, item["artifact_kind"])
-            schema = cast(dict[str, JsonValue], item["schema"])
-            identities[kind] = content_identity(
-                contracts.get(kind, f"{kind}-wire-schema-v2"),
-                schema,
-            )
-    return identities
+    return {
+        kind: wire_schema_identity_for_kind(language_bundle, kind)
+        for kind in standalone_kinds | artifact_kinds
+    }
 
 
 def _template_contract_refusal(
@@ -673,6 +710,7 @@ def _execute_template_derivation(
     select: Callable[[Any], list[Any]],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     if kind == "content-identity":
         values = select(arguments[cast(str, evaluation["selector"])])
@@ -708,8 +746,7 @@ def _execute_template_derivation(
     state.source = cast(dict[str, Any], roles[role][0]["payload"])
     checked = check_model_source_value(
         state.source,
-        kernel=cast(dict[str, Any], kernel),
-        language_bundle=cast(dict[str, Any], language_bundle),
+        authority_context=authority_context,
     )
     if isinstance(checked, Schema2RefusalReport):
         return checked
@@ -900,6 +937,7 @@ def _execute_template_vector(
     budget: _TemplateAdmissionBudget,
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> bool:
     role = cast(str, arguments[cast(str, evaluation["role"])])
     if state.source is None:
@@ -935,8 +973,7 @@ def _execute_template_vector(
         result = (
             check_model_source_value(
                 mutated,
-                kernel=cast(dict[str, Any], kernel),
-                language_bundle=cast(dict[str, Any], language_bundle),
+                authority_context=authority_context,
             )
             if mutated is not None
             else None
@@ -972,6 +1009,7 @@ def _validate_template_semantics(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     """Interpret the LDB Template artifact-graph program under Kernel primitives."""
     try:
@@ -1118,6 +1156,7 @@ def _validate_template_semantics(
                     select,
                     kernel,
                     language_bundle,
+                    authority_context,
                 )
                 if refusal is not None:
                     return refusal
@@ -1147,6 +1186,7 @@ def _validate_template_semantics(
                     budget,
                     kernel,
                     language_bundle,
+                    authority_context,
                 )
             else:
                 raise ValueError(
@@ -1211,16 +1251,20 @@ def _validate_template_release(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
+    authority_context: AdmittedAuthorityContext,
 ) -> Schema2RefusalReport | None:
     """Admit one packaged release against its exact Kernel/LDB authority."""
     schema_identities = _member_schema_identities(language_bundle)
-    language = cast(dict[str, JsonValue], language_bundle["language"])
     schemas = {
-        cast(str, item["artifact_kind"]): cast(dict[str, JsonValue], item["schema"])
-        for collection in ("wire_schemas", "artifact_wire_schemas")
-        for item in cast(list[dict[str, JsonValue]], language[collection])
+        kind: cast(dict[str, JsonValue], wire_schema_for_kind(language_bundle, kind))
+        for kind in schema_identities
     }
     try:
+        profile = _template_admission_profile(language_bundle)
+        member_identity_domain = cast(str, profile["member_identity_domain"])
+        release_identity_domain = _artifact_identity_domain(
+            language_bundle, "template-release"
+        )
         jsonschema.validate(release, schemas["template-release"])
         if release["wire_schema_identity"] != schema_identities["template-release"]:
             return _template_contract_refusal(
@@ -1232,7 +1276,7 @@ def _validate_template_release(
             key: value for key, value in release.items() if key != "content_identity"
         }
         if release["content_identity"] != content_identity(
-            "template-release-v2", release_body
+            release_identity_domain, release_body
         ):
             return _template_contract_refusal(
                 release,
@@ -1275,7 +1319,7 @@ def _validate_template_release(
                 key: value for key, value in member.items() if key != "content_identity"
             }
             if member["content_identity"] != content_identity(
-                "template-member-v2", member_body
+                member_identity_domain, member_body
             ):
                 return _template_contract_refusal(
                     release,
@@ -1306,7 +1350,12 @@ def _validate_template_release(
             "/language_bundle_identity",
             "Template release is incompatible with the admitted LDB",
         )
-    return _validate_template_semantics(release, kernel, language_bundle)
+    return _validate_template_semantics(
+        release,
+        kernel,
+        language_bundle,
+        authority_context,
+    )
 
 
 def _minimal_release(
@@ -1316,14 +1365,35 @@ def _minimal_release(
     kernel_identity = cast(str, kernel["content_identity"])
     language_bundle_identity = cast(str, language_bundle["content_identity"])
     language = cast(dict[str, JsonValue], language_bundle["language"])
+    packages = cast(list[dict[str, JsonValue]], language["packages"])
     package_matches = [
         package
-        for package in cast(list[dict[str, JsonValue]], language["packages"])
+        for package in packages
         if (package.get("id"), package.get("version")) == ("core.quantity", "2.0.0")
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
-    package_identity = cast(str, package_matches[0]["content_identity"])
+    packages_by_coordinate = {
+        (cast(str, package["id"]), cast(str, package["version"])): package
+        for package in packages
+        if isinstance(package.get("id"), str)
+        and isinstance(package.get("version"), str)
+    }
+    selected_coordinates = {("core.quantity", "2.0.0")}
+    pending = [("core.quantity", "2.0.0")]
+    while pending:
+        coordinate = pending.pop()
+        package = packages_by_coordinate[coordinate]
+        dependencies = cast(dict[str, JsonValue], package["dependencies"])
+        for dependency in cast(list[dict[str, str]], dependencies["required"]):
+            dependency_coordinate = (dependency["id"], dependency["version"])
+            if dependency_coordinate not in selected_coordinates:
+                selected_coordinates.add(dependency_coordinate)
+                pending.append(dependency_coordinate)
+    selected_packages = [
+        packages_by_coordinate[coordinate]
+        for coordinate in sorted(selected_coordinates)
+    ]
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
         "manifest": {
@@ -1354,28 +1424,51 @@ def _minimal_release(
                         "domain_kind": "closed-interval",
                         "domain": {"minimum": 0, "maximum": 100},
                         "numeric_policy": "exact-int64",
+                        "value_policy": {"mode": "experiment-required"},
                     }
                 ],
             }
         ],
+        "entrypoints": [],
     }
-    starter_identity = content_identity("model-source-package-v2", starter)
+    profile = _template_admission_profile(language_bundle)
+    member_identity_domain = cast(str, profile["member_identity_domain"])
+    source_identity_domain = model_source_identity_domain(language_bundle)
+    release_identity_domain = _artifact_identity_domain(
+        language_bundle, "template-release"
+    )
+    starter_identity = content_identity(source_identity_domain, starter)
     experiment_id = "standard.quantity-minimal.experiment"
     golden_id = "standard.quantity-minimal.golden"
     negative_id = "standard.quantity-minimal.invalid-domain"
     boundary_id = "standard.quantity-minimal.maximum-boundary"
     schema_identities = _member_schema_identities(language_bundle)
+
+    def build_member(
+        logical_name: str,
+        member_kind: str,
+        member_schema_identity: str,
+        payload: JsonValue,
+    ) -> dict[str, JsonValue]:
+        return _member(
+            logical_name,
+            member_kind,
+            member_schema_identity,
+            payload,
+            identity_domain=member_identity_domain,
+        )
+
     members = [
-        _member(
+        build_member(
             "starter-model-source",
             "model-source-package",
             schema_identities["model-source-package"],
             starter,
         ),
-        _member(
+        build_member(
             "experiment-specification",
-            "experiment-specification",
-            schema_identities["experiment-specification"],
+            "experiment-template",
+            schema_identities["experiment-template"],
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
@@ -1394,7 +1487,7 @@ def _minimal_release(
                 ],
             },
         ),
-        _member(
+        build_member(
             "declared-package-dependencies",
             "declared-package-dependencies",
             schema_identities["declared-package-dependencies"],
@@ -1402,14 +1495,15 @@ def _minimal_release(
                 "schema_version": "2.0.0",
                 "packages": [
                     {
-                        "id": "core.quantity",
-                        "version": "2.0.0",
-                        "content_identity": package_identity,
+                        "id": package["id"],
+                        "version": package["version"],
+                        "content_identity": package["content_identity"],
                     }
+                    for package in selected_packages
                 ],
             },
         ),
-        _member(
+        build_member(
             "defaults",
             "template-defaults",
             schema_identities["template-defaults"],
@@ -1418,7 +1512,7 @@ def _minimal_release(
                 "symbol_values": [{"symbol": "main.value", "value": 50}],
             },
         ),
-        _member(
+        build_member(
             "compatibility",
             "template-compatibility",
             schema_identities["template-compatibility"],
@@ -1429,7 +1523,7 @@ def _minimal_release(
                 "packages": [{"id": "core.quantity", "version": "2.0.0"}],
             },
         ),
-        _member(
+        build_member(
             "documentation",
             "template-documentation",
             schema_identities["template-documentation"],
@@ -1439,7 +1533,7 @@ def _minimal_release(
                 "text": "A minimal editable Quantity Model Source Package.",
             },
         ),
-        _member(
+        build_member(
             "coverage-matrix",
             "genre-coverage-matrix",
             schema_identities["genre-coverage-matrix"],
@@ -1460,7 +1554,7 @@ def _minimal_release(
                 ],
             },
         ),
-        _member(
+        build_member(
             "golden-scenario",
             "golden-scenario",
             schema_identities["golden-scenario"],
@@ -1473,7 +1567,7 @@ def _minimal_release(
                 "value": 50,
             },
         ),
-        _member(
+        build_member(
             "negative-vector",
             "negative-vector",
             schema_identities["negative-vector"],
@@ -1487,7 +1581,7 @@ def _minimal_release(
                 },
             },
         ),
-        _member(
+        build_member(
             "boundary-vector",
             "boundary-vector",
             schema_identities["boundary-vector"],
@@ -1525,7 +1619,7 @@ def _minimal_release(
     }
     return {
         **body,
-        "content_identity": content_identity("template-release-v2", body),
+        "content_identity": content_identity(release_identity_domain, body),
     }
 
 
@@ -1540,16 +1634,26 @@ class _AdmittedTemplate:
 
 def _load_admitted_template(
     provider: TemplateProvider,
+    authority_context_provider: AuthorityContextProvider,
 ) -> _AdmittedTemplate | Schema2RefusalReport:
-    kernel, language_bundle = load_authorities()
-    admission = admit_authorities(kernel, language_bundle)
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    try:
+        context = resolve_authority_context(authority_context_provider)
+    except AuthorityLoadError as err:
+        return ingress_refusal(err.code, err.subject, err.message)
+    if isinstance(context, BootstrapAdmission):
+        return bootstrap_refusal(context)
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     release = provider(
         cast(dict[str, JsonValue], kernel),
         cast(dict[str, JsonValue], language_bundle),
     )
-    refusal = _validate_template_release(release, kernel, language_bundle)
+    refusal = _validate_template_release(
+        release,
+        cast(dict[str, JsonValue], kernel),
+        cast(dict[str, JsonValue], language_bundle),
+        context,
+    )
     if refusal is not None:
         return refusal
     return _AdmittedTemplate(
@@ -1563,11 +1667,13 @@ def _load_admitted_template(
 
 def template_list_handler(
     provider: TemplateProvider,
+    *,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[[TemplateListInput], TemplateListResult | Schema2RefusalReport]:
     def _run(
         _inp: TemplateListInput,
     ) -> TemplateListResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release
@@ -1589,11 +1695,13 @@ run_template_list = template_list_handler(_minimal_release)
 
 def template_get_handler(
     provider: TemplateProvider,
+    *,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[[TemplateGetInput], TemplateReleaseResult | Schema2RefusalReport]:
     def _run(
         inp: TemplateGetInput,
     ) -> TemplateReleaseResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release
@@ -1605,7 +1713,7 @@ def template_get_handler(
                 "/id",
                 f"Template release {inp.id}@{inp.version} is unavailable",
             )
-        return TemplateReleaseResult(root=cast(dict[str, Any], release))
+        return TemplateReleaseResult(root=deepcopy(cast(dict[str, Any], release)))
 
     return _run
 
@@ -1617,6 +1725,7 @@ def template_instantiate_handler(
     provider: TemplateProvider,
     *,
     publication_fault: str | None = None,
+    authority_context_provider: AuthorityContextProvider = packaged_authority_context,
 ) -> Callable[
     [TemplateInstantiateInput],
     TemplateInstantiateResult | Schema2RefusalReport,
@@ -1626,7 +1735,7 @@ def template_instantiate_handler(
     def _run(
         inp: TemplateInstantiateInput,
     ) -> TemplateInstantiateResult | Schema2RefusalReport:
-        admitted = _load_admitted_template(provider)
+        admitted = _load_admitted_template(provider, authority_context_provider)
         if isinstance(admitted, Schema2RefusalReport):
             return admitted
         release = admitted.release
@@ -1659,7 +1768,8 @@ def template_instantiate_handler(
             starter_member["payload"],
         )
         source = cast(dict[str, JsonValue], deepcopy(starter))
-        starter_identity = content_identity("model-source-package-v2", starter)
+        source_identity_domain = model_source_identity_domain(language_bundle)
+        starter_identity = content_identity(source_identity_domain, starter)
         manifest = cast(dict[str, JsonValue], source["manifest"])
         manifest["id"] = inp.package_id
         manifest["template_provenance"] = {
@@ -1668,7 +1778,7 @@ def template_instantiate_handler(
             "template_identity": release["content_identity"],
             "starter_identity": starter_identity,
         }
-        source_identity = content_identity("model-source-package-v2", source)
+        source_identity = content_identity(source_identity_domain, source)
         schema_identities = admitted.schema_identities
         command_input = identified_artifact(
             language_bundle,
@@ -1706,7 +1816,7 @@ def template_instantiate_handler(
                 except jsonschema.ValidationError:
                     return False
                 return (
-                    content_identity("model-source-package-v2", cast(JsonValue, value))
+                    content_identity(source_identity_domain, cast(JsonValue, value))
                     == source_identity
                 )
             return verify_artifact(value, language_bundle)

@@ -14,6 +14,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -70,15 +71,29 @@ class ConformanceFixtures:
     never a file path**: the harness materializes each to a tmp file and
     appends that path as the positional argument (a committed ``.json`` file
     would both be cwd-dependent and trip the isolation gate's per-game-config
-    scan). ``refusing_document`` — a document that provokes a *stable* funnel
-    refusal — is required for a document-taking command (bADR-0011's refusal
-    row); a command that takes no document leaves both ``None``.
+    scan). A stateful command may instead provide ``prepare_valid_document``;
+    the public prerequisite path it drives is then the only valid-document
+    authority. ``refusing_document`` — a document that provokes a *stable*
+    funnel refusal — is required for a document-taking command (bADR-0011's
+    refusal row); a command that takes no document leaves both sources
+    ``None``.
     """
 
     valid_args: tuple[str, ...] = ()
     refusing_args: tuple[str, ...] = ()
     valid_document: str | None = None
     refusing_document: str | None = None
+    # Stateful artifact consumers may prepare their valid document by running
+    # declared public prerequisites inside the isolated conformance store.
+    prepare_valid_document: Callable[[Path, int], str] | None = None
+    prepare_verdict_document: Callable[[Path, int], str] | None = None
+
+    @property
+    def has_valid_document(self) -> bool:
+        """Whether the harness owns one static or prepared valid document."""
+        return (
+            self.valid_document is not None or self.prepare_valid_document is not None
+        )
 
 
 @dataclass(frozen=True)
@@ -100,14 +115,37 @@ class ArtifactSetMemberSpec:
 class RefusalDetailSpec:
     """The one closed, stage-specific detail field admitted in 2.x."""
 
-    stage: Literal["migration"]
-    field_name: Literal["migration_report"]
+    stage: Literal["migration", "runtime"]
+    field_name: Literal["migration_report", "terminal_audit"]
     schema: Callable[[], dict[str, object]]
 
     def __post_init__(self) -> None:
-        if self.stage != "migration" or self.field_name != "migration_report":
+        if (self.stage, self.field_name) not in {
+            ("migration", "migration_report"),
+            ("runtime", "terminal_audit"),
+        }:
             raise ValueError(
-                "the migration-report field is the only Schema 2.x refusal detail"
+                "migration-report and terminal-audit are the only Schema 2.x "
+                "refusal details and each belongs to its declared stage"
+            )
+
+
+@dataclass(frozen=True)
+class RefusalArtifactSetSpec:
+    """One stage-owned artifact set published before a typed refusal."""
+
+    stage: Literal["runtime"]
+    members: tuple[ArtifactSetMemberSpec, ...]
+
+    def __post_init__(self) -> None:
+        names = [member.logical_name for member in self.members]
+        if (
+            not self.members
+            or len(names) != len(set(names))
+            or sum(member.role == "primary" for member in self.members) != 1
+        ):
+            raise ValueError(
+                "a refusal artifact set requires unique names and one primary"
             )
 
 
@@ -128,6 +166,9 @@ class CommandDescriptor:
     # handler takes its own concrete input model (contravariance).
     handler: Callable[..., BaseModel | RefusalReport | Schema2RefusalReport]
     fixtures: ConformanceFixtures
+    # A completed negative judgment is a third typed handler result. It is
+    # emitted on stdout with exit 1 and remains distinct from refusal.
+    verdict_model: type[BaseModel] | None = field(default=None)
     positional_field: str | None = None
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
     # off them.
@@ -144,6 +185,7 @@ class CommandDescriptor:
     # returns the committed set receipt. This is distinct from the legacy 1.x
     # single-file ``artifact_sink`` dispatch tail.
     artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
+    verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     # The current registry temporarily contains historical 1.x commands while
     # Schema 2.0 lands in vertical slices.  Only descriptors marked ``2`` are
     # projected into the 2.x Surface manifest.
@@ -157,11 +199,13 @@ class CommandDescriptor:
     # schemas are shared by dispatch validation, --schema, manifest, and
     # descriptor identity; handlers cannot add an ambient details bag.
     refusal_details: tuple[RefusalDetailSpec, ...] = field(default=())
+    refusal_artifact_sets: tuple[RefusalArtifactSetSpec, ...] = field(default=())
     usage_codes: tuple[str, ...] = field(default=())
     # A 2.x descriptor may own a closed schema that is more precise than a
     # dynamic RootModel. Dispatch validates its result against this same
     # callable used by --schema and manifest.
     success_schema: Callable[[], dict[str, object]] | None = field(default=None)
+    verdict_schema: Callable[[], dict[str, object]] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if self.group in RESERVED_GROUPS or (
@@ -174,22 +218,36 @@ class CommandDescriptor:
             )
         if self.structured_params and self.schema_major != 2:
             raise ValueError("structured params are a Schema 2.x descriptor contract")
-        if self.artifact_set and self.schema_major != 2:
+        if (self.artifact_set or self.verdict_artifact_set) and self.schema_major != 2:
             raise ValueError("artifact sets are a Schema 2.x descriptor contract")
-        if self.artifact_set and self.artifact_sink:
+        if (self.artifact_set or self.verdict_artifact_set) and self.artifact_sink:
             raise ValueError(
                 "one descriptor cannot use both artifact publication paths"
             )
-        if self.artifact_set:
-            names = [member.logical_name for member in self.artifact_set]
+        for outcome, members in (
+            ("success", self.artifact_set),
+            ("verdict", self.verdict_artifact_set),
+        ):
+            if not members:
+                continue
+            names = [member.logical_name for member in members]
             if len(names) != len(set(names)):
-                raise ValueError("artifact-set logical names must be unique")
-            if sum(member.role == "primary" for member in self.artifact_set) != 1:
+                raise ValueError(f"{outcome} artifact-set logical names must be unique")
+            if sum(member.role == "primary" for member in members) != 1:
                 raise ValueError(
-                    "an artifact-producing descriptor must declare exactly one primary member"
+                    f"{outcome} artifact set must declare exactly one primary member"
                 )
+        if self.verdict_model is None and (
+            self.verdict_artifact_set or self.verdict_schema is not None
+        ):
+            raise ValueError("verdict contracts require a declared verdict model")
+        if self.verdict_model is not None and self.schema_major != 2:
+            raise ValueError("typed Verdicts are a Schema 2.x descriptor contract")
         if self.schema_major != 2 and (
-            self.refusal_catalog or self.refusal_details or self.usage_codes
+            self.refusal_catalog
+            or self.refusal_details
+            or self.refusal_artifact_sets
+            or self.usage_codes
         ):
             raise ValueError("Schema 2.x error contracts require schema_major=2")
         if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
@@ -209,6 +267,19 @@ class CommandDescriptor:
             for detail in self.refusal_details
         ):
             raise ValueError("refusal detail belongs to an unreachable stage")
+        refusal_set_stages = [item.stage for item in self.refusal_artifact_sets]
+        if len(refusal_set_stages) != len(set(refusal_set_stages)):
+            raise ValueError("duplicate refusal artifact-set stage")
+        if any(
+            stage not in {declared for _, declared in self.refusal_catalog}
+            for stage in refusal_set_stages
+        ):
+            raise ValueError("refusal artifact set belongs to an unreachable stage")
+        if any(
+            (item.stage, "terminal_audit") not in refusal_detail_keys
+            for item in self.refusal_artifact_sets
+        ):
+            raise ValueError("refusal artifact set requires its typed receipt detail")
         if not set(self.usage_codes) <= USAGE_CODES:
             raise ValueError("unknown Schema 2.x usage code")
         if (

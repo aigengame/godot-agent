@@ -20,12 +20,19 @@ distribution contract and a falsifiable definition of genre completeness.
 - **A Genre template is a versioned template release, not a Standard Schema instance or runtime
   profile.** A release contains:
   - an instantiable starter Model Source Package with default declarations and formulas;
-  - companion Experiment Specifications with scenarios, metrics, and targets;
+  - companion pre-build Experiment templates with scenarios, metrics, and targets;
   - a Genre coverage matrix and its Golden scenarios/negative vectors;
   - a manifest binding template version, compatible Language Definition Bundle/package ranges, and
     the content identities of those members.
   The release is a distribution container, not a semantic authority: each member retains its
   bADR-0012 authority domain.
+
+- **Pre-build Experiment intent and executable Experiment binding are distinct artifact kinds.**
+  A template release carries `experiment-template`: editable scenario/Metric/target intent that
+  cannot yet name a build receipt, Resolved Model, Package Lock, or RIR. After build, authoring
+  produces an exact `experiment-specification` binding those identities. Template admission,
+  runtime admission, and public command schemas reject either kind in the other's role; sharing a
+  logical display name does not make their identities or lifecycle interchangeable.
 
 - **Instantiation creates a new authored model identity.** It copies/materializes the starter under
   a new package identity and records template id/version/content provenance. The game owns all
@@ -48,15 +55,16 @@ distribution contract and a falsifiable definition of genre completeness.
   explicit cardinality and
   required-operation obligations, derives named graph facts through declared selectors/bindings,
   and runs under a bounded per-release step budget. A consumer must admit the starter through the
-  ordinary Model Source path, close authority/source/package/default/Experiment/coverage bindings,
-  and execute every declared negative and boundary vector. Multiple Experiments, Golden scenarios,
-  and vectors remain ordered members rather than host-selected singletons. Metric identifiers are
-  unique within their owning Experiment, not globally across independent Experiments. The Kernel
-  owns only a generic role identifier/cardinality contract; concrete role names and member kinds
-  stay in the LDB, allowing a genre to add them without a core change. JSON Schema validation, a
-  named host primitive without its complete machine law, or host-selected companion checks alone
-  cannot admit a release. The admission program does not make the template a language authority:
-  it defines how the existing authorities judge the distribution container.
+  ordinary Model Source path, close authority/source/package/default/Experiment-template/coverage
+  bindings, and execute every declared negative and boundary vector. Multiple Experiment templates,
+  Golden scenarios, and vectors remain ordered members rather than host-selected singletons.
+  Metric identifiers are unique within their owning Experiment template, not globally across
+  independent templates. The Kernel owns only a generic role identifier/cardinality contract;
+  concrete role names and member kinds stay in the LDB, allowing a genre to add them without a core
+  change. JSON Schema validation, a named host primitive without its complete machine law, or
+  host-selected companion checks alone cannot admit a release. The admission program does not make
+  the template a language authority: it defines how the existing authorities judge the
+  distribution container.
 
 - **The initial game-domain package boundaries are:**
 
@@ -81,7 +89,10 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
-  Language Definition Bundle.
+  manifests of complete sealed Package Releases, and normative vectors live in their bound
+  package-owned conformance-vector children (bADR-0023). A broad `game.rpg` package is not an alias
+  for this map: integrated examples compose the mechanic packages without transferring their state,
+  transition, or observation ownership to a genre umbrella.
 
 - **Target selection is its own typed contract.** A Target query operates over a dynamic entity set
   and declares filters, stable ordering, cardinality, tie-breaking, empty-result behavior, and any

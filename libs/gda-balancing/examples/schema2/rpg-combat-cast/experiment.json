@@ -1,0 +1,183 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.rpg-combat-cast.one-action",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2",
+  "language_bundle_identity": "sha256:19e2331f41f848f603dc18fa9c983f57bc33e8a9ccc1a420bbfa2474d3350224",
+  "model": {
+    "source_identity": "sha256:30912df260463ddd5a1e191606b4ae85112662cde387cb6d4c14d7936bbe9994",
+    "build_receipt_identity": "sha256:5d0c0bdb668197ed571f1bf1069227cc66b909147132f1dfd58efcee5f762e4d",
+    "resolved_model_identity": "sha256:a4905e27d848e33bb07b4862365999abe5e6c5709ac5743575a63fa2ebb949dc",
+    "package_lock_identity": "sha256:11574ee28805af04977c1e11780c034d35c76a3d9981966c895790df1ed9eaba",
+    "rir_identity": "sha256:161fd4075e930b85f79f1061dabcc333d7f677b32a3ade1208aec2cabf4f9c39"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-fragment",
+        "event-program"
+      ],
+      "instruction_nodes": [
+        "add",
+        "constant",
+        "draw",
+        "if",
+        "invoke",
+        "less-than-or-equal",
+        "maximum",
+        "multiply",
+        "precondition-greater-than-or-equal",
+        "subtract",
+        "subtract-state"
+      ],
+      "effects": [
+        "event.commit",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260726
+  },
+  "external_inputs": [],
+  "scenarios": [
+    {
+      "id": "one-cast",
+      "entrypoint": "combat.cast",
+      "assignments": [
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "actor_mana"
+          },
+          "value": 35
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "action_cost"
+          },
+          "value": 9
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "accuracy"
+          },
+          "value": 25
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "base_damage"
+          },
+          "value": 45
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "critical_threshold"
+          },
+          "value": 50
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "target_defense"
+          },
+          "value": 30
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "target_health"
+          },
+          "value": 100
+        }
+      ],
+      "named_streams": [
+        "critical",
+        "hit"
+      ],
+      "terminal_condition": {
+        "kind": "event-count",
+        "maximum": 1
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "id": "damage_dealt",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "cast-resolved",
+        "member": "damage_dealt"
+      },
+      "target": {
+        "minimum": 1,
+        "maximum": 1000
+      }
+    },
+    {
+      "id": "target_health_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "target_health"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 99
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}

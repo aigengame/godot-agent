@@ -11,22 +11,33 @@ from typing import Any, cast
 
 import jsonschema
 import pytest
-import gda_balancing.commands.template as template_command_module
 import gda_balancing.schema2.model as schema2_model
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
+    _member_schema_identities,
     _minimal_release,
+    _validate_template_release,
     template_get_handler,
     template_instantiate_handler,
 )
-from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    authority_set,
+)
+from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
     CheckedModel,
     check_model_source_value,
     checked_model_template_facts,
+)
+from gda_balancing.schema2.projections import wire_schema_projection
+from gda_balancing.schema2.wire_schema import (
+    artifact_wire_schema_identity,
+    wire_schema_identity as schema_definition_identity,
 )
 
 
@@ -61,6 +72,125 @@ def _replace_json_value(value: Any, old: Any, new: Any) -> Any:
     if isinstance(value, list):
         return [_replace_json_value(item, old, new) for item in value]
     return new if value == old else value
+
+
+def _reidentify_language_bundle(kernel, language_bundle):
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+
+    def path_values(root, dotted):
+        values = [root]
+        for segment in dotted.split("."):
+            selected = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    continue
+                child = value[segment]
+                selected.extend(child if isinstance(child, list) else [child])
+            values = selected
+        return values
+
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
+    for package in language_bundle["language"]["packages"]:
+        for entry, projection in zip(
+            package["semantic_closure"], projections, strict=True
+        ):
+            definitions = path_values(language_bundle, entry["authority_path"])
+            owners = path_values(package, projection["owners_path"])
+            key_member = projection["key_member"]
+            entry["definitions"] = deepcopy(
+                [
+                    definition
+                    for definition in definitions
+                    if (
+                        definition.get(key_member)
+                        if key_member is not None and isinstance(definition, dict)
+                        else definition
+                    )
+                    in owners
+                ]
+            )
+        runtime_paths = set(package["runtime_semantic_paths"])
+        package["semantic_identity"] = content_identity(
+            "domain-package-semantic-closure-v2",
+            [
+                entry
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] in runtime_paths
+            ],
+        )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        vector_set["content_identity"] = content_identity(
+            "package-conformance-vector-set-v2",
+            {
+                key: value
+                for key, value in vector_set.items()
+                if key != "content_identity"
+            },
+        )
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(canonical_bytes(vector_set)),
+            "content_identity": vector_set["content_identity"],
+        }
+        package["content_identity"] = content_identity(
+            "domain-package-release-v2",
+            {key: value for key, value in package.items() if key != "content_identity"},
+        )
+
+    members = sorted(
+        zip(
+            deepcopy(language_bundle["language"]["packages"]),
+            deepcopy(language_bundle.package_conformance_vector_sets),
+            strict=True,
+        ),
+        key=lambda member: (member[0]["id"], member[0]["version"]),
+    )
+    packages = [package for package, _vector_set in members]
+    vector_sets = [vector_set for _package, vector_set in members]
+    package_sizes = [len(canonical_bytes(package)) for package in packages]
+    vector_set_sizes = [len(canonical_bytes(vector_set)) for vector_set in vector_sets]
+    root = deepcopy(language_bundle.root)
+    root["package_descriptors"] = [
+        {
+            "artifact_kind": package["artifact_kind"],
+            "byte_size": size,
+            "content_identity": package["content_identity"],
+            "id": package["id"],
+            "version": package["version"],
+        }
+        for package, size in zip(packages, package_sizes, strict=True)
+    ]
+    root["content_identity"] = content_identity(
+        "language-definition-bundle-v2",
+        {key: value for key, value in root.items() if key != "content_identity"},
+    )
+    rebuilt = derive_language_index(
+        root,
+        packages,
+        vector_sets,
+        kernel["admission"]["required_language_members"],
+        root_byte_size=len(canonical_bytes(root)),
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
+        descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
+            "canonical_order"
+        ],
+    )
+    language_bundle.root = deepcopy(rebuilt.root)
+    language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.package_conformance_vector_sets = deepcopy(
+        rebuilt.package_conformance_vector_sets
+    )
+    language_bundle.root_byte_size = rebuilt.root_byte_size
+    language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+    language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
+    language_bundle.clear()
+    language_bundle.update(dict(rebuilt))
 
 
 class _ReferenceBudgetExhausted(Exception):
@@ -775,12 +905,245 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:a2d93ce6237798a3d468c8e89dea9c08598673edf8a7360fb97766533e5f285b"
+                    "sha256:1e120869abc80c2dac5fe4a34b6120fa6ee6eac3493dee261711e50b8844c2d8"
                 ),
             }
         ]
     }
     assert result["templates"][0]["content_identity"].startswith("sha256:")
+
+
+def test_template_schema_identity_refuses_a_missing_authority_contract():
+    authority = authority_set()
+    language_bundle = authority["language_bundle"]
+    source_schema = cast(Any, language_bundle["language"])["wire_schemas"][0]
+    schema_kind = source_schema["artifact_kind"]
+    source_schema.pop("wire_schema_identity_domain")
+
+    with pytest.raises(
+        ValueError,
+        match=f"exact wire-schema identity domain is unavailable for {schema_kind}",
+    ):
+        _member_schema_identities(language_bundle)
+
+
+def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    source_schema = cast(Any, language_bundle["language"])["wire_schemas"][0]
+    source_schema["wire_schema_identity_domain"] = "extension-owned-wire-v9"
+    _reidentify_language_bundle(kernel, language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+
+    assert isinstance(context, AdmittedAuthorityContext)
+    schema_body = {
+        key: value for key, value in source_schema["schema"].items() if key != "$id"
+    }
+    expected = content_identity("extension-owned-wire-v9", schema_body)
+    projection = wire_schema_projection(
+        {
+            "kernel": cast(Any, context.kernel),
+            "language_bundle": cast(Any, context.language_bundle),
+        }
+    )
+    projected_source_schema = next(
+        row["schema"]
+        for row in cast(list[dict[str, Any]], projection["schemas"])
+        if row["artifact_kind"] == "model-source-package"
+    )
+
+    assert _member_schema_identities(context.language_bundle)[
+        "model-source-package"
+    ] == schema2_model._wire_schema_identity_for_kind(
+        context.language_bundle,
+        "model-source-package",
+    )
+    assert (
+        schema2_model._wire_schema_identity_for_kind(
+            context.language_bundle,
+            "model-source-package",
+        )
+        == expected
+    )
+    assert projected_source_schema["$id"].endswith(expected.removeprefix("sha256:"))
+
+
+def test_root_authority_wire_schemas_use_kernel_owned_identity_domains():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    projection = wire_schema_projection(authority)
+    identity_domains = kernel["meta_format"]["authority_wire_schema_projection"][
+        "identity_domains"
+    ]
+
+    for artifact_kind in (
+        "schema-major-kernel",
+        "language-definition-bundle",
+    ):
+        schema = next(
+            row["schema"]
+            for row in cast(list[dict[str, Any]], projection["schemas"])
+            if row["artifact_kind"] == artifact_kind
+        )
+        body = {key: value for key, value in schema.items() if key != "$id"}
+        expected = content_identity(identity_domains[artifact_kind], body)
+
+        assert schema["$id"].endswith(expected.removeprefix("sha256:"))
+
+
+def test_artifact_identity_follows_its_contract_schema_kind():
+    language_bundle = {
+        "language": {
+            "artifact_contracts": [
+                {
+                    "artifact_kind": "extension-audit",
+                    "schema_kind": "extension-audit-schema",
+                    "wire_schema_identity_domain": "extension-audit-wire-v1",
+                }
+            ],
+            "artifact_wire_schemas": [
+                {
+                    "artifact_kind": "extension-audit-schema",
+                    "schema": {"type": "object"},
+                }
+            ],
+            "wire_schemas": [],
+        }
+    }
+    expected = content_identity(
+        "extension-audit-wire-v1",
+        {"type": "object"},
+    )
+
+    assert artifact_wire_schema_identity(
+        language_bundle,
+        "extension-audit",
+    ) == schema_definition_identity(
+        language_bundle,
+        "extension-audit-schema",
+    )
+    assert (
+        schema_definition_identity(
+            language_bundle,
+            "extension-audit-schema",
+        )
+        == expected
+    )
+    language_bundle["language"]["artifact_contracts"] = []
+    with pytest.raises(
+        ValueError,
+        match="artifact contract is not unique: extension-audit",
+    ):
+        artifact_wire_schema_identity(language_bundle, "extension-audit")
+
+
+def _install_negative_vector_artifact_contract(
+    language_bundle,
+    *,
+    retain_standalone,
+):
+    language = cast(Any, language_bundle["language"])
+    source = next(
+        item
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "negative-vector"
+    )
+    wire_identity_domain = source["wire_schema_identity_domain"]
+    schema_kind = (
+        "negative-vector-alt-schema" if retain_standalone else "negative-vector-schema"
+    )
+    package = next(
+        item for item in language["packages"] if item["id"] == "standard.schema"
+    )
+    schema_exports = package["exports"]["artifact_wire_schemas"]
+    if retain_standalone:
+        schema_definition = deepcopy(source)
+        schema_definition.pop("wire_schema_identity_domain")
+        schema_definition["artifact_kind"] = schema_kind
+        language["artifact_wire_schemas"].append(schema_definition)
+        schema_exports.append(schema_kind)
+    else:
+        source.pop("wire_schema_identity_domain")
+        source["artifact_kind"] = schema_kind
+        schema_exports[schema_exports.index("negative-vector")] = schema_kind
+    language["artifact_contracts"].append(
+        {
+            "artifact_kind": "negative-vector",
+            "identity_domain": "negative-vector-v2",
+            "identity_excluded_members": [],
+            "schema_kind": schema_kind,
+            "wire_schema_identity_domain": wire_identity_domain,
+        }
+    )
+    package["exports"]["artifact_contracts"].append("negative-vector")
+
+
+def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    _install_negative_vector_artifact_contract(
+        language_bundle,
+        retain_standalone=False,
+    )
+    _reidentify_language_bundle(kernel, language_bundle)
+    context = admit_authority_context(kernel, language_bundle)
+
+    assert isinstance(context, AdmittedAuthorityContext)
+    release = _minimal_release(
+        cast(Any, context.kernel),
+        cast(Any, context.language_bundle),
+    )
+    member = next(
+        item
+        for item in cast(list[dict[str, Any]], release["members"])
+        if item["member_kind"] == "negative-vector"
+    )
+
+    assert member["member_schema_identity"] == artifact_wire_schema_identity(
+        context.language_bundle,
+        "negative-vector",
+    )
+    assert (
+        _validate_template_release(
+            release,
+            cast(Any, context.kernel),
+            cast(Any, context.language_bundle),
+            context,
+        )
+        is None
+    )
+
+
+def test_template_refuses_an_artifact_kind_that_shadows_a_standalone_schema():
+    authority = authority_set()
+    language_bundle = authority["language_bundle"]
+    original_identity = _member_schema_identities(language_bundle)["negative-vector"]
+    _install_negative_vector_artifact_contract(
+        language_bundle,
+        retain_standalone=True,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="wire-schema kind authority is ambiguous: negative-vector",
+    ):
+        _member_schema_identities(language_bundle)
+    with pytest.raises(
+        ValueError,
+        match="wire-schema kind authority is ambiguous: negative-vector",
+    ):
+        artifact_wire_schema_identity(language_bundle, "negative-vector")
+
+    assert original_identity == content_identity(
+        "negative-vector-wire-schema-v2",
+        next(
+            item["schema"]
+            for item in cast(Any, language_bundle["language"])["artifact_wire_schemas"]
+            if item["artifact_kind"] == "negative-vector"
+        ),
+    )
 
 
 def test_minimal_release_derives_every_authority_identity_from_its_inputs():
@@ -891,7 +1254,6 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
         )[1]
     )
     members = {item["logical_name"]: item for item in release["members"]}
-    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     schemas = {
         item["artifact_kind"]: item["schema"]
         for item in json.loads(run_cli(["schema", "get", "wire-schema"])[1])["schemas"]
@@ -910,7 +1272,7 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
     assert run_cli(["model", "check", str(source)])[0] == 0
     starter_identity = content_identity("model-source-package-v2", starter)
 
-    language = authority["language_bundle"]["language"]
+    language = authority_set()["language_bundle"]["language"]
     package_inventory = {
         (item["id"], item["version"], item["content_identity"])
         for item in language["packages"]
@@ -1392,9 +1754,7 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
     multiple = _with_secondary_vertical_slice(deepcopy(pristine))
 
     invalid_unit = deepcopy(pristine)
-    payload(invalid_unit, "experiment-specification")["metrics"][0]["unit"] = (
-        "missing-unit"
-    )
+    payload(invalid_unit, "experiment-template")["metrics"][0]["unit"] = "missing-unit"
     _reidentify_release(invalid_unit)
 
     false_negative = deepcopy(pristine)
@@ -1612,9 +1972,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
     assert (exit_code, stderr) == (0, ""), stdout
 
 
-def test_template_instantiation_uses_the_ldb_owned_source_role_name(
-    tmp_path, run_cli, monkeypatch
-):
+def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, run_cli):
     authority = authority_set()
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
@@ -1627,14 +1985,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
         profile["judgments"], "source", "starter"
     )
     old_ldb_identity = language_bundle["content_identity"]
-    language_bundle["content_identity"] = content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
-    )
+    _reidentify_language_bundle(kernel, language_bundle)
     release = json.loads(
         run_cli(
             [
@@ -1651,14 +2002,14 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
         release, old_ldb_identity, language_bundle["content_identity"]
     )
     _reidentify_release(release)
-    monkeypatch.setattr(
-        template_command_module,
-        "load_authorities",
-        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
-    )
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
     descriptor = replace(
         TEMPLATE_INSTANTIATE,
-        handler=template_instantiate_handler(lambda _kernel, _ldb: deepcopy(release)),
+        handler=template_instantiate_handler(
+            lambda _kernel, _ldb: deepcopy(release),
+            authority_context_provider=lambda: context,
+        ),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1682,7 +2033,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
     assert (exit_code, stderr) == (0, ""), (stdout, stderr)
 
 
-def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeypatch):
+def test_template_vector_expected_value_uses_canonical_equality(run_cli):
     authority = authority_set()
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
@@ -1693,14 +2044,7 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeyp
     judgment["arguments"]["expected_path"] = ["value"]
     judgment["arguments"]["expected_value"] = True
     old_ldb_identity = language_bundle["content_identity"]
-    language_bundle["content_identity"] = content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
-    )
+    _reidentify_language_bundle(kernel, language_bundle)
     release = json.loads(
         run_cli(
             [
@@ -1723,14 +2067,14 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeyp
     )
     boundary["payload"]["value"] = 1
     _reidentify_release(release)
-    monkeypatch.setattr(
-        template_command_module,
-        "load_authorities",
-        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
-    )
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda _kernel, _ldb: deepcopy(release)),
+        handler=template_get_handler(
+            lambda _kernel, _ldb: deepcopy(release),
+            authority_context_provider=lambda: context,
+        ),
     )
 
     exit_code, stdout, stderr = run_cli(

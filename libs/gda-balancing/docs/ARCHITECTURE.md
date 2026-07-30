@@ -26,7 +26,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-cutting invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0022](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0023](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -160,10 +160,27 @@ meta-diagnostics needed to accept or reject an LDB. A list of node names or pros
 not a Kernel Specification.
 
 An exact, immutable **Language Definition Bundle** is the only language-content authority admitted
-under that Kernel. It owns grammar, language types, structured rules, operations, package releases,
-post-admission diagnostics, runtime profile definitions, generated projections, and normative
-vectors. The LDB cannot redefine Kernel laws, and the Kernel does not absorb ordinary language or
-game-domain evolution.
+under that Kernel. Per bADR-0023 it is one sealed artifact graph: a canonical root manifest owns the
+closed Package Release inventory, and each descriptor binds one Package Release manifest. Each
+release is a sealed one-level aggregate: the manifest owns its runtime language semantics and binds
+exactly one package-owned conformance-vector child. The two authority JSON members live in one
+package-specific directory, including an empty vector child when necessary. Together the releases
+own grammar, language types, structured rules, operations, post-admission diagnostics, runtime
+profile definitions, and normative vectors. Admission may derive read-only flat indexes, but no
+serialized registry or directory listing is a second authority. The LDB cannot redefine Kernel
+laws, and the Kernel does not absorb ordinary language or game-domain evolution. The Kernel owns
+package-coordinate patterns and the identity domains for the root, release, and evidence
+collections; loaders, admission, public schemas, and rebuild tooling project those contracts.
+
+Within one host process, those projections share one deeply immutable
+`AdmittedAuthorityContext`. The authority lifecycle atomically loads, admits, indexes, and freezes
+the exact packaged Kernel/LDB graph before publishing it; every compiler, Runtime, Experiment,
+Template, and CLI consumer borrows that same context. This is a performance and ownership boundary,
+not another authority. Explicitly injected Kernel/LDB candidates are admitted into separate,
+independently owned contexts and cannot mutate or populate the packaged baseline. Canonical
+Wire-Schema meta-validation is cached only by actual schema bytes plus the actual Kernel
+schema-profile bytes. The test and CI verification contract for this lifecycle is documented in
+[`docs/agents/testing.md`](agents/testing.md).
 
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 never semantic authorities. Generated JSON Schema, help text, and SDK types are projections of the
@@ -278,6 +295,22 @@ uses it to define complete language and Domain-package operations. Every operati
 declare its inputs, result, effects, refusals, numeric behavior, lowering, evaluation, and vectors.
 A host function bearing the same name is not an operation definition.
 
+Operation composition is explicit and directional. An LDB Operation is the sole authority for its
+named formal ports. Every nested call binds the callee's complete formal-port set to caller ports,
+caller locals, literals, or another Kernel-admitted expression; equality of display names has no
+semantic force. A Model Source entrypoint then binds one exact Operation's ports to resolved Model
+symbols and binds or explicitly discards its result. Experiment scenarios may select only those
+entrypoints and assign the generated Scenario Input Contract; they cannot select an LDB Operation
+or repeat its port schema. The selected LDB lowering owns the total Symbol assignment table
+(value ownership, legal port access and result roles, required/optional Experiment modes, and
+actual-target deduplication) and the nested-call composition policy (callee effect/refusal closure
+and transitive resource bounds). The host interprets those admitted tables; it does not maintain a
+parallel role, mode, or composition registry. Every assignment-policy role also declares one
+machine-readable binding kind: `operand`, `result`, or `internal`. Admission requires every readable
+operand mode to have a concrete value producer through an Experiment assignment or Model
+initializer, requires result roles to be execution-produced, and keeps internal generated roles out
+of both entrypoint surfaces.
+
 `math.equation` is reserved for a possible future algebraic/continuous subset and is refused by the
 initial 2.0 LDB. It cannot be approximated through evaluator-specific behavior.
 
@@ -335,11 +368,57 @@ The **Debug Map** is separate from RIR semantics so that source locations and ex
 can change without changing model meaning. Resolution and build receipts record how an artifact was
 obtained; they are not part of the RIR semantic payload.
 
+### 6.1.1 Resolved invocation graph
+
+Typed HIR closes every invocation before RIR:
+
+1. the LDB owns each Operation's formal ports, result/outcomes, body, and nested call sites;
+2. Model Source owns symbols, their initialization policies, and entrypoints that bind those
+   symbols to one exact Operation interface;
+3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
+   rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
+   bindings, requires each literal to have one exact contextual-type match in the selected
+   package-owned Literal Typing Profiles, requires each nested callee's effect/refusal closure to
+   fit the caller declaration, and
+   derives the transitive resource charge under the LDB composition policy;
+4. RIR records the exact entrypoint and call-site graph plus its generated Scenario Input Contract,
+   including each literal's resolved context type, Model-owned initializers, and exact
+   required/optional Experiment assignment targets;
+5. an Experiment selects one entrypoint and totally assigns that contract; and
+6. runtime and any private EIR consume those identities without name lookup or ambient capture.
+
+Renaming a Model symbol while updating its entrypoint and Scenario assignments is an authored
+semantic change: the actual-operand, call-site, RIR, and Resolved-Model identities change. Reusing
+one symbol for two compatible read-only ports is explicit aliasing, not duplication. A writable
+alias is legal only when the selected Operation contract explicitly admits it. The accepted #590
+Formula contract introduces another Kernel-admitted expression operand, but it does not replace or
+weaken the same entrypoint/call-site closure.
+
+A literal has no host-default type. Each type package may independently export Literal Typing
+Profiles, and the runtime projection selects the profiles reachable from the Model's exact Type
+exports. A profile closes against its owner Type, the LDB value inventories, and at least one
+Operation formal value contract. Selection matches source kind, formal type, representation, kind,
+unit, domain, Numeric policy, and numeric bound; overlapping ranges for the same match contract are
+invalid. Zero or multiple matches refuse before HIR; successful lowering preserves the selected
+profile in the RIR operand and its identity. The Symbol assignment policy therefore remains
+orthogonal: it owns only Symbol roles, access, initialization ownership, and Experiment
+cardinality. Under
+`operation-body-order`, writable aliases denote one runtime location for the complete invocation:
+a write in one child call is visible to every later sibling call, while a propagated rollback
+restores the operation's entry snapshot.
+
 ### 6.2 Identity layers
 
 Identity follows semantic responsibility rather than file location:
 
-- whole-LDB identity covers the exact admitted language-content inventory;
+- vector-set identity covers one canonical package-owned conformance-vector child;
+- Package Release content identity covers its canonical manifest, including the exact vector-child
+  artifact kind, identity, and byte size;
+- Package Release semantic identity covers only its runtime semantic closure, so a vector-only
+  change does not pretend that selected runtime semantics changed;
+- whole-LDB graph identity covers the root's normative content and child descriptors normalized by
+  the Kernel-declared `id`, then `version` order; descriptors bind every Package Release manifest
+  identity and byte size without binding transport order or physical locator;
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
 - Resolved Model identity covers the exact build wrapper, including Kernel and whole LDB;
@@ -446,7 +525,7 @@ Two cross-contract protocols close previously implicit ordering:
 A Genre template is a versioned distribution containing:
 
 - an instantiable starter Model Source Package;
-- companion Experiment Specifications with scenarios, metrics, and targets;
+- companion pre-build Experiment templates with scenarios, metrics, and targets;
 - a requirements-to-operations coverage matrix with its Golden scenarios and negative vectors; and
 - a manifest binding template version, compatible LDB/package ranges, and every member's content
   identity.
@@ -471,12 +550,15 @@ and order, exact failure behavior, canonical comparison/identity consequences, a
 events. Kernel operations bind stable LDB-facing names to those primitives; the LDB orders a
 versioned program over the operations, maps member kinds to role collections with explicit
 cardinality and required-operation obligations, declares every derived-fact binding, and fixes a
-per-release step budget. Admission therefore supports multiple Experiments, Golden scenarios, and
-vectors without host-selected singleton roles, and metric identifiers are unique within their
-owning Experiment rather than globally across the release. The Kernel defines only the generic role
-identifier/cardinality contract—not a role-name inventory—so an LDB may add genre-specific member
-roles and schemas without a core change. Structural JSON Schema validation, named host callbacks,
-or host-only companion checks cannot substitute for that semantic path.
+per-release step budget. Admission therefore supports multiple pre-build Experiment templates,
+Golden scenarios, and vectors without host-selected singleton roles, and metric identifiers are
+unique within their owning Experiment template rather than globally across the release. The LDB
+uses the distinct member kind `experiment-template` for this editable pre-build intent; an exact
+executable `experiment-specification` is created only after Model build identities exist. Neither
+may masquerade as the other. The Kernel defines only the generic role identifier/cardinality
+contract—not a role-name inventory—so an LDB may add genre-specific member roles and schemas
+without a core change. Structural JSON Schema validation, named host callbacks, or host-only
+companion checks cannot substitute for that semantic path.
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.
@@ -511,6 +593,10 @@ An LDB-owned **Runtime profile definition** declares an admitted execution polic
 runtime admission produces a **Resolved Runtime profile** binding that definition to the exact
 Kernel, whole LDB, selected Package Lock, Resolved Model/RIR payload, evaluator build, platform,
 Numeric profile, RNG algorithm and streams, scheduler/effect policy, and resource budgets.
+The Kernel declares the Runtime-profile-definition identity domain; admission hashes the complete
+selected definition and the Resolved Runtime profile binds that identity. The definition,
+Evaluator Capability Manifest, and Resolved Runtime profile therefore form an explicit acyclic
+three-node identity graph rather than relying on an embedded value comparison.
 
 The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
 its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,
@@ -592,7 +678,7 @@ fault-injected and verified independently.
 An Experiment Specification owns everything that turns a model into a testable question:
 
 - scenarios and external inputs;
-- selectors and parameter assignments;
+- exact Model-entrypoint selection and total assignments to its generated Scenario Input Contract;
 - exact model/runtime compatibility binding;
 - metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;
@@ -694,7 +780,7 @@ coverage from implementation proof.
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
-| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | Package seam is credible; reaction/priority and full mechanic breadth remain open until their permanent vectors pass |
+| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reaches Lock, RIR, evaluator, trace, Snapshot, and Metric without core or host dispatch changes; the public Extension Invariance Receipt and broader mechanic breadth remain open |
 | Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
 
 Therefore the present conclusion is:
@@ -803,12 +889,83 @@ portable publication/crash recovery, independent Evidence issuance, or productio
 abstraction proof, RPG/Roguelike completeness, or production readiness. The evidence commits remain
 on closed, unmerged PR #537; prototype code is not part of this authority branch.
 
-### 12.5 Architecture consequence
+### 12.5 First permanent RPG product-feedback slice
 
-The four rounds validate one RPG vertical path, selected orthogonality/identity mechanisms, and the
-bounded executable Kernel/LDB authority boundary. They remove the known architecture-level hidden-
-host uncertainty for the tested slice. The remaining gaps require permanent specifications,
-normative vectors, durable adapters, and cross-genre verticals; another disposable prototype would
+Issue #540 replaced inline architectural confidence with one committed
+[`rpg.combat.cast-v1`](../examples/schema2/rpg-combat-cast/) designer loop. The observations are
+classified by the same vocabulary used above:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | Public `model build` → `experiment check` → `experiment run` consumes an exact authored Model/Experiment pair; editing one combat value changes the Experiment identity, trace, and Metric in the explainable direction. Exact seed, Runtime requirement, Metrics, and acceptance remain Experiment-owned. | Product/Experiment surface; retained |
+| Refined—adopted | A reusable package type could not reuse core Quantity domains/profiles while runtime-projection seeding assumed every match was package-local. Seed and edge matching now declare `same_package` independently instead of relying on a host/package special case. | Kernel runtime-projection contract plus LDB lowering program; machine authority updated |
+| Refined—adopted | Runtime projection assumed every selected package closure contained every requested semantic path. A selected package may legitimately contribute no row for one collection; absence now contributes nothing, while duplicate matches still refuse. | LDB lowering/runtime-projection judgment; implementation and conformance updated |
+| Refined—adopted | The first Event program exposed `draw` and precondition as control nodes missing from the Kernel program vocabulary, and exact-int64 overflow needed an authoritative rollback refusal. | Kernel runtime-program contract plus LDB Diagnostic/reason/vector; machine authority updated |
+| Refined—adopted | A Template member authored before build and an executable Experiment bound after build had been assigned the same artifact kind. They are now `experiment-template` and `experiment-specification`, respectively. | LDB artifact/member-role contracts and Template distribution; machine authority updated |
+| Refined—adopted | Runtime terminal audit initially copied only Diagnostic code/message and recovery fabricated a broader pointer. The audit now binds the complete original primary/related locations and retry reconstructs that exact Diagnostic without rerunning. | bADR-0015 terminal-audit contract and LDB wire schema; machine authority updated |
+| Refined—adopted | Kernel node and RNG name inventories still left field shapes, operators, results/refusals, charges, exact-int64 bounds, SplitMix64 derivation/constants/sampling/bias, and typed gameplay outcomes in host code. The Kernel now owns those machine contracts and vectors; the LDB Operation owns the exhaustive default/alternative outcome algebra and profile parameters. | Kernel Specification plus LDB Operation/Runtime profile; authority and both consumers updated |
+| Refined—adopted | The evaluator advertised a generic runtime-program version and every Kernel node instead of the exact selected Runtime profile and actually implemented operators. Its identity also varied with the current model projection rather than binding one evaluator build. Experiment requirements now equal the selected program closure; the manifest binds a source-build identity and reverse-enumerates the exact authority-reachable profile/operators that build advertises, independently of the current model. | Runtime admission and Evaluator Capability Manifest; implementation/conformance updated |
+| Refined—adopted | Evaluator-capability mismatch happens before Event dispatch, so publishing a Runtime terminal audit or Resolved Runtime profile falsely implied execution. It is now a plain `resolution` refusal with no artifact set; only a refusal after Event dispatch may publish terminal audit. | bADR-0014/0015 staging and command outcome contract; implementation updated |
+| Refined—adopted | The first Metric dataset carried values but not the complete definition, window/time, dimensions, replication, missing/censoring, provenance, data version, partition, ordering, and ingestion binding required by bADR-0018. Those fields and definition identities are now mandatory even in this one-scenario slice. | Experiment Metric contract and Metric-dataset wire schema; machine authority updated |
+| Refined—adopted | Duplicate JSON keys were collapsed by host decoding, non-empty external inputs were silently ignored, a multi-scenario refusal named the first scenario, and an Operation step budget accumulated across scenarios. Canonical ingress now rejects duplicate keys, unsupported external inputs refuse explicitly, terminal audit retains the exact scenario, and per-Event/per-run budgets have separate scopes. | Canonical ingress, Experiment admission, and Runtime accounting; implementation/conformance updated |
+| Refined—adopted | The first cast selected a raw LDB Operation while Model symbols, Operation inputs, and scenario values repeated equal names. That made the host's same-name lookup an undeclared peer binding authority and could not express one defense symbol feeding distinct hit and mitigation ports. Operations now own formal ports, Model Source owns explicit entrypoint bindings, the LDB assignment policy owns initialization/access/cardinality, RIR owns resolved call-site identities plus the derived Scenario Input Contract, and Experiment owns only assignments exported by that contract. | bADR-0012/0013/0016/0022 invocation-authority chain; machine authority, tutorial, runtime, and both consumers updated |
+| Refined—adopted | Nested Operation execution initially shared one ambient value map, so caller locals and same-named model values could be captured across call boundaries. Runtime now creates lexical call frames from the RIR's exact formal-to-actual bindings and traces entrypoint, call-site, operation, outcome, operand, and result identities. RIR admission independently rederives the graph so coherent identity rewriting cannot bless a tampered binding. | Kernel invoke law, LDB call sites, RIR/runtime admission, and trace provenance; machine authority and conformance updated |
+| Refined—adopted | Literal admission first treated every exact-int64 host integer as compatible with every readable formal port, then placed the repair inside the Symbol assignment policy. That fixed Boolean misbinding but coupled a type package's literal rules to one Model lowering. Literal Typing Profiles are now independent package exports with exact Type/value reference closure, ambiguity refusal, runtime projection, positive/negative package vectors, and RIR identity/admission evidence; the Symbol assignment policy owns only Symbol assignment. | Kernel/LDB literal-typing contract, Core Quantity package, RIR wire/admission contract, package vectors, and two independent consumers updated |
+| Refined—adopted | `operation-body-order` aliases shared one state location inside a child call, but the parent frame refreshed only ports passed to that child. A write through one alias could therefore be invisible to a later sibling call through another alias. Runtime now refreshes the complete parent alias group after every child return, preserving shared-location semantics across continue/propagate and rollback boundaries. | Runtime invocation semantics plus cross-child differential regression; implementation and conformance updated |
+| Confirmed—narrowly | One Model symbol intentionally supplies the cast's two compatible read-only defense ports. Package-owned Model Program vectors also cover distinct defense symbols, a source-symbol rename, multiple entrypoints selecting the same exact Operation with different bindings, stale Operation coordinates, and every value-contract axis. The `core.quantity` vector proves an `experiment-override` entrypoint emits both a Model initializer and an optional override target. Dual-consumer mutation tests close effect/refusal/resource/cycle violations; Experiment tests refuse under/over/duplicate assignments, raw-Operation selection, and rebinding. | `game.combat.model-binding.*`, `quantity.assignment-policy.optional-override`, plus bounded dual-consumer conformance tests; retained |
+| Confirmed—narrowly | An independent lowerer derives byte-identical entrypoint, call-site, alias, closure, Scenario Input Contract, and identity graphs. A second evaluator builds its root frame only from RIR resolved operands and agrees with production on the committed cast's typed outcome, facts, state, RNG and call provenance. It validates every runtime-node contract vector and executes every RNG vector; nodes outside the cast are not claimed as independently executed semantics. | Bounded differential witness for `rpg.combat.cast-v1`; retained as a test, not generalized |
+| Refined—adopted | The descriptor conformance fixture repeated the complete RPG source, evaluator requirements, seed, and seven scenario values in Python after the package already owned source/runtime vectors. The fixture now selects those package vectors, builds their Model Source through the public command, and derives assignments, streams, and evaluator closure from admitted RIR/Kernel authority. | Descriptor conformance plus `game.combat` vector ownership; host copies removed |
+| Refined—adopted | The public package-vector schema named RFC 6901 in Kernel metadata but copied its grammar into host code. The Kernel now owns the exact JSON Schema grammar and target policy, and the public schema projects those bytes directly. | Kernel JSON Pointer meta-contract, dual bootstrap admission, and package schema projection updated |
+| Refined—adopted | Repairing the tutorial's unreachable RNG branch temporarily gave the product example and package conformance vectors the same tuning inputs. The committed tutorial now uses an independent `45 → 65` edit while the package vectors retain their own normative inputs; both consume the same admitted Operation semantics. | RPG tutorial, public e2e assertions, and package-vector ownership boundary updated |
+| Refined—adopted | Template member identities and RNG candidate formatting were implemented as host literals even though release identities and RNG laws were otherwise authoritative. The Template profile now declares its member identity domain, while Model Source identity remains owned only by the default Resolution profile and Template admission proves its source-identity judgment is an exact projection. Each non-artifact Wire-Schema definition owns its identity domain, Artifact Contracts remain the sole owner for artifact schemas, and the Kernel owns only the two irreducible root-authority projection domains plus the exact 64-bit lowercase hexadecimal candidate encoding; Template/runtime/public-schema consumers project those declarations with no host fallback or Kernel enumeration of extension kinds. | Kernel Specification, `standard.compiler` Resolution profile, and `standard.schema` Package Release; both bootstrap consumers and public schemas updated |
+| Refined—adopted | Artifact discovery skipped every malformed publication, including a member that a fully authenticated publication explicitly named as the requested exact artifact. It now validates `anchor/index → receipt → manifest` before target selection. Unbound or unrelated damaged framing remains non-blocking, while corruption of a member named by that complete chain returns a precise typed authority-integrity refusal instead of masquerading as absence. | Publication adapter and Experiment resolution boundary; adversarial member-corruption and manifest-substitution regressions retained |
+| Confirmed—narrowly | Fixed seeds `20260726` and `4` cross the critical threshold under the same Model, assignments, Runtime profile, and Metrics, producing byte-deterministic but observably different draws, damage, and terminal health. Repeating either exact input through a different Invocation key produces byte-identical semantic artifact members. | RPG tutorial plus direct deterministic-run conformance; retained |
+| Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
+
+The public outcome algebra is also confirmed for this slice: completed success and negative Verdict
+publish only their declared complete sets, admission/evaluation refusal publishes none, a
+post-dispatch Runtime refusal rolls back the current Event and publishes only terminal audit, and
+post-commit delivery recovery covers all three published outcomes without evaluator rerun.
+
+The human product/architecture gate on #540 must accept, condition, or reopen this path before #590,
+#585, or #541–#545 proceeds.
+
+### 12.6 Sealed orthogonal LDB dogfooding
+
+Issue #592 replaced the near-limit monolithic LDB with the sealed graph required by bADR-0023. Its
+observations are deliberately separated from the #540 product findings:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | One root-declared graph can admit complete package releases, expose byte-identical source/wheel `package list|get` results, and derive the consumer index only after the entire graph passes membership, coordinate, identity, dependency, resource, and vector checks. | bADR-0023, Kernel graph meta-format, and bootstrap consumers; retained |
+| Refined—adopted | The first loader derived a flat index before admitting the raw graph, which made an invalid candidate observable in memory. Loading now keeps the raw graph distinct and permits index construction only after successful atomic admission. | Authority loader and both bootstrap consumers; implementation/conformance updated |
+| Refined—adopted | Bare dependency ids were insufficient once the LDB became a versioned package graph. Every required/optional dependency now binds an exact `{id, version}` coordinate, and Package Lock edges retain the selected target version. | bADR-0016, Kernel package meta-format, resolver, and Lock contract; authority/conformance updated |
+| Refined—adopted | The first transitive-closure implementation keyed selected releases by package id, so it silently retained the first of two conflicting dependency versions and deferred failure to a host assertion. The Kernel's single-version law now observes the complete coordinate closure and returns the declared bounded `language.resolution_ambiguity` refusal before HIR. | bADR-0016 resolution judgment, Kernel relation recipe, and resolver; authority/conformance updated |
+| Refined—adopted | Reusing `schema get` for packages obscured the accepted resource taxonomy, while handwritten command schemas risked becoming peer package definitions. Public access is now `package list|get`, and exhaustive reverse conformance binds its success schemas to the Kernel package meta-format. | bADR-0021 command surface and descriptor schemas; implementation/conformance updated |
+| Refined—adopted | Stage-wide refusal projection advertised outcomes a command could not reach. Model, Template, and Experiment descriptors now publish exact semantic-reason projections, and every non-bootstrap advertised code has package-owned vector evidence. | bADR-0015/0021 refusal catalogs; descriptor and reverse-evidence tests updated |
+| Refined—adopted | Re-admitting the complete sealed graph separately for every static command descriptor pushed cold CLI startup beyond the special-file nonblocking gate. Descriptor assembly now shares one already-admitted read-only projection; command execution still performs its own authority admission. | Non-authoritative descriptor construction and operability gate; implementation updated |
+| Refined—adopted | Package semantic ownership was correct, but physically inlining normative vectors beside runtime semantic closure made the largest Package Release manifests another growth monolith and blurred semantics versus executable evidence. Each Package Release is now a sealed one-level aggregate in its own directory: the manifest binds one separately identified conformance-vector child, including a closed empty child. | bADR-0016/0023, Kernel package/vector-set meta-format, loader, package CLI, and packaging checks; authority/conformance updated |
+| Confirmed—narrowly | A vector-only mutation propagates through vector-set, Package Release content, whole-LDB, and downstream exact identities while preserving Package Release semantic identity and selected runtime semantic payload bytes. Missing, extra, substituted, malformed, digest/size/coordinate-mismatched, and over-limit children are refused before index derivation by both consumers. | Identity and admission contract for the one-level aggregate; retained |
+| Refined—adopted | Fixed host constants for vector identity domains and package-coordinate regular expressions made the first split structurally correct but left two peer authorities. The Kernel identity law and package meta-format now own both; loader, admission, CLI schemas, the independent consumer, and rebuild tooling project them. | Kernel identity and package-coordinate contracts; host duplicates removed |
+| Refined—adopted | Identity and byte-size checks over decoded values did not prove that shipped evidence used its declared canonical transport bytes; reordered keys could retain the same semantic value. Packaged LDB root, release, and vector members now require raw-byte equality with Kernel canonical encoding, and public schemas reject invented vector-definition shapes. | bADR-0023 admission/public retrieval; loader and descriptor conformance updated |
+| Confirmed—narrowly | A non-RPG economy Event package added after the Kernel and host implementation were fixed reaches Package Lock, canonical RIR, the unchanged evaluator, Event trace, Snapshot, and Metric without a genre-selected compiler/evaluator branch. | Bounded Core Extension Invariance witness; retained as conformance evidence |
+| Gap-opened | The bounded economy witness is not the public Extension Invariance Receipt required by bADR-0016/0017: it does not freeze two independent build identities, derive and exhaustively rename the reachable Non-Kernel Authority Token Inventory, or publish the independently validated receipt. | Later cross-genre conformance/coverage work; the architectural invariant remains mandatory |
+| Authored-example only | `game.resource`, `game.check`, and `game.combat` are orthogonal owners for the committed cast, and removing `game.rpg`/`RpgValue` prevents that example from defining the core. This one composition does not prove RPG or Roguelike package completeness. | #540 example and package map; retain without generalizing |
+
+The graph split also rebases #590: Formula schemas, rules, operations, diagnostics, and vectors must
+live in complete root-declared package releases, and any Formula edit that changes a child must
+reidentify that child, the sealed root, and every downstream exact binding. Formula behavior remains
+out of scope for #592.
+
+### 12.7 Architecture consequence
+
+The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
+mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the
+inference that they had already removed hidden-host uncertainty. The permanent slice exposed
+host-owned runtime semantics that their shared assumptions did not detect. After moving those laws
+into machine authority, one independent reference evaluator now closes that uncertainty only for
+the committed cast slice. General evaluator conformance, complete package resolution, broader
+Runtime/Effect semantics, and cross-genre verticals remain open; another disposable prototype would
 not close them.
 
 Subsequent research instances mapped representative mechanics from three game families into the
@@ -986,6 +1143,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | External-standard mappings | [bADR-0020](badr/0020-explicit-mappings-to-external-modeling-standards.md) | Mapping-specific conformance vectors |
 | CLI taxonomy and structured surface | [bADR-0021](badr/0021-schema-2.0-cli-taxonomy-and-structured-surface.md) | Command descriptors and Surface manifest |
 | Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |
+| Sealed multi-member LDB graph | [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md) | Root/package admission, public retrieval, packaging, and mutation vectors |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”

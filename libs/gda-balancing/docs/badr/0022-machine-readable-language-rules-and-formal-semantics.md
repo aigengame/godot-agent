@@ -36,13 +36,16 @@ structured formal judgments, and an honest proof/conformance boundary.
   canonical comparison/identity behavior, and charge events. LDB-facing operation names only bind
   to those primitives; they do not authorize a host `if` branch with undeclared semantics.
 
-- **The Language Definition Bundle is a canonical, content-addressed language-content artifact.**
-  Its manifest binds the exact Schema line, Kernel-Specification identity, bundle format,
-  grammar/AST definitions, core type constructors, Language rules, Operation specifications,
-  Domain-package manifests, post-admission diagnostics, Runtime/Numeric profile definitions,
-  lowering rules, external-standard mappings, and normative vectors.
-  Canonical emission and hashing cover every normative member; changing normative content produces
-  a new bundle identity and compatible or breaking version as applicable.
+- **The Language Definition Bundle is one canonical, content-addressed language-content graph.**
+  Under bADR-0023, its root manifest binds the exact Schema line, Kernel-Specification identity,
+  bundle format, resources, and closed ordered Package Release descriptors. Each complete release
+  is a sealed one-level aggregate: its manifest owns grammar/AST definitions, core type
+  constructors, Language rules, Operation specifications, post-admission diagnostics,
+  Runtime/Numeric profile definitions, lowering rules, and external-standard mappings, while one
+  bound package-owned conformance-vector child closes its normative vectors. Canonical vector-set,
+  Package Release, and root identities cover every normative member; changing normative content
+  produces the corresponding new identities and compatible or breaking version as applicable.
+  Admission-derived flat indexes are not a serialized or independently hashed language authority.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
@@ -79,10 +82,22 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **The Semantic kernel is intentionally small and closed.** Its operation set and observable laws
   are fixed by the Kernel Specification. It contains literals, typed reads,
-  versioned calls, conditionals, non-shadowing local bindings, statically bounded aggregates,
-  lookup, named-stream sampling, and the transition/event primitives required by bADR-0014.
+  versioned calls with exact named port-to-operand bindings, conditionals, non-shadowing lexical
+  local bindings, statically bounded aggregates, lookup, named-stream sampling, and the
+  transition/event primitives required by bADR-0014.
   Recursion, user-defined loops, unbounded collection traversal, reflection, dynamic operation
-  lookup, host callbacks, and ambient state are not kernel features.
+  lookup, host callbacks, ambient state, and same-name argument capture are not kernel features.
+
+- **Runtime-program node families are closed and exhaustive.** The Kernel classifies every admitted
+  node as an expression, effect, or control node and fixes its fields, evaluation position, result
+  or transition effect, refusal behavior, and resource charge. Named-stream `draw` and a
+  gameplay-outcome precondition are control nodes: neither is a pure expression nor an
+  implementation callback. An LDB Operation body may use only listed nodes, and runtime admission
+  rejects an evaluator that does not implement the complete requested set before dispatch. The
+  Kernel also fixes the exact Numeric bounds and RNG state/stream derivation, transition constants,
+  sampling/bias policy, trace representation, and positive/multi-draw/cross-stream/boundary vectors.
+  The LDB Operation declares one exhaustive typed outcome algebra with a default outcome and an
+  explicit commit/rollback policy for every alternative; an evaluator may not invent outcome ids.
 
 - **Domain operations are machine-defined compositions whenever possible.** An Operation
   specification may give semantics as a typed kernel AST plus declared effects/resource bounds.
@@ -101,10 +116,34 @@ structured formal judgments, and an honest proof/conformance boundary.
   selected Operation, and runtime admission revalidates that projection against the exact selected
   package release and Lock.
 
+- **Call resolution is total and lexical.** Every Operation call site binds every required callee
+  formal port exactly once and binds no unknown or duplicate port. Actual operands are caller ports,
+  lexical caller locals, literals, or Kernel-admitted expressions; caller-local scope does not leak
+  across sibling calls or into the host. Static admission checks type/access compatibility,
+  result/outcome handling, acyclic bounded nesting, callee effect/refusal containment, and
+  transitive resource closure under the selected LDB composition policy. Model entrypoints apply
+  the LDB's total Symbol assignment policy to resolved Model symbols: the policy owns legal
+  role/access/result combinations, value ownership, required/optional Experiment modes, and
+  actual-target collapse. Each role row classifies its binding as `operand`, `result`, or
+  `internal`; admission rejects an operand mode without either an Experiment value or Model
+  initializer, and rejects a result mode not produced by execution. Successful lowering gives every
+  actual operand and call site a stable identity and emits Model initializers and Experiment targets
+  in the Scenario Input Contract. Literal typing is a separate package-owned LDB authority: a root
+  or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
+  type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The
+  exporting package owns the exact Type release, referenced value inventories and an Operation
+  formal close the profile, and overlapping ranges for one match contract are invalid. Zero or
+  multiple matches refuse before HIR; RIR preserves the selected profile as part of the
+  actual-operand identity. A declared writable
+  alias denotes one location for the whole invocation, so a child write is visible through every
+  later sibling alias and operation rollback restores the entry snapshot.
+
 - **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
-  typing/evaluation laws for exact-model input overrides, event-sequence references, Metric
-  selectors, empty/missing behavior, and acceptance expressions. Implementations may optimize
-  those judgments but cannot replace them with scenario conditionals or post-hoc host decisions.
+  typing/evaluation laws for exact Model-entrypoint selection, total assignment of the generated
+  Scenario Input Contract, event-sequence references, Metric selectors, empty/missing behavior, and
+  acceptance expressions. An Experiment cannot select a raw LDB Operation or assign an undeclared
+  symbol. Implementations may optimize those judgments but cannot replace them with name matching,
+  scenario conditionals, or post-hoc host decisions.
 
 - **Name resolution is explicit and deterministic.** Packages contain named modules. Imports are
   selective or explicitly aliased; wildcard imports are forbidden. A declaration or local binding
@@ -225,7 +264,13 @@ structured formal judgments, and an honest proof/conformance boundary.
   gates. It deliberately contains no placeholder bundle: #534 remains open until a closed bootstrap
   schema, exhaustive rules, artifact shapes, profiles, and executable vectors are supplied together.
 - A minimal bundle can start with only the kernel and RPG-tracer packages, then add packages through
-  versioned manifests and conformance vectors without changing the core grammar.
+  versioned manifests and their bound conformance-vector children without changing the core
+  grammar.
+- Permanent RPG-slice dogfooding found that a host integer had been admitted for a Boolean formal,
+  the first repair coupled Literal Typing Profiles to one Symbol assignment policy, and parent
+  aliases could retain stale values across sibling calls. Literal typing is now independently
+  package-owned, reference-closed, ambiguity-refusing, runtime-selected, and identity-bearing;
+  `operation-body-order` aliasing spans the complete invocation rather than one child frame.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample
@@ -253,6 +298,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
   Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
   a reidentified but semantically inconsistent RIR projection must fail runtime admission.
+- Execute at least one expression, effect, and control node, including named draw and a typed
+  precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
+  require the same admission/refusal behavior across independent consumers; host support alone
+  cannot keep the Operation executable.
 - At least two evaluators that share no host primitive implementation execute each other's RIR and
   agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, and refusal vectors under the
   same Runtime profile definition and their honestly distinct evaluator-bound Resolved Runtime

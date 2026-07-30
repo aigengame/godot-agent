@@ -15,6 +15,7 @@ file and nothing else.
 
 import ast
 import importlib.util
+import json
 import re
 from pathlib import Path
 
@@ -125,11 +126,20 @@ def test_toolkit_speaks_no_game_identity_vocabulary() -> None:
 
 def test_toolkit_carries_no_per_game_config() -> None:
     # Schema-major Kernel/LDB resources are product-wide language authority,
-    # not per-game configuration. Keep the allowlist exact so a third JSON
-    # file cannot enter src unnoticed.
+    # not per-game configuration. The sealed root is the sole package
+    # inventory, so an undeclared JSON file still cannot enter src unnoticed.
+    authority_root = _SRC_DIR / "schema2" / "authorities" / "language-bundle.json"
+    root = json.loads(authority_root.read_text(encoding="utf-8"))
     machine_authorities = {
         "src/gda_balancing/schema2/authorities/kernel.json",
         "src/gda_balancing/schema2/authorities/language-bundle.json",
+        *{
+            "src/gda_balancing/schema2/authorities/packages/"
+            f"{descriptor['id'].replace('.', '-')}/"
+            f"{descriptor['id']}@{descriptor['version']}{suffix}"
+            for descriptor in root["package_descriptors"]
+            for suffix in (".json", ".conformance-vectors.json")
+        },
     }
     stray = [
         str(path.relative_to(_PACKAGE_ROOT))

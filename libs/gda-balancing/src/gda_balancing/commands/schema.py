@@ -12,12 +12,21 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
+from gda_balancing.commands.package import (
+    package_release_success_schema,
+    package_vector_set_success_schema,
+)
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.authority import (
+    AuthorityContextProvider,
+    AuthorityLoadError,
+    packaged_authority_context,
+    resolve_authority_context,
+)
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
     SCHEMA2_REFUSAL_STAGES,
-    admit_authorities,
+    BootstrapAdmission,
 )
 from gda_balancing.schema2.canonical import JsonValue
 from gda_balancing.schema2.diagnostics import (
@@ -47,11 +56,8 @@ class SchemaArtifact(RootModel[dict[str, Any]]):
     """One stdout-only authority/projection result; descriptor schema is exact."""
 
 
-AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
-
-
 def schema_get_handler(
-    provider: AuthorityProvider,
+    provider: AuthorityContextProvider,
 ) -> Callable[[SchemaGetInput], SchemaArtifact | Schema2RefusalReport]:
     """Build the retrieval handler around an injectable authority source.
 
@@ -61,12 +67,16 @@ def schema_get_handler(
 
     def _run(inp: SchemaGetInput) -> SchemaArtifact | Schema2RefusalReport:
         try:
-            kernel, ldb = provider()
+            context = resolve_authority_context(provider)
         except AuthorityLoadError as err:
             return ingress_refusal(err.code, err.subject, err.message)
-        admission = admit_authorities(kernel, ldb)
-        if not admission.admitted:
-            return bootstrap_refusal(admission)
+        if isinstance(context, BootstrapAdmission):
+            return bootstrap_refusal(context)
+        # This command publishes authority content through Pydantic. Give that
+        # serializer an independently owned builtin-container snapshot while
+        # keeping the process context itself structurally immutable.
+        kernel, ldb = context.mutable_pair()
+        admission = context.admission
         authorities: dict[str, JsonValue] = {
             "kernel": cast(JsonValue, kernel),
             "language_bundle": cast(JsonValue, ldb),
@@ -77,6 +87,24 @@ def schema_get_handler(
             },
         }
         if inp.artifact == "language-bundle":
+            root = getattr(ldb, "root", None)
+            package_releases = getattr(ldb, "package_releases", None)
+            package_vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
+            if (
+                isinstance(root, dict)
+                and isinstance(package_releases, list)
+                and isinstance(package_vector_sets, list)
+            ):
+                public_authorities = {
+                    "kernel": cast(JsonValue, kernel),
+                    "language_bundle": cast(JsonValue, root),
+                    "package_releases": cast(JsonValue, package_releases),
+                    "package_conformance_vector_sets": cast(
+                        JsonValue, package_vector_sets
+                    ),
+                    "admission": authorities["admission"],
+                }
+                return SchemaArtifact(root=cast(dict[str, Any], public_authorities))
             return SchemaArtifact(root=cast(dict[str, Any], authorities))
         if inp.artifact == "wire-schema":
             return SchemaArtifact(root=wire_schema_projection(authorities))
@@ -85,7 +113,7 @@ def schema_get_handler(
     return _run
 
 
-run_schema_get = schema_get_handler(load_authorities)
+run_schema_get = schema_get_handler(packaged_authority_context)
 
 
 def schema_get_refusal_catalog() -> tuple[tuple[str, str], ...]:
@@ -94,7 +122,7 @@ def schema_get_refusal_catalog() -> tuple[tuple[str, str], ...]:
 
 
 def schema_get_success_schema() -> dict[str, object]:
-    """Static closed result shapes; introspection never reads authority bytes."""
+    """Closed result shapes projected from the admitted authority contracts."""
     identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
     admission = {
         "type": "object",
@@ -115,9 +143,23 @@ def schema_get_success_schema() -> dict[str, object]:
         "properties": {
             "kernel": {},
             "language_bundle": {},
+            "package_releases": {
+                "type": "array",
+                "items": package_release_success_schema(),
+            },
+            "package_conformance_vector_sets": {
+                "type": "array",
+                "items": package_vector_set_success_schema(),
+            },
             "admission": admission,
         },
-        "required": ["kernel", "language_bundle", "admission"],
+        "required": [
+            "kernel",
+            "language_bundle",
+            "package_releases",
+            "package_conformance_vector_sets",
+            "admission",
+        ],
         "unevaluatedProperties": False,
     }
     projection_base = {
@@ -180,7 +222,13 @@ def schema_get_success_schema() -> dict[str, object]:
         ],
         "unevaluatedProperties": False,
     }
-    return {"oneOf": [authority_result, wire_projection, diagnostic_projection]}
+    return {
+        "oneOf": [
+            authority_result,
+            wire_projection,
+            diagnostic_projection,
+        ]
+    }
 
 
 SCHEMA_GET = CommandDescriptor(

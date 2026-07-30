@@ -7,10 +7,15 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.authority import (
+    AuthorityContextProvider,
+    AuthorityLoadError,
+    packaged_authority_context,
+    resolve_authority_context,
+)
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
-    admit_authorities,
+    BootstrapAdmission,
 )
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
@@ -34,22 +39,19 @@ class VersionResult(BaseModel):
     supported_schema_line: str
 
 
-AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
-
-
 def version_handler(
-    provider: AuthorityProvider,
+    provider: AuthorityContextProvider,
 ) -> Callable[[VersionInput], VersionResult | Schema2RefusalReport]:
     """Build the version tracer around one admitted authority provider."""
 
     def _run(_: VersionInput) -> VersionResult | Schema2RefusalReport:
         try:
-            kernel, language_bundle = provider()
+            context = resolve_authority_context(provider)
         except AuthorityLoadError as err:
             return ingress_refusal(err.code, err.subject, err.message)
-        admission = admit_authorities(kernel, language_bundle)
-        if not admission.admitted:
-            return bootstrap_refusal(admission)
+        if isinstance(context, BootstrapAdmission):
+            return bootstrap_refusal(context)
+        language_bundle = context.language_bundle
         versions = cast(
             list[str],
             cast(dict[str, Any], language_bundle["language"])[
@@ -72,7 +74,7 @@ def version_handler(
     return _run
 
 
-run_version = version_handler(load_authorities)
+run_version = version_handler(packaged_authority_context)
 
 
 VERSION = CommandDescriptor(

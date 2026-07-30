@@ -7,7 +7,9 @@ the tuple.
 """
 
 from gda_balancing.commands.manifest import MANIFEST
+from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
+from gda_balancing.commands.package import PACKAGE_GET, PACKAGE_LIST
 from gda_balancing.commands.schema import SCHEMA_GET
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
@@ -21,10 +23,14 @@ REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     VERSION,
     SCHEMA_GET,
     MANIFEST,
+    EXPERIMENT_CHECK,
+    EXPERIMENT_RUN,
     MODEL_CHECK,
     MODEL_BUILD,
     MODEL_MIGRATE,
     TEMPLATE_LIST,
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
+    PACKAGE_LIST,
+    PACKAGE_GET,
 )

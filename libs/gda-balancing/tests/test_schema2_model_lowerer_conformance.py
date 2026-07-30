@@ -9,8 +9,16 @@ from typing import Any, cast
 
 import gda_balancing.schema2.model as model_module
 import jsonschema
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    load_authorities,
+)
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
 from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
     CheckedModel,
@@ -20,8 +28,21 @@ from gda_balancing.schema2.model import (
 )
 
 
+def _inject_authority_context(monkeypatch, kernel, language_bundle):
+    context = admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, AdmittedAuthorityContext)
+    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    return context
+
+
 class _ReferenceRuntimeProjectionExhausted(Exception):
     pass
+
+
+class _ReferenceEntrypointError(ValueError):
+    def __init__(self, pointer: str, message: str):
+        super().__init__(message)
+        self.pointer = pointer
 
 
 def _reference_validate_canonical(value: Any) -> None:
@@ -74,6 +95,18 @@ def _symbol(name: str, role: str) -> dict[str, Any]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "model-fixed"
+                if role == "constant"
+                else "experiment-required"
+                if role in {"parameter", "input", "state"}
+                else "named-stream"
+                if role == "random"
+                else "none"
+            ),
+            **({"value": 1} if role == "constant" else {}),
+        },
     }
 
 
@@ -86,6 +119,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
             "entry_module": "main",
         },
         "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "entrypoints": [],
         "modules": [
             {
                 "id": "main",
@@ -104,7 +138,10 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _write_source(path: Path, source: dict[str, Any]) -> None:
-    path.write_text(json.dumps(source), encoding="utf-8")
+    path.write_text(
+        json.dumps(source, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
 
 def _reference_select(root: Any, selector: list[str]) -> list[Any]:
@@ -116,6 +153,25 @@ def _reference_select(root: Any, selector: list[str]) -> list[Any]:
                 selected.extend(value)
             elif isinstance(value, dict) and segment in value:
                 selected.append(value[segment])
+        values = selected
+    return values
+
+
+def _reference_select_with_paths(
+    root: Any,
+    selector: list[str],
+    base_path: tuple[object, ...] = (),
+) -> list[tuple[Any, tuple[object, ...]]]:
+    values = [(root, base_path)]
+    for segment in selector:
+        selected: list[tuple[Any, tuple[object, ...]]] = []
+        for value, path in values:
+            if segment == "*" and isinstance(value, list):
+                selected.extend(
+                    (item, (*path, index)) for index, item in enumerate(value)
+                )
+            elif isinstance(value, dict) and segment in value:
+                selected.append((value[segment], (*path, segment)))
         values = selected
     return values
 
@@ -160,6 +216,7 @@ def _exact_path(root: Any, dotted: str) -> Any:
 
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
+    assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = load_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
@@ -167,17 +224,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     projections_by_path = {
         projection["authority_path"]: projection for projection in projections
     }
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
+    projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(
-                    vector
-                    for vector in language_bundle["vectors"]
-                    if vector["id"] == vector_id
-                )
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry in package["semantic_closure"]:
             projection = projections_by_path[entry["authority_path"]]
             definitions = _exact_path(language_bundle, entry["authority_path"])
@@ -200,18 +252,83 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 if entry["authority_path"] in runtime_paths
             ],
         )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        existing_vectors = {
+            vector["id"]: vector for vector in vector_set["vector_definitions"]
+        }
+        vector_set["vector_definitions"] = [
+            deepcopy(projected_vectors.get(vector_id, existing_vectors[vector_id]))
+            for vector_id in vector_set["vectors"]
+        ]
+        vector_set["content_identity"] = _reference_content_identity(
+            "package-conformance-vector-set-v2",
+            {
+                key: value
+                for key, value in vector_set.items()
+                if key != "content_identity"
+            },
+        )
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(_reference_encoded(vector_set)),
+            "content_identity": vector_set["content_identity"],
+        }
         package["content_identity"] = _reference_content_identity(
             "domain-package-release-v2",
             {key: value for key, value in package.items() if key != "content_identity"},
         )
-    language_bundle["content_identity"] = _reference_content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
+    members = sorted(
+        zip(
+            deepcopy(language_bundle["language"]["packages"]),
+            deepcopy(language_bundle.package_conformance_vector_sets),
+            strict=True,
+        ),
+        key=lambda member: (member[0]["id"], member[0]["version"]),
     )
+    packages = [package for package, _vector_set in members]
+    vector_sets = [vector_set for _package, vector_set in members]
+    package_sizes = [len(_reference_encoded(package)) for package in packages]
+    vector_set_sizes = [
+        len(_reference_encoded(vector_set)) for vector_set in vector_sets
+    ]
+    root = deepcopy(language_bundle.root)
+    root["resources"] = deepcopy(language_bundle["resources"])
+    root["package_descriptors"] = [
+        {
+            "artifact_kind": package["artifact_kind"],
+            "byte_size": size,
+            "content_identity": package["content_identity"],
+            "id": package["id"],
+            "version": package["version"],
+        }
+        for package, size in zip(packages, package_sizes, strict=True)
+    ]
+    root["content_identity"] = _reference_content_identity(
+        "language-definition-bundle-v2",
+        {key: value for key, value in root.items() if key != "content_identity"},
+    )
+    rebuilt = derive_language_index(
+        root,
+        packages,
+        vector_sets,
+        kernel["admission"]["required_language_members"],
+        root_byte_size=len(_reference_encoded(root)),
+        package_byte_sizes=package_sizes,
+        vector_set_byte_sizes=vector_set_sizes,
+        descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
+            "canonical_order"
+        ],
+    )
+    language_bundle.root = deepcopy(rebuilt.root)
+    language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.package_conformance_vector_sets = deepcopy(
+        rebuilt.package_conformance_vector_sets
+    )
+    language_bundle.root_byte_size = rebuilt.root_byte_size
+    language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+    language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
+    language_bundle.clear()
+    language_bundle.update(dict(rebuilt))
 
 
 def _reference_reason_matches(
@@ -259,13 +376,19 @@ def _reference_check_source(
     source: dict[str, Any],
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
-) -> tuple[str, ...] | CheckedModel:
+) -> tuple[tuple[str, str], ...] | CheckedModel:
     """Independently interpret the admitted source schema and model-check relation."""
     language = language_bundle["language"]
     source_schema = next(
         item["schema"]
         for item in language["wire_schemas"]
         if item["artifact_kind"] == "model-source-package"
+    )
+    lowering = _reference_lowering(language)
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
     )
     schema_errors = sorted(
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),
@@ -280,37 +403,74 @@ def _reference_check_source(
                 expected == "*" or expected == actual
                 for expected, actual in zip(selector, path, strict=True)
             ):
-                return (reasons[check["reason"]]["diagnostic"],)
-        source_contract_reasons = [
-            item
-            for item in reasons.values()
-            if item["stage"] == "static"
-            and item["predicate"]["operation"] == "not-equal"
-        ]
-        assert len(source_contract_reasons) == 1
-        return (source_contract_reasons[0]["diagnostic"],)
+                return (
+                    (
+                        reasons[check["reason"]]["diagnostic"],
+                        _reference_pointer(list(path)),
+                    ),
+                )
+        return (
+            (
+                reasons[profile["structural_reason"]]["diagnostic"],
+                _reference_pointer(list(path)),
+            ),
+        )
 
-    diagnostics_by_stage: dict[str, list[str]] = {}
+    diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
         scopes = (
-            _reference_select(source, check["scope_selector"])
+            _reference_select_with_paths(source, check["scope_selector"])
             if "scope_selector" in check
-            else [source]
+            else [(source, ())]
         )
-        for scope in scopes:
-            values = _reference_select(scope, check["selector"])
-            if _reference_reason_matches(language_bundle, reason, values):
-                diagnostics_by_stage.setdefault(reason["stage"], []).append(
-                    reason["diagnostic"]
+        for scope, scope_path in scopes:
+            selected = _reference_select_with_paths(
+                scope,
+                check["selector"],
+                scope_path,
+            )
+            values = [value for value, _path in selected]
+            code = reason["diagnostic"]
+            if check["mode"] == "each":
+                diagnostics_by_stage.setdefault(reason["stage"], []).extend(
+                    (code, _reference_pointer(list(path)))
+                    for value, path in selected
+                    if _reference_reason_matches(language_bundle, reason, [value])
                 )
+                continue
+            if not _reference_reason_matches(language_bundle, reason, values):
+                continue
+            operation = reason["predicate"]["operation"]
+            if check["mode"] == "all" and operation == "has-duplicate":
+                first_paths: dict[bytes, tuple[object, ...]] = {}
+                for value, path in selected:
+                    encoded = _reference_encoded(value)
+                    if encoded not in first_paths:
+                        first_paths[encoded] = path
+                        continue
+                    diagnostics_by_stage.setdefault(reason["stage"], []).append(
+                        (code, _reference_pointer(list(path)))
+                    )
+                continue
+            if check["mode"] == "count":
+                limit_values = _reference_path(
+                    language_bundle,
+                    reason["predicate"]["limit_path"],
+                )
+                assert len(limit_values) == 1 and isinstance(limit_values[0], int)
+                limit = limit_values[0]
+                location = (
+                    selected[limit][1]
+                    if len(selected) > limit
+                    else tuple(check["selector"])
+                )
+            else:
+                location = selected[0][1] if selected else tuple(check["selector"])
+            diagnostics_by_stage.setdefault(reason["stage"], []).append(
+                (code, _reference_pointer(list(location)))
+            )
 
-    lowering = _reference_lowering(language)
-    profile = next(
-        item
-        for item in language["resolution_profiles"]
-        if item["id"] == lowering["resolution_profile"]
-    )
     resource_reasons = [
         reason
         for reason in reasons.values()
@@ -331,21 +491,57 @@ def _reference_check_source(
         base_steps += 1
 
     relations: dict[str, list[dict[str, dict[str, str]]]] = {}
+    available_packages = language["packages"]
+    requirements_member = profile["requirements_member"]
+    requirement_package_member = profile["requirement_package_member"]
+    requirement_version_member = profile["requirement_version_member"]
+    packages_by_coordinate = {
+        (package["id"], package["version"]): package for package in available_packages
+    }
+    selected_packages: dict[str, dict[str, Any]] = {}
+    pending = [
+        (
+            requirement[requirement_package_member],
+            requirement[requirement_version_member],
+        )
+        for requirement in source[requirements_member]
+    ]
+    while pending:
+        coordinate = pending.pop(0)
+        package = packages_by_coordinate.get(coordinate)
+        if package is None or package["id"] in selected_packages:
+            continue
+        selected_packages[package["id"]] = package
+        for dependency in package["dependencies"]["required"]:
+            pending.append((dependency["id"], dependency["version"]))
+    selected_package_values = [
+        selected_packages[package_id] for package_id in sorted(selected_packages)
+    ]
 
-    def read_term(term: dict[str, Any], environment: dict[str, Any]) -> Any:
+    def read_term(
+        term: dict[str, Any],
+        environment: dict[str, tuple[Any, tuple[object, ...] | None]],
+    ) -> tuple[Any, tuple[object, ...] | None]:
         if term["root"] == "source":
             value: Any = source
+            pointer: tuple[object, ...] | None = ()
         elif term["root"] == "language":
             value = language
+            pointer = None
+        elif term["root"] == "selected-packages":
+            value = selected_package_values
+            pointer = None
         elif term["root"] == "binding":
-            value = environment[term["binding"]]
+            value, pointer = environment[term["binding"]]
         else:
             raise AssertionError(
                 f"reference consumer observed unknown term root: {term['root']}"
             )
         for segment in term["path"]:
             value = value[segment]
-        return value
+            if pointer is not None:
+                pointer = (*pointer, segment)
+        return value, pointer
 
     try:
         for recipe in profile["relation_recipes"]:
@@ -353,12 +549,24 @@ def _reference_check_source(
             for binding in recipe["bindings"]:
                 next_environments = []
                 for environment in environments:
-                    candidates = read_term(binding["source"], environment)
+                    candidates, source_pointer = read_term(
+                        binding["source"], environment
+                    )
                     assert isinstance(candidates, list)
-                    for candidate in candidates:
+                    for candidate_index, candidate in enumerate(candidates):
                         consume_base()
                         next_environments.append(
-                            {**environment, binding["name"]: candidate}
+                            {
+                                **environment,
+                                binding["name"]: (
+                                    candidate,
+                                    (
+                                        (*source_pointer, candidate_index)
+                                        if source_pointer is not None
+                                        else None
+                                    ),
+                                ),
+                            }
                         )
                 environments = next_environments
             relation_rows = []
@@ -366,21 +574,28 @@ def _reference_check_source(
                 rejected = False
                 for predicate in recipe["predicates"]:
                     consume_base()
-                    if predicate["operator"] == "equal" and read_term(
-                        predicate["left"], environment
-                    ) != read_term(predicate["right"], environment):
+                    if (
+                        predicate["operator"] == "equal"
+                        and read_term(predicate["left"], environment)[0]
+                        != read_term(predicate["right"], environment)[0]
+                    ):
                         rejected = True
                         break
                 if rejected:
                     continue
                 values = {}
+                pointers = {}
                 for field in recipe["fields"]:
                     consume_base()
-                    values[field["name"]] = read_term(field["term"], environment)
-                relation_rows.append({"values": values})
+                    value, pointer = read_term(field["term"], environment)
+                    values[field["name"]] = value
+                    if field["pointer"]:
+                        assert pointer is not None
+                        pointers[field["name"]] = _reference_pointer(list(pointer))
+                relation_rows.append({"values": values, "pointers": pointers})
             relations[recipe["id"]] = relation_rows
     except BudgetExhausted:
-        return (resource_diagnostic,)
+        return ((resource_diagnostic, ""),)
 
     def matches(
         subject: dict[str, Any],
@@ -392,9 +607,13 @@ def _reference_check_source(
             for field in fields
         )
 
-    def law_fails(law: dict[str, Any], consume: Callable[[], None]) -> bool:
+    def law_failures(
+        law: dict[str, Any],
+        consume: Callable[[], None],
+    ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
         operator = law["operator"]
         if operator == "require-match":
+            failures = []
             for subject in relations[law["subject_relation"]]:
                 consume()
                 guard = law.get("guard")
@@ -412,31 +631,59 @@ def _reference_check_source(
                     if matches(subject, target, law["match"]):
                         targets.append(target)
                 if law["cardinality"] == "exactly-one" and len(targets) != 1:
-                    return True
-            return False
+                    failures.append((subject, None))
+            return failures
         if operator == "require-unique":
             fields = [*law["scope"], *law["key"]]
-            keys = []
+            first_by_key = {}
+            failures = []
             for item in relations[law["relation"]]:
                 consume()
-                keys.append(tuple(item["values"][field] for field in fields))
-            return len(keys) != len(set(keys))
+                key = tuple(item["values"][field] for field in fields)
+                previous = first_by_key.get(key)
+                if previous is None:
+                    first_by_key[key] = item
+                else:
+                    failures.append((item, previous))
+            return failures
         if operator == "require-single-value":
-            grouped: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+            grouped: dict[
+                tuple[str, ...],
+                tuple[tuple[str, ...], dict[str, Any]],
+            ] = {}
+            failures = []
             for item in relations[law["relation"]]:
                 consume()
                 group = tuple(
                     item["values"][field] for field in [*law["scope"], *law["group"]]
                 )
                 value = tuple(item["values"][field] for field in law["value"])
-                grouped.setdefault(group, set()).add(value)
-            return any(len(values) != 1 for values in grouped.values())
+                previous = grouped.get(group)
+                if previous is None:
+                    grouped[group] = (value, item)
+                elif previous[0] != value:
+                    failures.append((item, previous[1]))
+            return failures
         raise AssertionError(
             f"reference consumer observed unknown resolution law: {operator}"
         )
 
     resolution_meta = kernel["meta_format"]["resolution_judgment"]
     operations = {item["id"]: item for item in resolution_meta["operations"]}
+
+    def resolution_pointer(code: str) -> str:
+        if code == "language.package_version_unavailable":
+            for index, requirement in enumerate(source[requirements_member]):
+                coordinate = (
+                    requirement[requirement_package_member],
+                    requirement[requirement_version_member],
+                )
+                if coordinate not in packages_by_coordinate:
+                    return _reference_pointer(
+                        [requirements_member, index, requirement_version_member]
+                    )
+        return ""
+
     for stage in resolution_meta["stage_order"]:
         stage_steps = base_steps
 
@@ -450,12 +697,18 @@ def _reference_check_source(
         try:
             for judgment in profile["judgment_chain"]:
                 operation = operations[judgment["operation"]]
-                if operation["stage"] == stage and law_fails(
-                    operation["law"], consume_stage
-                ):
-                    stage_diagnostics.append(reasons[judgment["reason"]]["diagnostic"])
+                if operation["stage"] != stage:
+                    continue
+                law = operation["law"]
+                for item, _previous in law_failures(law, consume_stage):
+                    code = reasons[judgment["reason"]]["diagnostic"]
+                    pointer = item["pointers"].get(
+                        law["pointer_field"],
+                        resolution_pointer(code),
+                    )
+                    stage_diagnostics.append((code, pointer))
         except BudgetExhausted:
-            return (resource_diagnostic,)
+            return ((resource_diagnostic, ""),)
         if stage_diagnostics:
             return tuple(dict.fromkeys(stage_diagnostics))
     checked = CheckedModel(
@@ -476,7 +729,16 @@ def _reference_check_source(
             == "resources.max_runtime_projection_steps"
         ]
         assert len(runtime_reasons) == 1
-        return (runtime_reasons[0]["diagnostic"],)
+        return ((runtime_reasons[0]["diagnostic"], ""),)
+    except _ReferenceEntrypointError as error:
+        return (
+            (
+                reasons[profile["structural_reason"]]["diagnostic"],
+                error.pointer,
+            ),
+        )
+    except ValueError:
+        return ((reasons[profile["structural_reason"]]["diagnostic"], "/entrypoints"),)
     return checked
 
 
@@ -712,19 +974,19 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             assert previous["semantic_identity"] == package["semantic_identity"]
             continue
         selected[package["id"]] = package
-        for dependency_id in sorted(package["dependencies"]["required"]):
-            candidates = [
-                candidate
-                for (candidate_id, _), candidate in available.items()
-                if candidate_id == dependency_id
+        for dependency_constraint in sorted(
+            package["dependencies"]["required"],
+            key=lambda item: (item["id"], item["version"]),
+        ):
+            dependency = available[
+                (dependency_constraint["id"], dependency_constraint["version"])
             ]
-            assert len(candidates) == 1
-            dependency = candidates[0]
             dependency_edges.append(
                 {
                     "from_package": package["id"],
                     "kind": "required",
                     "to_package": dependency["id"],
+                    "to_version": dependency["version"],
                 }
             )
             pending.append({"id": dependency["id"], "version": dependency["version"]})
@@ -806,7 +1068,13 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         ],
         key=lambda item: item["id"],
     )
-    dependency_edges.sort(key=lambda item: (item["from_package"], item["to_package"]))
+    dependency_edges.sort(
+        key=lambda item: (
+            item["from_package"],
+            item["to_package"],
+            item["to_version"],
+        )
+    )
     types = sorted(
         [
             {**exported_type, "package": package["id"]}
@@ -902,15 +1170,719 @@ def _reference_rir(
         for invocation in lowering["rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])
+    selected_semantics = _reference_runtime_projection(
+        checked, lock, declarations, lowering
+    )
     return _reference_artifact(
         checked,
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
-            "selected_semantics": _reference_runtime_projection(
-                checked, lock, declarations, lowering
+            "entrypoints": _reference_entrypoints(
+                checked,
+                declarations,
+                selected_semantics,
             ),
+            "call_sites": _reference_call_sites(
+                checked,
+                selected_semantics,
+                lowering,
+            ),
+            "selected_semantics": selected_semantics,
         },
+    )
+
+
+def _reference_exact_operation(
+    operation_row: dict[str, Any],
+    package_versions: dict[str, str],
+) -> dict[str, str]:
+    package = operation_row["package"]
+    return {
+        "package": package,
+        "version": package_versions[package],
+        "id": operation_row["definition"]["id"],
+    }
+
+
+def _reference_value_contract_matches(
+    declaration: dict[str, Any],
+    contract: dict[str, Any],
+) -> bool:
+    expected_type = contract["type"]
+    return declaration["type_identity"] == {
+        "package": expected_type["package"],
+        "version": expected_type["version"],
+        "symbol": expected_type["id"],
+    } and all(
+        declaration[member] == contract[member]
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    )
+
+
+def _reference_literal_context(
+    value: Any,
+    formal: dict[str, Any],
+    checked: CheckedModel,
+    selected_semantics: dict[str, Any],
+) -> dict[str, Any] | None:
+    if (
+        type(value) is not int
+        or checked.kernel["meta_format"]["literal_typing"]["selection"]
+        != "unique-formal-match"
+    ):
+        return None
+    profiles = [
+        row["definition"] for row in selected_semantics["literal_typing_profiles"]
+    ]
+    matches = []
+    for profile in profiles:
+        if (
+            profile["source_kind"] == "integer"
+            and profile["minimum"] <= value <= profile["maximum"]
+            and profile["type"] == formal["type"]
+            and all(
+                profile[member] == formal[member]
+                for member in (
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                )
+            )
+        ):
+            matches.append(profile)
+    if len(matches) != 1:
+        return None
+    return {
+        member: matches[0][member]
+        for member in (
+            "id",
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
+    }
+
+
+def _reference_assignment_mode(
+    declaration: dict[str, Any],
+    roles: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    role = roles.get(declaration["role"])
+    if role is None:
+        raise ValueError("Symbol role has no assignment policy")
+    matches = [
+        mode
+        for mode in role["modes"]
+        if mode["id"] == declaration["value_policy"]["mode"]
+    ]
+    if len(matches) != 1:
+        raise ValueError("Symbol value mode has no unique assignment contract")
+    return matches[0]
+
+
+def _reference_alias_rows(
+    operation: dict[str, Any],
+    aliases: dict[str, list[tuple[str, str]]],
+) -> list[dict[str, Any]]:
+    policy = operation["alias_policy"]
+    writable_groups = {
+        frozenset(group["ports"]): group["semantics"]
+        for group in policy["writable_groups"]
+    }
+    rows = []
+    for actual_identity, uses in aliases.items():
+        if len(uses) < 2:
+            continue
+        ports = [name for name, _access in uses]
+        if all(access == "read" for _name, access in uses):
+            alias_policy = policy["read_only"]
+        else:
+            alias_policy = writable_groups.get(frozenset(ports))
+            if alias_policy is None:
+                raise ValueError("Operation does not admit this writable alias set")
+        rows.append(
+            {
+                "actual_operand_identity": actual_identity,
+                "ports": ports,
+                "policy": alias_policy,
+            }
+        )
+    return rows
+
+
+def _reference_entrypoints(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    lowering = _reference_lowering(checked.language_bundle["language"])
+    policy = lowering["assignment_policy"]
+    roles = {row["role"]: row for row in policy["roles"]}
+    assert set(roles) == set(
+        checked.language_bundle["language"]["quantity"]["symbol_roles"]
+    )
+    package_versions = {
+        row["id"]: row["version"] for row in selected_semantics["packages"]
+    }
+    operation_rows = selected_semantics["operations"]
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    declarations_by_source = {
+        (
+            declaration["resolved_symbol"]["module"],
+            declaration["resolved_symbol"]["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+        "identity_domains"
+    ]
+    assert policy["duplicate_actual_policy"] == "collapse"
+    assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
+    resolved_entrypoints = []
+    seen: set[str] = set()
+    for entrypoint_index, source_entrypoint in enumerate(checked.source["entrypoints"]):
+        pointer = f"/entrypoints/{entrypoint_index}"
+        entrypoint_id = source_entrypoint["id"]
+        if entrypoint_id in seen:
+            raise _ReferenceEntrypointError(
+                f"{pointer}/id",
+                "duplicate Model entrypoint",
+            )
+        seen.add(entrypoint_id)
+        operation_ref = source_entrypoint["operation"]
+        operation_row = operations.get(
+            (
+                operation_ref["package"],
+                operation_ref["version"],
+                operation_ref["id"],
+            )
+        )
+        if operation_row is None:
+            selected_version = package_versions.get(operation_ref["package"])
+            member = (
+                "package"
+                if selected_version is None
+                else "version"
+                if selected_version != operation_ref["version"]
+                else "id"
+            )
+            raise _ReferenceEntrypointError(
+                f"{pointer}/operation/{member}",
+                "entrypoint Operation is not selected",
+            )
+        operation = operation_row["definition"]
+        exact_operation = _reference_exact_operation(operation_row, package_versions)
+        formals = operation["inputs"]
+        authored_arguments = source_entrypoint["arguments"]
+        if [row["port"] for row in authored_arguments] != [
+            row["id"] for row in formals
+        ]:
+            if len(authored_arguments) < len(formals):
+                argument_pointer = f"{pointer}/arguments"
+            else:
+                mismatch = next(
+                    (
+                        index
+                        for index, (actual, expected) in enumerate(
+                            zip(
+                                [row["port"] for row in authored_arguments],
+                                [row["id"] for row in formals],
+                                strict=False,
+                            )
+                        )
+                        if actual != expected
+                    ),
+                    len(formals),
+                )
+                argument_pointer = f"{pointer}/arguments/{mismatch}/port"
+            raise _ReferenceEntrypointError(
+                argument_pointer,
+                "entrypoint arguments do not close formal ports",
+            )
+        arguments = []
+        aliases: dict[str, list[tuple[str, str]]] = {}
+        initializers: dict[str, dict[str, Any]] = {}
+        targets: dict[str, dict[str, Any]] = {}
+        for argument_index, (formal, authored) in enumerate(
+            zip(formals, authored_arguments, strict=True)
+        ):
+            operand_pointer = f"{pointer}/arguments/{argument_index}/operand"
+            formal_body = {"operation": exact_operation, "name": formal["id"]}
+            operand = authored["operand"]
+            if operand["kind"] == "symbol":
+                declaration = declarations_by_source.get(
+                    (operand["module"], operand["symbol"])
+                )
+                if declaration is None or not _reference_value_contract_matches(
+                    declaration, formal
+                ):
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "entrypoint Symbol is incompatible",
+                    )
+                access = formal["access"]
+                role = declaration["role"]
+                if access not in roles[role]["entrypoint_operand_access"]:
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "entrypoint Symbol role is incompatible",
+                    )
+                symbol = declaration["resolved_symbol"]
+                operand_body = {"kind": "symbol", "symbol": symbol}
+                operand_identity = _reference_content_identity(
+                    domains["actual_operand"], operand_body
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append((formal["id"], access))
+                value_policy = declaration["value_policy"]
+                mode = _reference_assignment_mode(declaration, roles)
+                if mode["experiment_cardinality"] != "forbidden":
+                    target = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "experiment",
+                        "initialization_source": "scenario-assignment",
+                        "cardinality": mode["experiment_cardinality"],
+                        "override": mode["override"],
+                    }
+                    previous = targets.get(operand_identity)
+                    if previous is not None and previous != target:
+                        raise ValueError("conflicting Scenario targets")
+                    targets[operand_identity] = target
+                if mode["initialization_source"] in {
+                    "model",
+                    "model-with-experiment-override",
+                }:
+                    initializer = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "model",
+                        "initialization_source": "value-policy",
+                        "value": value_policy["value"],
+                    }
+                    previous = initializers.get(operand_identity)
+                    if previous is not None and previous != initializer:
+                        raise ValueError("conflicting Model initializers")
+                    initializers[operand_identity] = initializer
+            elif operand["kind"] == "literal":
+                context_type = _reference_literal_context(
+                    operand["value"],
+                    formal,
+                    checked,
+                    selected_semantics,
+                )
+                if formal["access"] != "read" or context_type is None:
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "literal is incompatible",
+                    )
+                operand_body = {
+                    "kind": "literal",
+                    "value": operand["value"],
+                    "context_type": context_type,
+                }
+                resolved_operand = {
+                    **operand_body,
+                    "identity": _reference_content_identity(
+                        domains["actual_operand"], operand_body
+                    ),
+                }
+            else:
+                raise _ReferenceEntrypointError(
+                    operand_pointer,
+                    "unknown entrypoint operand kind",
+                )
+            arguments.append(
+                {
+                    "port": {
+                        "identity": _reference_content_identity(
+                            domains["formal_port"], formal_body
+                        ),
+                        "operation": exact_operation,
+                        "name": formal["id"],
+                    },
+                    "operand": resolved_operand,
+                    "access": formal["access"],
+                }
+            )
+        try:
+            alias_rows = _reference_alias_rows(operation, aliases)
+        except ValueError as error:
+            raise _ReferenceEntrypointError(
+                f"{pointer}/arguments",
+                str(error),
+            ) from error
+        authored_result = source_entrypoint["result"]
+        if authored_result["kind"] == "discard":
+            if operation["result"]["discardable"] is not True:
+                raise _ReferenceEntrypointError(
+                    f"{pointer}/result",
+                    "required result cannot be discarded",
+                )
+            result_body = {"kind": "discard"}
+        else:
+            result_declaration = declarations_by_source.get(
+                (authored_result["module"], authored_result["symbol"])
+            )
+            if (
+                result_declaration is None
+                or not roles[result_declaration["role"]]["entrypoint_result"]
+                or not _reference_value_contract_matches(
+                    result_declaration, operation["result"]
+                )
+            ):
+                raise _ReferenceEntrypointError(
+                    f"{pointer}/result",
+                    "entrypoint result is incompatible",
+                )
+            result_body = {
+                "kind": "symbol",
+                "symbol": result_declaration["resolved_symbol"],
+            }
+        result = {
+            **result_body,
+            "identity": _reference_content_identity(domains["result"], result_body),
+        }
+        body = {
+            "id": entrypoint_id,
+            "operation": exact_operation,
+            "arguments": arguments,
+            "aliases": alias_rows,
+            "result": result,
+            "effects": operation["effects"],
+            "refusals": operation["refusals"],
+            "resource_bounds": operation["resource_bounds"],
+            "scenario_input_contract": {
+                "initializers": sorted(
+                    initializers.values(),
+                    key=lambda row: row["target_identity"],
+                ),
+                "targets": sorted(
+                    targets.values(),
+                    key=lambda row: row["target_identity"],
+                ),
+            },
+        }
+        resolved_entrypoints.append(
+            {
+                **body,
+                "identity": _reference_content_identity(domains["entrypoint"], body),
+            }
+        )
+    return sorted(resolved_entrypoints, key=lambda row: row["id"])
+
+
+def _reference_operation_contract_matches(
+    actual: dict[str, Any],
+    formal: dict[str, Any],
+) -> bool:
+    return actual["type"] == formal["type"] and all(
+        actual[member] == formal[member]
+        for member in (
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
+    )
+
+
+def _reference_call_sites(
+    checked: CheckedModel,
+    selected_semantics: dict[str, Any],
+    lowering: dict[str, Any],
+) -> list[dict[str, Any]]:
+    composition_policy = lowering["composition_policy"]
+    effect_policy = composition_policy["effects"]
+    refusal_policy = composition_policy["refusals"]
+    resource_policy = composition_policy["resources"]
+    package_versions = {
+        row["id"]: row["version"] for row in selected_semantics["packages"]
+    }
+    operation_rows = selected_semantics["operations"]
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+        "identity_domains"
+    ]
+    rows = []
+    cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+
+    def close(
+        operation_row: dict[str, Any],
+        stack: tuple[tuple[str, str, str], ...],
+    ) -> tuple[set[str], set[str], int]:
+        parent_ref = _reference_exact_operation(operation_row, package_versions)
+        parent_key = (
+            parent_ref["package"],
+            parent_ref["version"],
+            parent_ref["id"],
+        )
+        if parent_key in stack:
+            raise ValueError("Operation call graph contains a cycle")
+        if parent_key in cache:
+            return cache[parent_key]
+        operation = operation_row["definition"]
+        parent_ports = {row["id"]: row for row in operation["inputs"]}
+        parent_outcomes = {row["id"] for row in operation.get("outcomes", [])}
+        local_contracts: dict[str, dict[str, Any]] = {}
+        effects = set(operation["effects"])
+        refusals = set(operation["refusals"])
+        charge = 0
+        seen_sites: set[str] = set()
+        for order, instruction in enumerate(operation["body"]):
+            charge += 1
+            if instruction["node"] != "invoke":
+                continue
+            site = instruction["site"]
+            if site in seen_sites:
+                raise ValueError("duplicate nested call site")
+            seen_sites.add(site)
+            child_ref = instruction["operation"]
+            child_row = operations.get(
+                (
+                    child_ref["package"],
+                    child_ref["version"],
+                    child_ref["id"],
+                )
+            )
+            if child_row is None:
+                raise ValueError("nested Operation is not selected")
+            child = child_row["definition"]
+            exact_child = _reference_exact_operation(child_row, package_versions)
+            child_ports = child["inputs"]
+            authored_arguments = instruction["arguments"]
+            if [row["port"] for row in authored_arguments] != [
+                row["id"] for row in child_ports
+            ]:
+                raise ValueError("nested arguments do not close formal ports")
+            aliases: dict[str, list[tuple[str, str]]] = {}
+            arguments = []
+            for formal, authored in zip(child_ports, authored_arguments, strict=True):
+                formal_body = {"operation": exact_child, "name": formal["id"]}
+                operand = authored["operand"]
+                if operand["kind"] == "port":
+                    contract = parent_ports.get(operand["port"])
+                    if (
+                        contract is None
+                        or not _reference_operation_contract_matches(contract, formal)
+                        or (
+                            formal["access"] in {"read-write", "write"}
+                            and contract["access"] not in {"read-write", "write"}
+                        )
+                    ):
+                        raise ValueError("nested port operand is incompatible")
+                    operand_body = {
+                        "kind": "port",
+                        "parent_operation": parent_ref,
+                        "port": operand["port"],
+                    }
+                    resolved_operand = {
+                        "kind": "port",
+                        "port": operand["port"],
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                elif operand["kind"] == "local":
+                    contract = local_contracts.get(operand["local"])
+                    if (
+                        contract is None
+                        or formal["access"] != "read"
+                        or not _reference_operation_contract_matches(contract, formal)
+                    ):
+                        raise ValueError("nested local operand is incompatible")
+                    operand_body = {
+                        "kind": "local",
+                        "parent_operation": parent_ref,
+                        "local": operand["local"],
+                    }
+                    resolved_operand = {
+                        "kind": "local",
+                        "local": operand["local"],
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                elif operand["kind"] == "literal":
+                    context_type = _reference_literal_context(
+                        operand["literal"],
+                        formal,
+                        checked,
+                        selected_semantics,
+                    )
+                    if formal["access"] != "read" or context_type is None:
+                        raise ValueError("nested literal is incompatible")
+                    operand_body = {
+                        "kind": "literal",
+                        "parent_operation": parent_ref,
+                        "value": operand["literal"],
+                        "context_type": context_type,
+                    }
+                    resolved_operand = {
+                        "kind": "literal",
+                        "value": operand["literal"],
+                        "context_type": context_type,
+                        "identity": _reference_content_identity(
+                            domains["actual_operand"], operand_body
+                        ),
+                    }
+                else:
+                    raise ValueError("unknown nested operand kind")
+                actual_identity = resolved_operand["identity"]
+                aliases.setdefault(actual_identity, []).append(
+                    (formal["id"], formal["access"])
+                )
+                arguments.append(
+                    {
+                        "port": {
+                            "identity": _reference_content_identity(
+                                domains["formal_port"], formal_body
+                            ),
+                            "operation": exact_child,
+                            "name": formal["id"],
+                        },
+                        "operand": resolved_operand,
+                        "access": formal["access"],
+                    }
+                )
+            alias_rows = _reference_alias_rows(child, aliases)
+            authored_result = instruction["result"]
+            if authored_result["kind"] == "discard":
+                if child["result"]["discardable"] is not True:
+                    raise ValueError("required nested result is discarded")
+            elif authored_result["kind"] == "local":
+                name = authored_result["name"]
+                if name in local_contracts:
+                    raise ValueError("nested result local is repeated")
+                local_contracts[name] = child["result"]
+            elif authored_result["kind"] == "operation-result":
+                if not _reference_operation_contract_matches(
+                    child["result"], operation["result"]
+                ):
+                    raise ValueError("nested result is incompatible")
+            else:
+                raise ValueError("unknown nested result binding")
+            result_body = {
+                "parent_operation": parent_ref,
+                "site": site,
+                "operation": exact_child,
+                "binding": authored_result,
+            }
+            result = {
+                "identity": _reference_content_identity(domains["result"], result_body),
+                "binding": authored_result,
+            }
+            authored_outcomes = instruction["outcomes"]
+            if [row["outcome"] for row in authored_outcomes] != [
+                row["id"] for row in child["outcomes"]
+            ]:
+                raise ValueError("nested outcome mapping is not exhaustive")
+            outcomes = []
+            for mapping in authored_outcomes:
+                action = mapping["action"]
+                if (
+                    action["kind"] == "propagate"
+                    and action["outcome"] not in parent_outcomes
+                ):
+                    raise ValueError("nested outcome is not admitted by caller")
+                outcome_body = {
+                    "parent_operation": parent_ref,
+                    "site": site,
+                    "operation": exact_child,
+                    "outcome": mapping["outcome"],
+                    "action": action,
+                }
+                outcomes.append(
+                    {
+                        "identity": _reference_content_identity(
+                            domains["outcome"], outcome_body
+                        ),
+                        "outcome": mapping["outcome"],
+                        "action": action,
+                    }
+                )
+            child_effects, child_refusals, child_charge = close(
+                child_row, (*stack, parent_key)
+            )
+            if effect_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_effects <= set(operation["effects"]):
+                raise ValueError("nested effect closure exceeds caller declaration")
+            if refusal_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_refusals <= set(operation["refusals"]):
+                raise ValueError("nested refusal closure exceeds caller declaration")
+            if effect_policy["aggregation"] == "union":
+                effects.update(child_effects)
+            if refusal_policy["aggregation"] == "union":
+                refusals.update(child_refusals)
+            if resource_policy["aggregation"] == "sum":
+                charge += child_charge
+            body = {
+                "parent_operation": parent_ref,
+                "site": site,
+                "order": order,
+                "operation": exact_child,
+                "arguments": arguments,
+                "result": result,
+                "outcomes": outcomes,
+                "aliases": alias_rows,
+                "closure": {
+                    "effects": sorted(child_effects),
+                    "refusals": sorted(child_refusals),
+                    "resource_charge": 1 + child_charge,
+                },
+            }
+            rows.append(
+                {
+                    **body,
+                    "identity": _reference_content_identity(domains["call_site"], body),
+                }
+            )
+        if (
+            resource_policy["containment"] == "transitive-charge-within-caller-bound"
+            and charge > operation["resource_bounds"]["max_steps"]
+        ):
+            raise ValueError("transitive resource charge exceeds caller bound")
+        cache[parent_key] = effects, refusals, charge
+        return effects, refusals, charge
+
+    for operation_row in sorted(
+        operation_rows,
+        key=lambda row: (row["package"], row["definition"]["id"]),
+    ):
+        close(operation_row, ())
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["parent_operation"]["package"],
+            row["parent_operation"]["id"],
+            row["order"],
+        ),
     )
 
 
@@ -956,11 +1928,15 @@ def _reference_runtime_projection(
         else:
             rows = []
             for closure in lock["package_semantic_closures"]:
-                entry = next(
+                entries = [
                     entry
                     for entry in closure["definitions"]
                     if entry["authority_path"] == source["authority_path"]
-                )
+                ]
+                assert len(entries) <= 1
+                if not entries:
+                    continue
+                entry = entries[0]
                 for definition in entry["definitions"]:
                     consume()
                     rows.append(
@@ -1243,8 +2219,40 @@ def _lock_oracle(lock: dict[str, Any]) -> dict[str, Any]:
 
 def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path):
     kernel, language_bundle = load_authorities()
-    vectors = [item for item in language_bundle["vectors"] if "category" in item]
-    package = language_bundle["language"]["packages"][0]
+    vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
+    vector_ids = {item["id"] for item in vectors}
+    assert {
+        "quantity.literal.integer-admitted",
+        "game.combat.model-binding.contract-stale-package",
+        "game.combat.model-binding.contract-stale-version",
+        "game.combat.model-binding.contract-stale-id",
+        "game.combat.model-binding.contract-wrong-type",
+        "game.combat.model-binding.contract-wrong-representation",
+        "game.combat.model-binding.contract-wrong-kind",
+        "game.combat.model-binding.contract-wrong-unit",
+        "game.combat.model-binding.contract-wrong-numeric-policy",
+        "game.combat.model-binding.literal-wrong-type",
+        "quantity.assignment-policy.optional-override",
+        "game.combat.model-binding.multiple-entrypoints",
+    } <= vector_ids
+    vector_owners = {
+        vector_id: [
+            vector_set
+            for vector_set in language_bundle.package_conformance_vector_sets
+            if vector_id in vector_set["vectors"]
+        ]
+        for vector_id in vector_ids
+    }
+    assert all(len(owners) == 1 for owners in vector_owners.values())
+    owner_coordinates = {
+        (owners[0]["package_id"], owners[0]["package_version"])
+        for owners in vector_owners.values()
+    }
+    packages = [
+        package
+        for package in language_bundle["language"]["packages"]
+        if (package["id"], package["version"]) in owner_coordinates
+    ]
     assert {item["category"] for item in vectors} == {
         "positive",
         "negative",
@@ -1252,9 +2260,11 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "mutation",
         "semantic-equivalence",
     }
-    assert {item["id"] for item in vectors} <= set(package["vectors"])
+    assert set(vector_owners) == vector_ids
     assert all(
-        entry["authority_path"] != "vectors" for entry in package["semantic_closure"]
+        entry["authority_path"] != "vectors"
+        for package in packages
+        for entry in package["semantic_closure"]
     )
 
     results: dict[str, dict[str, Any] | None] = {}
@@ -1278,12 +2288,20 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
             assert isinstance(production_checked, Schema2RefusalReport)
             assert isinstance(reference_checked, tuple)
             production_diagnostics = [
-                {"code": item.code, "stage": production_checked.stage}
+                {
+                    "code": item.code,
+                    "stage": production_checked.stage,
+                    "pointer": item.primary.pointer,
+                }
                 for item in production_checked.diagnostics
             ]
             reference_diagnostics = [
-                {"code": code, "stage": diagnostic_stages[code]}
-                for code in reference_checked
+                {
+                    "code": code,
+                    "stage": diagnostic_stages[code],
+                    "pointer": pointer,
+                }
+                for code, pointer in reference_checked
             ]
             assert production_diagnostics == reference_diagnostics
             assert production_diagnostics == expected["diagnostics"]
@@ -1347,6 +2365,62 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
             assert current["rir-semantic-payload"] == reference["rir-semantic-payload"]
             assert current["debug-map"] != reference["debug-map"]
 
+    optional = cast(
+        dict[str, Any],
+        results["quantity.assignment-policy.optional-override"],
+    )
+    optional_contract = optional["rir-semantic-payload"]["entrypoints"][0][
+        "scenario_input_contract"
+    ]
+    optional_target = next(
+        row
+        for row in optional_contract["targets"]
+        if row["target"]["name"] == "parameter_value"
+    )
+    optional_initializer = next(
+        row
+        for row in optional_contract["initializers"]
+        if row["target"]["name"] == "parameter_value"
+    )
+    assert (optional_target["cardinality"], optional_target["override"]) == (
+        "optional",
+        True,
+    )
+    assert optional_initializer["value"] == 10
+
+    multiple = cast(
+        dict[str, Any],
+        results["game.combat.model-binding.multiple-entrypoints"],
+    )
+    entrypoints = multiple["rir-semantic-payload"]["entrypoints"]
+    assert [row["id"] for row in entrypoints] == [
+        "combat.cast",
+        "combat.cast.alternate",
+    ]
+    assert len({row["identity"] for row in entrypoints}) == 2
+    assert len({_reference_encoded(row["arguments"]) for row in entrypoints}) == 2
+
+    literal = cast(
+        dict[str, Any],
+        results["quantity.literal.integer-admitted"],
+    )
+    literal_operand = literal["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+    assert literal_operand["context_type"] == {
+        "domain": {"kind": "actual"},
+        "id": "quantity.dimensionless-int64",
+        "kind": "scalar",
+        "numeric_policy": "exact-int64",
+        "representation": "Int",
+        "type": {
+            "id": "Quantity",
+            "package": "core.quantity",
+            "version": "2.0.0",
+        },
+        "unit": "1",
+    }
+
 
 def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
     roles = (
@@ -1392,6 +2466,124 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
     ).admitted
 
 
+def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, language_bundle = load_authorities()
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert production["rir-semantic-payload"] == reference["rir-semantic-payload"]
+    rir = reference["rir-semantic-payload"]
+    assert len(cast(list[Any], rir["entrypoints"])) == 1
+    assert len(cast(list[Any], rir["call_sites"])) == 4
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        }
+    ).admitted
+
+
+def test_nested_integer_literal_is_identical_across_lowerers(
+    monkeypatch,
+):
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    cast_operation = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    spend_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "spend-resource"
+    )
+    cost = next(
+        argument for argument in spend_call["arguments"] if argument["port"] == "cost"
+    )
+    cost["operand"] = {"kind": "literal", "literal": 8}
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, candidate_ldb)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    rir = cast(dict[str, Any], production["rir-semantic-payload"])
+    call_sites = cast(list[dict[str, Any]], rir["call_sites"])
+    call_site = next(row for row in call_sites if row["site"] == "spend-resource")
+    operand = next(
+        row["operand"]
+        for row in call_site["arguments"]
+        if row["port"]["name"] == "cost"
+    )
+    assert operand == {
+        "kind": "literal",
+        "value": 8,
+        "context_type": {
+            "domain": {"kind": "actual"},
+            "id": "quantity.dimensionless-int64",
+            "kind": "scalar",
+            "numeric_policy": "exact-int64",
+            "representation": "Int",
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.0.0",
+            },
+            "unit": "1",
+        },
+        "identity": operand["identity"],
+    }
+    assert cast(str, operand["identity"]).startswith("sha256:")
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        }
+    ).admitted
+
+
 def test_resolution_stage_order_is_authoritative_across_independent_consumers(
     tmp_path,
 ):
@@ -1413,8 +2605,8 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
         "language.unresolved_name",
     )
     assert reference == (
-        "language.name_ambiguity",
-        "language.unresolved_name",
+        ("language.name_ambiguity", "/modules/0/imports/1/alias"),
+        ("language.unresolved_name", "/modules/0/symbols/0/type"),
     )
 
 
@@ -1446,7 +2638,7 @@ def test_resolution_step_budget_drives_both_independent_consumers():
     reference = _reference_check_source(source, kernel, language_bundle)
 
     assert tuple(item.code for item in production) == ("language.resource_exhausted",)
-    assert reference == ("language.resource_exhausted",)
+    assert reference == (("language.resource_exhausted", ""),)
 
 
 def test_runtime_projection_budget_drives_both_independent_consumers(
@@ -1470,9 +2662,7 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
     vectors["model.refuse.runtime-projection-step-budget"]["input"]["value"] = 2
     _reidentify_language_bundle(language_bundle)
     assert admit_authorities(kernel, language_bundle).admitted
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, language_bundle)
-    )
+    _inject_authority_context(monkeypatch, kernel, language_bundle)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -1481,7 +2671,7 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
     assert tuple(item.code for item in production.diagnostics) == (
         "language.resource_exhausted",
     )
-    assert reference == ("language.resource_exhausted",)
+    assert reference == (("language.resource_exhausted", ""),)
 
 
 def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
@@ -1516,7 +2706,7 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     reference = _reference_check_source(source, kernel, language_bundle)
 
     assert tuple(item.code for item in production) == ("language.name_ambiguity",)
-    assert reference == ("language.name_ambiguity",)
+    assert reference == (("language.name_ambiguity", "/modules/0/imports/1/alias"),)
 
 
 def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_path):
@@ -1555,8 +2745,8 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
         "language.unresolved_name",
     )
     assert reference == (
-        "language.name_ambiguity",
-        "language.unresolved_name",
+        ("language.name_ambiguity", "/modules/0/imports/1/package"),
+        ("language.unresolved_name", "/modules/0/symbols/0/type"),
     )
 
 
@@ -1643,7 +2833,12 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile = language["resolution_profiles"][0]
     old_profile_id = profile["id"]
     profile["id"] = "renamed-exact-import-resolution-v1"
-    language["packages"][0]["profiles"]["resolution"] = [profile["id"]]
+    profile_owner = next(
+        package
+        for package in language["packages"]
+        if old_profile_id in package["profiles"]["resolution"]
+    )
+    profile_owner["profiles"]["resolution"] = [profile["id"]]
     profile["manifest_id_path"] = "header.model_key"
     profile["manifest_entry_module_path"] = "header.start_module"
     profile["requirements_member"] = "dependencies"
@@ -1816,9 +3011,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
             expect["lock_oracle"]["resolution_profile"] = profile["id"]
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, candidate_ldb)
     assert isinstance(checked, CheckedModel)
@@ -1975,7 +3168,9 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     assert production == reference
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
     operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
-    assert operation_projections == []
+    assert [row["definition"]["id"] for row in operation_projections] == [
+        "quantity.identity"
+    ]
     lock_operations = cast(
         list[dict[str, Any]], artifacts["package-lock"]["operations"]
     )
@@ -1990,14 +3185,12 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     path = tmp_path / "renamed-check-reason.json"
     source = _source([_symbol("same", "state"), _symbol("same", "output")])
     _write_source(path, source)
-    old_reason = "quantity.reason.duplicate-symbol"
+    old_reason = "model.reason.duplicate-symbol"
     old_diagnostic = "language.duplicate_symbol"
     kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
         old_reason, old_diagnostic
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, candidate_ldb)
@@ -2006,9 +3199,10 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     assert isinstance(reference, tuple)
     assert (
         tuple(item.code for item in production.diagnostics)
-        == reference
+        == tuple(code for code, _pointer in reference)
         == (new_diagnostic,)
     )
+    assert reference == ((new_diagnostic, "/modules/0/symbols/1/symbol"),)
 
 
 def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_changes(
@@ -2023,9 +3217,7 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
         "model.reason.package-version-unavailable",
         "language.package_version_unavailable",
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, candidate_ldb)
@@ -2034,9 +3226,10 @@ def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_c
     assert isinstance(reference, tuple)
     assert (
         tuple(item.code for item in production.diagnostics)
-        == reference
+        == tuple(code for code, _pointer in reference)
         == (new_diagnostic,)
     )
+    assert reference == ((new_diagnostic, "/package_requirements/0/version"),)
 
 
 def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host_changes(
@@ -2078,9 +3271,7 @@ def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host
         kernel, candidate_ldb, renamed = _renamed_reason_authorities(
             reason_id, diagnostic
         )
-        monkeypatch.setattr(
-            model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-        )
+        _inject_authority_context(monkeypatch, kernel, candidate_ldb)
         path = tmp_path / f"failure-{index}.json"
         path.write_bytes(data)
 
@@ -2141,9 +3332,7 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
             },
         )
     )
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     result = admit_resolved_model(semantic_artifacts)
 

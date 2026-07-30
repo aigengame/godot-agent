@@ -39,21 +39,59 @@ global authority for the others (bADR-0012).
 _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
-The sole immutable language-content authority under one exact `Schema-major Kernel Specification`:
-grammar, type constructors and rules, operation specifications, post-admission diagnostic codes,
-package manifests, version/capability compatibility, Runtime/Numeric profile definitions, and
-normative vectors. It
-must carry structured laws sufficient for two independent conforming implementations to derive the
-same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
-naming host-language primitives is not sufficient: the bundle owns Source-package and collection
-selection plus the ordered parse, resolution, type/effect, Diagnostic, and HIR-to-RIR judgments.
+The sole immutable language-content authority under one exact `Schema-major Kernel Specification`.
+It is one sealed artifact graph: a canonical root manifest owns the exact ordered package
+membership, and each root-declared descriptor binds one complete `Domain package release`. A
+release is a sealed one-level aggregate whose manifest owns runtime language semantics and binds
+exactly one package-owned `Package conformance vector set`; both JSON members live in one
+package-specific directory. Together the releases own grammar, type constructors and rules,
+operation specifications, post-admission diagnostic codes, version/capability compatibility,
+Runtime/Numeric profile definitions, and normative vectors. It must carry structured laws
+sufficient for two independent conforming implementations to derive the same observable operation,
+Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or naming host-language
+primitives is not sufficient: the bundle owns Source-package and collection selection plus the
+ordered parse, resolution, type/effect, Diagnostic, and HIR-to-RIR judgments.
 Its admitted package/profile/Operation/Diagnostic graph is closed before use; missing content cannot
 fall back to host behavior. Structural language schemas, semantic catalogs,
 registries, evaluator tables, documentation projections, and the language-bound members referenced
 by Command descriptors are generated from it or guarded by reverse conformance; command-surface
-shape remains descriptor-owned. No hand-maintained peer language-content authority is allowed
-(bADR-0012/0021/0022).
-_Avoid_: schema registry, implementation registry, language manifest (partial)
+shape remains descriptor-owned. Admission constructs read-only flat indexes only after it verifies
+the complete graph; those indexes are not packaged or independently edited. No directory scan,
+remote lookup, or hand-maintained peer language-content authority may add a member
+(bADR-0012/0021/0022/0023).
+_Avoid_: schema registry, implementation registry, package directory as authority
+
+**LDB root manifest**:
+The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
+graph resources, and canonical descriptors for every Package Release manifest. Each descriptor
+binds artifact kind, logical package id/version, canonical content identity, and byte size; the
+Package Release manifest then binds its exact conformance-vector child. The root manifest is the
+only package-membership authority. Descriptor transport order is normalized by the Kernel-declared
+`id`, then `version` order; physical paths, package-directory names, and Locators are packaging
+metadata and do not enter semantic identity. Package id/version grammar and the identity domains
+for the root, Package Release collection, and package-vector collection are Kernel-owned contracts
+projected by loaders, admission, public schemas, and rebuild tooling (bADR-0023).
+_Avoid_: package index (if independently editable), directory listing, remote registry
+
+**Package conformance vector set**:
+The one immutable evidence child owned and bound by a `Domain package release`. It binds the exact
+owning package id/version and closes the ordered ids and definitions of that package's normative
+vectors, including a closed empty set when the package currently owns none. Its own canonical
+identity and byte size are bound by the Package Release manifest; it is not independently
+versioned, selected, published, discovered, or treated as a peer language authority. A vector-only
+change reidentifies this child, the owning Package Release content identity, the whole LDB, and
+downstream exact wrappers, but does not change the Package Release semantic identity when runtime
+semantics are byte-identical. Its packaged bytes must be the Kernel-canonical encoding of the
+decoded value, and its public schema closes every admitted top-level vector variant
+(bADR-0016/0023).
+_Avoid_: test fixture registry, vector package, independently publishable evidence package
+
+**Admitted language index**:
+A read-only in-memory projection constructed only after the complete LDB graph is admitted. It
+provides efficient lookup of package-owned types, operations, Diagnostics, profiles, rules, schemas,
+and vectors without serializing a second semantic authority. Its contents are recomputed from the
+exact admitted children and cannot be edited or consumed independently (bADR-0023).
+_Avoid_: language registry, generated authority, cached peer catalog
 
 **Schema-major Kernel Specification**:
 The versioned, non-self-hosted authority that defines bundle structure and interpretation,
@@ -61,8 +99,9 @@ judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampl
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
 conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
 refusals, resource units, and canonical behavior; adding a primitive changes the Schema major.
-Every Language Definition Bundle binds one exact kernel-specification
-identity. Host implementations conform to the kernel and bundle; a Python function, reference
+Its identity law also names every authority-artifact identity domain; package meta-format contracts
+own package id/version grammar. Every Language Definition Bundle binds one exact
+kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
 evaluator, or implementation table is never semantic authority (bADR-0012/0022).
 _Avoid_: reference implementation as authority, host semantic kernel, implicit bootstrap
 
@@ -101,11 +140,21 @@ authored resolution result. It may be compiled into a `Resolved Model`; experime
 facts never become hidden model definitions (bADR-0012).
 _Avoid_: Source Package (unqualified), design bundle, model config
 
+**Experiment template**:
+Editable pre-build scenario, Metric, target, seed, and acceptance intent distributed inside a
+Template release. Its member kind is `experiment-template`; it cannot bind a build receipt,
+Resolved Model, Package Lock, or RIR before those artifacts exist. After build it informs creation
+of a separate exact `Experiment Specification`, but it is never executable under its own identity
+(bADR-0017).
+_Avoid_: Experiment Specification (after build), executable experiment, experiment config
+
 **Experiment Specification**:
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
-and drift policy. It references an exact `Resolved Model` identity or a declared compatibility
-contract and may bind inputs, but it cannot redefine the model. Exact Resolved-Model binding is
+and drift policy. Each scenario selects one exact `Model entrypoint` and assigns every member of
+that entrypoint's generated `Scenario Input Contract` exactly once; it cannot select a raw LDB
+Operation, invent an input name, or redefine a formal port or model symbol. It references an exact
+`Resolved Model` identity or a declared compatibility contract. Exact Resolved-Model binding is
 immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
 Resolved Model before execution and produce an identified
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
@@ -125,11 +174,13 @@ _Avoid_: approval flag, approved model, sign-off note
 **RIR semantic payload**:
 The immutable canonical semantic normal form produced after Typed HIR. It contains only selected,
 reachable facts that can affect specified observable behavior: resolved symbols and types,
-operation bodies/signatures/effects/results, state and event semantics, and other admitted runtime
-fragments. Source order, aliases, comments, spans, AST/HIR identities, lowering traces, diagnostic
-provenance, and unselected Language Definition Bundle inventory are excluded. If an unused package
-is added to the bundle without changing resolution ambiguity or the selected closure, this payload
-and its content identity remain byte-identical (bADR-0013/0016).
+operation bodies/signatures/effects/results, resolved Model entrypoints, exact Operation call sites,
+formal-to-actual operand identities, the generated Scenario Input Contract, state and event
+semantics, and other admitted runtime fragments. Source order, aliases, comments, spans, AST/HIR
+identities, lowering traces, diagnostic provenance, and unselected Language Definition Bundle
+inventory are excluded. If an unused package is added to the bundle without changing resolution
+ambiguity or the selected closure, this payload and its content identity remain byte-identical
+(bADR-0013/0016).
 _Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
 
 **Resolved Model**:
@@ -172,14 +223,16 @@ candidate/capability ambiguity and the selected closure is otherwise identical (
 _Avoid_: dependency config, package manifest, lock authority
 
 **Domain package release**:
-One immutable, content-addressed, namespaced package artifact admitted by a Language Definition
-Bundle. It closes metadata and semantic version, dependencies/capabilities, exported Quantity
-kinds/units/profiles/types, complete Operation contracts and bodies, Diagnostics, and normative
-vectors under one release identity; Package Lock binds that exact identity. Reusing one package
-id/version for different content is refused within an admitted bundle. Across different LDB
+One immutable, content-addressed, namespaced, one-level aggregate admitted by a Language Definition
+Bundle. Its package-specific directory contains exactly two authority JSON members: one Package
+Release manifest and one bound `Package conformance vector set`. The manifest closes metadata and
+semantic version, dependencies/capabilities, exported Quantity kinds/units/profiles/types, complete
+Operation contracts and bodies, Diagnostics, and the vector-child descriptor; the child closes the
+package's normative vectors. Package Lock binds the exact manifest content identity. Reusing one
+package id/version for different content is refused within an admitted bundle. Across different LDB
 identities, that logical coordinate may bind different release content; the package-release content
 identity plus owning LDB identity distinguishes those non-interchangeable language worlds. Standard
-Schema 2.0 claims no global release-history registry (bADR-0016).
+Schema 2.0 claims no global release-history registry (bADR-0016/0023).
 _Avoid_: package registry entry, evaluator plugin, split operation registry
 
 **Resolution receipt**:
@@ -193,7 +246,7 @@ _Avoid_: resolver identity in Package Lock, semantic resolver build, dependency 
 **Genre template**:
 A versioned template release for a genre's numeric design baseline, never an evaluator code path.
 In Standard Schema 2.x it distributes an instantiable starter Model Source Package, companion
-Experiment Specifications, and a `Genre coverage matrix` while preserving their separate authority
+Experiment templates, and a `Genre coverage matrix` while preserving their separate authority
 domains. Instantiation creates a new model identity with template provenance; later template
 releases never mutate an instantiated game silently. First families: RPG (CRPG/JRPG/ARPG) and
 Roguelike (metroidvania-like, survivors-like, deckbuilder-like) (bADR-0017).
@@ -333,10 +386,69 @@ _Avoid_: feature flag, optional behavior, duck-typed extension
 
 **Operation specification**:
 The Language Definition Bundle entry that gives a versioned operation its complete static and
-runtime contract: type signature, unit rules, purity, resource bounds, Numeric profiles, and
-declared reads, writes, emitted signals, scheduled events, and Named random streams. An evaluator
-implements this contract; its host-language function is not the authority (bADR-0012/0016).
+runtime contract: named `Formal port`s and result, unit rules, purity, resource bounds, Numeric
+profiles, declared reads, writes, emitted signals, scheduled events, Named random streams, and a
+body whose nested calls use explicit port-to-operand bindings. An evaluator implements this
+contract; its host-language function is not the authority (bADR-0012/0016).
 _Avoid_: function registration, evaluator hook, opcode documentation
+
+**Formal port**:
+A named, typed input declared once by an LDB `Operation specification`. The formal port is the sole
+authority for that Operation's reusable consumption interface. Model symbols, caller locals, and
+literals do not redefine it; a `Model entrypoint` or nested `Operation call site` binds each
+required formal port exactly once to one compatible `Actual operand` (bADR-0016/0022).
+_Avoid_: model input name, scenario variable, argument copied into every consumer
+
+**Actual operand**:
+The explicit value source bound to one `Formal port` by either a `Model entrypoint` or nested
+`Operation call site`: a resolved Model symbol, a caller-local result, a contextually typed literal,
+or another Kernel-admitted expression. Its identity is derived from the owning authority and
+binding position. Equal display names are never binding proof, and one actual may intentionally
+feed multiple compatible ports. A package-owned `Literal Typing Profile`, not the Symbol assignment
+policy or host integer type, types a literal; admission requires exactly one selected profile to
+match the formal port's complete value contract and records that context in RIR identity
+(bADR-0013/0016/0022).
+_Avoid_: implicit same-name lookup, ambient variable, parameter declaration
+
+**Literal Typing Profile**:
+An independently exported LDB definition that lets one package map a source-literal kind and
+bounded value range to an exact type/value contract. The exporting package must own that exact Type
+release; referenced representation, kind, unit, and Numeric policy must close against LDB
+inventories; the profile must match at least one Operation formal value contract; and overlapping
+profiles for the same match contract are refused. Selected profiles enter RIR runtime semantics,
+while the Symbol assignment policy remains limited to Symbol roles, access, initialization
+ownership, and Experiment cardinality (bADR-0016/0022).
+_Avoid_: host literal default, lowering-owned literal table, Symbol assignment rule
+
+**Operation call site**:
+One statically bounded nested invocation of an exact versioned Operation owned by another LDB
+`Operation specification` body. It owns a stable site id, exact formal-to-actual bindings,
+result/outcome binding, and resolved effect/refusal/resource closure. Typed HIR resolves it before
+RIR; RIR identifies it; an EIR may optimize it but must preserve the same bindings and observable
+provenance. It is distinct from a root `Model entrypoint`, and from the Formula evaluation site
+owned by issue #590. That accepted contract introduces a statically resolved expression-shaped
+actual operand without changing this call contract (bADR-0013/0016/0022).
+_Avoid_: dynamic dispatch, operation name alone, evaluator callback
+
+**Model entrypoint**:
+An authored Model Source declaration that binds one exact LDB Operation's formal ports to the
+model's resolved symbols and binds or explicitly discards its result. It is the only Experiment-
+selectable execution root. Its identity changes when the selected Operation, any formal-to-symbol
+binding, result binding, or reachable semantic closure changes (bADR-0012/0013).
+_Avoid_: raw operation selector, scenario operation, implicit main
+
+**Scenario Input Contract**:
+The generated, ordered initialization contract for one `Model entrypoint`, derived from its
+reachable Model-symbol operands and the LDB-owned total Symbol assignment policy. It records exact
+resolved Model-symbol identities, Model-owned value-policy initializers, Experiment-owned required
+inputs, and optional Experiment overrides of explicit Model defaults. An Experiment scenario must
+assign every required member exactly once, may assign an exported optional member at most once, and
+cannot assign anything else. It references identities and supplies values but does not own or
+duplicate symbol declarations or Operation formal ports. Each policy role is machine-classified as
+an Operation operand, Operation result, or internal generated value; authority admission rejects an
+operand mode that has neither an Experiment assignment nor a Model initializer, and rejects a
+result mode not produced by execution (bADR-0012/0013/0022).
+_Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:
 A closed Enum/Record result returned when declared game semantics complete with one expected
@@ -722,14 +834,13 @@ the command's ingress stage, every expected domain failure is a typed refusal, n
 _Avoid_: refusal (the domain word), invalid input (ambiguous)
 
 **Effective seed**:
-The seed that actually drove a stochastic run — supplied via `--seed` (unsigned
-32-bit) or drawn fresh — always echoed in the structured result together with the
-toolkit version, and carried by any failure envelope once drawn, so every stochastic
-outcome keeps its own reproduction key (bADR-0008/0010). For Standard Schema 2.x it is
-the root of named streams and is reproducible only together with the exact Resolved Model,
-Experiment Specification, Resolved Runtime profile, and external-input identities (bADR-0014); the
-Resolved Runtime profile already closes evaluator, platform, Numeric, RNG, scheduler, effect, and
-budget choices. The current CLI encoding remains in force until the 2.x CLI contract supersedes it.
+The seed that actually drove a stochastic run. In Standard Schema 1.x it is supplied through the
+legacy `--seed` surface or drawn fresh (bADR-0008/0010). In Standard Schema 2.x it is owned by the
+exact Experiment Specification; no free CLI flag or evaluator default may override it. It is the
+root of named streams and is reproducible only together with the exact Resolved Model, Experiment
+Specification, Resolved Runtime profile, and external-input identities (bADR-0014/0021). The
+reproduction receipt records that complete binding; the Resolved Runtime profile closes evaluator,
+platform, Numeric, RNG, scheduler, effect, and budget choices.
 _Avoid_: random seed (ambiguous), default seed
 
 ### Runtime
@@ -750,6 +861,15 @@ host platform, or deployment fact, so it cannot form an identity cycle with its 
 (bADR-0014/0022).
 _Avoid_: environment, evaluator configuration, resolved execution identity
 
+**Runtime program contract**:
+The Schema-major Kernel-owned, closed machine contract for irreducible runtime nodes and laws. It
+enumerates each node's exact fields, operator, result/transition kind, refusals, and resource charge,
+plus Numeric bounds, Named-stream RNG derivation/state/sampling/bias/trace laws, Event atomicity,
+typed outcome requirements, and normative vectors. LDB Operations compose these nodes and own their
+domain-specific typed outcome algebra; evaluator code implements the contract but does not add
+fields, outcomes, constants, or behavior (bADR-0014/0022).
+_Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
+
 **Resolved Runtime profile**:
 The generated, content-addressed admission artifact that resolves one Runtime profile definition
 against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock,
@@ -760,6 +880,13 @@ or budget. An exact replay identity claim requires this profile and every other 
 identity to match. Comparing two different evaluator-bound profiles is a `Cross-evaluator
 comparison`, not a replay (bADR-0014/0018).
 _Avoid_: Runtime profile definition, ambient environment, runtime config
+
+**Runtime profile definition identity**:
+The Kernel-domain-separated content identity of one complete LDB-owned Runtime profile definition.
+The Resolved Runtime profile binds it together with the Evaluator Capability Manifest identity;
+the definition and evaluator manifest never refer back to that generated artifact, keeping runtime
+admission identities acyclic (bADR-0014).
+_Avoid_: Resolved Runtime profile identity, profile id alone, host runtime preset
 
 **Evaluator Capability Manifest**:
 An immutable implementation-provenance artifact published by one evaluator build. It declares the

@@ -66,22 +66,34 @@ therefore requires a small closed type language and a constrained package extens
   Additional behavior composes as a separate component and explicit operations over imported
   contracts.
 
-- **Every Domain package release is one complete, immutable artifact in the Language Definition
-  Bundle.** Its content identity covers the namespaced package id; semantic version; required and
-  optional dependency ranges;
+- **Every Domain package release is one complete, immutable one-level aggregate in the Language
+  Definition Bundle.** Its manifest content identity covers the namespaced package id; semantic
+  version; required and
+  optional dependency coordinates, each with an exact package id and version in the current 2.0
+  contract;
   provided and required capabilities; exported types, components, operations, conversions, and
   diagnostics; supported Numeric/Runtime profiles; complete Operation specifications/bodies; and
-  normative vectors. Splitting those facts across peer registries is prohibited. Package contents
-  cannot exist in an evaluator registry without appearing under this exact release identity.
+  one exact conformance-vector child descriptor. That child binds the owning coordinate and closes
+  the package's normative vectors. Both JSON members live in one package-specific directory and are
+  jointly required; splitting them into peer registries or independently publishable artifacts is
+  prohibited. Package contents cannot exist in an evaluator registry without appearing under this
+  exact release identity.
   Duplicate `(package id, version)` entries with different content are refused within one admitted
   bundle. Across different LDB identities, `(package id, version)` is only a logical coordinate:
   package-release content identity plus the owning LDB identity determines the exact release.
   Two bundles that bind that coordinate to different content are distinct, non-interchangeable
   language worlds; neither claims global historical uniqueness, and no release-index or
   transparency service is part of Standard Schema 2.0.
+  Under bADR-0023, each release manifest is a root-declared content-addressed child of one sealed
+  LDB graph and binds exactly one package-owned conformance-vector child. The root descriptor binds
+  the logical coordinate, manifest identity, and manifest byte size; the manifest binds the vector
+  child's kind, identity, and byte size. A loader cannot discover packages or vector children by
+  scanning ambient files, and a post-admission flat index is a derived non-authority.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
-  binds one exact version for every package identity. Incompatible majors coexist only under
+  binds one exact version for every package identity. Each package-release dependency names an
+  exact `{id, version}` coordinate; unresolved coordinates refuse rather than floating to another
+  release. Incompatible majors coexist only under
   distinct namespaces or through an explicit adapter package; the resolver never selects two
   ambiguous versions of one id. The generated Package Lock records the exact graph, capabilities,
   and resolver contract. Empty, conflicting, or cyclic invalid solutions are `resolution` refusals
@@ -103,6 +115,14 @@ therefore requires a small closed type language and a constrained package extens
   every selected closure member is identical; the exact whole LDB still rebinds the Resolved Model
   under bADR-0013.
 
+- **Runtime projection is a declared join over the selected graph.** Each seed and edge states
+  independently whether a match must remain inside one package (`same_package`) or may resolve a
+  shared definition supplied by the selected closure. This prevents both hard-coded package
+  exceptions and accidental cross-package capture. A selected package may legitimately have no
+  semantic-closure entry for one requested collection; that absence contributes no row. Multiple
+  matching entries or definitions remain an ambiguity and refuse rather than relying on package or
+  host iteration order.
+
 - **Resolver implementation provenance is separate.** Package Lock contains the normative
   resolution algorithm/profile identity and semantic result only. A separately identified
   Resolution receipt binds the resolver tool/build, exact inputs, resulting lock, diagnostics, and
@@ -120,12 +140,14 @@ therefore requires a small closed type language and a constrained package extens
   as an opaque extension for a later evaluator to reinterpret.
 
 - **Operation specifications close the extension's semantic surface.** Every operation declares a
-  complete type signature, unit/kind rules, purity, deterministic resource bounds, permitted
-  Numeric profiles, and runtime effects: state reads/writes, emitted signals, scheduled/canceled
-  events, and Named random streams. Reducible domain semantics and diagnostic codes belong to the
-  Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel Specification
-  amendment and conformance path in bADR-0022. Host evaluator code is a conforming implementation
-  only.
+  complete named formal-port signature and result, unit/kind rules, purity, deterministic resource
+  bounds, permitted Numeric profiles, and runtime effects: state reads/writes, emitted signals,
+  scheduled/canceled events, and Named random streams. Every nested invocation has one stable call
+  site and binds the callee's exact formal-port set once to caller ports, lexical locals, literals,
+  or another Kernel-admitted expression. Reducible domain semantics and diagnostic codes belong to
+  the Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel
+  Specification amendment and conformance path in bADR-0022. Host evaluator code is a conforming
+  implementation only.
 
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
@@ -134,6 +156,15 @@ therefore requires a small closed type language and a constrained package extens
   kind/unit/Numeric rules, purity, effects, and bounds. Runtime admission compares the complete RIR
   Operation projection to that exact selected release and rejects an LDB-present but Lock-unselected
   operation. Reidentifying a partial or inconsistent artifact cannot make it executable.
+
+- **Model invocation closes the reusable Operation interface without duplicating it.** Model Source
+  owns named, typed symbols and value policies plus entrypoints that explicitly bind those symbols
+  to exact Operation formal ports and bind or discard results. RIR resolves each actual operand and
+  call site to canonical identities and derives the Scenario Input Contract from reachable symbols.
+  Experiment scenarios select an entrypoint and assign that contract exactly once per member; they
+  cannot select a raw Operation or repeat its port declarations. Equal source names are never a
+  binding rule. Read-only aliasing is explicit; writable aliasing is refused unless the Operation
+  contract explicitly admits it.
 
 - **Expected gameplay branches use closed discriminated outcomes.** An operation whose declared
   game semantics can complete as `reserved`, `insufficient`, `immune`, `interrupted`, or another
@@ -153,8 +184,12 @@ therefore requires a small closed type language and a constrained package extens
 - **Conversions are explicit operations.** Cross-kind, cross-unit, and representation conversions
   exist only as versioned Conversion operations with declared legality, exact/lossy status,
   rounding, domain mapping, and refusal behavior. Source requests the conversion; Typed HIR records
-  the selected operation explicitly. Contextual literal typing may choose a literal's initial type,
-  but no implicit coercion remains in HIR or RIR.
+  the selected operation explicitly. Contextual literal typing selects exactly one independently
+  exported, package-owned LDB Literal Typing Profile against the consuming formal's complete value
+  contract and retains that resolved context in RIR identity. The profile owner must own the exact
+  Type release, its value references must close, and overlapping profiles for one match contract
+  are invalid; it is not a host-default integer type, a Symbol-assignment concern, or an implicit
+  coercion.
 
 - **Package compatibility follows strict semantic versioning.** Minor versions may add optional
   types, operations, capabilities, or fields whose absence preserves every existing program's
@@ -203,8 +238,10 @@ therefore requires a small closed type language and a constrained package extens
 
 - **Every package ships executable conformance evidence.** Positive, negative, boundary,
   compatibility, deterministic replay, and declared-effect vectors are required before a package
-  enters the Language Definition Bundle. The resolver and reference evaluator discover vectors
-  through the manifest, not a parallel test registry.
+  enters the Language Definition Bundle. The Package Release manifest binds exactly one
+  package-owned conformance-vector set, including a closed empty set when no vectors are currently
+  required. The resolver and reference evaluator derive vectors from admitted vector children, not
+  from inline manifest fields or a parallel test registry.
 
 - **This decision supersedes the conflicting 2.x portions of bADR-0001, bADR-0002, and
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core
@@ -255,6 +292,13 @@ therefore requires a small closed type language and a constrained package extens
 - Mutate one transitive constraint, capability provider, type, conversion, or operation version and
   assert the lock/manifest/RIR identity changes or resolution refuses; no hidden evaluator registry
   may keep the old build working.
+- Require only a package whose declared dependency supplies a capability and assert provider
+  selection considers the complete selected transitive closure, not only Model Source root
+  requirements. Adding the dependency redundantly as a root must not be necessary to obtain the
+  same provider binding.
+- Exercise runtime-projection seeds and edges with both `same_package` settings, a selected package
+  that contributes no entry for one collection, and duplicate matching definitions. Independent
+  lowerers must agree on the projection or the same ambiguity refusal.
 - Add an unused package without changing the selected closure or introducing resolution ambiguity;
   assert byte-identical Package Lock and RIR semantic payload but changed whole-LDB and Resolved
   Model identities. An LDB-present operation absent from the Lock must refuse at runtime admission.
@@ -262,6 +306,11 @@ therefore requires a small closed type language and a constrained package extens
   variants and payloads, kind/unit/Numeric rules, purity, effects, and resource-bound shape/type/
   value. Each malformed release must produce a typed refusal before RIR rather than a host
   exception, and a consistently reidentified RIR projection must still fail runtime admission.
+- Exercise missing, extra, duplicate, unknown, aliased, and type-incompatible formal bindings at
+  nested Operation call sites and Model entrypoints. Exercise Scenario Input under-supply,
+  over-supply, duplicate assignment, raw-Operation selection, and symbol renaming. Both independent
+  consumers must derive the same call graph and identities or the same bounded refusal before
+  execution.
 - Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
   shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
   unknown, partially checked, or host-native value cannot cross either boundary.

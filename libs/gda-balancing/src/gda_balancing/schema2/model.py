@@ -20,13 +20,22 @@ import jsonschema
 from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
-from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    admit_authority_context,
+    packaged_authority_context,
+)
+from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
     BootstrapAdmission,
-    admit_authorities,
 )
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.canonical import (
+    JsonValue,
+    canonical_bytes,
+    content_identity,
+    parse_canonical_object,
+)
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -35,12 +44,27 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
     reason_by_id,
 )
+from gda_balancing.schema2.wire_schema import (
+    wire_schema_identity_for_kind,
+)
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
 _STORE_DIRECTORY_ENV = "GDA_BALANCING_STORE_DIR"
 _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
+
+
+class PublishedArtifactIntegrityError(RuntimeError):
+    """An authenticated publication named the target but failed verification."""
+
+
+def _descriptor_language_bundle() -> LanguageBundleIndex:
+    """Admit the packaged graph once while assembling static command descriptors."""
+    return cast(
+        LanguageBundleIndex,
+        packaged_authority_context().language_bundle,
+    )
 
 
 def _normalized_absolute_path(value: str) -> Path:
@@ -62,7 +86,7 @@ def refusal_catalog_for_stages(
 ) -> tuple[tuple[str, str], ...]:
     """Project only the LDB refusals reachable by one command family."""
     if language_bundle is None:
-        _, language_bundle = load_authorities()
+        language_bundle = _descriptor_language_bundle()
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(
         (cast(str, item["code"]), cast(str, item["stage"]))
         for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
@@ -70,8 +94,62 @@ def refusal_catalog_for_stages(
     )
 
 
-_MODEL_REFUSAL_STAGES = frozenset({"ingress", "parse", "static", "resolution"})
-MODEL_REFUSAL_CATALOG = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES)
+def refusal_catalog_for_reasons(
+    reason_ids: Iterable[str],
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project one command's reachable semantic reasons through the current LDB."""
+    if language_bundle is None:
+        language_bundle = _descriptor_language_bundle()
+    requested = tuple(reason_ids)
+    if len(set(requested)) != len(requested):
+        raise ValueError("a command refusal catalog cannot contain duplicate reasons")
+    reasons = {
+        cast(str, item["id"]): item
+        for item in cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
+    }
+    diagnostics = {
+        cast(str, item["code"]): cast(str, item["stage"])
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    }
+    missing = [reason_id for reason_id in requested if reason_id not in reasons]
+    if missing:
+        raise ValueError(
+            "command refusal catalog references unknown LDB reasons: "
+            + ", ".join(missing)
+        )
+    projected: list[tuple[str, str]] = []
+    for reason_id in requested:
+        reason = reasons[reason_id]
+        code = cast(str, reason["diagnostic"])
+        stage = cast(str, reason["stage"])
+        if diagnostics.get(code) != stage:
+            raise ValueError(
+                f"LDB reason {reason_id} does not match its diagnostic declaration"
+            )
+        pair = (code, stage)
+        if pair not in projected:
+            projected.append(pair)
+    return BOOTSTRAP_REFUSAL_CATALOG + tuple(projected)
+
+
+MODEL_REFUSAL_REASONS = (
+    "model.reason.source-too-large",
+    "model.reason.source-parse-failure",
+    "model.reason.source-contract-mismatch",
+    "quantity.reason.invalid-domain",
+    "quantity.reason.unknown-kind",
+    "quantity.reason.unknown-unit",
+    "model.reason.duplicate-symbol",
+    "quantity.reason.resource-exhausted",
+    "model.reason.resolution-resource-exhausted",
+    "model.reason.runtime-projection-resource-exhausted",
+    "model.reason.unresolved-name",
+    "model.reason.name-ambiguity",
+    "model.reason.package-version-unavailable",
+    "model.reason.resolution-ambiguity",
+)
+MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
 
 
 @dataclass(frozen=True)
@@ -80,6 +158,7 @@ class CheckedModel:
     source_identity: str
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
+    authority_context: AdmittedAuthorityContext | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +175,15 @@ class PublicationMember:
     artifact_kind: str
     wire_schema_identity: str
     content_identity: str
+
+
+@dataclass(frozen=True)
+class RecoveredArtifactSet:
+    """One authenticated committed outcome recovered without recomputation."""
+
+    receipt: dict[str, JsonValue]
+    artifact_set: tuple[ArtifactSetMemberSpec, ...]
+    artifacts: dict[str, dict[str, Any]]
 
 
 class _ResolutionResourceExhausted(Exception):
@@ -117,6 +205,14 @@ class _RuntimeProjectionResourceExhausted(Exception):
     """The admitted runtime-projection budget was exhausted."""
 
 
+class _EntrypointBindingError(ValueError):
+    """A Model entrypoint failed at one exact author-owned source pointer."""
+
+    def __init__(self, pointer: str, message: str) -> None:
+        super().__init__(message)
+        self.pointer = pointer
+
+
 @dataclass
 class _RuntimeProjectionBudget:
     limit: int
@@ -129,31 +225,21 @@ class _RuntimeProjectionBudget:
 
 
 def _strict_object(data: bytes) -> dict[str, Any]:
-    def reject_number(_value: str) -> Any:
-        raise ValueError("non-integer number")
-
-    def closed_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        value: dict[str, Any] = {}
-        for key, item in pairs:
-            if key in value:
-                raise ValueError(f"duplicate object key: {key}")
-            value[key] = item
-        return value
-
-    value = json.loads(
-        data.decode("utf-8"),
-        object_pairs_hook=closed_object,
-        parse_float=reject_number,
-        parse_constant=reject_number,
+    return parse_canonical_object(
+        data,
+        artifact_name="Model Source Package",
     )
-    if not isinstance(value, dict):
-        raise ValueError("Model Source Package must be an object")
-    canonical_bytes(cast(JsonValue, value))
-    return value
 
 
 def _location(identity: str, pointer: str) -> ArtifactLocation:
     return ArtifactLocation(content_identity=identity, pointer=pointer)
+
+
+def _diagnostic_stages(language_bundle: dict[str, Any]) -> dict[str, str]:
+    return {
+        cast(str, item["code"]): cast(str, item["stage"])
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    }
 
 
 def _refusal(
@@ -163,8 +249,7 @@ def _refusal(
     message: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:
-    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
-    stage = dict(catalog)[code]
+    stage = _diagnostic_stages(language_bundle)[code]
     return Schema2RefusalReport(
         stage=cast(Any, stage),
         diagnostics=(
@@ -182,8 +267,7 @@ def _bounded_refusal(
     diagnostics: Iterable[Schema2Diagnostic],
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport | None:
-    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
-    stages = dict(catalog)
+    stages = _diagnostic_stages(language_bundle)
     ordered, truncated = bound_diagnostics(
         diagnostics,
         cast(int, language_bundle["resources"]["max_diagnostics"]),
@@ -229,6 +313,16 @@ def _resolution_profile(
     if len(matches) != 1:
         raise ValueError("the admitted tracer requires one selected resolution profile")
     return matches[0]
+
+
+def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:
+    """Return the single admitted Model Source identity authority."""
+    domain = _resolution_profile(language_bundle).get("source_identity_domain")
+    if not isinstance(domain, str) or not domain:
+        raise ValueError(
+            "the admitted resolution profile has no source identity domain"
+        )
+    return domain
 
 
 def _model_lowering(
@@ -528,6 +622,34 @@ def _resolution_relations(
     budget: _ResolutionBudget,
 ) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
+    available_packages = cast(list[dict[str, Any]], language["packages"])
+    requirements_member = cast(str, profile["requirements_member"])
+    requirement_package_member = cast(str, profile["requirement_package_member"])
+    requirement_version_member = cast(str, profile["requirement_version_member"])
+    by_coordinate = {
+        (package["id"], package["version"]): package for package in available_packages
+    }
+    selected_packages: dict[tuple[str, str], dict[str, Any]] = {}
+    pending = [
+        (
+            requirement[requirement_package_member],
+            requirement[requirement_version_member],
+        )
+        for requirement in cast(list[dict[str, str]], source[requirements_member])
+    ]
+    while pending:
+        coordinate = pending.pop(0)
+        package = by_coordinate.get(coordinate)
+        if package is None or coordinate in selected_packages:
+            continue
+        selected_packages[coordinate] = package
+        for dependency in cast(
+            list[dict[str, str]], package["dependencies"]["required"]
+        ):
+            pending.append((dependency["id"], dependency["version"]))
+    selected_package_values = [
+        selected_packages[coordinate] for coordinate in sorted(selected_packages)
+    ]
 
     def evaluate_term(
         term: dict[str, Any],
@@ -539,6 +661,9 @@ def _resolution_relations(
             pointer: tuple[object, ...] | None = ()
         elif root == "language":
             value = language
+            pointer = None
+        elif root == "selected-packages":
+            value = selected_package_values
             pointer = None
         elif root == "binding":
             value, pointer = bindings[term["binding"]]
@@ -768,6 +893,7 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
 def check_model_source_value(
     source: dict[str, Any],
     *,
+    authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
     authority_admission: BootstrapAdmission | None = None,
@@ -779,6 +905,7 @@ def check_model_source_value(
         data = b"null\n"
     return _check_model_source_bytes(
         data,
+        authority_context=authority_context,
         kernel=kernel,
         language_bundle=language_bundle,
         authority_admission=authority_admission,
@@ -788,22 +915,35 @@ def check_model_source_value(
 def _check_model_source_bytes(
     data: bytes,
     *,
+    authority_context: AdmittedAuthorityContext | None = None,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
     authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
+    if authority_context is not None and (
+        kernel is not None
+        or language_bundle is not None
+        or authority_admission is not None
+    ):
+        raise ValueError(
+            "authority_context cannot be combined with separate authority inputs"
+        )
     if (kernel is None) != (language_bundle is None):
         raise ValueError("Kernel and LDB must be supplied together")
-    if kernel is None or language_bundle is None:
-        kernel, language_bundle = load_authorities()
-    ldb = language_bundle
-    admission = authority_admission or admit_authorities(kernel, ldb)
-    if admission.kernel_identity != kernel.get(
-        "content_identity"
-    ) or admission.language_bundle_identity != ldb.get("content_identity"):
-        raise ValueError("authority admission belongs to another Kernel/LDB pair")
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    if authority_context is None:
+        if kernel is None or language_bundle is None:
+            authority_context = packaged_authority_context()
+        else:
+            resolved_context = admit_authority_context(
+                kernel,
+                language_bundle,
+                admission=authority_admission,
+            )
+            if isinstance(resolved_context, BootstrapAdmission):
+                return bootstrap_refusal(resolved_context)
+            authority_context = resolved_context
+    kernel = authority_context.kernel
+    ldb = authority_context.language_bundle
     source_size_reason = _unique_reason(
         ldb,
         stage="ingress",
@@ -902,14 +1042,38 @@ def _check_model_source_bytes(
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
+        authority_context=authority_context,
     )
+    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
+    if invalid_policy_pointer is not None:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            invalid_policy_pointer,
+            "Model Symbol does not close the LDB assignment policy",
+            ldb,
+        )
     try:
         lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
-        _runtime_projection(
+        selected_semantics = _runtime_projection(
             lock,
             declarations,
             admitted_lowering,
             _runtime_projection_budget(kernel, ldb),
+        )
+        _resolved_entrypoints(
+            checked,
+            cast(list[dict[str, Any]], declarations),
+            selected_semantics,
+        )
+        _resolved_call_sites(
+            kernel,
+            selected_semantics,
+            _composition_policy(admitted_lowering),
         )
     except _RuntimeProjectionResourceExhausted:
         resource_reason = _unique_reason(
@@ -923,6 +1087,30 @@ def _check_model_source_bytes(
             source_identity,
             "",
             "Model Source runtime projection exhausted its admitted step budget",
+            ldb,
+        )
+    except _EntrypointBindingError as err:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            err.pointer,
+            f"Model entrypoint resolution failed: {err}",
+            ldb,
+        )
+    except (KeyError, TypeError, ValueError) as err:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            "/entrypoints",
+            f"Model entrypoint resolution failed: {err}",
             ldb,
         )
     return checked
@@ -1005,30 +1193,7 @@ def _artifact_schema(
 def _wire_schema_identity_for_kind(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> str:
-    language = _language(language_bundle)
-    schemas = [
-        item["schema"]
-        for collection in ("wire_schemas", "artifact_wire_schemas")
-        for item in cast(list[dict[str, Any]], language[collection])
-        if item["artifact_kind"] == artifact_kind
-    ]
-    if len(schemas) != 1:
-        raise ValueError(f"wire schema is not unique: {artifact_kind}")
-    contracts = [
-        item
-        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
-        if item["artifact_kind"] == artifact_kind
-    ]
-    if len(contracts) > 1:
-        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
-    domain = (
-        cast(str, contracts[0]["wire_schema_identity_domain"])
-        if contracts
-        else f"{artifact_kind}-wire-schema-v2"
-    )
-    schema = cast(dict[str, Any], schemas[0])
-    body = {key: value for key, value in schema.items() if key != "$id"}
-    return content_identity(domain, cast(JsonValue, body))
+    return wire_schema_identity_for_kind(language_bundle, artifact_kind)
 
 
 def _identified_artifact(
@@ -1099,6 +1264,122 @@ def identified_artifact(
 def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
     """Re-admit one content-addressed artifact against the exact LDB."""
     return _verify_artifact(value, language_bundle)
+
+
+def find_published_artifact(
+    content_identity_value: str,
+    artifact_kind: str,
+    language_bundle: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve one exact artifact through authenticated committed publications.
+
+    Locators remain transport facts: callers bind semantic identities, while
+    this local-store adapter discovers a locator and then revalidates the
+    authenticated publication frame, artifact schema, and content hash.
+    """
+    anchors = _store_root() / "anchors"
+    if not anchors.exists():
+        return None
+    authentication_key = publication_authentication_key()
+    matches: list[dict[str, Any]] = []
+    for anchor_path in sorted(anchors.glob("*/*.json")):
+        if anchor_path.is_symlink() or not anchor_path.is_file():
+            continue
+        try:
+            index = _verified_anchor(anchor_path, authentication_key)
+            if (
+                not _verify_artifact(index, language_bundle)
+                or not isinstance(index.get("descriptor_identity"), str)
+                or not isinstance(index.get("invocation_key"), str)
+            ):
+                continue
+            invocation_path = _store_invocation_path(
+                cast(str, index["descriptor_identity"]),
+                cast(str, index["invocation_key"]),
+            )
+            committed_index = _read_canonical_artifact(
+                invocation_path / "publication-index.json"
+            )
+            if committed_index != index:
+                continue
+            manifest = _read_canonical_artifact(
+                invocation_path / "artifact-set-manifest.json"
+            )
+            receipt = _read_canonical_artifact(
+                invocation_path / "artifact-set-receipt.json"
+            )
+            if (
+                not _verify_artifact(receipt, language_bundle)
+                or receipt.get("content_identity") != index.get("receipt_identity")
+                or receipt.get("descriptor_identity")
+                != index.get("descriptor_identity")
+                or receipt.get("invocation_key") != index.get("invocation_key")
+                or receipt.get("manifest_locator")
+                != str((invocation_path / "artifact-set-manifest.json").absolute())
+                or not _verify_artifact(manifest, language_bundle)
+                or manifest.get("content_identity") != receipt.get("manifest_identity")
+            ):
+                continue
+            members = manifest.get("members")
+            member_locators = receipt.get("member_locators")
+            if (
+                not isinstance(members, list)
+                or not isinstance(member_locators, list)
+                or member_locators
+                != [
+                    {
+                        "logical_name": member.get("logical_name"),
+                        "locator": str(
+                            (
+                                invocation_path / f"{member.get('logical_name')}.json"
+                            ).absolute()
+                        ),
+                    }
+                    for member in members
+                    if isinstance(member, dict)
+                    and isinstance(member.get("logical_name"), str)
+                ]
+                or len(member_locators) != len(members)
+            ):
+                continue
+            for member in members:
+                if (
+                    not isinstance(member, dict)
+                    or member.get("artifact_kind") != artifact_kind
+                    or member.get("content_identity") != content_identity_value
+                    or not isinstance(member.get("logical_name"), str)
+                ):
+                    continue
+                try:
+                    artifact = _read_canonical_artifact(
+                        invocation_path / f"{member['logical_name']}.json"
+                    )
+                except (OSError, RuntimeError, UsageError, ValueError) as err:
+                    raise PublishedArtifactIntegrityError(
+                        "authenticated publication member is unreadable or non-canonical"
+                    ) from err
+                if not (
+                    _verify_artifact(artifact, language_bundle)
+                    and artifact.get("artifact_kind") == artifact_kind
+                    and artifact.get("content_identity") == content_identity_value
+                ):
+                    raise PublishedArtifactIntegrityError(
+                        "authenticated publication member failed schema or identity "
+                        "verification"
+                    )
+                matches.append(artifact)
+        except PublishedArtifactIntegrityError:
+            raise
+        except (OSError, RuntimeError, UsageError, ValueError):
+            continue
+    if not matches:
+        return None
+    canonical = canonical_bytes(cast(JsonValue, matches[0]))
+    if any(canonical_bytes(cast(JsonValue, item)) != canonical for item in matches[1:]):
+        raise PublishedArtifactIntegrityError(
+            "one content identity resolved to different authenticated artifacts"
+        )
+    return matches[0]
 
 
 def wire_schema_identity(language_bundle: dict[str, Any], artifact_kind: str) -> str:
@@ -1247,6 +1528,1050 @@ def _resolved_source_symbols(
     )
 
 
+def _assignment_policy(
+    lowering: dict[str, Any],
+    *,
+    expected_roles: set[str] | None = None,
+) -> dict[str, Any]:
+    policy = lowering.get("assignment_policy")
+    if not isinstance(policy, dict):
+        raise ValueError("the admitted lowering has no Symbol assignment policy")
+    rows = policy.get("roles")
+    if (
+        not isinstance(rows, list)
+        or not rows
+        or policy.get("scenario_target_cardinality") != "one-per-resolved-actual"
+        or policy.get("duplicate_actual_policy") != "collapse"
+        or any(
+            not isinstance(row, dict)
+            or not isinstance(row.get("role"), str)
+            or not isinstance(row.get("modes"), list)
+            or not row["modes"]
+            or any(
+                not isinstance(mode, dict)
+                or not isinstance(mode.get("id"), str)
+                or not mode["id"]
+                or mode.get("initialization_source")
+                not in {
+                    "execution",
+                    "experiment",
+                    "model",
+                    "model-with-experiment-override",
+                    "named-random-stream",
+                    "resolved-model",
+                }
+                or mode.get("value_member") not in {"forbidden", "required"}
+                or mode.get("experiment_cardinality")
+                not in {"forbidden", "optional", "required"}
+                or not isinstance(mode.get("override"), bool)
+                for mode in row["modes"]
+            )
+            or len(row["modes"]) != len({mode["id"] for mode in row["modes"]})
+            or not isinstance(row.get("entrypoint_operand_access"), list)
+            or any(
+                access not in {"read", "read-write", "write"}
+                for access in row["entrypoint_operand_access"]
+            )
+            or len(row["entrypoint_operand_access"])
+            != len(set(row["entrypoint_operand_access"]))
+            or not isinstance(row.get("entrypoint_result"), bool)
+            or row.get("binding_kind") not in {"operand", "result", "internal"}
+            for row in rows
+        )
+    ):
+        raise ValueError("the admitted lowering has no total Symbol assignment policy")
+    by_role = {row["role"]: row for row in rows}
+    if len(by_role) != len(rows):
+        raise ValueError("the admitted Symbol assignment policy repeats a role")
+    if expected_roles is not None and set(by_role) != expected_roles:
+        raise ValueError("the admitted Symbol assignment policy is not total")
+    if any(
+        not _assignment_mode_is_coherent(mode)
+        for row in rows
+        for mode in cast(list[dict[str, Any]], row["modes"])
+    ):
+        raise ValueError("the admitted Symbol assignment mode ownership is incomplete")
+    if any(not _assignment_role_is_total(row) for row in rows):
+        raise ValueError("the admitted lowering has no total Symbol assignment policy")
+    return policy
+
+
+def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
+    source = mode.get("initialization_source")
+    value_member = mode.get("value_member")
+    cardinality = mode.get("experiment_cardinality")
+    override = mode.get("override")
+    return (
+        (
+            source == "model"
+            and value_member == "required"
+            and cardinality == "forbidden"
+            and override is False
+        )
+        or (
+            source == "experiment"
+            and value_member == "forbidden"
+            and cardinality == "required"
+            and override is False
+        )
+        or (
+            source == "model-with-experiment-override"
+            and value_member == "required"
+            and cardinality == "optional"
+            and override is True
+        )
+        or (
+            source in {"execution", "named-random-stream", "resolved-model"}
+            and value_member == "forbidden"
+            and cardinality == "forbidden"
+            and override is False
+        )
+    )
+
+
+def _assignment_role_is_total(row: dict[str, Any]) -> bool:
+    modes = cast(list[dict[str, Any]], row["modes"])
+    accesses = cast(list[str], row["entrypoint_operand_access"])
+    result = cast(bool, row["entrypoint_result"])
+    if row["binding_kind"] == "operand":
+        return (
+            bool(accesses)
+            and result is False
+            and all(
+                mode["experiment_cardinality"] != "forbidden"
+                or mode["initialization_source"]
+                in {"model", "model-with-experiment-override"}
+                for mode in modes
+            )
+        )
+    if row["binding_kind"] == "result":
+        return (
+            not accesses
+            and result is True
+            and all(mode["initialization_source"] == "execution" for mode in modes)
+        )
+    return row["binding_kind"] == "internal" and not accesses and result is False
+
+
+def _assignment_policy_by_role(
+    policy: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    rows = cast(list[dict[str, Any]], policy["roles"])
+    by_role = {cast(str, row["role"]): row for row in rows}
+    return by_role
+
+
+def _assignment_mode_for_declaration(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+) -> dict[str, Any] | None:
+    role = declaration.get("role")
+    value_policy = declaration.get("value_policy")
+    if not isinstance(role, str) or not isinstance(value_policy, dict):
+        return None
+    row = _assignment_policy_by_role(assignment_policy).get(role)
+    mode_id = value_policy.get("mode")
+    if row is None or not isinstance(mode_id, str):
+        return None
+    matches = [
+        mode
+        for mode in cast(list[dict[str, Any]], row["modes"])
+        if mode["id"] == mode_id
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _exact_operation_coordinate(
+    operation_row: dict[str, Any],
+    package_versions: dict[str, str],
+) -> dict[str, str]:
+    package = cast(str, operation_row["package"])
+    return {
+        "package": package,
+        "version": package_versions[package],
+        "id": cast(str, operation_row["definition"]["id"]),
+    }
+
+
+def _value_contract_matches(
+    declaration: dict[str, Any],
+    contract: dict[str, Any],
+) -> bool:
+    expected_type = contract.get("type")
+    return (
+        isinstance(expected_type, dict)
+        and declaration.get("type_identity")
+        == {
+            "package": expected_type.get("package"),
+            "version": expected_type.get("version"),
+            "symbol": expected_type.get("id"),
+        }
+        and all(
+            declaration.get(member) == contract.get(member)
+            for member in ("representation", "kind", "unit", "numeric_policy")
+        )
+    )
+
+
+_LITERAL_CONTEXT_MEMBERS = (
+    "id",
+    "type",
+    "representation",
+    "kind",
+    "unit",
+    "domain",
+    "numeric_policy",
+)
+
+
+def _literal_context_contract(
+    value: Any,
+    formal: dict[str, Any],
+    kernel: dict[str, Any],
+    selected_semantics: dict[str, Any],
+) -> dict[str, JsonValue] | None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
+    selected = selected_semantics.get("literal_typing_profiles")
+    if (
+        not isinstance(literal_contract, dict)
+        or literal_contract.get("selection") != "unique-formal-match"
+        or not isinstance(selected, list)
+    ):
+        return None
+    profiles = [
+        row["definition"]
+        for row in selected
+        if isinstance(row, dict) and isinstance(row.get("definition"), dict)
+    ]
+    matches = [
+        profile
+        for profile in profiles
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "integer"
+        and isinstance(profile.get("minimum"), int)
+        and not isinstance(profile["minimum"], bool)
+        and isinstance(profile.get("maximum"), int)
+        and not isinstance(profile["maximum"], bool)
+        and profile["minimum"] <= value <= profile["maximum"]
+        and profile.get("type") == formal.get("type")
+        and all(
+            profile.get(member) == formal.get(member)
+            for member in (
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+            )
+        )
+    ]
+    if len(matches) != 1:
+        return None
+    profile = cast(dict[str, JsonValue], matches[0])
+    return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
+
+
+def _value_policy_is_valid(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+) -> bool:
+    value_policy = declaration.get("value_policy")
+    if not isinstance(value_policy, dict):
+        return False
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
+        return False
+    if mode["value_member"] == "required":
+        value = value_policy.get("value")
+        if (
+            set(value_policy) != {"mode", "value"}
+            or not isinstance(value, int)
+            or isinstance(value, bool)
+        ):
+            return False
+        domain = declaration.get("domain")
+        if declaration.get("domain_kind") == "closed-interval" and (
+            not isinstance(domain, dict)
+            or not isinstance(domain.get("minimum"), int)
+            or not isinstance(domain.get("maximum"), int)
+            or value < domain["minimum"]
+            or value > domain["maximum"]
+        ):
+            return False
+        return True
+    return set(value_policy) == {"mode"}
+
+
+def _invalid_source_value_policy_pointer(
+    source: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> str | None:
+    lowering = _model_lowering(language_bundle)
+    assignment_policy = _assignment_policy(
+        lowering,
+        expected_roles=set(
+            cast(list[str], language_bundle["language"]["quantity"]["symbol_roles"])
+        ),
+    )
+    profile = _resolution_profile(
+        language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    modules_member = cast(str, profile["modules_member"])
+    symbols_member = cast(str, profile["symbols_member"])
+    for module_index, module in enumerate(
+        cast(list[dict[str, Any]], source[modules_member])
+    ):
+        for symbol_index, symbol in enumerate(
+            cast(list[dict[str, Any]], module[symbols_member])
+        ):
+            if not _value_policy_is_valid(symbol, assignment_policy):
+                return _pointer(
+                    (
+                        modules_member,
+                        module_index,
+                        symbols_member,
+                        symbol_index,
+                        "value_policy",
+                    )
+                )
+    return None
+
+
+def _symbol_initialization_contract(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+    resolved_symbol: dict[str, JsonValue],
+    target_identity: str,
+) -> tuple[dict[str, JsonValue] | None, dict[str, JsonValue] | None]:
+    value_policy = cast(dict[str, Any], declaration["value_policy"])
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
+        raise ValueError("Symbol has no total assignment-policy mode")
+    source = cast(str, mode["initialization_source"])
+    cardinality = cast(str, mode["experiment_cardinality"])
+    target: dict[str, JsonValue] | None = None
+    if cardinality != "forbidden":
+        target = {
+            "target": resolved_symbol,
+            "target_identity": target_identity,
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": cardinality,
+            "override": cast(bool, mode["override"]),
+        }
+    initializer: dict[str, JsonValue] | None = None
+    if source in {"model", "model-with-experiment-override"}:
+        initializer = {
+            "target": resolved_symbol,
+            "target_identity": target_identity,
+            "owner": "model",
+            "initialization_source": "value-policy",
+            "value": cast(int, value_policy["value"]),
+        }
+    return target, initializer
+
+
+def _resolved_entrypoints(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+) -> list[dict[str, JsonValue]]:
+    """Resolve Source entrypoint bindings once; downstream consumers use only this graph."""
+    lowering = _model_lowering(checked.language_bundle)
+    assignment_policy = _assignment_policy(
+        lowering,
+        expected_roles=set(
+            cast(
+                list[str],
+                checked.language_bundle["language"]["quantity"]["symbol_roles"],
+            )
+        ),
+    )
+    assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    if any(
+        not _value_policy_is_valid(declaration, assignment_policy)
+        for declaration in declarations
+    ):
+        raise ValueError("Model declarations do not close Symbol assignment policy")
+    package_versions = {
+        row["id"]: row["version"]
+        for row in cast(list[dict[str, str]], selected_semantics["packages"])
+    }
+    operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    declarations_by_source = {
+        (
+            cast(dict[str, str], declaration["resolved_symbol"])["module"],
+            cast(dict[str, str], declaration["resolved_symbol"])["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    domains = cast(
+        dict[str, str],
+        checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+            "identity_domains"
+        ],
+    )
+    entrypoints: list[dict[str, JsonValue]] = []
+    seen_entrypoints: set[str] = set()
+    for entrypoint_index, source_entrypoint in enumerate(
+        cast(list[dict[str, Any]], checked.source["entrypoints"])
+    ):
+        pointer = f"/entrypoints/{entrypoint_index}"
+        entrypoint_id = cast(str, source_entrypoint["id"])
+        if entrypoint_id in seen_entrypoints:
+            raise _EntrypointBindingError(
+                f"{pointer}/id",
+                f"duplicate Model entrypoint: {entrypoint_id}",
+            )
+        seen_entrypoints.add(entrypoint_id)
+        operation_ref = cast(dict[str, str], source_entrypoint["operation"])
+        operation_row = operations.get(
+            (
+                operation_ref["package"],
+                operation_ref["version"],
+                operation_ref["id"],
+            )
+        )
+        if operation_row is None:
+            if operation_ref["package"] not in package_versions:
+                member = "package"
+            elif package_versions[operation_ref["package"]] != operation_ref["version"]:
+                member = "version"
+            else:
+                member = "id"
+            raise _EntrypointBindingError(
+                f"{pointer}/operation/{member}",
+                f"entrypoint Operation is not selected: {entrypoint_id}",
+            )
+        operation = cast(dict[str, Any], operation_row["definition"])
+        exact_operation = _exact_operation_coordinate(operation_row, package_versions)
+        formal_ports = cast(list[dict[str, Any]], operation["inputs"])
+        source_arguments = cast(list[dict[str, Any]], source_entrypoint["arguments"])
+        argument_names = [row["port"] for row in source_arguments]
+        formal_names = [row["id"] for row in formal_ports]
+        if argument_names != formal_names:
+            if len(source_arguments) < len(formal_ports):
+                argument_pointer = f"{pointer}/arguments"
+            else:
+                mismatch = next(
+                    (
+                        index
+                        for index, (actual, expected) in enumerate(
+                            zip(argument_names, formal_names, strict=False)
+                        )
+                        if actual != expected
+                    ),
+                    len(formal_names),
+                )
+                argument_pointer = f"{pointer}/arguments/{mismatch}/port"
+            raise _EntrypointBindingError(
+                argument_pointer,
+                f"entrypoint arguments do not exactly close formal ports: {entrypoint_id}",
+            )
+        resolved_arguments: list[dict[str, JsonValue]] = []
+        aliases: dict[str, list[tuple[str, str]]] = {}
+        scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        initializers: dict[str, dict[str, JsonValue]] = {}
+        for argument_index, (formal, source_argument) in enumerate(
+            zip(formal_ports, source_arguments, strict=True)
+        ):
+            operand_pointer = f"{pointer}/arguments/{argument_index}/operand"
+            formal_identity = content_identity(
+                domains["formal_port"],
+                cast(
+                    JsonValue,
+                    {"operation": exact_operation, "name": formal["id"]},
+                ),
+            )
+            source_operand = cast(dict[str, Any], source_argument["operand"])
+            if source_operand["kind"] == "symbol":
+                declaration = declarations_by_source.get(
+                    (source_operand["module"], source_operand["symbol"])
+                )
+                if declaration is None:
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        f"entrypoint Symbol operand is unresolved: {entrypoint_id}",
+                    )
+                if not _value_contract_matches(declaration, formal):
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        f"entrypoint Symbol is incompatible with port {formal['id']}",
+                    )
+                access = cast(str, formal["access"])
+                role = cast(str, declaration["role"])
+                if access not in assignment_by_role[role]["entrypoint_operand_access"]:
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "entrypoint Symbol role is incompatible with "
+                        f"{access} port {formal['id']}",
+                    )
+                resolved_symbol = cast(
+                    dict[str, JsonValue], declaration["resolved_symbol"]
+                )
+                operand_body = cast(
+                    dict[str, JsonValue],
+                    {"kind": "symbol", "symbol": resolved_symbol},
+                )
+                operand_identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), access)
+                )
+                target, initializer = _symbol_initialization_contract(
+                    declaration,
+                    assignment_policy,
+                    resolved_symbol,
+                    operand_identity,
+                )
+                if target is not None:
+                    previous = scenario_targets.get(operand_identity)
+                    if previous is not None and previous != target:
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting assignment "
+                            "contracts",
+                        )
+                    scenario_targets[operand_identity] = target
+                if initializer is not None:
+                    previous_initializer = initializers.get(operand_identity)
+                    if (
+                        previous_initializer is not None
+                        and previous_initializer != initializer
+                    ):
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting initializers",
+                        )
+                    initializers[operand_identity] = initializer
+            elif source_operand["kind"] == "literal":
+                if formal["access"] != "read":
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "literal operand cannot bind a writable port",
+                    )
+                value = source_operand["value"]
+                context_type = _literal_context_contract(
+                    value,
+                    formal,
+                    checked.kernel,
+                    selected_semantics,
+                )
+                if context_type is None:
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "literal operand is incompatible with the formal value contract",
+                    )
+                operand_body = {
+                    "kind": "literal",
+                    "value": value,
+                    "context_type": context_type,
+                }
+                resolved_operand = {
+                    **operand_body,
+                    "identity": content_identity(
+                        domains["actual_operand"], cast(JsonValue, operand_body)
+                    ),
+                }
+            else:
+                raise _EntrypointBindingError(
+                    operand_pointer,
+                    "entrypoint operand kind is not admitted",
+                )
+            resolved_arguments.append(
+                cast(
+                    dict[str, JsonValue],
+                    {
+                        "port": {
+                            "identity": formal_identity,
+                            "operation": exact_operation,
+                            "name": formal["id"],
+                        },
+                        "operand": resolved_operand,
+                        "access": formal["access"],
+                    },
+                )
+            )
+        try:
+            alias_rows = _resolved_alias_rows(operation, aliases)
+        except ValueError as err:
+            raise _EntrypointBindingError(
+                f"{pointer}/arguments",
+                str(err),
+            ) from err
+        source_result = cast(dict[str, Any], source_entrypoint["result"])
+        if source_result["kind"] == "discard":
+            if operation["result"]["discardable"] is not True:
+                raise _EntrypointBindingError(
+                    f"{pointer}/result",
+                    "entrypoint cannot discard a required Operation result",
+                )
+            result_body = cast(dict[str, JsonValue], {"kind": "discard"})
+            resolved_result: dict[str, JsonValue] = {
+                **result_body,
+                "identity": content_identity(domains["result"], result_body),
+            }
+        else:
+            result_declaration = declarations_by_source.get(
+                (source_result["module"], source_result["symbol"])
+            )
+            if (
+                result_declaration is None
+                or assignment_by_role[cast(str, result_declaration.get("role"))][
+                    "entrypoint_result"
+                ]
+                is not True
+                or not _value_contract_matches(result_declaration, operation["result"])
+            ):
+                raise _EntrypointBindingError(
+                    f"{pointer}/result",
+                    "entrypoint result must bind one compatible output Symbol",
+                )
+            result_symbol = cast(
+                dict[str, JsonValue], result_declaration["resolved_symbol"]
+            )
+            result_body = cast(
+                dict[str, JsonValue],
+                {"kind": "symbol", "symbol": result_symbol},
+            )
+            resolved_result = {
+                **result_body,
+                "identity": content_identity(domains["result"], result_body),
+            }
+        entrypoint_body = cast(
+            dict[str, JsonValue],
+            {
+                "id": entrypoint_id,
+                "operation": exact_operation,
+                "arguments": resolved_arguments,
+                "aliases": alias_rows,
+                "result": resolved_result,
+                "effects": operation["effects"],
+                "refusals": operation["refusals"],
+                "resource_bounds": operation["resource_bounds"],
+                "scenario_input_contract": {
+                    "initializers": sorted(
+                        initializers.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
+                    "targets": sorted(
+                        scenario_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
+                },
+            },
+        )
+        entrypoints.append(
+            {
+                **entrypoint_body,
+                "identity": content_identity(domains["entrypoint"], entrypoint_body),
+            }
+        )
+    return sorted(entrypoints, key=lambda row: cast(str, row["id"]))
+
+
+def _operation_contract_matches(
+    actual: dict[str, Any],
+    formal: dict[str, Any],
+) -> bool:
+    return actual.get("type") == formal.get("type") and all(
+        actual.get(member) == formal.get(member)
+        for member in (
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
+    )
+
+
+def _resolved_alias_rows(
+    operation: dict[str, Any],
+    aliases: dict[str, list[tuple[str, str]]],
+) -> list[dict[str, JsonValue]]:
+    policy = cast(dict[str, Any], operation["alias_policy"])
+    writable_groups = cast(list[dict[str, Any]], policy["writable_groups"])
+    groups = {
+        frozenset(cast(list[str], group["ports"])): cast(str, group["semantics"])
+        for group in writable_groups
+    }
+    rows: list[dict[str, JsonValue]] = []
+    for actual_identity, uses in aliases.items():
+        if len(uses) < 2:
+            continue
+        ports = [name for name, _access in uses]
+        if all(access == "read" for _name, access in uses):
+            alias_policy = cast(str, policy["read_only"])
+        else:
+            alias_policy = groups.get(frozenset(ports), "")
+            if not alias_policy:
+                raise ValueError("Operation does not admit this writable alias set")
+        rows.append(
+            {
+                "actual_operand_identity": actual_identity,
+                "ports": cast(JsonValue, ports),
+                "policy": alias_policy,
+            }
+        )
+    return rows
+
+
+def _composition_policy(lowering: dict[str, Any]) -> dict[str, Any]:
+    policy = lowering.get("composition_policy")
+    if not isinstance(policy, dict):
+        raise ValueError("the admitted lowering has no closed composition policy")
+    return policy
+
+
+def _resolved_call_sites(
+    kernel: dict[str, Any],
+    selected_semantics: dict[str, Any],
+    composition_policy: dict[str, Any],
+) -> list[dict[str, JsonValue]]:
+    """Resolve LDB-authored nested calls without flattening caller/callee names."""
+    effect_policy = cast(dict[str, str], composition_policy["effects"])
+    refusal_policy = cast(dict[str, str], composition_policy["refusals"])
+    resource_policy = cast(dict[str, str], composition_policy["resources"])
+    package_versions = {
+        row["id"]: row["version"]
+        for row in cast(list[dict[str, str]], selected_semantics["packages"])
+    }
+    operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    domains = cast(
+        dict[str, str],
+        kernel["meta_format"]["runtime_program"]["invocation_contract"][
+            "identity_domains"
+        ],
+    )
+    resolved_rows: list[dict[str, JsonValue]] = []
+    closure_cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+
+    def operation_closure(
+        operation_row: dict[str, Any],
+        stack: tuple[tuple[str, str, str], ...],
+    ) -> tuple[set[str], set[str], int]:
+        parent_ref = _exact_operation_coordinate(operation_row, package_versions)
+        parent_key = (
+            parent_ref["package"],
+            parent_ref["version"],
+            parent_ref["id"],
+        )
+        if parent_key in stack:
+            raise ValueError("Operation call graph contains a cycle")
+        if parent_key in closure_cache:
+            return closure_cache[parent_key]
+        operation = cast(dict[str, Any], operation_row["definition"])
+        parent_ports = {
+            row["id"]: row for row in cast(list[dict[str, Any]], operation["inputs"])
+        }
+        parent_outcomes = {
+            row["id"]
+            for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
+        }
+        locals_: dict[str, dict[str, Any]] = {}
+        effects = set(cast(list[str], operation["effects"]))
+        refusals = set(cast(list[str], operation["refusals"]))
+        charge = 0
+        seen_sites: set[str] = set()
+        for order, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            charge += 1
+            if instruction["node"] != "invoke":
+                continue
+            site = cast(str, instruction["site"])
+            if site in seen_sites:
+                raise ValueError("Operation repeats a nested call-site id")
+            seen_sites.add(site)
+            child_ref = cast(dict[str, str], instruction["operation"])
+            child_row = operations.get(
+                (child_ref["package"], child_ref["version"], child_ref["id"])
+            )
+            if child_row is None:
+                raise ValueError("nested Operation is not in the selected closure")
+            exact_child = _exact_operation_coordinate(child_row, package_versions)
+            child = cast(dict[str, Any], child_row["definition"])
+            child_ports = cast(list[dict[str, Any]], child["inputs"])
+            authored_arguments = cast(list[dict[str, Any]], instruction["arguments"])
+            if [row["port"] for row in authored_arguments] != [
+                row["id"] for row in child_ports
+            ]:
+                raise ValueError("nested call does not exactly close formal ports")
+            aliases: dict[str, list[tuple[str, str]]] = {}
+            arguments: list[dict[str, JsonValue]] = []
+            for formal, authored in zip(child_ports, authored_arguments, strict=True):
+                formal_body = cast(
+                    JsonValue,
+                    {"operation": exact_child, "name": formal["id"]},
+                )
+                operand = cast(dict[str, Any], authored["operand"])
+                if operand["kind"] == "port":
+                    parent_port = parent_ports.get(operand["port"])
+                    if (
+                        parent_port is None
+                        or not _operation_contract_matches(parent_port, formal)
+                        or (
+                            formal["access"] in {"read-write", "write"}
+                            and parent_port["access"] not in {"read-write", "write"}
+                        )
+                    ):
+                        raise ValueError("nested call port operand is incompatible")
+                    operand_body = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "port",
+                            "parent_operation": parent_ref,
+                            "port": operand["port"],
+                        },
+                    )
+                    resolved_operand = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "port",
+                            "port": operand["port"],
+                            "identity": content_identity(
+                                domains["actual_operand"],
+                                cast(JsonValue, operand_body),
+                            ),
+                        },
+                    )
+                elif operand["kind"] == "local":
+                    local_contract = locals_.get(operand["local"])
+                    if (
+                        local_contract is None
+                        or formal["access"] != "read"
+                        or not _operation_contract_matches(local_contract, formal)
+                    ):
+                        raise ValueError("nested call local operand is incompatible")
+                    operand_body = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "local",
+                            "parent_operation": parent_ref,
+                            "local": operand["local"],
+                        },
+                    )
+                    resolved_operand = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "local",
+                            "local": operand["local"],
+                            "identity": content_identity(
+                                domains["actual_operand"],
+                                cast(JsonValue, operand_body),
+                            ),
+                        },
+                    )
+                elif operand["kind"] == "literal":
+                    value = operand.get("literal")
+                    context_type = _literal_context_contract(
+                        value,
+                        formal,
+                        kernel,
+                        selected_semantics,
+                    )
+                    if formal["access"] != "read" or context_type is None:
+                        raise ValueError("nested call literal operand is incompatible")
+                    operand_body = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "literal",
+                            "parent_operation": parent_ref,
+                            "value": value,
+                            "context_type": context_type,
+                        },
+                    )
+                    resolved_operand = cast(
+                        dict[str, JsonValue],
+                        {
+                            "kind": "literal",
+                            "value": value,
+                            "context_type": context_type,
+                            "identity": content_identity(
+                                domains["actual_operand"],
+                                cast(JsonValue, operand_body),
+                            ),
+                        },
+                    )
+                else:
+                    raise ValueError("nested call operand kind is not admitted")
+                identity = cast(str, resolved_operand["identity"])
+                aliases.setdefault(identity, []).append(
+                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                )
+                arguments.append(
+                    cast(
+                        dict[str, JsonValue],
+                        {
+                            "port": {
+                                "identity": content_identity(
+                                    domains["formal_port"], formal_body
+                                ),
+                                "operation": exact_child,
+                                "name": formal["id"],
+                            },
+                            "operand": resolved_operand,
+                            "access": formal["access"],
+                        },
+                    )
+                )
+            alias_rows = _resolved_alias_rows(child, aliases)
+            authored_result = cast(dict[str, Any], instruction["result"])
+            if authored_result["kind"] == "discard":
+                if child["result"]["discardable"] is not True:
+                    raise ValueError("nested call discards a required result")
+            elif authored_result["kind"] == "local":
+                name = cast(str, authored_result["name"])
+                if name in locals_:
+                    raise ValueError("nested call repeats a caller local result")
+                locals_[name] = cast(dict[str, Any], child["result"])
+            elif authored_result["kind"] == "operation-result":
+                if not _operation_contract_matches(
+                    cast(dict[str, Any], child["result"]),
+                    cast(dict[str, Any], operation["result"]),
+                ):
+                    raise ValueError("nested result is incompatible with caller result")
+            else:
+                raise ValueError("nested call result binding is not admitted")
+            result_body = cast(
+                JsonValue,
+                {
+                    "parent_operation": parent_ref,
+                    "site": site,
+                    "operation": exact_child,
+                    "binding": authored_result,
+                },
+            )
+            result = {
+                "identity": content_identity(domains["result"], result_body),
+                "binding": authored_result,
+            }
+            child_outcome_ids = [
+                row["id"] for row in cast(list[dict[str, Any]], child["outcomes"])
+            ]
+            authored_outcomes = cast(list[dict[str, Any]], instruction["outcomes"])
+            if [row["outcome"] for row in authored_outcomes] != child_outcome_ids:
+                raise ValueError("nested outcome mapping is not exhaustive")
+            outcomes: list[dict[str, JsonValue]] = []
+            for mapping in authored_outcomes:
+                action = cast(dict[str, Any], mapping["action"])
+                if (
+                    action["kind"] == "propagate"
+                    and action.get("outcome") not in parent_outcomes
+                ):
+                    raise ValueError("nested outcome propagates an unknown outcome")
+                outcome_body = cast(
+                    JsonValue,
+                    {
+                        "parent_operation": parent_ref,
+                        "site": site,
+                        "operation": exact_child,
+                        "outcome": mapping["outcome"],
+                        "action": action,
+                    },
+                )
+                outcomes.append(
+                    {
+                        "identity": content_identity(domains["outcome"], outcome_body),
+                        "outcome": mapping["outcome"],
+                        "action": action,
+                    }
+                )
+            child_effects, child_refusals, child_charge = operation_closure(
+                child_row, (*stack, parent_key)
+            )
+            if effect_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_effects <= set(cast(list[str], operation["effects"])):
+                raise ValueError(
+                    "nested Operation effect closure exceeds caller declaration"
+                )
+            if refusal_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_refusals <= set(cast(list[str], operation["refusals"])):
+                raise ValueError(
+                    "nested Operation refusal closure exceeds caller declaration"
+                )
+            if effect_policy["aggregation"] == "union":
+                effects.update(child_effects)
+            if refusal_policy["aggregation"] == "union":
+                refusals.update(child_refusals)
+            if resource_policy["aggregation"] == "sum":
+                charge += child_charge
+            call_body = cast(
+                dict[str, JsonValue],
+                {
+                    "parent_operation": parent_ref,
+                    "site": site,
+                    "order": order,
+                    "operation": exact_child,
+                    "arguments": arguments,
+                    "result": result,
+                    "outcomes": outcomes,
+                    "aliases": alias_rows,
+                    "closure": {
+                        "effects": sorted(child_effects),
+                        "refusals": sorted(child_refusals),
+                        "resource_charge": 1 + child_charge,
+                    },
+                },
+            )
+            resolved_rows.append(
+                {
+                    **call_body,
+                    "identity": content_identity(domains["call_site"], call_body),
+                }
+            )
+        if (
+            resource_policy["containment"] == "transitive-charge-within-caller-bound"
+            and charge > operation["resource_bounds"]["max_steps"]
+        ):
+            raise ValueError("Operation transitive resource charge exceeds its bound")
+        closure_cache[parent_key] = effects, refusals, charge
+        return effects, refusals, charge
+
+    for operation_row in sorted(
+        operation_rows,
+        key=lambda row: (
+            cast(str, row["package"]),
+            cast(str, row["definition"]["id"]),
+        ),
+    ):
+        operation_closure(operation_row, ())
+    return sorted(
+        resolved_rows,
+        key=lambda row: (
+            cast(dict[str, str], row["parent_operation"])["package"],
+            cast(dict[str, str], row["parent_operation"])["id"],
+            cast(int, row["order"]),
+        ),
+    )
+
+
 def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
@@ -1284,20 +2609,24 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
                 raise ValueError("one package id resolved to conflicting releases")
             continue
         selected[package["id"]] = package
-        for dependency_id in sorted(package["dependencies"]["required"]):
-            candidates = [
-                candidate
-                for (candidate_id, _version), candidate in available.items()
-                if candidate_id == dependency_id
-            ]
-            if len(candidates) != 1:
-                raise ValueError("required dependency does not resolve uniquely")
-            dependency = candidates[0]
+        for dependency_constraint in sorted(
+            package["dependencies"]["required"],
+            key=lambda item: (item["id"], item["version"]),
+        ):
+            dependency = available.get(
+                (
+                    dependency_constraint["id"],
+                    dependency_constraint["version"],
+                )
+            )
+            if dependency is None:
+                raise ValueError("required dependency coordinate is unavailable")
             dependency_edges.append(
                 {
                     "from_package": package["id"],
                     "kind": "required",
                     "to_package": dependency["id"],
+                    "to_version": dependency["version"],
                 }
             )
             pending.append({"id": dependency["id"], "version": dependency["version"]})
@@ -1409,6 +2738,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         key=lambda edge: (
             cast(str, edge["from_package"]),
             cast(str, edge["to_package"]),
+            cast(str, edge["to_version"]),
         )
     )
     selected_types: list[dict[str, JsonValue]] = [
@@ -1536,10 +2866,12 @@ def _runtime_projection(
                     for entry in cast(list[dict[str, Any]], closure["definitions"])
                     if entry["authority_path"] == source["authority_path"]
                 ]
-                if len(entries) != 1:
+                if len(entries) > 1:
                     raise ValueError(
                         "runtime projection semantic-closure source is not unique"
                     )
+                if not entries:
+                    continue
                 for value in cast(list[Any], entries[0]["definitions"]):
                     budget.consume()
                     rows.append(
@@ -1572,7 +2904,7 @@ def _runtime_projection(
                 for index, row in enumerate(catalog)
                 if (
                     budget.consume() is None
-                    and row["package"] == package
+                    and (not seed["same_package"] or row["package"] == package)
                     and canonical_bytes(
                         path_value(
                             row["value"],
@@ -1620,7 +2952,16 @@ def _runtime_projection(
                     == canonical_bytes(source_value)
                 ]
                 if not matches:
-                    raise ValueError("runtime projection edge did not resolve")
+                    source_label = (
+                        source_row["value"].get("id")
+                        if isinstance(source_row["value"], dict)
+                        else None
+                    )
+                    raise ValueError(
+                        "runtime projection edge did not resolve: "
+                        f"{source_id}->{target_id} for "
+                        f"{source_label or f'{source_id}[{source_index}]'}"
+                    )
                 previous_count = len(selected[target_id])
                 selected[target_id].update(matches)
                 changed = changed or len(selected[target_id]) != previous_count
@@ -1792,6 +3133,12 @@ def _value_matches_fact_contract(
             and not isinstance(value["maximum"], bool)
             and -(2**63) <= value["minimum"] <= value["maximum"] <= 2**63 - 1
         )
+    if value_type == "canonical-value":
+        try:
+            canonical_bytes(cast(JsonValue, value))
+        except (TypeError, ValueError):
+            return False
+        return True
     if value_type == "closed-object":
         required = contract.get("required_members")
         field_types = contract.get("field_types")
@@ -1882,17 +3229,285 @@ def _fact_is_admitted(
     return True
 
 
+def _resolved_entrypoint_graph_is_admitted(
+    kernel: dict[str, Any],
+    ldb: dict[str, Any],
+    declarations: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+    entrypoints: Any,
+) -> bool:
+    """Independently rederive every identity and contract in the resolved call graph."""
+    if not isinstance(entrypoints, list):
+        return False
+    assignment_policy = _assignment_policy(
+        _model_lowering(ldb),
+        expected_roles=set(
+            cast(list[str], ldb["language"]["quantity"]["symbol_roles"])
+        ),
+    )
+    assignment_by_role = _assignment_policy_by_role(assignment_policy)
+    if any(
+        not _value_policy_is_valid(declaration, assignment_policy)
+        for declaration in declarations
+    ):
+        return False
+    package_versions = {
+        row["id"]: row["version"]
+        for row in cast(list[dict[str, str]], selected_semantics["packages"])
+    }
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in cast(list[dict[str, Any]], selected_semantics["operations"])
+    }
+    declarations_by_symbol = {
+        (
+            cast(dict[str, str], declaration["resolved_symbol"])["model"],
+            cast(dict[str, str], declaration["resolved_symbol"])["module"],
+            cast(dict[str, str], declaration["resolved_symbol"])["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    domains = cast(
+        dict[str, str],
+        kernel["meta_format"]["runtime_program"]["invocation_contract"][
+            "identity_domains"
+        ],
+    )
+    if any(
+        not isinstance(row, dict) or not isinstance(row.get("id"), str)
+        for row in entrypoints
+    ):
+        return False
+    ids = cast(list[str], [row["id"] for row in entrypoints])
+    if len(ids) != len(entrypoints) or ids != sorted(ids) or len(ids) != len(set(ids)):
+        return False
+    for entrypoint in entrypoints:
+        operation_ref = entrypoint.get("operation")
+        if not isinstance(operation_ref, dict) or not all(
+            isinstance(operation_ref.get(member), str)
+            for member in ("package", "version", "id")
+        ):
+            return False
+        exact_operation_ref = cast(dict[str, str], operation_ref)
+        operation_row = operations.get(
+            (
+                exact_operation_ref["package"],
+                exact_operation_ref["version"],
+                exact_operation_ref["id"],
+            )
+        )
+        if operation_row is None:
+            return False
+        exact_operation = _exact_operation_coordinate(operation_row, package_versions)
+        if operation_ref != exact_operation:
+            return False
+        operation = cast(dict[str, Any], operation_row["definition"])
+        formal_ports = cast(list[dict[str, Any]], operation["inputs"])
+        arguments = entrypoint.get("arguments")
+        if not isinstance(arguments, list) or len(arguments) != len(formal_ports):
+            return False
+        aliases: dict[str, list[tuple[str, str]]] = {}
+        scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        initializers: dict[str, dict[str, JsonValue]] = {}
+        expected_arguments: list[dict[str, JsonValue]] = []
+        for formal, argument in zip(formal_ports, arguments, strict=True):
+            if not isinstance(argument, dict):
+                return False
+            formal_body = cast(
+                JsonValue,
+                {"operation": exact_operation, "name": formal["id"]},
+            )
+            expected_port = {
+                "identity": content_identity(domains["formal_port"], formal_body),
+                "operation": exact_operation,
+                "name": formal["id"],
+            }
+            operand = argument.get("operand")
+            if not isinstance(operand, dict):
+                return False
+            if operand.get("kind") == "symbol":
+                symbol = operand.get("symbol")
+                if not isinstance(symbol, dict) or not all(
+                    isinstance(symbol.get(member), str)
+                    for member in ("model", "module", "name")
+                ):
+                    return False
+                exact_symbol = cast(dict[str, str], symbol)
+                declaration = declarations_by_symbol.get(
+                    (
+                        exact_symbol["model"],
+                        exact_symbol["module"],
+                        exact_symbol["name"],
+                    )
+                )
+                if declaration is None or not _value_contract_matches(
+                    declaration, formal
+                ):
+                    return False
+                access = formal["access"]
+                role = cast(str, declaration["role"])
+                if access not in assignment_by_role[role]["entrypoint_operand_access"]:
+                    return False
+                operand_body = cast(
+                    dict[str, JsonValue],
+                    {"kind": "symbol", "symbol": symbol},
+                )
+                operand_identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
+                expected_operand: dict[str, JsonValue] = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), access)
+                )
+                target, initializer = _symbol_initialization_contract(
+                    declaration,
+                    assignment_policy,
+                    cast(dict[str, JsonValue], symbol),
+                    operand_identity,
+                )
+                if target is not None:
+                    previous = scenario_targets.get(operand_identity)
+                    if previous is not None and previous != target:
+                        return False
+                    scenario_targets[operand_identity] = target
+                if initializer is not None:
+                    previous_initializer = initializers.get(operand_identity)
+                    if (
+                        previous_initializer is not None
+                        and previous_initializer != initializer
+                    ):
+                        return False
+                    initializers[operand_identity] = initializer
+            elif operand.get("kind") == "literal":
+                value = operand.get("value")
+                context_type = _literal_context_contract(
+                    value,
+                    formal,
+                    kernel,
+                    selected_semantics,
+                )
+                if formal["access"] != "read" or context_type is None:
+                    return False
+                operand_body = {
+                    "kind": "literal",
+                    "value": value,
+                    "context_type": context_type,
+                }
+                expected_operand = {
+                    **operand_body,
+                    "identity": content_identity(
+                        domains["actual_operand"], cast(JsonValue, operand_body)
+                    ),
+                }
+            else:
+                return False
+            expected_arguments.append(
+                cast(
+                    dict[str, JsonValue],
+                    {
+                        "port": expected_port,
+                        "operand": expected_operand,
+                        "access": formal["access"],
+                    },
+                )
+            )
+        try:
+            expected_aliases = _resolved_alias_rows(operation, aliases)
+        except ValueError:
+            return False
+        if arguments != expected_arguments or entrypoint.get("aliases") != (
+            expected_aliases
+        ):
+            return False
+        result = entrypoint.get("result")
+        if not isinstance(result, dict):
+            return False
+        if result.get("kind") == "discard":
+            if operation["result"]["discardable"] is not True:
+                return False
+            result_body = cast(dict[str, JsonValue], {"kind": "discard"})
+        elif result.get("kind") == "symbol":
+            result_symbol = result.get("symbol")
+            if not isinstance(result_symbol, dict) or not all(
+                isinstance(result_symbol.get(member), str)
+                for member in ("model", "module", "name")
+            ):
+                return False
+            exact_result_symbol = cast(dict[str, str], result_symbol)
+            result_declaration = declarations_by_symbol.get(
+                (
+                    exact_result_symbol["model"],
+                    exact_result_symbol["module"],
+                    exact_result_symbol["name"],
+                )
+            )
+            if (
+                result_declaration is None
+                or assignment_by_role[cast(str, result_declaration.get("role"))][
+                    "entrypoint_result"
+                ]
+                is not True
+                or not _value_contract_matches(result_declaration, operation["result"])
+            ):
+                return False
+            result_body = cast(
+                dict[str, JsonValue],
+                {"kind": "symbol", "symbol": result_symbol},
+            )
+        else:
+            return False
+        expected_result = {
+            **result_body,
+            "identity": content_identity(domains["result"], result_body),
+        }
+        entrypoint_body = cast(
+            dict[str, JsonValue],
+            {
+                "id": entrypoint["id"],
+                "operation": exact_operation,
+                "arguments": expected_arguments,
+                "aliases": cast(JsonValue, expected_aliases),
+                "result": expected_result,
+                "effects": operation["effects"],
+                "refusals": operation["refusals"],
+                "resource_bounds": operation["resource_bounds"],
+                "scenario_input_contract": {
+                    "initializers": sorted(
+                        initializers.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
+                    "targets": sorted(
+                        scenario_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    ),
+                },
+            },
+        )
+        expected_entrypoint = {
+            **entrypoint_body,
+            "identity": content_identity(domains["entrypoint"], entrypoint_body),
+        }
+        if entrypoint != expected_entrypoint:
+            return False
+    return True
+
+
 def admit_resolved_model(
     artifacts: dict[str, dict[str, Any]],
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
 ) -> ResolvedModelAdmission:
     """Admit a semantic artifact trio against the exact packaged authorities."""
-    kernel, ldb = load_authorities()
-    authority_admission = admit_authorities(kernel, ldb)
-    if not authority_admission.admitted:
-        return ResolvedModelAdmission(
-            False,
-            tuple(item.code for item in authority_admission.diagnostics),
-        )
+    context = authority_context or packaged_authority_context()
+    kernel = context.kernel
+    ldb = context.language_bundle
     lowering = _model_lowering(ldb)
     diagnostic = (
         cast(
@@ -1936,6 +3551,7 @@ def admit_resolved_model(
         source_identity="unbound-for-semantic-admission",
         kernel=kernel,
         language_bundle=ldb,
+        authority_context=context,
     )
     try:
         expected_lock = _package_lock(synthetic)
@@ -2000,6 +3616,23 @@ def admit_resolved_model(
         set(resolved_keys)
     ):
         return ResolvedModelAdmission(False, diagnostic)
+    try:
+        if not _resolved_entrypoint_graph_is_admitted(
+            kernel,
+            ldb,
+            cast(list[dict[str, Any]], declarations),
+            cast(dict[str, Any], expected_runtime_projection),
+            rir.get("entrypoints"),
+        ):
+            return ResolvedModelAdmission(False, diagnostic)
+        if rir.get("call_sites") != _resolved_call_sites(
+            kernel,
+            cast(dict[str, Any], expected_runtime_projection),
+            _composition_policy(_model_lowering(ldb)),
+        ):
+            return ResolvedModelAdmission(False, diagnostic)
+    except (KeyError, TypeError, ValueError):
+        return ResolvedModelAdmission(False, diagnostic)
     expected_resolved = _identified_artifact(
         ldb,
         "resolved-model",
@@ -2047,28 +3680,57 @@ def _lowering_inputs(
 
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
     """Lower one checked source to the semantic and provenance artifacts."""
-    admission = admit_authorities(checked.kernel, checked.language_bundle)
-    if not admission.admitted:
+    context = checked.authority_context
+    if (
+        context is None
+        or context.kernel is not checked.kernel
+        or context.language_bundle is not checked.language_bundle
+    ):
+        resolved_context = admit_authority_context(
+            checked.kernel,
+            checked.language_bundle,
+        )
+        if isinstance(resolved_context, BootstrapAdmission):
+            raise ValueError("lowerer received authorities that failed admission")
+        context = resolved_context
+        checked = CheckedModel(
+            source=checked.source,
+            source_identity=checked.source_identity,
+            kernel=context.kernel,
+            language_bundle=context.language_bundle,
+            authority_context=context,
+        )
+    if not context.admission.admitted:
         raise ValueError("lowerer received authorities that failed admission")
     lock, declarations, lowering, source_rows = _lowering_inputs(checked)
     profile = _resolution_profile(
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
     output_member = cast(str, lowering["output_member"])
+    selected_semantics = _runtime_projection(
+        lock,
+        declarations,
+        lowering,
+        _runtime_projection_budget(checked.kernel, checked.language_bundle),
+    )
+    entrypoints = _resolved_entrypoints(
+        checked,
+        cast(list[dict[str, Any]], declarations),
+        selected_semantics,
+    )
+    call_sites = _resolved_call_sites(
+        checked.kernel,
+        selected_semantics,
+        _composition_policy(lowering),
+    )
     rir = _identified_artifact(
         checked.language_bundle,
         "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
-            "selected_semantics": cast(
-                JsonValue,
-                _runtime_projection(
-                    lock,
-                    declarations,
-                    lowering,
-                    _runtime_projection_budget(checked.kernel, checked.language_bundle),
-                ),
-            ),
+            "entrypoints": cast(JsonValue, entrypoints),
+            "call_sites": cast(JsonValue, call_sites),
+            "selected_semantics": cast(JsonValue, selected_semantics),
         },
     )
     resolved = _identified_artifact(
@@ -2433,6 +4095,31 @@ def _ensure_directory_chain(path: Path) -> None:
     _assert_directory_without_symlink(path)
 
 
+def _validate_presentation_path(out_path: Path, invocation_path: Path) -> None:
+    """Keep every presentation outside the immutable store and symlink aliases."""
+    store_root = _store_root()
+    if (
+        out_path == store_root
+        or store_root in out_path.parents
+        or out_path in store_root.parents
+        or out_path == invocation_path
+        or invocation_path in out_path.parents
+        or out_path in invocation_path.parents
+    ):
+        raise UsageError(
+            "argument_conflict",
+            "--out must not overlap the immutable publication store",
+        )
+    parent = out_path.parent
+    _assert_ancestor_chain_without_symlink(parent)
+    if parent.is_symlink() or not parent.is_dir():
+        raise UsageError(
+            "unwritable_output", f"cannot write output directory: {out_path}"
+        )
+    if out_path.is_symlink():
+        raise UsageError("argument_conflict", "--out must not be a symlink")
+
+
 def _materialize_primary(out_path: Path, resolved: dict[str, Any]) -> None:
     data = canonical_bytes(cast(JsonValue, resolved))
     if out_path.is_symlink():
@@ -2674,6 +4361,8 @@ def publish_artifact_set(
         raise RuntimeError("prepared output failed artifact-schema admission")
 
     out_path = _normalized_absolute_path(out)
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    _validate_presentation_path(out_path, invocation_path)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
@@ -2681,25 +4370,7 @@ def publish_artifact_set(
             "argument_conflict", "Invocation-key lock must not be a symlink"
         )
     with _invocation_lock(lock_path):
-        invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
         anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-        if (
-            out_path == invocation_path
-            or invocation_path in out_path.parents
-            or out_path in invocation_path.parents
-        ):
-            raise UsageError(
-                "argument_conflict",
-                "--out must not overlap the Invocation-key publication path",
-            )
-        parent = out_path.parent
-        _assert_ancestor_chain_without_symlink(parent)
-        if parent.is_symlink() or not parent.is_dir():
-            raise UsageError(
-                "unwritable_output", f"cannot write output directory: {out_path}"
-            )
-        if out_path.is_symlink():
-            raise UsageError("argument_conflict", "--out must not be a symlink")
         _assert_ancestor_chain_without_symlink(invocation_path)
         if invocation_path.is_symlink():
             raise UsageError(
@@ -2738,6 +4409,94 @@ def publish_artifact_set(
             member_validator,
             authentication_key,
             publication_fault,
+        )
+
+
+def recover_committed_artifact_set(
+    out: str,
+    invocation_key: str,
+    descriptor_identity: str,
+    command_input_identity: str,
+    language_bundle: dict[str, Any],
+    candidate_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    member_validator: Callable[[str, dict[str, Any]], bool],
+    *,
+    authentication_key: bytes | None = None,
+) -> RecoveredArtifactSet | None:
+    """Recover one committed producing outcome before its producer reruns."""
+    if authentication_key is None:
+        authentication_key = publication_authentication_key()
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    out_path = _normalized_absolute_path(out)
+    _validate_presentation_path(out_path, invocation_path)
+    if not invocation_path.exists() or not anchor_path.exists():
+        return None
+    lock_path = _store_lock_path(descriptor_identity, invocation_key)
+    _ensure_directory_chain(lock_path.parent)
+    with _invocation_lock(lock_path):
+        if not invocation_path.exists() or not anchor_path.exists():
+            return None
+        manifest = _read_canonical_artifact(
+            invocation_path / "artifact-set-manifest.json"
+        )
+        if not _verify_artifact(manifest, language_bundle):
+            raise RuntimeError("committed artifact-set manifest failed revalidation")
+        rows = manifest.get("members")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise RuntimeError("committed artifact-set manifest is malformed")
+        signature = [
+            (row.get("logical_name"), row.get("artifact_kind")) for row in rows
+        ]
+        matching_sets = [
+            candidate
+            for candidate in candidate_sets
+            if signature
+            == [(member.logical_name, member.artifact_kind) for member in candidate]
+        ]
+        if len(matching_sets) != 1:
+            raise RuntimeError(
+                "committed artifact set does not name one descriptor outcome"
+            )
+        artifact_set = matching_sets[0]
+        artifacts: dict[str, dict[str, Any]] = {}
+        expected: dict[str, PublicationMember] = {}
+        for member, row in zip(artifact_set, rows, strict=True):
+            artifact = _read_canonical_artifact(
+                invocation_path / f"{member.logical_name}.json"
+            )
+            if (
+                not _verify_artifact(artifact, language_bundle)
+                or not member_validator(member.logical_name, artifact)
+                or artifact.get("artifact_kind") != member.artifact_kind
+                or artifact.get("content_identity") != row.get("content_identity")
+                or artifact.get("wire_schema_identity")
+                != row.get("wire_schema_identity")
+            ):
+                raise RuntimeError("committed artifact-set member failed revalidation")
+            artifacts[member.logical_name] = artifact
+            expected[member.logical_name] = PublicationMember(
+                value=artifact,
+                artifact_kind=member.artifact_kind,
+                wire_schema_identity=cast(str, artifact["wire_schema_identity"]),
+                content_identity=cast(str, artifact["content_identity"]),
+            )
+        receipt = _recover_generic_publication(
+            invocation_path,
+            out_path,
+            invocation_key,
+            descriptor_identity,
+            command_input_identity,
+            language_bundle,
+            artifact_set,
+            expected,
+            member_validator,
+            authentication_key,
+        )
+        return RecoveredArtifactSet(
+            receipt=receipt,
+            artifact_set=artifact_set,
+            artifacts=artifacts,
         )
 
 
@@ -2991,6 +4750,8 @@ def publish_model_artifacts(
         authentication_key = publication_authentication_key()
     out_path = _normalized_absolute_path(out)
     reject_input_aliasing(out_path, source_path, input_is_known_path=True)
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    _validate_presentation_path(out_path, invocation_path)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
@@ -3021,23 +4782,6 @@ def _publish_model_artifacts_locked(
     """Atomically publish one complete build set while its invocation lock is held."""
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
-    if (
-        out_path == invocation_path
-        or invocation_path in out_path.parents
-        or out_path in invocation_path.parents
-    ):
-        raise UsageError(
-            "argument_conflict",
-            "--out must not overlap the Invocation-key publication path",
-        )
-    parent = out_path.parent
-    _assert_ancestor_chain_without_symlink(parent)
-    if parent.is_symlink() or not parent.is_dir():
-        raise UsageError(
-            "unwritable_output", f"cannot write output directory: {out_path}"
-        )
-    if out_path.is_symlink():
-        raise UsageError("argument_conflict", "--out must not be a symlink")
     command_input = _identified_artifact(
         checked.language_bundle,
         "model-build-command-input",

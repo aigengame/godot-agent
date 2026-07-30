@@ -64,6 +64,9 @@ The suite is fast and needs no game engine — the toolkit is engine- and game-a
 an isolation gate in the suite enforces that. Its e2e tier drives the installed console
 script as a real subprocess, which is why the test commands above run through `--project`:
 that is what puts `gda-balancing` on `PATH`.
+The admitted-authority fixture boundary, logical inventory gate, CI shards, and latency
+measurement protocol are documented in
+[`docs/agents/testing.md`](docs/agents/testing.md).
 
 Design decisions live in [`docs/badr/`](docs/badr) (balancing ADRs) and the domain glossary
 in [`BALANCING-CONTEXT.md`](BALANCING-CONTEXT.md).

@@ -1,7 +1,6 @@
 """Schema 2.0 Model Source checking and build commands."""
 
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,12 +12,10 @@ from gda_balancing.descriptors import (
     RefusalDetailSpec,
 )
 from gda_balancing.path_contracts import reject_input_aliasing
-from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
-    bootstrap_refusal,
 )
 from gda_balancing.schema2.migration import (
     MigrationFailure,
@@ -77,7 +74,8 @@ def run_model_check(
                 "rir-semantic-payload",
                 "resolved-model",
             )
-        }
+        },
+        authority_context=checked.authority_context,
     )
     if not semantic_admission.admitted:
         raise RuntimeError("checked Resolved Model failed exact-authority admission")
@@ -185,10 +183,10 @@ _MODEL_MIGRATE_ARTIFACT_SET = (
 MIGRATION_REFUSAL_CATALOG = refusal_catalog_for_stages(frozenset({"migration"}))
 
 
-@lru_cache(maxsize=1)
 def _migration_authorities() -> tuple[dict[str, Any], dict[str, Any]]:
-    """Load the immutable packaged migration authorities once per process."""
-    return load_authorities()
+    """Borrow the one immutable packaged authority lifecycle."""
+    context = packaged_authority_context()
+    return context.kernel, context.language_bundle
 
 
 def _migration_report_schema() -> dict[str, object]:
@@ -202,9 +200,7 @@ def run_model_migrate(
     reject_input_aliasing(inp.out, inp.source, input_is_known_path=True)
     data, input_identity = load_design_source_observation(inp.source)
     kernel, language_bundle = _migration_authorities()
-    admission = admit_authorities(kernel, language_bundle)
-    if not admission.admitted:
-        return bootstrap_refusal(admission)
+    context = packaged_authority_context()
     converter = converter_specification(language_bundle)
     converter_identity = cast(str, converter["content_identity"])
 
@@ -253,9 +249,7 @@ def run_model_migrate(
     assert isinstance(migrated, MigrationSuccess)
     checked = check_model_source_value(
         cast(dict[str, Any], migrated.source),
-        kernel=kernel,
-        language_bundle=language_bundle,
-        authority_admission=admission,
+        authority_context=context,
     )
     if isinstance(checked, Schema2RefusalReport):
         raise RuntimeError("migrated Model Source failed exact-authority admission")
@@ -313,9 +307,7 @@ def run_model_migrate(
             return verify_artifact(value, language_bundle)
         admitted = check_model_source_value(
             value,
-            kernel=kernel,
-            language_bundle=language_bundle,
-            authority_admission=admission,
+            authority_context=context,
         )
         return (
             isinstance(admitted, CheckedModel)
@@ -344,15 +336,16 @@ _VALID_SOURCE = """{
     "id": "main",
     "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.0.0", "symbol": "Quantity"}],
     "symbols": [
-      {"symbol":"constant_value","type":"quantity","role":"constant","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"parameter_value","type":"quantity","role":"parameter","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"input_value","type":"quantity","role":"input","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"state_value","type":"quantity","role":"state","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"derived_value","type":"quantity","role":"derived","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"output_value","type":"quantity","role":"output","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"},
-      {"symbol":"random_value","type":"quantity","role":"random","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64"}
+      {"symbol":"constant_value","type":"quantity","role":"constant","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"model-fixed","value":1}},
+      {"symbol":"parameter_value","type":"quantity","role":"parameter","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
+      {"symbol":"input_value","type":"quantity","role":"input","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
+      {"symbol":"state_value","type":"quantity","role":"state","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
+      {"symbol":"derived_value","type":"quantity","role":"derived","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"none"}},
+      {"symbol":"output_value","type":"quantity","role":"output","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"none"}},
+      {"symbol":"random_value","type":"quantity","role":"random","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"named-stream"}}
     ]
-  }]
+  }],
+  "entrypoints": []
 }"""
 
 

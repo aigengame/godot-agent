@@ -1,0 +1,250 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "example.rpg-combat-cast",
+    "version": "1.0.0",
+    "entry_module": "combat"
+  },
+  "package_requirements": [
+    {
+      "id": "core.quantity",
+      "version": "2.0.0"
+    },
+    {
+      "id": "game.combat",
+      "version": "1.0.0"
+    }
+  ],
+  "modules": [
+    {
+      "id": "combat",
+      "imports": [
+        {
+          "alias": "quantity",
+          "package": "core.quantity",
+          "version": "2.0.0",
+          "symbol": "Quantity"
+        }
+      ],
+      "symbols": [
+        {
+          "symbol": "actor_mana",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "action_cost",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "accuracy",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "base_damage",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "critical_threshold",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "target_defense",
+          "type": "quantity",
+          "role": "input",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "target_health",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "damage_dealt",
+          "type": "quantity",
+          "role": "output",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "none"
+          }
+        }
+      ]
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "combat.cast",
+      "operation": {
+        "package": "game.combat",
+        "version": "1.0.0",
+        "id": "game.combat.cast-v1"
+      },
+      "arguments": [
+        {
+          "port": "actor_resource",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "actor_mana"
+          }
+        },
+        {
+          "port": "action_cost",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "action_cost"
+          }
+        },
+        {
+          "port": "accuracy",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "accuracy"
+          }
+        },
+        {
+          "port": "base_damage",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "base_damage"
+          }
+        },
+        {
+          "port": "critical_threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "critical_threshold"
+          }
+        },
+        {
+          "port": "hit_defense",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_defense"
+          }
+        },
+        {
+          "port": "damage_mitigation",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_defense"
+          }
+        },
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_health"
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "combat",
+        "symbol": "damage_dealt"
+      }
+    }
+  ]
+}

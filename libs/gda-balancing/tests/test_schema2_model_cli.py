@@ -14,12 +14,26 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.schema2.authority as authority_module
+import gda_balancing.schema2.bootstrap as bootstrap_module
+import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
 from gda_balancing.schema2.surface import descriptor_identity
+
+
+def _inject_authority_context(monkeypatch, kernel, language_bundle):
+    context = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    return context
 
 
 def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
@@ -33,6 +47,18 @@ def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "model-fixed"
+                if role == "constant"
+                else "experiment-required"
+                if role in {"parameter", "input", "state"}
+                else "named-stream"
+                if role == "random"
+                else "none"
+            ),
+            **({"value": 1} if role == "constant" else {}),
+        },
     }
 
 
@@ -54,6 +80,7 @@ def _model_source() -> dict[str, Any]:
             "entry_module": "main",
         },
         "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "entrypoints": [],
         "modules": [
             {
                 "id": "main",
@@ -118,8 +145,113 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert set(tmp_path.iterdir()) == before
 
 
+def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    source_document["package_requirements"].append(
+        {"id": "game.combat", "version": "1.0.0"}
+    )
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["checked"] is True
+
+
+def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    output = next(
+        row for row in source_value["modules"][0]["symbols"] if row["role"] == "output"
+    )
+    output["value_policy"] = {"mode": "experiment-required"}
+    source = tmp_path / "invalid-unused-value-policy.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == ("/modules/0/symbols/5/value_policy")
+
+
+def test_model_check_refuses_conflicting_transitive_dependency_versions(
+    tmp_path, monkeypatch
+):
+    kernel, baseline_ldb = authority_module.load_authorities()
+    candidate_ldb = deepcopy(baseline_ldb)
+    language = candidate_ldb["language"]
+    seed = next(
+        package
+        for package in language["packages"]
+        if package["id"] == "standard.compiler"
+    )
+
+    def empty_package(
+        package_id: str,
+        version: str,
+        dependencies: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        package = deepcopy(seed)
+        package["id"] = package_id
+        package["version"] = version
+        package["dependencies"] = {"optional": [], "required": dependencies}
+        package["capabilities"] = {"provided": [], "required": []}
+        package["exports"] = {name: [] for name in package["exports"]}
+        package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
+        package["runtime_semantic_paths"] = ["language.capabilities"]
+        for entry in package["semantic_closure"]:
+            entry["definitions"] = []
+        return package
+
+    added_packages = [
+        empty_package("shared.rules", "1.0.0", []),
+        empty_package("shared.rules", "2.0.0", []),
+        empty_package(
+            "genre.parenta",
+            "1.0.0",
+            [{"id": "shared.rules", "version": "1.0.0"}],
+        ),
+        empty_package(
+            "genre.parentb",
+            "1.0.0",
+            [{"id": "shared.rules", "version": "2.0.0"}],
+        ),
+    ]
+    language["packages"].extend(added_packages)
+    candidate_ldb.package_conformance_vector_sets.extend(
+        _package_vector_set(package["id"], package["version"], [])
+        for package in added_packages
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+    source_document = _model_source()
+    source_document["package_requirements"].extend(
+        [
+            {"id": "genre.parenta", "version": "1.0.0"},
+            {"id": "genre.parentb", "version": "1.0.0"},
+        ]
+    )
+    source = tmp_path / "conflicting-transitive-versions.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    result = model_module.check_model_source(str(source))
+
+    assert isinstance(result, model_module.Schema2RefusalReport)
+    assert result.stage == "resolution"
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "language.resolution_ambiguity"
+    ]
+
+
 def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     admission = admit_authorities(kernel, language_bundle)
 
     checked = model_module.check_model_source_value(
@@ -210,14 +342,12 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
         symbol["kind"] = "unknown-kind"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
@@ -392,6 +522,7 @@ def test_model_check_gates_resolution_when_required_top_level_members_are_missin
         ("/manifest", "language.source_contract_mismatch"),
         ("/package_requirements", "language.source_contract_mismatch"),
         ("/modules", "language.source_contract_mismatch"),
+        ("/entrypoints", "language.source_contract_mismatch"),
     }
 
 
@@ -948,14 +1079,12 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
     artifact_dir = _artifact_directory(json.loads(first[1]))
     before = {path.name: path.read_bytes() for path in artifact_dir.iterdir()}
 
-    kernel, language_bundle = model_module.load_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] -= 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -1422,7 +1551,7 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
 
 
 def test_receipt_content_identity_excludes_transport_locators():
-    _, language_bundle = model_module.load_authorities()
+    _, language_bundle = authority_module.load_authorities()
     common = {
         "descriptor_identity": "sha256:" + "1" * 64,
         "invocation_key": "2" * 64,
@@ -1515,14 +1644,20 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
     artifact_dir = _artifact_directory(json.loads(built[1]))
 
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
-    assert lock["packages"] == [
-        {
-            "id": "core.quantity",
-            "version": "2.0.0",
-            "content_identity": lock["packages"][0]["content_identity"],
-            "semantic_identity": lock["packages"][0]["semantic_identity"],
-        }
+    assert [(package["id"], package["version"]) for package in lock["packages"]] == [
+        ("core.quantity", "2.0.0"),
+        ("standard.compiler", "1.0.0"),
     ]
+    assert all(
+        set(package)
+        == {
+            "id",
+            "version",
+            "content_identity",
+            "semantic_identity",
+        }
+        for package in lock["packages"]
+    )
     assert lock["semantic_identity"].startswith("sha256:")
     assert lock["capability_bindings"]
     assert lock["types"]
@@ -1635,8 +1770,25 @@ def _reidentify(artifact: dict, domain: str) -> None:
     )
 
 
+def _package_vector_set(
+    package_id: str,
+    package_version: str,
+    vectors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    vector_set = {
+        "artifact_kind": "package-conformance-vector-set",
+        "package_id": package_id,
+        "package_version": package_version,
+        "vectors": [vector["id"] for vector in vectors],
+        "vector_definitions": deepcopy(vectors),
+    }
+    _reidentify(vector_set, "package-conformance-vector-set-v2")
+    return vector_set
+
+
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
-    kernel, _ = model_module.load_authorities()
+    assert isinstance(language_bundle, LanguageBundleIndex)
+    kernel, _ = authority_module.load_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -1653,17 +1805,12 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             values = selected
         return values
 
+    vector_sets_by_coordinate = {
+        (vector_set["package_id"], vector_set["package_version"]): vector_set
+        for vector_set in language_bundle.package_conformance_vector_sets
+    }
+    projected_vectors = {vector["id"]: vector for vector in language_bundle["vectors"]}
     for package in language_bundle["language"]["packages"]:
-        package["vector_definitions"] = [
-            deepcopy(
-                next(
-                    vector
-                    for vector in language_bundle["vectors"]
-                    if vector["id"] == vector_id
-                )
-            )
-            for vector_id in package["vectors"]
-        ]
         for entry, projection in zip(
             package["semantic_closure"], projections, strict=True
         ):
@@ -1694,7 +1841,83 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 ],
             ),
         )
+        vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
+        existing_vectors = {
+            vector["id"]: vector for vector in vector_set["vector_definitions"]
+        }
+        vector_set["vector_definitions"] = [
+            deepcopy(projected_vectors.get(vector_id, existing_vectors[vector_id]))
+            for vector_id in vector_set["vectors"]
+        ]
+        _reidentify(vector_set, "package-conformance-vector-set-v2")
+        package["conformance_vectors"] = {
+            "artifact_kind": vector_set["artifact_kind"],
+            "byte_size": len(canonical_bytes(cast(JsonValue, vector_set))),
+            "content_identity": vector_set["content_identity"],
+        }
         _reidentify(package, "domain-package-release-v2")
+    graph_root = getattr(language_bundle, "root", None)
+    if isinstance(graph_root, dict):
+        members = sorted(
+            zip(
+                deepcopy(language_bundle["language"]["packages"]),
+                deepcopy(language_bundle.package_conformance_vector_sets),
+                strict=True,
+            ),
+            key=lambda member: (member[0]["id"], member[0]["version"]),
+        )
+        packages = [package for package, _vector_set in members]
+        vector_sets = [vector_set for _package, vector_set in members]
+        package_sizes = [
+            len(canonical_bytes(cast(JsonValue, package))) for package in packages
+        ]
+        vector_set_sizes = [
+            len(canonical_bytes(cast(JsonValue, vector_set)))
+            for vector_set in vector_sets
+        ]
+        graph_root["resources"] = deepcopy(language_bundle["resources"])
+        graph_root["package_descriptors"] = [
+            {
+                "artifact_kind": package["artifact_kind"],
+                "byte_size": size,
+                "content_identity": package["content_identity"],
+                "id": package["id"],
+                "version": package["version"],
+            }
+            for package, size in zip(packages, package_sizes, strict=True)
+        ]
+        _reidentify(graph_root, "language-definition-bundle-v2")
+        language_bundle.root = deepcopy(graph_root)
+        language_bundle.package_releases = packages
+        language_bundle.package_conformance_vector_sets = vector_sets
+        language_bundle.root_byte_size = len(
+            canonical_bytes(cast(JsonValue, graph_root))
+        )
+        language_bundle.package_byte_sizes = tuple(package_sizes)
+        language_bundle.vector_set_byte_sizes = tuple(vector_set_sizes)
+        rebuilt = derive_language_index(
+            graph_root,
+            packages,
+            vector_sets,
+            kernel["admission"]["required_language_members"],
+            root_byte_size=language_bundle.root_byte_size,
+            package_byte_sizes=package_sizes,
+            vector_set_byte_sizes=vector_set_sizes,
+            descriptor_order=kernel["meta_format"]["language_bundle"][
+                "package_descriptor"
+            ]["canonical_order"],
+        )
+        language_bundle.root = deepcopy(rebuilt.root)
+        language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+        language_bundle.package_conformance_vector_sets = deepcopy(
+            rebuilt.package_conformance_vector_sets
+        )
+        language_bundle.root_byte_size = rebuilt.root_byte_size
+        language_bundle.package_byte_sizes = rebuilt.package_byte_sizes
+        language_bundle.vector_set_byte_sizes = rebuilt.vector_set_byte_sizes
+        language_bundle.clear()
+        language_bundle.update(dict(rebuilt))
+        return
     _reidentify(language_bundle, "language-definition-bundle-v2")
 
 
@@ -1801,6 +2024,1093 @@ def test_resolved_model_admission_rejects_coherently_reidentified_invalid_declar
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
+def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "entrypoint-model-source.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    built = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "published-model"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+    assert built[0] == 0, built
+    artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
+    assert model_module.admit_resolved_model(artifacts).admitted is True
+
+    operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+    operand["identity"] = "sha256:" + ("0" * 64)
+    _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
+    artifacts["resolved-model"]["rir_identity"] = artifacts["rir-semantic-payload"][
+        "content_identity"
+    ]
+    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing", "extra", "duplicate", "unknown"),
+)
+def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
+    tmp_path, run_cli, mutation
+):
+    source_value = _model_source()
+    arguments = [
+        {
+            "port": "value",
+            "operand": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "parameter_value",
+            },
+        }
+    ]
+    if mutation == "missing":
+        arguments.clear()
+    elif mutation == "extra":
+        arguments.append(
+            {
+                "port": "extra",
+                "operand": {"kind": "literal", "value": 1},
+            }
+        )
+    elif mutation == "duplicate":
+        arguments.append(deepcopy(arguments[0]))
+    else:
+        arguments[0]["port"] = "unknown"
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": arguments,
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / f"{mutation}-entrypoint.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    expected_pointer = (
+        "/entrypoints/0/arguments"
+        if mutation == "missing"
+        else "/entrypoints/0/arguments/1/port"
+        if mutation in {"extra", "duplicate"}
+        else "/entrypoints/0/arguments/0/port"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == expected_pointer
+
+
+@pytest.mark.parametrize("role", ("derived", "output", "random"))
+def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
+    tmp_path,
+    run_cli,
+    role,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": f"{role}_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / f"{role}-operand.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/entrypoints/0/arguments/0/operand"
+    )
+
+
+def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run_cli):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "parameter_value",
+            },
+        }
+    ]
+    source = tmp_path / "invalid-entrypoint-result.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints/0/result"
+
+
+@pytest.mark.parametrize(
+    ("member", "incompatible"),
+    (
+        (
+            "type",
+            {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
+        ),
+        ("representation", "Bool"),
+        ("kind", "boolean"),
+        ("unit", "incompatible-unit"),
+        ("numeric_policy", "exact-bool"),
+    ),
+)
+def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
+    member,
+    incompatible,
+):
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    cast_operation = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    accuracy = next(
+        port for port in cast_operation["inputs"] if port["id"] == "accuracy"
+    )
+    accuracy[member] = incompatible
+
+    with pytest.raises(ValueError, match="incompatible"):
+        model_module._resolved_entrypoints(
+            checked,
+            cast(list[dict[str, Any]], rir["declarations"]),
+            selected,
+        )
+
+
+def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "typed-literal.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    checked = model_module.check_model_source(str(source))
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoint = cast(list[dict[str, Any]], rir["entrypoints"])[0]
+    operand = cast(dict[str, Any], entrypoint["arguments"][0]["operand"])
+    assert operand["value"] == 7
+    assert operand["context_type"] == {
+        "id": "quantity.dimensionless-int64",
+        "type": {
+            "package": "core.quantity",
+            "version": "2.0.0",
+            "id": "Quantity",
+        },
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain": {"kind": "actual"},
+        "numeric_policy": "exact-int64",
+    }
+
+
+def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
+    tmp_path,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "typed-literal-admission.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    artifacts: dict[str, Any] = {
+        name: deepcopy(original[name])
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+        )
+    }
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoint = cast(dict[str, Any], rir["entrypoints"][0])
+    argument = cast(dict[str, Any], entrypoint["arguments"][0])
+    operand = cast(dict[str, Any], argument["operand"])
+    operand["context_type"]["id"] = "forged.literal-profile"
+    _reidentify(rir, "rir-semantic-payload-v2")
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    resolved_model["rir_identity"] = rir["content_identity"]
+    _reidentify(resolved_model, "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
+def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "literal", "value": 7},
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "literal-profile-reidentity.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    original_checked = model_module.check_model_source(str(source))
+    assert isinstance(original_checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(original_checked)
+
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    profile = candidate_ldb["language"]["literal_typing_profiles"][0]
+    old_id = profile["id"]
+    profile["id"] = "quantity.dimensionless-int64-reidentified"
+    owner = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "core.quantity"
+    )
+    owner["exports"]["literal_typing_profiles"] = [profile["id"]]
+    assert old_id != profile["id"]
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    changed_checked = model_module.check_model_source(str(source))
+    assert isinstance(changed_checked, model_module.CheckedModel)
+    changed = model_module.lower_checked_model(changed_checked)
+    changed_rir = cast(dict[str, Any], changed["rir-semantic-payload"])
+    changed_entrypoint = cast(dict[str, Any], changed_rir["entrypoints"][0])
+    changed_argument = cast(dict[str, Any], changed_entrypoint["arguments"][0])
+    changed_operand = cast(dict[str, Any], changed_argument["operand"])
+
+    changed_context_type = cast(dict[str, Any], changed_operand["context_type"])
+    assert changed_context_type["id"] == profile["id"]
+    assert (
+        changed_rir["content_identity"]
+        != original["rir-semantic-payload"]["content_identity"]
+    )
+
+
+def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
+    tmp_path,
+    run_cli,
+):
+    source_path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source_value = json.loads(source_path.read_text(encoding="utf-8"))
+    source_value["entrypoints"] = [
+        {
+            "id": "combat.damage",
+            "operation": {
+                "package": "game.combat",
+                "version": "1.0.0",
+                "id": "game.combat.damage-v1",
+            },
+            "arguments": [
+                {
+                    "port": "base_damage",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "base_damage",
+                    },
+                },
+                {
+                    "port": "critical",
+                    "operand": {"kind": "literal", "value": 1},
+                },
+                {
+                    "port": "mitigation",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "target_defense",
+                    },
+                },
+                {
+                    "port": "target_health",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "target_health",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "combat",
+                "symbol": "damage_dealt",
+            },
+        }
+    ]
+    source = tmp_path / "literal-for-boolean.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/entrypoints/0/arguments/1/operand"
+    )
+
+
+@pytest.mark.parametrize(
+    ("member", "value"),
+    (
+        ("package", "missing.package"),
+        ("version", "9.0.0"),
+        ("id", "quantity.missing"),
+    ),
+)
+def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
+    tmp_path,
+    run_cli,
+    member,
+    value,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source_value["entrypoints"][0]["operation"][member] = value
+    source = tmp_path / f"stale-operation-{member}.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        f"/entrypoints/0/operation/{member}"
+    )
+
+
+def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path):
+    def lower(source_value: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
+        source = tmp_path / f"{name}.json"
+        source.write_text(json.dumps(source_value), encoding="utf-8")
+        checked = model_module.check_model_source(str(source))
+        assert isinstance(checked, model_module.CheckedModel)
+        return cast(
+            dict[str, dict[str, Any]], model_module.lower_checked_model(checked)
+        )
+
+    baseline = _model_source()
+    baseline["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    renamed = deepcopy(baseline)
+    parameter = next(
+        row
+        for row in renamed["modules"][0]["symbols"]
+        if row["symbol"] == "parameter_value"
+    )
+    parameter["symbol"] = "renamed_parameter"
+    renamed["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = "renamed_parameter"
+    rebound = deepcopy(baseline)
+    rebound["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = "input_value"
+
+    artifacts = {
+        name: lower(value, name)
+        for name, value in (
+            ("baseline", baseline),
+            ("renamed", renamed),
+            ("rebound", rebound),
+        )
+    }
+    entrypoints = {
+        name: value["rir-semantic-payload"]["entrypoints"][0]
+        for name, value in artifacts.items()
+    }
+    assert (
+        len(
+            {
+                entrypoint["arguments"][0]["port"]["identity"]
+                for entrypoint in entrypoints.values()
+            }
+        )
+        == 1
+    )
+    assert (
+        len(
+            {
+                entrypoint["arguments"][0]["operand"]["identity"]
+                for entrypoint in entrypoints.values()
+            }
+        )
+        == 3
+    )
+    assert (
+        len(
+            {
+                value["rir-semantic-payload"]["content_identity"]
+                for value in artifacts.values()
+            }
+        )
+        == 3
+    )
+    assert (
+        len(
+            {
+                value["resolved-model"]["content_identity"]
+                for value in artifacts.values()
+            }
+        )
+        == 3
+    )
+
+
+def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    cast_operation = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    hit_call = next(
+        row for row in cast_operation["body"] if row.get("site") == "hit-check"
+    )
+    second_hit_call = deepcopy(hit_call)
+    second_hit_call["site"] = "mitigation-hit-check"
+    defense_binding = next(
+        row for row in second_hit_call["arguments"] if row["port"] == "defense"
+    )
+    defense_binding["operand"]["port"] = "damage_mitigation"
+    cast_operation["body"].insert(
+        cast_operation["body"].index(hit_call) + 1,
+        second_hit_call,
+    )
+
+    call_sites = cast(
+        list[dict[str, Any]],
+        model_module._resolved_call_sites(
+            checked.kernel,
+            selected,
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "composition_policy"
+            ],
+        ),
+    )
+    hit_sites = [
+        row for row in call_sites if row["operation"]["id"] == "game.check.hit-v1"
+    ]
+
+    assert [row["site"] for row in hit_sites] == [
+        "hit-check",
+        "mitigation-hit-check",
+    ]
+    assert len({cast(str, row["identity"]) for row in hit_sites}) == 2
+    assert (
+        len(
+            {
+                next(
+                    cast(str, argument["operand"]["identity"])
+                    for argument in row["arguments"]
+                    if argument["port"]["name"] == "defense"
+                )
+                for row in hit_sites
+            }
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("member", "hidden_value"),
+    (
+        ("effects", "hidden.child-effect"),
+        ("refusals", "hidden.child-refusal"),
+    ),
+)
+def test_nested_call_rejects_undeclared_child_closure_widening(
+    member,
+    hidden_value,
+):
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    child = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.check.hit-v1"
+    )
+    child[member].append(hidden_value)
+
+    with pytest.raises(ValueError, match="closure exceeds caller declaration"):
+        model_module._resolved_call_sites(
+            checked.kernel,
+            selected,
+            checked.language_bundle["language"]["model_lowerings"][0][
+                "composition_policy"
+            ],
+        )
+
+
+def test_authority_admission_rejects_an_orphan_assignment_mode():
+    baseline = model_module.check_model_source_value(_model_source())
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    assignment_policy = candidate_ldb["language"]["model_lowerings"][0][
+        "assignment_policy"
+    ]
+    parameter = next(
+        row for row in assignment_policy["roles"] if row["role"] == "parameter"
+    )
+    parameter["modes"].append(
+        {
+            "id": "orphan-source",
+            "initialization_source": "execution",
+            "value_member": "forbidden",
+            "experiment_cardinality": "forbidden",
+            "override": False,
+        }
+    )
+    mode_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"]["properties"][
+        "modules"
+    ]["items"]["properties"]["symbols"]["items"]["properties"]["value_policy"][
+        "properties"
+    ]["mode"]
+    mode_schema["enum"].append("orphan-source")
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject == "language.definitions.assignment-policy"
+        for diagnostic in admission.diagnostics
+    )
+
+
+@pytest.mark.parametrize(
+    "initialization_source",
+    ("named-random-stream", "resolved-model"),
+)
+def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer(
+    initialization_source,
+):
+    baseline = model_module.check_model_source_value(_model_source())
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    parameter = next(
+        row
+        for row in lowering["assignment_policy"]["roles"]
+        if row["role"] == "parameter"
+    )
+    mode = next(row for row in parameter["modes"] if row["id"] == "experiment-required")
+    mode.update(
+        {
+            "initialization_source": initialization_source,
+            "value_member": "forbidden",
+            "experiment_cardinality": "forbidden",
+            "override": False,
+        }
+    )
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject == "language.definitions.assignment-policy"
+        for diagnostic in admission.diagnostics
+    )
+    with pytest.raises(ValueError, match="total Symbol assignment policy"):
+        model_module._assignment_policy(
+            lowering,
+            expected_roles=set(candidate_ldb["language"]["quantity"]["symbol_roles"]),
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_subject"),
+    (
+        (
+            "effect",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.effects"
+            ),
+        ),
+        (
+            "refusal",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.refusals"
+            ),
+        ),
+        (
+            "resource",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.resource_bounds"
+            ),
+        ),
+        (
+            "cycle",
+            (
+                "language.operations.game.check@1.0.0."
+                "game.check.hit-v1.body.cycle.operation"
+            ),
+        ),
+        (
+            "argument-contract",
+            (
+                "language.operations.game.combat@1.0.0."
+                "game.combat.cast-v1.body.hit-check.arguments"
+            ),
+        ),
+    ),
+)
+def test_package_admission_closes_every_operation_composition_axis(
+    mutation,
+    expected_subject,
+):
+    baseline = model_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/rpg-combat-cast/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+
+    def owned_operation(operation_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        projected = next(
+            operation
+            for operation in candidate_ldb["language"]["operations"]
+            if operation["id"] == operation_id
+        )
+        package = next(
+            package
+            for package in candidate_ldb["language"]["packages"]
+            if operation_id in package["exports"]["operations"]
+        )
+        closure = next(
+            entry["definitions"]
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.operations"
+        )
+        owned = next(
+            operation for operation in closure if operation["id"] == operation_id
+        )
+        return projected, owned
+
+    hit_operations = owned_operation("game.check.hit-v1")
+    cast_operations = owned_operation("game.combat.cast-v1")
+    if mutation == "effect":
+        for operation in hit_operations:
+            operation["effects"].append("hidden.child-effect")
+    elif mutation == "refusal":
+        for operation in hit_operations:
+            operation["refusals"].append("hidden.child-refusal")
+    elif mutation == "resource":
+        for operation in cast_operations:
+            operation["resource_bounds"]["max_steps"] = 1
+    elif mutation == "argument-contract":
+        for operation in hit_operations:
+            defense = next(
+                port for port in operation["inputs"] if port["id"] == "defense"
+            )
+            defense["numeric_policy"] = "exact-bool"
+    else:
+        recursive_body = [
+            {
+                "node": "invoke",
+                "site": "self",
+                "operation": {
+                    "package": "game.check",
+                    "version": "1.0.0",
+                    "id": "game.check.hit-v1",
+                },
+                "arguments": [
+                    {
+                        "port": "accuracy",
+                        "operand": {"kind": "port", "port": "accuracy"},
+                    },
+                    {
+                        "port": "defense",
+                        "operand": {"kind": "port", "port": "defense"},
+                    },
+                ],
+                "result": {"kind": "discard"},
+                "outcomes": [
+                    {
+                        "outcome": "hit",
+                        "action": {"kind": "continue"},
+                    },
+                    {
+                        "outcome": "miss",
+                        "action": {"kind": "continue"},
+                    },
+                ],
+            }
+        ]
+        for operation in hit_operations:
+            operation["body"] = deepcopy(recursive_body)
+    _reidentify_language_bundle(candidate_ldb)
+
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        baseline.kernel, candidate_ldb
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert expected_subject in composition_subjects
+    assert admission.admitted is False
+
+
+def test_authority_admission_rejects_operation_closure_at_the_package_site():
+    baseline = model_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/rpg-combat-cast/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    child = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.check.hit-v1"
+    )
+    child["effects"].append("hidden.child-effect")
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject
+        == "language.operations.game.combat@1.0.0.game.combat.cast-v1.body.hit-check.effects"
+        for diagnostic in admission.diagnostics
+    )
+
+
+def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract():
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    baseline = model_module.check_model_source_value(source_value)
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    assert all(
+        operation["alias_policy"]["read_only"] == "share"
+        and isinstance(operation["alias_policy"]["writable_groups"], list)
+        for operation in candidate_ldb["language"]["operations"]
+    )
+    damage = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.damage-v1"
+    )
+    damage["alias_policy"]["writable_groups"] = [
+        {
+            "ports": ["mitigation", "target_health"],
+            "semantics": "operation-body-order",
+        }
+    ]
+    cast_operation = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    mitigation = next(
+        argument
+        for argument in damage_call["arguments"]
+        if argument["port"] == "mitigation"
+    )
+    mitigation["operand"]["port"] = "target_health"
+    _reidentify_language_bundle(candidate_ldb)
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+    assert admission.admitted is True
+
+    checked = model_module.check_model_source_value(
+        source_value,
+        kernel=baseline.kernel,
+        language_bundle=candidate_ldb,
+        authority_admission=admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    rir = model_module.lower_checked_model(checked)["rir-semantic-payload"]
+    alias = next(
+        alias
+        for call_site in cast(list[dict[str, Any]], rir["call_sites"])
+        if call_site["site"] == "apply-damage"
+        for alias in call_site["aliases"]
+    )
+    assert alias["ports"] == ["mitigation", "target_health"]
+    assert alias["policy"] == "operation-body-order"
+
+
+def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
+    example = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source_value = json.loads(example.read_text(encoding="utf-8"))
+    source_value["entrypoints"] = [
+        {
+            "id": "resource.spend",
+            "operation": {
+                "package": "game.resource",
+                "version": "1.0.0",
+                "id": "game.resource.spend-v1",
+            },
+            "arguments": [
+                {
+                    "port": "resource",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "actor_mana",
+                    },
+                },
+                {
+                    "port": "cost",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "action_cost",
+                    },
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    source = tmp_path / "discardable-entrypoint.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    checked = model_module.check_model_source(str(source))
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
+    assert entrypoints[0]["result"]["kind"] == "discard"
+
+
 def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields(
     tmp_path,
 ):
@@ -1833,6 +3143,21 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     ]["properties"]["symbols"]["items"]["properties"]["role"]["enum"].append(
         "lowered-by-ldb"
     )
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    modes_by_id = {
+        mode["id"]: deepcopy(mode)
+        for row in lowering["assignment_policy"]["roles"]
+        for mode in row["modes"]
+    }
+    lowering["assignment_policy"]["roles"].append(
+        {
+            "role": "lowered-by-ldb",
+            "modes": [modes_by_id[mode] for mode in sorted(modes_by_id)],
+            "entrypoint_operand_access": [],
+            "entrypoint_result": False,
+            "binding_kind": "internal",
+        }
+    )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = model_module.CheckedModel(
@@ -1848,6 +3173,91 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         list[dict[str, Any]], artifacts["rir-semantic-payload"]["declarations"]
     )
     assert {item["role"] for item in declarations} == {"lowered-by-ldb"}
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "authority_mode", "operand_symbol", "expected_contract_member"),
+    (
+        ("model-fixed", "authority-model-value", "constant_value", "initializers"),
+        (
+            "experiment-required",
+            "authority-scenario-required",
+            "parameter_value",
+            "targets",
+        ),
+    ),
+)
+def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts(
+    old_mode,
+    authority_mode,
+    operand_symbol,
+    expected_contract_member,
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": operand_symbol,
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    baseline = model_module.check_model_source_value(source_value)
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    assignment_policy = lowering["assignment_policy"]
+    for row in assignment_policy["roles"]:
+        row["modes"] = [
+            {**mode, "id": authority_mode} if mode["id"] == old_mode else mode
+            for mode in row["modes"]
+        ]
+    source_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"]
+    mode_schema = source_schema["properties"]["modules"]["items"]["properties"][
+        "symbols"
+    ]["items"]["properties"]["value_policy"]["properties"]["mode"]
+    mode_schema["enum"] = [
+        authority_mode if mode == old_mode else mode for mode in mode_schema["enum"]
+    ]
+    for symbol in _symbols(source_value):
+        if symbol["value_policy"]["mode"] == old_mode:
+            symbol["value_policy"]["mode"] = authority_mode
+    _reidentify_language_bundle(candidate_ldb)
+    authority_admission = admit_authorities(baseline.kernel, candidate_ldb)
+    assert authority_admission.admitted is True
+
+    checked = model_module.check_model_source_value(
+        source_value,
+        kernel=baseline.kernel,
+        language_bundle=candidate_ldb,
+        authority_admission=authority_admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
+    contract = cast(dict[str, Any], entrypoints[0]["scenario_input_contract"])
+    rows = cast(list[dict[str, Any]], contract[expected_contract_member])
+    assert len(rows) == 1
+    assert rows[0]["target"]["name"] == operand_symbol
 
 
 def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
@@ -1874,7 +3284,9 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     mutated_selected = cast(dict[str, Any], mutated_rir["selected_semantics"])
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
-    assert original_selected["operations"] == []
+    assert [row["definition"]["id"] for row in original_selected["operations"]] == [
+        "quantity.identity"
+    ]
     assert original_selected["conversions"] == []
     original_closures = cast(
         list[dict[str, Any]], original_selected["package_semantic_closures"]
@@ -1923,6 +3335,47 @@ def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
+def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    original_ldb = cast(LanguageBundleIndex, checked.language_bundle)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(original_ldb))
+    vector_set = next(
+        item
+        for item in candidate_ldb.package_conformance_vector_sets
+        if item["package_id"] == "core.quantity"
+    )
+    vector_set["vectors"].reverse()
+    vector_set["vector_definitions"].reverse()
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+    candidate = replace(checked, language_bundle=candidate_ldb)
+
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = next(
+        item
+        for item in original_ldb["language"]["packages"]
+        if item["id"] == "core.quantity"
+    )
+    mutated_package = next(
+        item
+        for item in candidate_ldb["language"]["packages"]
+        if item["id"] == "core.quantity"
+    )
+    assert (
+        original_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
+    assert original_package["semantic_identity"] == mutated_package["semantic_identity"]
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
 def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -1930,7 +3383,18 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert isinstance(checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
-    candidate_ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] += 1
+    unreachable = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    unreachable["resource_bounds"]["max_steps"] += 1
+    resource_vector = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "game.combat.cast.resource-bound"
+    )
+    resource_vector["expect"] += 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
@@ -1938,8 +3402,337 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     mutated = model_module.lower_checked_model(candidate)
 
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
-    assert original["package-lock"] != mutated["package-lock"]
+    assert original["package-lock"] == mutated["package-lock"]
     assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
+    tmp_path, monkeypatch
+):
+    kernel, baseline_ldb = authority_module.load_authorities()
+    candidate_ldb = deepcopy(baseline_ldb)
+    language = candidate_ldb["language"]
+    package = deepcopy(
+        next(item for item in language["packages"] if item["id"] == "standard.compiler")
+    )
+    package["id"] = "genre.economy"
+    package["version"] = "1.0.0"
+    package["dependencies"] = {
+        "optional": [],
+        "required": [
+            {"id": "core.quantity", "version": "2.0.0"},
+            {"id": "standard.runtime", "version": "1.0.0"},
+        ],
+    }
+    package["capabilities"] = {
+        "provided": ["genre.economy.purchase"],
+        "required": ["quantity.lower"],
+    }
+    package["exports"] = {name: [] for name in package["exports"]}
+    package["exports"]["operations"] = ["genre.economy.purchase-v1"]
+    package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
+    package["runtime_semantic_paths"] = [
+        "language.capabilities",
+        "language.operations",
+    ]
+    for entry in package["semantic_closure"]:
+        entry["definitions"] = []
+    operation = {
+        "alias_policy": {"read_only": "share", "writable_groups": []},
+        "body": [
+            {
+                "node": "subtract-state",
+                "symbol": "account_balance",
+                "value": "price",
+            },
+            {
+                "node": "copy",
+                "target": "remaining_balance",
+                "value": "account_balance",
+            },
+        ],
+        "default_outcome": "purchase-complete",
+        "effects": [
+            "event.commit",
+            "metric.observe",
+            "snapshot.commit",
+        ],
+        "id": "genre.economy.purchase-v1",
+        "inputs": [
+            {
+                "access": "read-write",
+                "domain": {"kind": "actual"},
+                "id": "account_balance",
+                "kind": "scalar",
+                "numeric_policy": "exact-int64",
+                "representation": "Int",
+                "type": {
+                    "id": "Quantity",
+                    "package": "core.quantity",
+                    "version": "2.0.0",
+                },
+                "unit": "1",
+            },
+            {
+                "access": "read",
+                "domain": {"kind": "actual"},
+                "id": "price",
+                "kind": "scalar",
+                "numeric_policy": "exact-int64",
+                "representation": "Int",
+                "type": {
+                    "id": "Quantity",
+                    "package": "core.quantity",
+                    "version": "2.0.0",
+                },
+                "unit": "1",
+            },
+        ],
+        "kind_rules": {"inputs": "preserve", "result": "preserve"},
+        "numeric_policy": "exact-int64",
+        "operation_kind": "event-program",
+        "outcomes": [
+            {
+                "id": "purchase-complete",
+                "kind": "success",
+                "state_policy": "commit",
+            }
+        ],
+        "owner_type": "Quantity",
+        "purity": "event",
+        "refusals": [
+            "runtime.reason.step-limit",
+            "runtime.reason.numeric-overflow",
+        ],
+        "resource_bounds": {"max_steps": 2},
+        "result": {
+            "access": "read",
+            "discardable": False,
+            "domain": {"kind": "actual"},
+            "id": "result",
+            "kind": "scalar",
+            "numeric_policy": "exact-int64",
+            "representation": "Int",
+            "source": {"kind": "local", "name": "remaining_balance"},
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.0.0",
+            },
+            "unit": "1",
+        },
+        "rule": "quantity.lower",
+        "runtime_profile": "standard.exact-int64-event-v1",
+        "unit_rules": {"inputs": "preserve", "result": "preserve"},
+        "vectors": [
+            "genre.economy.purchase.body",
+            "genre.economy.purchase.effects",
+            "genre.economy.purchase.outcomes",
+            "genre.economy.purchase.resource-bound",
+        ],
+        "version": "1.0.0",
+    }
+    vectors = [
+        {
+            "category": category,
+            "expect": (
+                operation["resource_bounds"]["max_steps"]
+                if member == "resource_bounds.max_steps"
+                else operation[member]
+            ),
+            "id": f"genre.economy.purchase.{vector_id}",
+            "kind": "operation-contract",
+            "operation": operation["id"],
+            "probe": {"path": member},
+        }
+        for category, vector_id, member in (
+            ("positive", "body", "body"),
+            ("effects", "effects", "effects"),
+            ("outcome", "outcomes", "outcomes"),
+            ("resource", "resource-bound", "resource_bounds.max_steps"),
+        )
+    ]
+    language["capabilities"].append(
+        {"id": "genre.economy.purchase", "rule": "quantity.lower"}
+    )
+    language["operations"].append(operation)
+    language["packages"].append(package)
+    candidate_ldb.package_conformance_vector_sets.append(
+        _package_vector_set(package["id"], package["version"], vectors)
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    assert kernel == authority_module.load_authorities()[0]
+    assert baseline_ldb == authority_module.load_authorities()[1]
+
+    source_document = _model_source()
+    source_document["package_requirements"] = [
+        {"id": "core.quantity", "version": "2.0.0"},
+        {"id": "genre.economy", "version": "1.0.0"},
+    ]
+    source_document["modules"][0]["symbols"] = [
+        _quantity_symbol("account_balance", "state"),
+        _quantity_symbol("price", "parameter"),
+        _quantity_symbol("purchase_balance", "output"),
+    ]
+    source_document["entrypoints"] = [
+        {
+            "id": "economy.purchase",
+            "operation": {
+                "package": "genre.economy",
+                "version": "1.0.0",
+                "id": "genre.economy.purchase-v1",
+            },
+            "arguments": [
+                {
+                    "port": "account_balance",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "account_balance",
+                    },
+                },
+                {
+                    "port": "price",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "price",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "purchase_balance",
+            },
+        }
+    ]
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+
+    package_lock = cast(dict[str, Any], artifacts["package-lock"])
+    lock_packages = cast(list[dict[str, Any]], package_lock["packages"])
+    assert [package["id"] for package in lock_packages] == [
+        "core.quantity",
+        "genre.economy",
+        "standard.compiler",
+        "standard.runtime",
+    ]
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = cast(dict[str, Any], rir["selected_semantics"])
+    operations = cast(list[dict[str, Any]], selected["operations"])
+    assert any(
+        row["definition"]["id"] == "genre.economy.purchase-v1" for row in operations
+    )
+    build_receipt = cast(dict[str, Any], artifacts["build-receipt"])
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    experiment_value = {
+        "schema_version": "2.0.0",
+        "id": "example.economy.purchase",
+        "version": "1.0.0",
+        "kernel_identity": kernel["content_identity"],
+        "language_bundle_identity": candidate_ldb["content_identity"],
+        "model": {
+            "source_identity": checked.source_identity,
+            "build_receipt_identity": build_receipt["content_identity"],
+            "resolved_model_identity": resolved_model["content_identity"],
+            "package_lock_identity": package_lock["content_identity"],
+            "rir_identity": artifacts["rir-semantic-payload"]["content_identity"],
+        },
+        "runtime": {
+            "profile": "standard.exact-int64-event-v1",
+            "required_evaluator": {
+                "operation_kinds": ["event-program"],
+                "instruction_nodes": ["copy", "subtract-state"],
+                "effects": [
+                    "event.commit",
+                    "metric.observe",
+                    "snapshot.commit",
+                ],
+                "numeric_policies": ["exact-int64"],
+                "rng_algorithms": ["splitmix64-v1"],
+                "runtime_profiles": ["standard.exact-int64-event-v1"],
+            },
+        },
+        "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
+        "external_inputs": [],
+        "scenarios": [
+            {
+                "id": "purchase",
+                "entrypoint": "economy.purchase",
+                "assignments": [
+                    {
+                        "target": {
+                            "model": "example.quantity-model",
+                            "module": "main",
+                            "name": "account_balance",
+                        },
+                        "value": 100,
+                    },
+                    {
+                        "target": {
+                            "model": "example.quantity-model",
+                            "module": "main",
+                            "name": "price",
+                        },
+                        "value": 25,
+                    },
+                ],
+                "named_streams": [],
+                "terminal_condition": {"kind": "event-count", "maximum": 1},
+            }
+        ],
+        "metrics": [
+            {
+                "id": "remaining_balance",
+                "kind": "scalar",
+                "unit": "1",
+                "dimensions": [],
+                "window": {"kind": "scenario", "name": "terminal-event"},
+                "aggregation": "single",
+                "replication": {"unit": "scenario"},
+                "missing": "refuse",
+                "censoring": "none",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "account_balance",
+                },
+                "target": {"minimum": 75, "maximum": 75},
+            }
+        ],
+        "acceptance": {"policy": "all-metrics-within-target"},
+    }
+    experiment = experiment_module.CheckedExperiment(
+        value=experiment_value,
+        content_identity=experiment_module.experiment_input_identity(experiment_value),
+        kernel=kernel,
+        language_bundle=candidate_ldb,
+        build_receipt=build_receipt,
+        package_lock=package_lock,
+        resolved_model=resolved_model,
+        rir=cast(dict[str, Any], artifacts["rir-semantic-payload"]),
+    )
+    evaluation = experiment_module.evaluate_experiment(experiment)
+    assert isinstance(evaluation, experiment_module.EvaluationArtifacts)
+    event_trace = evaluation.members["event-trace"].value
+    assert event_trace["events"][0]["operation"] == "genre.economy.purchase-v1"
+    assert event_trace["events"][0]["state_after"] == [
+        {"name": "account_balance", "value": 75}
+    ]
+    assert evaluation.members["metric-dataset"].value["samples"][0]["value"] == 75
+    host_sources = (
+        Path(model_module.__file__),
+        Path(model_command_module.__file__),
+        Path(experiment_module.__file__),
+    )
+    assert all("genre.economy" not in path.read_text() for path in host_sources)
 
 
 @pytest.mark.parametrize(
@@ -1995,7 +3788,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
     candidate_ldb["resources"]["max_rule_match_steps"] = 1
     boundary = next(
         vector
@@ -2011,9 +3804,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
@@ -2031,7 +3822,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
     candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
     boundary = next(
         vector
@@ -2047,9 +3838,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
     successor["input"]["value"] = 2
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    monkeypatch.setattr(
-        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
-    )
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
     output = tmp_path / "published"
     arguments = ["model", command, str(source)]

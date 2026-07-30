@@ -2,8 +2,9 @@
 
 from typing import cast
 
-from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.wire_schema import wire_schema_identity_domain
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 
@@ -13,7 +14,9 @@ def _identified(domain: str, body: dict[str, JsonValue]) -> dict[str, JsonValue]
 
 
 def _closed_authority_schema(
-    artifact_kind: str, artifact: dict[str, JsonValue]
+    artifact_kind: str,
+    artifact: dict[str, JsonValue],
+    identity_domain: str,
 ) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "$schema": _DRAFT_2020_12,
@@ -24,7 +27,7 @@ def _closed_authority_schema(
         "const": artifact,
         "unevaluatedProperties": False,
     }
-    digest = content_identity(f"{artifact_kind}-wire-schema-v2", cast(JsonValue, body))
+    digest = content_identity(identity_domain, cast(JsonValue, body))
     return {
         "$id": f"urn:gda-balancing:schema2:wire:{digest.removeprefix('sha256:')}",
         **body,
@@ -48,39 +51,55 @@ def wire_schema_projection(
     authorities: dict[str, JsonValue] | None = None,
 ) -> dict[str, JsonValue]:
     """Project the exact admitted Kernel and LDB into closed wire schemas."""
-    authorities = authority_set() if authorities is None else authorities
+    if authorities is None:
+        context = packaged_authority_context()
+        authorities = {
+            "kernel": cast(JsonValue, context.kernel),
+            "language_bundle": cast(JsonValue, context.language_bundle),
+        }
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
+    public_ldb = getattr(ldb, "root", ldb)
+    meta_format = cast(dict[str, JsonValue], kernel["meta_format"])
+    root_projection = cast(
+        dict[str, JsonValue],
+        meta_format["authority_wire_schema_projection"],
+    )
+    root_identity_domains = cast(
+        dict[str, JsonValue],
+        root_projection["identity_domains"],
+    )
     schemas: list[JsonValue] = [
         {
             "artifact_kind": "schema-major-kernel",
-            "schema": _closed_authority_schema("schema-major-kernel", kernel),
+            "schema": _closed_authority_schema(
+                "schema-major-kernel",
+                kernel,
+                cast(str, root_identity_domains["schema-major-kernel"]),
+            ),
         },
         {
             "artifact_kind": "language-definition-bundle",
-            "schema": _closed_authority_schema("language-definition-bundle", ldb),
+            "schema": _closed_authority_schema(
+                "language-definition-bundle",
+                cast(dict[str, JsonValue], public_ldb),
+                cast(str, root_identity_domains["language-definition-bundle"]),
+            ),
         },
     ]
     language = cast(dict[str, JsonValue], ldb["language"])
-    artifact_contracts = {
-        cast(str, cast(dict[str, JsonValue], raw)["artifact_kind"]): cast(
-            str, cast(dict[str, JsonValue], raw)["wire_schema_identity_domain"]
-        )
-        for raw in cast(list[JsonValue], language.get("artifact_contracts", []))
-    }
     for collection in ("wire_schemas", "artifact_wire_schemas"):
         for raw in cast(list[JsonValue], language.get(collection, [])):
             item = cast(dict[str, JsonValue], raw)
             artifact_kind = cast(str, item["artifact_kind"])
             schema = cast(dict[str, JsonValue], item["schema"])
-            identity_domain = artifact_contracts.get(
-                artifact_kind, f"{artifact_kind}-wire-schema-v2"
-            )
             schemas.append(
                 {
                     "artifact_kind": artifact_kind,
                     "schema": _identified_ldb_schema(
-                        artifact_kind, schema, identity_domain
+                        artifact_kind,
+                        schema,
+                        wire_schema_identity_domain(ldb, artifact_kind),
                     ),
                 }
             )
@@ -100,7 +119,12 @@ def diagnostic_catalog_projection(
     authorities: dict[str, JsonValue] | None = None,
 ) -> dict[str, JsonValue]:
     """Project the exact Kernel/LDB diagnostic inventories in stable order."""
-    authorities = authority_set() if authorities is None else authorities
+    if authorities is None:
+        context = packaged_authority_context()
+        authorities = {
+            "kernel": cast(JsonValue, context.kernel),
+            "language_bundle": cast(JsonValue, context.language_bundle),
+        }
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
     entries: list[dict[str, JsonValue]] = []

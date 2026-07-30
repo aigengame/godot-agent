@@ -36,9 +36,11 @@ an explicit boundary for lowering equivalence.
 
 - **Typed HIR owns static semantics.** Construction completes name resolution, type inference or
   checking, unit checking, operation selection, and all other static legality rules. Every
-  semantically relevant reference, conversion, and versioned operation is explicit. HIR may retain
-  source-level structure and provenance for diagnostics, but no unresolved name or implicit
-  semantic coercion survives it.
+  semantically relevant reference, conversion, versioned operation, Model entrypoint, Operation
+  call site, and formal-to-actual operand binding is explicit. HIR rejects incomplete or duplicate
+  port closure, unknown arguments, illegal writable aliases, incompatible types, and recursive call
+  graphs. It may retain source-level structure and provenance for diagnostics, but no unresolved
+  name, implicit same-name capture, or implicit semantic coercion survives it.
 
 - **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
   sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an
@@ -55,15 +57,18 @@ an explicit boundary for lowering equivalence.
   payloads without being the same exact build, runtime profile, Experiment binding, or Replay
   subject.
 
-- **Runtime-required selected LDB semantics are embedded as one canonical RIR projection.** RIR carries the
-  normalized operation bodies, signatures, effects, variants, and other admitted semantic fragments
-  reachable from the model; an evaluator does not choose between embedding them and dynamically
-  dereferencing alternate LDB representations. The exact whole LDB remains authority through the
-  Resolved Model wrapper, while the selected Package Lock closes the reachable package/type/
-  capability/profile/operation inputs to the projection. Runtime admission rehashes every wrapper
-  member and verifies that every embedded fragment is the complete canonical projection of the
-  bound selected release and Lock before execution. Evaluator-specific projection choices, partial
-  Operation comparisons, or host fallbacks are non-conforming.
+- **Runtime-required selected LDB semantics are embedded as one canonical RIR projection.** RIR
+  carries the normalized operation bodies, signatures, effects, variants, and other admitted
+  semantic fragments reachable from the model, together with exact entrypoint and call-site
+  identities, canonical formal-to-actual bindings, result/outcome bindings, resolved
+  effect/refusal/resource closure, and each entrypoint's Scenario Input Contract; an evaluator does
+  not choose between embedding them and dynamically dereferencing alternate LDB representations.
+  The exact whole LDB remains authority through the Resolved Model wrapper, while the selected
+  Package Lock closes the reachable package/type/capability/profile/operation inputs to the
+  projection. Runtime admission rehashes every wrapper member and rederives the invocation graph
+  rather than trusting a consistently reidentified but tampered projection. Evaluator-specific
+  projection choices, name lookup, ambient capture, partial Operation comparisons, or host
+  fallbacks are non-conforming.
 
 - **HIR-to-RIR lowering must preserve specified observable behavior.** For any well-typed model,
   the RIR preserves its exported typed values and units; initialization; readable state;
@@ -90,6 +95,9 @@ an explicit boundary for lowering equivalence.
   evaluator build, target, and numeric
   profile; evidence remains anchored to the exact Resolved Model, Experiment, Resolved Runtime
   profile, and evaluator identities rather than EIR encoding.
+  Every EIR call frame preserves the RIR's exact formal-to-actual binding, lexical caller-local
+  scope, call-site identity, result/outcome identity, and trace/refusal provenance. Optimizations
+  may erase representation overhead but cannot reintroduce ambient symbol capture.
 
 - **Conformance, not a universal proof obligation, guards RIR-to-EIR lowering.** The specification
   provides a reference evaluator for RIR plus normative positive, negative, limit, replay, and

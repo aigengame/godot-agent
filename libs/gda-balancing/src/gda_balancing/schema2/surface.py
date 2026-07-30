@@ -35,6 +35,7 @@ _ADMITTED_KEYWORDS = (
     "title",
     "type",
     "unevaluatedProperties",
+    "uniqueItems",
 )
 
 _PROFILE_BODY: dict[str, JsonValue] = {
@@ -208,21 +209,42 @@ def _schema_document(name: str, raw: dict[str, Any]) -> dict[str, JsonValue]:
 
 def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
     """Project the descriptor-owned artifact behavior and complete member set."""
-    return {
-        "artifact_behavior": (
-            "atomic-artifact-set"
-            if descriptor.artifact_sink or descriptor.artifact_set
-            else "stdout-only"
-        ),
-        "artifact_set": [
+
+    def members(
+        artifact_set: tuple[Any, ...],
+    ) -> list[dict[str, JsonValue]]:
+        return [
             {
                 "logical_name": member.logical_name,
                 "artifact_kind": member.artifact_kind,
                 "role": member.role,
             }
-            for member in descriptor.artifact_set
-        ],
-    }
+            for member in artifact_set
+        ]
+
+    return cast(
+        dict[str, JsonValue],
+        {
+            "artifact_behavior": (
+                "atomic-artifact-set"
+                if (
+                    descriptor.artifact_sink
+                    or descriptor.artifact_set
+                    or descriptor.verdict_artifact_set
+                )
+                else "stdout-only"
+            ),
+            "artifact_set": members(descriptor.artifact_set),
+            "verdict_artifact_set": members(descriptor.verdict_artifact_set),
+            "refusal_artifact_sets": [
+                {
+                    "stage": item.stage,
+                    "members": members(item.members),
+                }
+                for item in descriptor.refusal_artifact_sets
+            ],
+        },
+    )
 
 
 def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
@@ -231,6 +253,15 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         descriptor.success_schema()
         if descriptor.success_schema is not None
         else descriptor.output_model.model_json_schema()
+    )
+    verdict_schema = (
+        descriptor.verdict_schema()
+        if descriptor.verdict_schema is not None
+        else (
+            descriptor.verdict_model.model_json_schema()
+            if descriptor.verdict_model is not None
+            else None
+        )
     )
     refusal_details: list[JsonValue] = [
         {
@@ -263,6 +294,16 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             f"{descriptor.group or 'meta'}.{descriptor.command}.success",
             success_schema,
         ),
+        **(
+            {
+                "verdict": _schema_document(
+                    f"{descriptor.group or 'meta'}.{descriptor.command}.verdict",
+                    cast(dict[str, Any], verdict_schema),
+                )
+            }
+            if verdict_schema is not None
+            else {}
+        ),
         "execution": {
             "stochastic": descriptor.stochastic,
             "structured_params": descriptor.structured_params,
@@ -294,6 +335,7 @@ def command_schema_projection(descriptor: CommandDescriptor) -> dict[str, JsonVa
         "descriptor_identity": identity,
         "input": body["input"],
         "success": body["success"],
+        **({"verdict": body["verdict"]} if "verdict" in body else {}),
         "error": cast(JsonValue, schema2_error_envelope_schema(descriptor)),
     }
     return {
@@ -321,6 +363,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "profile_identity": identity,
             "input": schema_document,
             "success": schema_document,
+            "verdict": schema_document,
             "error": schema_document,
         },
         "required": [
@@ -386,6 +429,53 @@ def surface_manifest_success_schema() -> dict[str, object]:
                     "unevaluatedProperties": False,
                 },
             },
+            "verdict_artifact_set": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "logical_name": {"type": "string", "minLength": 1},
+                        "artifact_kind": {"type": "string", "minLength": 1},
+                        "role": {"enum": ["primary", "companion"]},
+                    },
+                    "required": ["logical_name", "artifact_kind", "role"],
+                    "unevaluatedProperties": False,
+                },
+            },
+            "refusal_artifact_sets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "stage": {"type": "string"},
+                        "members": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "logical_name": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "artifact_kind": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "role": {"enum": ["primary", "companion"]},
+                                },
+                                "required": [
+                                    "logical_name",
+                                    "artifact_kind",
+                                    "role",
+                                ],
+                                "unevaluatedProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["stage", "members"],
+                    "unevaluatedProperties": False,
+                },
+            },
         },
         "required": [
             "group",
@@ -396,6 +486,8 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "execution",
             "artifact_behavior",
             "artifact_set",
+            "verdict_artifact_set",
+            "refusal_artifact_sets",
         ],
         "unevaluatedProperties": False,
     }

@@ -33,10 +33,38 @@ from gda_balancing.commands import REGISTRY
 from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
 from gda_balancing.descriptors import CommandDescriptor
 from gda_balancing.dispatch import dispatch
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
+)
 
 RunResult = tuple[int, str, str]
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(scope="session")
+def pristine_authority_context() -> AdmittedAuthorityContext:
+    """One deeply immutable admitted baseline shared by read-only consumers."""
+    return packaged_authority_context()
+
+
+@pytest.fixture
+def authority_candidate(
+    pristine_authority_context: AdmittedAuthorityContext,
+) -> dict[str, object]:
+    """One independently owned mutable authority candidate for a test boundary."""
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    admission = pristine_authority_context.admission
+    return {
+        "kernel": kernel,
+        "language_bundle": language_bundle,
+        "admission": {
+            "admitted": admission.admitted,
+            "kernel_identity": admission.kernel_identity,
+            "language_bundle_identity": admission.language_bundle_identity,
+        },
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -108,16 +136,33 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
 
     sequence = itertools.count(1)
 
-    def _build(descriptor: CommandDescriptor, *, refusing: bool = False) -> list[str]:
+    def _build(
+        descriptor: CommandDescriptor,
+        *,
+        refusing: bool = False,
+        verdicting: bool = False,
+    ) -> list[str]:
         fixtures = descriptor.fixtures
-        content = fixtures.refusing_document if refusing else fixtures.valid_document
+        token = next(sequence)
+        content = (
+            fixtures.refusing_document
+            if refusing
+            else (
+                fixtures.prepare_verdict_document(tmp_path, token)
+                if verdicting and fixtures.prepare_verdict_document is not None
+                else (
+                    fixtures.prepare_valid_document(tmp_path, token)
+                    if fixtures.prepare_valid_document is not None
+                    else fixtures.valid_document
+                )
+            )
+        )
         tail = list(
             fixtures.refusing_args
             if refusing and fixtures.refusing_args
             else fixtures.valid_args
         )
         if descriptor.artifact_set:
-            token = next(sequence)
             tail.extend(
                 [
                     "--out",
@@ -127,7 +172,9 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
                 ]
             )
         if content is not None:
-            label = "refusing" if refusing else "valid"
+            label = (
+                "refusing" if refusing else ("verdicting" if verdicting else "valid")
+            )
             name = "-".join([*_command_path(descriptor), label]) + ".json"
             path = doc_dir / name
             path.write_text(content, encoding="utf-8")
