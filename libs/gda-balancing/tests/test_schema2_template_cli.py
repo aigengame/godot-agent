@@ -1030,35 +1030,63 @@ def test_artifact_identity_follows_its_contract_schema_kind():
         )
         == expected
     )
+    language_bundle["language"]["artifact_contracts"] = []
+    with pytest.raises(
+        ValueError,
+        match="artifact contract is not unique: extension-audit",
+    ):
+        artifact_wire_schema_identity(language_bundle, "extension-audit")
+
+
+def _install_negative_vector_artifact_contract(
+    language_bundle,
+    *,
+    retain_standalone,
+):
+    language = cast(Any, language_bundle["language"])
+    source = next(
+        item
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "negative-vector"
+    )
+    wire_identity_domain = source["wire_schema_identity_domain"]
+    schema_kind = (
+        "negative-vector-alt-schema" if retain_standalone else "negative-vector-schema"
+    )
+    package = next(
+        item for item in language["packages"] if item["id"] == "standard.schema"
+    )
+    schema_exports = package["exports"]["artifact_wire_schemas"]
+    if retain_standalone:
+        schema_definition = deepcopy(source)
+        schema_definition.pop("wire_schema_identity_domain")
+        schema_definition["artifact_kind"] = schema_kind
+        language["artifact_wire_schemas"].append(schema_definition)
+        schema_exports.append(schema_kind)
+    else:
+        source.pop("wire_schema_identity_domain")
+        source["artifact_kind"] = schema_kind
+        schema_exports[schema_exports.index("negative-vector")] = schema_kind
+    language["artifact_contracts"].append(
+        {
+            "artifact_kind": "negative-vector",
+            "identity_domain": "negative-vector-v2",
+            "identity_excluded_members": [],
+            "schema_kind": schema_kind,
+            "wire_schema_identity_domain": wire_identity_domain,
+        }
+    )
+    package["exports"]["artifact_contracts"].append("negative-vector")
 
 
 def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
     authority = authority_set()
     kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
-    language = cast(Any, language_bundle["language"])
-    schema_definition = next(
-        item
-        for item in language["artifact_wire_schemas"]
-        if item["artifact_kind"] == "negative-vector"
+    _install_negative_vector_artifact_contract(
+        language_bundle,
+        retain_standalone=False,
     )
-    wire_identity_domain = schema_definition.pop("wire_schema_identity_domain")
-    schema_definition["artifact_kind"] = "negative-vector-schema"
-    language["artifact_contracts"].append(
-        {
-            "artifact_kind": "negative-vector",
-            "identity_domain": "negative-vector-v2",
-            "identity_excluded_members": [],
-            "schema_kind": "negative-vector-schema",
-            "wire_schema_identity_domain": wire_identity_domain,
-        }
-    )
-    package = next(
-        item for item in language["packages"] if item["id"] == "standard.schema"
-    )
-    package["exports"]["artifact_contracts"].append("negative-vector")
-    schema_exports = package["exports"]["artifact_wire_schemas"]
-    schema_exports[schema_exports.index("negative-vector")] = "negative-vector-schema"
     _reidentify_language_bundle(kernel, language_bundle)
     context = admit_authority_context(kernel, language_bundle)
 
@@ -1085,6 +1113,36 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
             context,
         )
         is None
+    )
+
+
+def test_template_refuses_an_artifact_kind_that_shadows_a_standalone_schema():
+    authority = authority_set()
+    language_bundle = authority["language_bundle"]
+    original_identity = _member_schema_identities(language_bundle)["negative-vector"]
+    _install_negative_vector_artifact_contract(
+        language_bundle,
+        retain_standalone=True,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="wire-schema kind authority is ambiguous: negative-vector",
+    ):
+        _member_schema_identities(language_bundle)
+    with pytest.raises(
+        ValueError,
+        match="wire-schema kind authority is ambiguous: negative-vector",
+    ):
+        artifact_wire_schema_identity(language_bundle, "negative-vector")
+
+    assert original_identity == content_identity(
+        "negative-vector-wire-schema-v2",
+        next(
+            item["schema"]
+            for item in cast(Any, language_bundle["language"])["artifact_wire_schemas"]
+            if item["artifact_kind"] == "negative-vector"
+        ),
     )
 
 

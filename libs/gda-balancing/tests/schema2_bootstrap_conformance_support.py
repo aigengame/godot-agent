@@ -1395,9 +1395,19 @@ def _consumer_b_wire_schema_identity_domains_are_closed(
         and isinstance(item.get("schema_kind"), str)
         and isinstance(item.get("wire_schema_identity_domain"), str)
     }
-    if len(contract_domains) != len(raw_contracts):
+    artifact_kinds = {
+        item.get("artifact_kind")
+        for item in raw_contracts
+        if isinstance(item, dict)
+        and isinstance(item.get("artifact_kind"), str)
+        and item["artifact_kind"]
+    }
+    if len(contract_domains) != len(raw_contracts) or len(artifact_kinds) != len(
+        raw_contracts
+    ):
         return False
     seen: set[str] = set()
+    inline_kinds: set[str] = set()
     for collection in ("wire_schemas", "artifact_wire_schemas"):
         entries = language.get(collection)
         if not isinstance(entries, list):
@@ -1419,7 +1429,9 @@ def _consumer_b_wire_schema_identity_domains_are_closed(
             ):
                 return False
             seen.add(kind)
-    return True
+            if inline_domain is not None:
+                inline_kinds.add(kind)
+    return artifact_kinds.isdisjoint(inline_kinds)
 
 
 def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) -> bool:
@@ -3233,6 +3245,7 @@ def _consumer_b_template_admission_is_closed(
     if (
         not isinstance(roles, list)
         or not roles
+        or not standalone_schema_kinds.isdisjoint(artifact_schema_kinds)
         or len(roles) != len(role_names)
         or any(
             not isinstance(row, dict)

@@ -74,10 +74,35 @@ def artifact_wire_schema_identity(
     artifact_kind: str,
 ) -> str:
     """Identify an artifact's schema through its exact Artifact Contract."""
+    contract_schema_kind = _artifact_contract_schema_kind(
+        language_bundle,
+        artifact_kind,
+    )
+    resolved_schema_kind = wire_schema_kind_for_kind(language_bundle, artifact_kind)
+    if resolved_schema_kind != contract_schema_kind:
+        raise ValueError(f"artifact schema kind is inconsistent: {artifact_kind}")
     return wire_schema_identity(
         language_bundle,
-        wire_schema_kind_for_kind(language_bundle, artifact_kind),
+        resolved_schema_kind,
     )
+
+
+def _artifact_contract_schema_kind(
+    language_bundle: dict[str, Any],
+    artifact_kind: str,
+) -> str:
+    language = cast(dict[str, Any], language_bundle["language"])
+    contracts = [
+        item
+        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
+        if item.get("artifact_kind") == artifact_kind
+    ]
+    if len(contracts) != 1:
+        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
+    schema_kind = contracts[0].get("schema_kind")
+    if not isinstance(schema_kind, str) or not schema_kind:
+        raise ValueError(f"artifact schema kind is unavailable for {artifact_kind}")
+    return schema_kind
 
 
 def wire_schema_kind_for_kind(
@@ -91,14 +116,19 @@ def wire_schema_kind_for_kind(
         for item in cast(list[dict[str, Any]], language["artifact_contracts"])
         if item.get("artifact_kind") == kind
     ]
+    standalone_definitions = [
+        item
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for item in cast(list[dict[str, Any]], language[collection])
+        if item.get("artifact_kind") == kind and "wire_schema_identity_domain" in item
+    ]
+    if contracts and standalone_definitions:
+        raise ValueError(f"wire-schema kind authority is ambiguous: {kind}")
     if len(contracts) > 1:
         raise ValueError(f"artifact contract is not unique: {kind}")
-    if not contracts:
-        return kind
-    schema_kind = contracts[0].get("schema_kind")
-    if not isinstance(schema_kind, str) or not schema_kind:
-        raise ValueError(f"artifact schema kind is unavailable for {kind}")
-    return schema_kind
+    if contracts:
+        return _artifact_contract_schema_kind(language_bundle, kind)
+    return kind
 
 
 def wire_schema_for_kind(

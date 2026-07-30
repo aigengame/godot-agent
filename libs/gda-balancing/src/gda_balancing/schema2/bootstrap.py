@@ -1341,9 +1341,19 @@ def _wire_schema_identity_domains_are_closed(
         and isinstance(item.get("schema_kind"), str)
         and isinstance(item.get("wire_schema_identity_domain"), str)
     }
-    if len(contract_domains) != len(raw_contracts):
+    artifact_kinds = {
+        item.get("artifact_kind")
+        for item in raw_contracts
+        if isinstance(item, dict)
+        and isinstance(item.get("artifact_kind"), str)
+        and item["artifact_kind"]
+    }
+    if len(contract_domains) != len(raw_contracts) or len(artifact_kinds) != len(
+        raw_contracts
+    ):
         return False
     seen: set[str] = set()
+    inline_kinds: set[str] = set()
     for collection in ("wire_schemas", "artifact_wire_schemas"):
         entries = language.get(collection)
         if not isinstance(entries, list):
@@ -1365,7 +1375,9 @@ def _wire_schema_identity_domains_are_closed(
             ):
                 return False
             seen.add(kind)
-    return True
+            if inline_domain is not None:
+                inline_kinds.add(kind)
+    return artifact_kinds.isdisjoint(inline_kinds)
 
 
 def _profiled_equality_values(
@@ -3669,6 +3681,7 @@ def _template_admission_profiles_are_closed(
     if (
         not isinstance(role_rows, list)
         or not role_rows
+        or not standalone_schema_kinds.isdisjoint(artifact_schema_kinds)
         or len({row.get("role") for row in role_rows if isinstance(row, dict)})
         != len(role_rows)
         or len({row.get("member_kind") for row in role_rows if isinstance(row, dict)})

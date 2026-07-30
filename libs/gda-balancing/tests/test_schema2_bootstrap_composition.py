@@ -6,6 +6,44 @@ from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 
 
+def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
+    language = ldb["language"]
+    source = next(
+        item
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "negative-vector"
+    )
+    wire_identity_domain = source["wire_schema_identity_domain"]
+    schema_kind = (
+        "negative-vector-alt-schema" if retain_standalone else "negative-vector-schema"
+    )
+    package = next(
+        item for item in language["packages"] if item["id"] == "standard.schema"
+    )
+    schema_exports = package["exports"]["artifact_wire_schemas"]
+    if retain_standalone:
+        schema_definition = deepcopy(source)
+        schema_definition.pop("wire_schema_identity_domain")
+        schema_definition["artifact_kind"] = schema_kind
+        language["artifact_wire_schemas"].append(schema_definition)
+        schema_exports.append(schema_kind)
+    else:
+        source.pop("wire_schema_identity_domain")
+        source["artifact_kind"] = schema_kind
+        schema_exports[schema_exports.index("negative-vector")] = schema_kind
+    language["artifact_contracts"].append(
+        {
+            "artifact_kind": "negative-vector",
+            "identity_domain": "negative-vector-v2",
+            "identity_excluded_members": [],
+            "schema_kind": schema_kind,
+            "wire_schema_identity_domain": wire_identity_domain,
+        }
+    )
+    package["exports"]["artifact_contracts"].append("negative-vector")
+    _refresh_package_closure_and_reidentify(ldb)
+
+
 def test_two_consumers_admit_reidentified_nested_integer_literal():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
@@ -35,36 +73,30 @@ def test_two_consumers_admit_reidentified_nested_integer_literal():
 def test_two_consumers_admit_a_template_role_with_distinct_artifact_schema_kind():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    language = ldb["language"]
-    schema_definition = next(
-        item
-        for item in language["artifact_wire_schemas"]
-        if item["artifact_kind"] == "negative-vector"
-    )
-    wire_identity_domain = schema_definition.pop("wire_schema_identity_domain")
-    schema_definition["artifact_kind"] = "negative-vector-schema"
-    language["artifact_contracts"].append(
-        {
-            "artifact_kind": "negative-vector",
-            "identity_domain": "negative-vector-v2",
-            "identity_excluded_members": [],
-            "schema_kind": "negative-vector-schema",
-            "wire_schema_identity_domain": wire_identity_domain,
-        }
-    )
-    package = next(
-        item for item in language["packages"] if item["id"] == "standard.schema"
-    )
-    package["exports"]["artifact_contracts"].append("negative-vector")
-    schema_exports = package["exports"]["artifact_wire_schemas"]
-    schema_exports[schema_exports.index("negative-vector")] = "negative-vector-schema"
-    _refresh_package_closure_and_reidentify(ldb)
+    _install_negative_vector_artifact_contract(ldb, retain_standalone=False)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is True
+
+
+def test_two_consumers_refuse_an_artifact_kind_that_shadows_a_standalone_schema():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    _install_negative_vector_artifact_contract(ldb, retain_standalone=True)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.wire-schema-identity-domains",
+    ) in first["diagnostics"]
 
 
 @pytest.mark.parametrize(
