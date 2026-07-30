@@ -34,8 +34,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Scheduled and manually requested unfiltered runs are evidence runs: a push
+  # must not cancel them merely because all three can target refs/heads/main.
+  # PR and push runs still replace stale runs for the same ref.
+  group: >-
+    ${{
+      github.workflow
+    }}-${{
+      (github.event_name == 'schedule' ||
+        github.event_name == 'workflow_dispatch') &&
+        format('{0}-{1}', github.event_name, github.run_id) ||
+        github.ref
+    }}
+  cancel-in-progress: >-
+    ${{
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push'
+    }}
 
 jobs:
   lint:
@@ -110,7 +125,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            git diff --name-only "$BASE_SHA" "$HEAD_SHA" |
+            # Disable rename collapsing so a cross-boundary move supplies both
+            # the deleted source path and added destination path. Otherwise an
+            # affecting member file renamed into an unrelated docs path could
+            # silently bypass the full matrix.
+            git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" |
               python3 libs/gda-balancing/tools/ci.py classify > balancing-scope.json
           else
             python3 libs/gda-balancing/tools/ci.py classify > balancing-scope.json
