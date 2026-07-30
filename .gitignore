@@ -2,7 +2,6 @@
 RULES.md
 STATE.md
 *.local.md
-*.local.json
 # Python
 __pycache__/
 *.py[cod]
