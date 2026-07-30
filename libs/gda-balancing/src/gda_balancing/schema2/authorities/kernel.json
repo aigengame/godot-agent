@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:e1ab483833cee54663fffc7d954d01381d6d614975de528a695ed0746a20817b",
+  "content_identity": "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6203,6 +6203,13 @@
       "ownership": "profile-owner-must-own-exact-type-export",
       "formal_closure": "at-least-one-exact-operation-value-contract",
       "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract"
+    },
+    "authority_wire_schema_projection": {
+      "identity_domains": {
+        "language-definition-bundle": "language-definition-bundle-wire-schema-v2",
+        "schema-major-kernel": "schema-major-kernel-wire-schema-v2"
+      },
+      "projection": "complete-authority-const-schema"
     },
     "runtime_profile_definition": {
       "domain": "runtime-profile-definition-v1",

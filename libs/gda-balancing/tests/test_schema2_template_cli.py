@@ -34,6 +34,10 @@ from gda_balancing.schema2.model import (
     checked_model_template_facts,
 )
 from gda_balancing.schema2.projections import wire_schema_projection
+from gda_balancing.schema2.wire_schema import (
+    artifact_wire_schema_identity,
+    wire_schema_identity as schema_definition_identity,
+)
 
 
 def _reidentify_release(release):
@@ -900,7 +904,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:5c33801e420e5f4eabda920cabf30cba332d0186364c926d5ca6535a0bcb1a34"
+                    "sha256:1e120869abc80c2dac5fe4a34b6120fa6ee6eac3493dee261711e50b8844c2d8"
                 ),
             }
         ]
@@ -962,6 +966,69 @@ def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain(
         == expected
     )
     assert projected_source_schema["$id"].endswith(expected.removeprefix("sha256:"))
+
+
+def test_root_authority_wire_schemas_use_kernel_owned_identity_domains():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    projection = wire_schema_projection(authority)
+    identity_domains = kernel["meta_format"]["authority_wire_schema_projection"][
+        "identity_domains"
+    ]
+
+    for artifact_kind in (
+        "schema-major-kernel",
+        "language-definition-bundle",
+    ):
+        schema = next(
+            row["schema"]
+            for row in cast(list[dict[str, Any]], projection["schemas"])
+            if row["artifact_kind"] == artifact_kind
+        )
+        body = {key: value for key, value in schema.items() if key != "$id"}
+        expected = content_identity(identity_domains[artifact_kind], body)
+
+        assert schema["$id"].endswith(expected.removeprefix("sha256:"))
+
+
+def test_artifact_identity_follows_its_contract_schema_kind():
+    language_bundle = {
+        "language": {
+            "artifact_contracts": [
+                {
+                    "artifact_kind": "extension-audit",
+                    "schema_kind": "extension-audit-schema",
+                    "wire_schema_identity_domain": "extension-audit-wire-v1",
+                }
+            ],
+            "artifact_wire_schemas": [
+                {
+                    "artifact_kind": "extension-audit-schema",
+                    "schema": {"type": "object"},
+                }
+            ],
+            "wire_schemas": [],
+        }
+    }
+    expected = content_identity(
+        "extension-audit-wire-v1",
+        {"type": "object"},
+    )
+
+    assert artifact_wire_schema_identity(
+        language_bundle,
+        "extension-audit",
+    ) == schema_definition_identity(
+        language_bundle,
+        "extension-audit-schema",
+    )
+    assert (
+        schema_definition_identity(
+            language_bundle,
+            "extension-audit-schema",
+        )
+        == expected
+    )
 
 
 def test_minimal_release_derives_every_authority_identity_from_its_inputs():

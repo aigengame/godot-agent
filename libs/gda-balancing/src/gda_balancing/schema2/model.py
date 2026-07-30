@@ -45,7 +45,7 @@ from gda_balancing.schema2.diagnostics import (
     reason_by_id,
 )
 from gda_balancing.schema2.wire_schema import (
-    wire_schema_identity as authority_wire_schema_identity,
+    wire_schema_identity_for_kind,
 )
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
@@ -1193,7 +1193,7 @@ def _artifact_schema(
 def _wire_schema_identity_for_kind(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> str:
-    return authority_wire_schema_identity(language_bundle, artifact_kind)
+    return wire_schema_identity_for_kind(language_bundle, artifact_kind)
 
 
 def _identified_artifact(

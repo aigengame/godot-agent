@@ -126,6 +126,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
 
     assert set(meta_format) == {
         "admitted_language_index",
+        "authority_wire_schema_projection",
         "fact",
         "term",
         "rule",

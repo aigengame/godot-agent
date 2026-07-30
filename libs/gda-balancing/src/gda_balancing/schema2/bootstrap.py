@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e1ab483833cee54663fffc7d954d01381d6d614975de528a695ed0746a20817b"
+    "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1335,10 +1335,10 @@ def _wire_schema_identity_domains_are_closed(
     if not isinstance(raw_contracts, list):
         return False
     contract_domains = {
-        item.get("artifact_kind"): item.get("wire_schema_identity_domain")
+        item.get("schema_kind"): item.get("wire_schema_identity_domain")
         for item in raw_contracts
         if isinstance(item, dict)
-        and isinstance(item.get("artifact_kind"), str)
+        and isinstance(item.get("schema_kind"), str)
         and isinstance(item.get("wire_schema_identity_domain"), str)
     }
     if len(contract_domains) != len(raw_contracts):
@@ -6283,6 +6283,12 @@ def admit_authorities(
             "static",
             "kernel.meta-format.json-pointer",
         )
+    if not _authority_wire_schema_projection_is_closed(kernel):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "kernel.meta-format.authority-wire-schema-projection",
+        )
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _wire_schema_identity_domains_are_closed(language_bundle):
@@ -7014,6 +7020,20 @@ def _json_pointer_authority_is_closed(kernel: dict[str, Any]) -> bool:
         and isinstance(pointer_schema, dict)
         and pointer_schema.get("type") == "string"
     )
+
+
+def _authority_wire_schema_projection_is_closed(kernel: dict[str, Any]) -> bool:
+    meta = kernel.get("meta_format")
+    contract = (
+        meta.get("authority_wire_schema_projection") if isinstance(meta, dict) else None
+    )
+    return contract == {
+        "identity_domains": {
+            "language-definition-bundle": "language-definition-bundle-wire-schema-v2",
+            "schema-major-kernel": "schema-major-kernel-wire-schema-v2",
+        },
+        "projection": "complete-authority-const-schema",
+    }
 
 
 def _runtime_authority_is_closed(

@@ -87,7 +87,10 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   An Artifact Contract is the sole identity-domain authority for its artifact schema. A
   non-artifact Wire-Schema definition instead owns its identity domain inline. Admission requires
   exactly one of those authority paths for every Wire Schema, so a host-derived kind-name fallback
-  and two competing declarations are both non-conforming.
+  and two competing declarations are both non-conforming. The two irreducible root-authority
+  projections have no containing LDB definition or Artifact Contract: the Kernel therefore owns
+  the fixed identity domains for the exact Kernel and LDB public Wire Schemas. This root exception
+  does not enumerate Domain-package or extension schema kinds in the Kernel.
 
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one

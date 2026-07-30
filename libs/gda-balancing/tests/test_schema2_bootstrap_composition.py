@@ -615,6 +615,7 @@ def test_two_consumers_refuse_an_incomplete_template_primitive_spec(
 @pytest.mark.parametrize(
     "mutation",
     (
+        "authority-wire-schema-domain",
         "runtime-profile-definition-domain",
         "json-pointer-schema",
         "wire-schema-identity-domain",
@@ -628,7 +629,12 @@ def test_two_consumers_refuse_incomplete_identity_or_pointer_meta_contracts(
     authority = _authority_candidate()
     kernel = authority["kernel"]
     ldb = authority["language_bundle"]
-    if mutation == "runtime-profile-definition-domain":
+    if mutation == "authority-wire-schema-domain":
+        kernel["meta_format"]["authority_wire_schema_projection"][
+            "identity_domains"
+        ].pop("language-definition-bundle")
+        subject = "kernel.meta-format.authority-wire-schema-projection"
+    elif mutation == "runtime-profile-definition-domain":
         kernel["meta_format"]["runtime_profile_definition"]["domain"] = ""
         subject = "language.runtime"
     elif mutation == "json-pointer-schema":

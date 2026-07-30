@@ -14,7 +14,9 @@ def _identified(domain: str, body: dict[str, JsonValue]) -> dict[str, JsonValue]
 
 
 def _closed_authority_schema(
-    artifact_kind: str, artifact: dict[str, JsonValue]
+    artifact_kind: str,
+    artifact: dict[str, JsonValue],
+    identity_domain: str,
 ) -> dict[str, JsonValue]:
     body: dict[str, JsonValue] = {
         "$schema": _DRAFT_2020_12,
@@ -25,7 +27,7 @@ def _closed_authority_schema(
         "const": artifact,
         "unevaluatedProperties": False,
     }
-    digest = content_identity(f"{artifact_kind}-wire-schema-v2", cast(JsonValue, body))
+    digest = content_identity(identity_domain, cast(JsonValue, body))
     return {
         "$id": f"urn:gda-balancing:schema2:wire:{digest.removeprefix('sha256:')}",
         **body,
@@ -58,16 +60,30 @@ def wire_schema_projection(
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
     public_ldb = getattr(ldb, "root", ldb)
+    meta_format = cast(dict[str, JsonValue], kernel["meta_format"])
+    root_projection = cast(
+        dict[str, JsonValue],
+        meta_format["authority_wire_schema_projection"],
+    )
+    root_identity_domains = cast(
+        dict[str, JsonValue],
+        root_projection["identity_domains"],
+    )
     schemas: list[JsonValue] = [
         {
             "artifact_kind": "schema-major-kernel",
-            "schema": _closed_authority_schema("schema-major-kernel", kernel),
+            "schema": _closed_authority_schema(
+                "schema-major-kernel",
+                kernel,
+                cast(str, root_identity_domains["schema-major-kernel"]),
+            ),
         },
         {
             "artifact_kind": "language-definition-bundle",
             "schema": _closed_authority_schema(
                 "language-definition-bundle",
                 cast(dict[str, JsonValue], public_ldb),
+                cast(str, root_identity_domains["language-definition-bundle"]),
             ),
         },
     ]
