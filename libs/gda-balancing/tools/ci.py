@@ -271,11 +271,14 @@ def junit_node_id(testcase: ElementTree.Element) -> str:
     if not name:
         raise ValueError(f"JUnit testcase has no name: {classname!r}")
     if not classname:
-        if not name.startswith("test_"):
+        module_parts = name.split(".")
+        if any(not part for part in module_parts) or not module_parts[-1].startswith(
+            "test_"
+        ):
             raise ValueError(
                 f"JUnit collection testcase has no pytest test module: {name!r}"
             )
-        return f"tests/{name}.py"
+        return "/".join(module_parts) + ".py"
     parts = classname.split(".")
     module_index = next(
         (index for index, part in enumerate(parts) if part.startswith("test_")),

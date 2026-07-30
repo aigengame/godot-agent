@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -10,6 +11,28 @@ _ROOT = Path(__file__).parents[1]
 _WORKFLOW = _ROOT / ".github/workflows/ci.yml"
 _RELEASE_WORKFLOW = _ROOT / ".github/workflows/release.yml"
 _POLICY = _ROOT / "libs/gda-balancing/tools/ci.py"
+_JOB_HEADER = re.compile(r"^  (?P<name>[A-Za-z0-9_-]+):\s*$", re.MULTILINE)
+_JOB_TIMEOUT = re.compile(r"^    timeout-minutes:\s*(?P<minutes>\d+)\s*$", re.MULTILINE)
+
+
+def _workflow_job(workflow: str, job_name: str) -> str:
+    _, jobs_marker, jobs = workflow.partition("\njobs:\n")
+    assert jobs_marker, "workflow has no jobs section"
+    matches = list(_JOB_HEADER.finditer(jobs))
+    for index, match in enumerate(matches):
+        if match.group("name") != job_name:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(jobs)
+        return jobs[match.start() : end]
+    raise AssertionError(f"workflow job not found: {job_name}")
+
+
+def _assert_job_timeout(workflow: str, job_name: str, minutes: int) -> None:
+    declared = [
+        int(match.group("minutes"))
+        for match in _JOB_TIMEOUT.finditer(_workflow_job(workflow, job_name))
+    ]
+    assert declared == [minutes], f"{job_name} timeout-minutes: {declared}"
 
 
 def test_scope_diff_preserves_both_sides_of_cross_boundary_renames(tmp_path):
@@ -100,9 +123,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     action = (_ROOT / ".github/actions/setup-python-env/action.yml").read_text(
         encoding="utf-8"
     )
-    scope_job = workflow.split("\n  balancing-scope:\n", 1)[1].split(
-        "\n  python:\n", 1
-    )[0]
+    scope_job = _workflow_job(workflow, "balancing-scope")
 
     assert "required-test-shards" in workflow
     assert "process-timeout required" in workflow
@@ -122,10 +143,13 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "uv run" not in scope_job
     assert "'[\"__invalid__\"]'" in workflow
     assert "'[\"fast\"]'" not in workflow
-    assert workflow.count("timeout-minutes: 5") == 2
-    assert workflow.count("timeout-minutes: 15") == 3
-    assert "timeout-minutes: 20" in workflow
-    assert "timeout-minutes: 30" in release
+    _assert_job_timeout(workflow, "balancing-scope", 5)
+    _assert_job_timeout(workflow, "balancing-inventory", 15)
+    _assert_job_timeout(workflow, "balancing-tests", 15)
+    _assert_job_timeout(workflow, "balancing-smoke", 15)
+    _assert_job_timeout(workflow, "balancing-required", 5)
+    _assert_job_timeout(workflow, "balancing-nightly", 20)
+    _assert_job_timeout(release, "build-release-gda-balancing", 30)
     assert "process-timeout unfiltered" in release
     assert "verify-outcomes" in release
     assert (

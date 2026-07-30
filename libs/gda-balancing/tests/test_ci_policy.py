@@ -3,8 +3,11 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tomllib
 from typing import cast
+from xml.etree import ElementTree
 
 import pytest
 
@@ -143,17 +146,40 @@ def test_outcome_closure_allows_only_declared_skips(tmp_path):
     assert report["xfailed_tests"] == []
 
 
-def test_outcome_closure_reports_a_module_level_collection_skip(tmp_path):
+def test_outcome_closure_reports_a_real_module_level_collection_skip(tmp_path):
+    probe_root = tmp_path / "probe"
+    probe = probe_root / "tests" / "test_zz_module_skip_probe.py"
+    probe.parent.mkdir(parents=True)
+    probe.write_text(
+        'import pytest\n\npytest.skip("collection skipped", allow_module_level=True)\n',
+        encoding="utf-8",
+    )
+    junit = probe_root / "module-skip.xml"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "tests/test_zz_module_skip_probe.py",
+            f"--junitxml={junit}",
+        ],
+        cwd=probe_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == pytest.ExitCode.NO_TESTS_COLLECTED, (
+        completed.stdout + completed.stderr
+    )
+    testcase = next(ElementTree.parse(junit).getroot().iter("testcase"))
+    assert testcase.attrib["classname"] == ""
+    assert testcase.attrib["name"] == "tests.test_zz_module_skip_probe"
+
     baseline = tmp_path / "baseline.json"
     baseline.write_text(
         json.dumps({"allowed_skipped_test_ids": []}),
-        encoding="utf-8",
-    )
-    junit = tmp_path / "module-skip.xml"
-    junit.write_text(
-        '<testsuites><testsuite><testcase classname="" '
-        'name="test_module_skip"><skipped type="pytest.skip" '
-        'message="collection skipped"/></testcase></testsuite></testsuites>',
         encoding="utf-8",
     )
     report_path = tmp_path / "module-skip-report.json"
@@ -166,8 +192,12 @@ def test_outcome_closure_reports_a_module_level_collection_skip(tmp_path):
         )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["unexpected_skipped_tests"] == ["tests/test_module_skip.py"]
+    assert report["unexpected_skipped_tests"] == ["tests/test_zz_module_skip_probe.py"]
     assert report["xfailed_tests"] == []
+
+    summary = ci.summarize_junit(junit, tmp_path / "module-skip-durations.json")
+    assert list(summary["per_file"]) == ["tests/test_zz_module_skip_probe.py"]
+    assert summary["slow_tests"][0]["node"] == "tests/test_zz_module_skip_probe.py"
 
 
 def test_outcome_closure_independently_rejects_xfail(tmp_path):
