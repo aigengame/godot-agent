@@ -122,6 +122,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "uv run" not in scope_job
     assert "'[\"__invalid__\"]'" in workflow
     assert "'[\"fast\"]'" not in workflow
+    assert workflow.count("timeout-minutes: 5") == 2
     assert workflow.count("timeout-minutes: 15") == 3
     assert "timeout-minutes: 20" in workflow
     assert "timeout-minutes: 30" in release
