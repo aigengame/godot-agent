@@ -11,6 +11,12 @@ inputs:
     description: Python version for uv to provide.
     required: false
     default: "3.13"
+  uv-version:
+    description: >-
+      uv version for setup-uv to install. Defaults to setup-uv's moving
+      `latest`; latency-sensitive parallel jobs may opt into an exact version.
+    required: false
+    default: "latest"
   save-cache:
     description: Whether setup-uv should save its dependency cache.
     required: false
@@ -30,9 +36,7 @@ runs:
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.2.0
       with:
-        # Avoid a runtime lookup of the moving "latest" manifest. Parallel CI
-        # shards must not multiply a transient metadata fetch into flaky setup.
-        version: "0.11.19"
+        version: ${{ inputs.uv-version }}
         python-version: ${{ inputs.python-version }}
         enable-cache: true
         save-cache: ${{ inputs.save-cache }}

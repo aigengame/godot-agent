@@ -108,6 +108,7 @@ jobs:
   balancing-scope:
     name: Classify gda-balancing scope
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       required: ${{ steps.classify.outputs.required }}
 
@@ -116,6 +117,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Set up pinned policy interpreter
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: none
+          save-cache: false
+          uv-version: "0.11.19"
 
       - name: Classify changed paths
         id: classify
@@ -130,11 +138,14 @@ jobs:
             # affecting member file renamed into an unrelated docs path could
             # silently bypass the full matrix.
             git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" |
-              python3 libs/gda-balancing/tools/ci.py classify > balancing-scope.json
+              uv run --no-project --python 3.13 python \
+                libs/gda-balancing/tools/ci.py classify > balancing-scope.json
           else
-            python3 libs/gda-balancing/tools/ci.py classify > balancing-scope.json
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py classify --all > balancing-scope.json
           fi
-          python3 -c 'import json, os; value=json.load(open("balancing-scope.json", encoding="utf-8")); open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("required=%s\n" % str(value["required"]).lower())'
+          uv run --no-project --python 3.13 python -c \
+            'import json, os; value=json.load(open("balancing-scope.json", encoding="utf-8")); open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("required=%s\n" % str(value["required"]).lower())'
           cat balancing-scope.json
 
   python:
@@ -184,6 +195,8 @@ jobs:
     if: ${{ needs.balancing-scope.outputs.required == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      test_matrix: ${{ steps.test_matrix.outputs.value }}
 
     steps:
       - name: Checkout repository
@@ -193,6 +206,7 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           sync: member
+          uv-version: "0.11.19"
 
       - name: Verify unfiltered and shard inventory closure
         run: |
@@ -200,6 +214,13 @@ jobs:
           uv run --frozen --project libs/gda-balancing \
             python libs/gda-balancing/tools/ci.py verify-inventory \
             --report test-results/inventory.json
+
+      - name: Export required shard matrix
+        id: test_matrix
+        run: |
+          value="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py required-test-shards)"
+          echo "value=${value}" >> "$GITHUB_OUTPUT"
 
       - name: Upload inventory report
         if: ${{ always() }}
@@ -220,11 +241,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard:
-          - fast
-          - authority
-          - language
-          - composition
+        # The fallback keeps strategy expansion valid when the inventory job is
+        # skipped for an unrelated change; the job-level `if` still skips it.
+        shard: ${{ fromJSON(needs.balancing-inventory.outputs.test_matrix || '["fast"]') }}
 
     steps:
       - name: Checkout repository
@@ -235,29 +254,40 @@ jobs:
         with:
           sync: member
           save-cache: false
+          uv-version: "0.11.19"
 
       - name: Run complete shard with hard duration bound
         run: |
           mkdir -p test-results
           set -o pipefail
-          python3 libs/gda-balancing/tools/ci.py shard-paths "${{ matrix.shard }}" |
-            xargs timeout --signal=TERM --kill-after=30s 480s \
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout required)"
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py shard-paths "${{ matrix.shard }}" |
+            xargs timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
               uv run --frozen --project libs/gda-balancing pytest \
               -q --durations=50 \
               --junitxml="test-results/${{ matrix.shard }}-junit.xml" \
             2>&1 | tee "test-results/${{ matrix.shard }}.log"
 
-      - name: Summarize per-file and slow-test durations
+      - name: Summarize durations and verify test outcomes
         if: ${{ always() }}
         run: |
           mkdir -p test-results
           if [ -f "test-results/${{ matrix.shard }}-junit.xml" ]; then
-            python3 libs/gda-balancing/tools/ci.py summarize-junit \
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
               --junit "test-results/${{ matrix.shard }}-junit.xml" \
               --report "test-results/${{ matrix.shard }}-durations.json"
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit "test-results/${{ matrix.shard }}-junit.xml" \
+              --report "test-results/${{ matrix.shard }}-outcomes.json"
           else
             printf '{"error":"shard timed out before JUnit was finalized"}\n' \
               > "test-results/${{ matrix.shard }}-durations.json"
+            printf '{"error":"shard timed out before JUnit was finalized"}\n' \
+              > "test-results/${{ matrix.shard }}-outcomes.json"
           fi
 
       - name: Upload shard diagnostics
@@ -286,30 +316,44 @@ jobs:
         with:
           sync: member
           save-cache: false
+          uv-version: "0.11.19"
 
       - name: Run subprocess tests and build with one hard duration bound
         run: |
           mkdir -p test-results
-          timeout --signal=TERM --kill-after=30s 480s bash -euo pipefail -c '
-            uv run --frozen --project libs/gda-balancing pytest \
-                libs/gda-balancing/tests/test_e2e_cli.py \
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout required)"
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py shard-paths smoke \
+            > test-results/smoke-paths.txt
+          timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
+            bash -euo pipefail -c '
+              xargs uv run --frozen --project libs/gda-balancing pytest \
                 -q --durations=50 \
                 --junitxml=test-results/smoke-junit.xml \
-              2>&1 | tee test-results/smoke.log
-            uv build --project libs/gda-balancing --out-dir dist-gda-balancing
-          '
+                < test-results/smoke-paths.txt \
+                2>&1 | tee test-results/smoke.log
+              uv build --project libs/gda-balancing --out-dir dist-gda-balancing
+            '
 
-      - name: Summarize subprocess durations
+      - name: Summarize durations and verify smoke outcomes
         if: ${{ always() }}
         run: |
           mkdir -p test-results
           if [ -f test-results/smoke-junit.xml ]; then
-            python3 libs/gda-balancing/tools/ci.py summarize-junit \
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
               --junit test-results/smoke-junit.xml \
               --report test-results/smoke-durations.json
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit test-results/smoke-junit.xml \
+              --report test-results/smoke-outcomes.json
           else
             printf '{"error":"smoke timed out before JUnit was finalized"}\n' \
               > test-results/smoke-durations.json
+            printf '{"error":"smoke timed out before JUnit was finalized"}\n' \
+              > test-results/smoke-outcomes.json
           fi
 
       - name: Upload smoke diagnostics
@@ -331,7 +375,10 @@ jobs:
       - balancing-smoke
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    # The one-minute unrelated-path target is a measured service level, not a
+    # job timeout. Leave enough room for runner/startup jitter while the step
+    # itself remains a constant-time shell assertion.
+    timeout-minutes: 5
 
     steps:
       - name: Aggregate stable required result
@@ -373,7 +420,7 @@ jobs:
           inputs['run-balancing-unfiltered'])
       }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -384,28 +431,38 @@ jobs:
         with:
           sync: member
           save-cache: false
+          uv-version: "0.11.19"
 
       - name: Run the complete unfiltered suite
         run: |
           mkdir -p test-results
           set -o pipefail
-          timeout --signal=TERM --kill-after=30s 480s \
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout unfiltered)"
+          timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
             uv run --frozen --project libs/gda-balancing pytest \
               libs/gda-balancing/tests -q --durations=50 \
               --junitxml=test-results/nightly-junit.xml \
             2>&1 | tee test-results/nightly.log
 
-      - name: Summarize nightly durations
+      - name: Summarize durations and verify nightly outcomes
         if: ${{ always() }}
         run: |
           mkdir -p test-results
           if [ -f test-results/nightly-junit.xml ]; then
-            python3 libs/gda-balancing/tools/ci.py summarize-junit \
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
               --junit test-results/nightly-junit.xml \
               --report test-results/nightly-durations.json
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit test-results/nightly-junit.xml \
+              --report test-results/nightly-outcomes.json
           else
             printf '{"error":"nightly timed out before JUnit was finalized"}\n' \
               > test-results/nightly-durations.json
+            printf '{"error":"nightly timed out before JUnit was finalized"}\n' \
+              > test-results/nightly-outcomes.json
           fi
 
       - name: Upload nightly diagnostics

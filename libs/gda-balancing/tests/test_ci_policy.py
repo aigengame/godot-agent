@@ -3,6 +3,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import tomllib
+
+import pytest
 
 _MEMBER_ROOT = Path(__file__).parents[1]
 _ROOT = Path(__file__).parents[3]
@@ -22,6 +25,7 @@ def test_balancing_paths_and_shared_release_surfaces_are_affecting():
             ".github/workflows/release.yml",
             "scripts/release_scope_guard.py",
             "scripts/release_tags.py",
+            "tests/test_balancing_ci_wiring.py",
             "tests/test_release_scope_guard.py",
             "tests/test_release_tags.py",
         ]
@@ -54,6 +58,16 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         path.name for path in (_ROOT / "libs/gda-balancing/tests").glob("test_*.py")
     }
     assert union == expected
+    assert ci.REQUIRED_TEST_SHARDS == (
+        "fast",
+        "authority",
+        "language",
+        "composition",
+    )
+    assert ci.PROCESS_TIMEOUT_SECONDS == {
+        "required": 480,
+        "unfiltered": 900,
+    }
 
 
 def test_declared_bootstrap_migration_normalizes_only_the_moved_test():
@@ -92,3 +106,51 @@ def test_junit_summary_reports_per_file_and_slowest_tests(tmp_path):
     assert report["per_file"] == {"tests/test_one.py": {"count": 2, "seconds": 1.3}}
     assert report["slow_tests"][0]["node"].endswith("::test_slow")
     assert json.loads(report_path.read_text(encoding="utf-8")) == report
+
+
+def test_outcome_closure_allows_only_declared_skips_and_rejects_xfail(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {"allowed_skipped_test_ids": ["tests/test_one.py::TestRows::test_allowed"]}
+        ),
+        encoding="utf-8",
+    )
+    allowed_junit = tmp_path / "allowed.xml"
+    allowed_junit.write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one.TestRows" '
+        'name="test_allowed"><skipped type="pytest.skip"/></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+
+    report = ci.verify_outcomes(
+        allowed_junit,
+        tmp_path / "allowed-report.json",
+        baseline,
+    )
+
+    assert report["unexpected_skipped_tests"] == []
+    assert report["xfailed_tests"] == []
+
+    refused_junit = tmp_path / "refused.xml"
+    refused_junit.write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one" '
+        'name="test_new_skip"><skipped type="pytest.skip"/></testcase>'
+        '<testcase classname="tests.test_one" name="test_xfail">'
+        '<skipped type="pytest.xfail"/></testcase></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="outcome closure failed"):
+        ci.verify_outcomes(
+            refused_junit,
+            tmp_path / "refused-report.json",
+            baseline,
+        )
+
+
+def test_pytest_treats_xpass_as_a_failure():
+    configuration = tomllib.loads(
+        (_MEMBER_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert configuration["tool"]["pytest"]["ini_options"]["xfail_strict"] is True
