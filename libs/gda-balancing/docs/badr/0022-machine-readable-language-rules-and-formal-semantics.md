@@ -47,6 +47,20 @@ structured formal judgments, and an honest proof/conformance boundary.
   produces the corresponding new identities and compatible or breaking version as applicable.
   Admission-derived flat indexes are not a serialized or independently hashed language authority.
 
+- **Formula language content follows sealed Package responsibility.** The `standard.schema`
+  Package Release owns generic module-level Formula declaration/binding wire grammar, Model Source
+  schema and Authoring-AST definitions, typed evaluation-context and result-contract shapes, and
+  their applicable `parse` and structural `static` Diagnostics. The `standard.compiler` release
+  owns generic Formula name/call
+  resolution, total parameter-to-operand binding, mixed Formula/pure-Operation closure,
+  refusal/resource/termination judgments, HIR/RIR lowering, and their applicable semantic `static`
+  and `resolution` Diagnostics. Each release's normative Formula vectors live only in its bound
+  package-owned conformance-vector child. A mechanic release owns its concrete Formula-slot
+  signature, context, refusal/budget contract, and Operation integration; `game.combat` therefore
+  owns the committed #540 damage slot, while `game.resource` and `game.check` remain independent
+  dependencies. No flat peer registry, reconstructed RPG umbrella, compiler table, or host callback
+  may duplicate those authorities.
+
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
   order, integers and any admitted numeric representation, optional/default members, artifact-kind
@@ -102,12 +116,15 @@ structured formal judgments, and an honest proof/conformance boundary.
 - **Model Source formulas enter Operations only through static typed bindings.** A Formula
   declaration is a Model Source-owned pure expression with explicit named inputs and one annotated
   result. An Operation specification may expose typed formula call sites while retaining ownership
-  of its control, effects, RNG, outcomes, and commit/rollback policy. Resolution binds each call
-  site to one exact Formula declaration, validates input/result type, kind, unit, Numeric profile,
-  and purity, and makes the binding explicit in Typed HIR and canonical RIR. Runtime dispatch
-  evaluates only that resolved binding with the call site's explicit operands; it cannot perform
-  dynamic formula lookup, invoke a host callback, or reinterpret the Formula as a user-authored
-  Event program.
+  of its control, effects, RNG, outcomes, and commit/rollback policy. For each call site, resolution
+  binds one exact Formula declaration and constructs one total named parameter-to-actual-operand
+  mapping. Every declared parameter binds exactly once; missing, extra, duplicate, or unknown
+  arguments refuse before Typed HIR, and parameter order, container iteration, and same-name capture
+  have no semantic force. Resolution validates every mapped operand and the result for type, kind,
+  unit, Numeric profile, and purity. Typed HIR and canonical RIR carry the binding identity, the
+  canonical parameter map, and the resolved contracts. Runtime dispatch evaluates only that
+  resolved binding with those explicit operands; it cannot perform dynamic formula lookup, invoke a
+  host callback, or reinterpret the Formula as a user-authored Event program.
 
 - **Formula declarations are module-level named language declarations, not first-class values.**
   Each declaration has a stable source name, explicit typed parameters, one result contract, and a
@@ -138,10 +155,12 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **Formula evaluation timing belongs to the evaluation-site context, never the Formula
   declaration.**
-  Every Formula **evaluation site** fixes one Formula declaration binding, typed operand source,
-  lifecycle boundary, and transitive contract. A `derived` Symbol is a read-only computed Symbol,
-  not a stored or build-time-materialized value. Each read lowers to an explicit evaluation site;
-  sites in different lifecycle contexts remain distinct even when they reference one declaration.
+  Every Formula **evaluation site** fixes one Formula declaration binding, total typed
+  parameter-to-operand mapping, lifecycle boundary, and transitive contract. Its identity includes
+  the declaration, call-site identity, canonical parameter map, evaluation context, and complete
+  closure. A `derived` Symbol is a read-only computed Symbol, not a stored or
+  build-time-materialized value. Each read lowers to an explicit evaluation site; sites in
+  different lifecycle contexts remain distinct even when they reference one declaration.
   Initialization reads the immutable pre-Snapshot Initialization frame built from admitted exact
   Experiment inputs and declared initial base values. Successful initialization atomically commits
   Snapshot 0; refusal before that commit follows bADR-0014/0015's pre-Event Runtime path with no
@@ -165,8 +184,9 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **Model explanation preserves the expression/control/effect boundary.** Its closed
   `formula_explanations` section projects each selected, reachable Formula declaration, evaluation
-  site/binding identity, context, explicit operand source, mixed call-graph dependency, transitive
-  refusal/resource contract, type, kind, unit, Numeric profile, expression node, and result. Its
+  site/binding identity, context, total parameter-to-operand mapping, mixed call-graph dependency,
+  transitive refusal/resource contract, type, kind, unit, Numeric profile, expression node, and
+  result contract/type. Its
   closed `operation_explanations` section projects selected, reachable control and
   effect nodes, RNG streams/draws, guards, exhaustive outcomes, and commit/rollback policy, and
   refers to Formula binding identities when an Operation calls one. The projection rules and schema

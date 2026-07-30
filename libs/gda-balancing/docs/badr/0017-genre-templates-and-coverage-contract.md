@@ -82,7 +82,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
   | `game.action` | closed immutable Action-plan schema, admission and identity; requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion, interruption, execution, cancellation and replacement | target enumeration, candidate/plan selection, Intent projection, response-window priority, or damage math |
   | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
-  | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
+  | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, defeat/revival transition policy, and the Formula-slot signature/context/refusal/budget plus Operation integration for the committed #540 damage path | entity/resource state storage, generic effect lifetime or inventory |
   | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
@@ -93,6 +93,11 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
   | `game.turn` | optional rounds, initiative, action economy, reaction/priority windows, responder order, pass/close policy and bounded nesting | action-plan semantics or core logical-time scheduler |
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
+
+  bADR-0022 owns generic Formula-language package responsibility. This genre map adds only the
+  mechanic assignment: `game.combat` owns the #540 damage slot and Operation integration, while
+  `game.resource` and `game.check` remain separate dependencies and do not become a reconstructed
+  RPG umbrella.
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
   manifests of complete sealed Package Releases, and normative vectors live in their bound

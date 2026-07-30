@@ -37,10 +37,12 @@ an explicit boundary for lowering equivalence.
 - **Typed HIR owns static semantics.** Construction completes name resolution, type inference or
   checking, unit checking, operation selection, and all other static legality rules. Every
   semantically relevant reference, conversion, versioned operation, Model entrypoint, Operation
-  call site, and formal-to-actual operand binding is explicit. HIR rejects incomplete or duplicate
-  port closure, unknown arguments, illegal writable aliases, incompatible types, and recursive call
-  graphs. It may retain source-level structure and provenance for diagnostics, but no unresolved
-  name, implicit same-name capture, or implicit semantic coercion survives it.
+  call site, Formula evaluation site, Operation-formal binding, and Formula-parameter-to-actual
+  operand mapping is explicit. HIR rejects incomplete or duplicate closure, missing, extra, or
+  unknown arguments, illegal writable aliases, incompatible types, and recursive call graphs. It
+  may retain source-level structure and provenance for diagnostics, but no unresolved name,
+  parameter-order convention, implicit same-name capture, or implicit semantic coercion survives
+  it.
 
 - **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
   sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an

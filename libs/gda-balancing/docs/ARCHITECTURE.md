@@ -298,10 +298,14 @@ is never a peer semantic authority.
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
-bindings refuse before HIR. LDB rules traverse the complete Formula and pure-Operation call graph,
-reject mixed cycles, and derive the transitive refusal set, deterministic charge bound, and
-termination measure. A concrete binding must fit its slot and surrounding Operation contract;
-HIR/RIR carry that exact closure and Runtime admission revalidates it. Packages, templates,
+bindings refuse before HIR. Every Formula call site also closes one total named
+parameter-to-actual-operand mapping: each declared parameter is bound exactly once, and missing,
+extra, duplicate, or unknown arguments are refused. Positional authoring sugar, if admitted, is
+normalized before HIR; parameter order and same-name capture have no semantic force. LDB rules
+traverse the complete Formula and pure-Operation call graph, reject mixed cycles, and derive the
+transitive refusal set, deterministic charge bound, and termination measure. A concrete binding
+must fit its slot and surrounding Operation contract; HIR/RIR carry the binding identity, canonical
+parameter map, and exact closure, and Runtime admission revalidates them. Packages, templates,
 compilers, and evaluators provide no optional fallback. A template default is an ordinary Formula
 and binding copied into the editable starter source. This separates reusable
 mechanic/control/effect law, which remains Operation-owned, from a game's numeric design policy,
@@ -400,7 +404,8 @@ obtained; they are not part of the RIR semantic payload.
 
 Every successful build also publishes a mandatory, separately identified **Model explanation**
 derived from the exact RIR and Debug Map. Its closed `formula_explanations` section renders
-Formula declarations, bindings, operands, result types, and evaluation contexts; its closed
+Formula declarations, bindings, parameter-to-operand mappings, result contracts/types, and
+evaluation contexts; its closed
 `operation_explanations` section renders Operation control/effect/outcome/commit boundaries and
 references the exact Formula binding identities instead of restating their expression semantics.
 It is inspection data, not execution authority. Model explanation generation, validation, and
@@ -415,13 +420,16 @@ Typed HIR closes every invocation before RIR:
    symbols to one exact Operation interface;
 3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
    rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
-   bindings, requires each literal to have one exact contextual-type match in the selected
+   bindings, closes every Formula parameter-to-actual mapping after normalizing any positional
+   authoring sugar and without parameter-order or same-name capture, requires each literal to have
+   one exact contextual-type match in the selected
    package-owned Literal Typing Profiles, requires each nested callee's effect/refusal closure to
    fit the caller declaration, and
    derives the transitive resource charge under the LDB composition policy;
 4. RIR records the exact entrypoint and call-site graph plus its generated Scenario Input Contract,
-   including each literal's resolved context type, Model-owned initializers, and exact
-   required/optional Experiment assignment targets;
+   including each Operation-formal and Formula-parameter mapping identity, each literal's resolved
+   context type, Model-owned initializers, and exact required/optional Experiment assignment
+   targets;
 5. an Experiment selects one entrypoint and totally assigns that contract; and
 6. runtime and any private EIR consume those identities without name lookup or ambient capture.
 

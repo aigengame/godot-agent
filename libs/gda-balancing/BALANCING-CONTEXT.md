@@ -358,16 +358,18 @@ _Avoid_: formula script, anonymous callback, first-class function, Event program
 **Formula binding**:
 The exact, statically resolved association between a Model Source Formula declaration and a typed
 formula call site used by a `derived` Symbol or an Operation Formula slot. It fixes the selected
-formula before Runtime and carries the LDB-derived transitive refusal/resource/termination
-contract for the complete reachable Formula and pure-Operation call graph. It cannot introduce
-dynamic formula lookup or host callback semantics (bADR-0022).
+formula and a total named parameter-to-actual-operand mapping before Runtime, and carries the
+LDB-derived transitive refusal/resource/termination contract for the complete reachable Formula and
+pure-Operation call graph. It cannot depend on parameter order, same-name capture, dynamic formula
+lookup, or host callback semantics (bADR-0013/0022).
 _Avoid_: function pointer, runtime formula selection, evaluator hook
 
 **Formula slot**:
 A named, exactly-one customization point in an Operation specification with an explicit Formula
 signature, evaluation context, permitted refusal set, and deterministic resource budget. A selected
-Operation requires one compatible Model Source Formula binding whose complete transitive contract
-fits every declared slot; neither the package nor evaluator supplies a fallback (bADR-0022).
+Operation requires exactly one compatible Model Source Formula binding for each declared slot; each
+binding's complete transitive contract must fit its owning slot, and neither the package nor
+evaluator supplies a fallback (bADR-0022).
 _Avoid_: optional callback, formula hook, package default
 
 **Formula evaluation site**:
