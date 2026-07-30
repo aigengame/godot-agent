@@ -159,13 +159,13 @@ OS process per command, and `/usr/bin/time -p`:
 | `model check examples/schema2/rpg-combat-cast/model-source.json` | 2.56 s | 0.83 s |
 | `template list` | 2.33 s | 0.73 s |
 
-The post-review PR #598 verification collects 1,082 tests and retains the same
-92 packaged vectors. Its complete local run finished in 408.97 seconds with
-992 passed and the same 90 accepted skips; outcome closure reported zero new
-skips and zero xfails. The preceding exact-head manual unfiltered GitHub job
-completed in 6m34s, and its required PR matrix reached the stable aggregator in
-2m31s. Command timings and individual-run timings are diagnostic evidence; the
-rolling CI service-level measurement below is the operational gate.
+The post-review PR #598 verification collects 1,083 tests and retains the same
+92 packaged vectors. Its required matrix completed with 993 passed and the same
+90 accepted skips; outcome closure reported zero new skips and zero xfails.
+Exact-head manual-unfiltered evidence and individual-run wall clocks are kept
+with the PR rather than frozen here. Command timings and individual-run timings
+are diagnostic evidence; the rolling CI service-level measurement below is the
+operational gate.
 
 ## CI latency measurement protocol
 
