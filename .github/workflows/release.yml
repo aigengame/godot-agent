@@ -320,6 +320,7 @@ jobs:
       - name: Summarize durations and verify release outcomes
         if: ${{ always() }}
         run: |
+          mkdir -p test-results
           if [ -f test-results/release-junit.xml ]; then
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py summarize-junit \

@@ -100,6 +100,9 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     action = (_ROOT / ".github/actions/setup-python-env/action.yml").read_text(
         encoding="utf-8"
     )
+    scope_job = workflow.split("\n  balancing-scope:\n", 1)[1].split(
+        "\n  python:\n", 1
+    )[0]
 
     assert "required-test-shards" in workflow
     assert "process-timeout required" in workflow
@@ -108,7 +111,25 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "libs/gda-balancing/tests/test_e2e_cli.py" not in workflow
     assert "python3 libs/gda-balancing/tools/ci.py" not in workflow
     assert "\n    timeout-minutes: 1\n" not in workflow
-    assert 'default: "latest"' in action
-    assert 'uv-version: "0.11.19"' in workflow
+    assert 'version: "0.11.19"' in action
+    assert "uv-version:" not in action
+    assert "uv-version:" not in workflow
+    assert "uv-version:" not in release
+    assert release.count("uses: ./.github/actions/setup-python-env") == 3
+    assert "uses: actions/setup-python@v6" in scope_job
+    assert 'python-version: "3.13"' in scope_job
+    assert "setup-python-env" not in scope_job
+    assert "uv run" not in scope_job
+    assert "'[\"__invalid__\"]'" in workflow
+    assert "'[\"fast\"]'" not in workflow
+    assert workflow.count("timeout-minutes: 15") == 3
+    assert "timeout-minutes: 20" in workflow
+    assert "timeout-minutes: 30" in release
     assert "process-timeout unfiltered" in release
     assert "verify-outcomes" in release
+    assert (
+        "Summarize durations and verify release outcomes\n"
+        "        if: ${{ always() }}\n"
+        "        run: |\n"
+        "          mkdir -p test-results"
+    ) in release

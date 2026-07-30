@@ -76,7 +76,8 @@ current test is uncovered, or a shard selects a test outside the unfiltered
 collection. New regression tests are allowed and increase the current count.
 After execution, `verify-outcomes` reads each JUnit result and fails if a test
 outside the recorded set is skipped or if any test is xfailed. Member pytest
-also uses strict xfail behavior, so an XPASS cannot conceal a newly introduced
+also uses strict xfail behavior, and its collection hook rejects an explicit
+`xfail(strict=False)` override, so an XPASS cannot conceal a newly introduced
 xfail marker.
 
 ## Required, nightly, and release policy
@@ -87,6 +88,12 @@ workflows, the root balancing-CI wiring regression, and shared
 release/tag/scope tooling run the complete matrix. Only explicitly enumerated
 root-product and documentation paths are unrelated. Every unknown path fails
 closed to the complete matrix.
+
+The shared Python setup action owns one exact uv version for every CI and
+Release consumer; individual jobs do not restate or override that version.
+The stdlib-only scope classifier is the exception to using uv: it pins Python
+3.13 directly with `actions/setup-python` so an unrelated PR does not install a
+package manager merely to classify paths.
 
 An affecting PR runs:
 
@@ -116,9 +123,9 @@ Member release PRs may contain only `libs/gda-balancing/**`, so the member-owned
 policy, inventory, and tests land separately from the root-owned workflow
 wiring. That wiring must be reviewed as a non-releasing root change stacked
 after the member change; it must not be folded into a releasing member PR.
-During required-check cutover, keep the existing required context until
-`gda-balancing required` has run successfully and the repository ruleset has
-adopted it.
+The required-check cutover is complete: repository protection requires
+`gda-balancing required`, and the duplicate serial member test/build path was
+removed only after that protection was active.
 
 To reproduce a shard:
 
@@ -159,9 +166,11 @@ OS process per command, and `/usr/bin/time -p`:
 | `model check examples/schema2/rpg-combat-cast/model-source.json` | 2.56 s | 0.83 s |
 | `template list` | 2.33 s | 0.73 s |
 
-The post-review PR #598 verification collects 1,083 tests and retains the same
-92 packaged vectors. Its required matrix completed with 993 passed and the same
-90 accepted skips; outcome closure reported zero new skips and zero xfails.
+The post-review PR #598 verification collects 1,085 tests and retains the same
+92 packaged vectors. The four semantic matrix shards contain 990 passing tests
+and the same 90 accepted skips; the separate required smoke shard contains five
+passing tests. Across required execution, 995 tests pass, and outcome closure
+reports zero new skips and zero xfails.
 Exact-head manual-unfiltered evidence and individual-run wall clocks are kept
 with the PR rather than frozen here. Command timings and individual-run timings
 are diagnostic evidence; the rolling CI service-level measurement below is the

@@ -1,5 +1,5 @@
 {
-  "description": "Pre-#597 logical inventory plus the 90 accepted skip outcomes recorded at PR #598 head ec58b14; tests precede authority-lifecycle regressions and bootstrap file moves.",
+  "description": "Pre-#597 logical inventory plus the 90 accepted skip outcomes first recorded while closing PR #598; tests precede authority-lifecycle regressions and bootstrap file moves.",
   "package_vector_ids": [
     "core.quantity@2.0.0:model.compile.boundary-max-symbols",
     "core.quantity@2.0.0:model.compile.boundary-max-symbols-plus-one",

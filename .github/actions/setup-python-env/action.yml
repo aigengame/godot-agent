@@ -11,12 +11,6 @@ inputs:
     description: Python version for uv to provide.
     required: false
     default: "3.13"
-  uv-version:
-    description: >-
-      uv version for setup-uv to install. Defaults to setup-uv's moving
-      `latest`; latency-sensitive parallel jobs may opt into an exact version.
-    required: false
-    default: "latest"
   save-cache:
     description: Whether setup-uv should save its dependency cache.
     required: false
@@ -36,7 +30,9 @@ runs:
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.2.0
       with:
-        version: ${{ inputs.uv-version }}
+        # One exact tool version for every CI and Release consumer. A moving
+        # `latest` would make gate and release behavior depend on run time.
+        version: "0.11.19"
         python-version: ${{ inputs.python-version }}
         enable-cache: true
         save-cache: ${{ inputs.save-cache }}

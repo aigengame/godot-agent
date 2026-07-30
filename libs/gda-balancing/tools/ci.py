@@ -239,20 +239,15 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
     per_file: dict[str, dict[str, float | int]] = {}
     tests: list[dict[str, str | float]] = []
     for testcase in root.iter("testcase"):
-        classname = testcase.attrib.get("classname", "unknown")
-        module_parts: list[str] = []
-        for part in classname.split("."):
-            module_parts.append(part)
-            if part.startswith("test_"):
-                break
-        filename = "/".join(module_parts) + ".py"
+        node_id = junit_node_id(testcase)
+        filename = node_id.partition("::")[0]
         duration = float(testcase.attrib.get("time", "0"))
         row = per_file.setdefault(filename, {"count": 0, "seconds": 0.0})
         row["count"] = int(row["count"]) + 1
         row["seconds"] = round(float(row["seconds"]) + duration, 6)
         tests.append(
             {
-                "node": f"{classname}::{testcase.attrib.get('name', 'unknown')}",
+                "node": node_id,
                 "seconds": duration,
             }
         )
@@ -272,6 +267,15 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
 def junit_node_id(testcase: ElementTree.Element) -> str:
     """Reconstruct pytest's node id from one xunit2 testcase."""
     classname = testcase.attrib.get("classname", "")
+    name = testcase.attrib.get("name")
+    if not name:
+        raise ValueError(f"JUnit testcase has no name: {classname!r}")
+    if not classname:
+        if not name.startswith("test_"):
+            raise ValueError(
+                f"JUnit collection testcase has no pytest test module: {name!r}"
+            )
+        return f"tests/{name}.py"
     parts = classname.split(".")
     module_index = next(
         (index for index, part in enumerate(parts) if part.startswith("test_")),
@@ -281,9 +285,6 @@ def junit_node_id(testcase: ElementTree.Element) -> str:
         raise ValueError(f"JUnit testcase has no pytest test module: {classname!r}")
     path = "/".join(parts[: module_index + 1]) + ".py"
     tail = parts[module_index + 1 :]
-    name = testcase.attrib.get("name")
-    if not name:
-        raise ValueError(f"JUnit testcase has no name: {classname!r}")
     return "::".join((path, *tail, name))
 
 
@@ -378,9 +379,11 @@ def main() -> int:
         report = verify_outcomes(args.junit, args.report)
         print(json.dumps(report, sort_keys=True))
         return 0
-    report = verify_inventory(args.report)
-    print(json.dumps(report, sort_keys=True))
-    return 0
+    if args.command == "verify-inventory":
+        report = verify_inventory(args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    raise AssertionError(f"unhandled CI policy command: {args.command}")
 
 
 if __name__ == "__main__":

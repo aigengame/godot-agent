@@ -119,11 +119,11 @@ jobs:
           fetch-depth: 0
 
       - name: Set up pinned policy interpreter
-        uses: ./.github/actions/setup-python-env
+        # Classification is stdlib-only and latency-critical. Pin Python
+        # directly instead of installing uv and syncing no project.
+        uses: actions/setup-python@v6
         with:
-          sync: none
-          save-cache: false
-          uv-version: "0.11.19"
+          python-version: "3.13"
 
       - name: Classify changed paths
         id: classify
@@ -138,13 +138,13 @@ jobs:
             # affecting member file renamed into an unrelated docs path could
             # silently bypass the full matrix.
             git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" |
-              uv run --no-project --python 3.13 python \
-                libs/gda-balancing/tools/ci.py classify > balancing-scope.json
+              python libs/gda-balancing/tools/ci.py classify \
+                > balancing-scope.json
           else
-            uv run --no-project --python 3.13 python \
-              libs/gda-balancing/tools/ci.py classify --all > balancing-scope.json
+            python libs/gda-balancing/tools/ci.py classify --all \
+              > balancing-scope.json
           fi
-          uv run --no-project --python 3.13 python -c \
+          python -c \
             'import json, os; value=json.load(open("balancing-scope.json", encoding="utf-8")); open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8").write("required=%s\n" % str(value["required"]).lower())'
           cat balancing-scope.json
 
@@ -206,7 +206,6 @@ jobs:
         uses: ./.github/actions/setup-python-env
         with:
           sync: member
-          uv-version: "0.11.19"
 
       - name: Verify unfiltered and shard inventory closure
         run: |
@@ -241,9 +240,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The fallback keeps strategy expansion valid when the inventory job is
-        # skipped for an unrelated change; the job-level `if` still skips it.
-        shard: ${{ fromJSON(needs.balancing-inventory.outputs.test_matrix || '["fast"]') }}
+        # The invalid sentinel keeps strategy expansion valid when inventory is
+        # skipped. If this job is ever made unconditional, shard selection then
+        # fails closed instead of silently executing only one real shard.
+        shard: ${{ fromJSON(needs.balancing-inventory.outputs.test_matrix || '["__invalid__"]') }}
 
     steps:
       - name: Checkout repository
@@ -254,7 +254,6 @@ jobs:
         with:
           sync: member
           save-cache: false
-          uv-version: "0.11.19"
 
       - name: Run complete shard with hard duration bound
         run: |
@@ -316,7 +315,6 @@ jobs:
         with:
           sync: member
           save-cache: false
-          uv-version: "0.11.19"
 
       - name: Run subprocess tests and build with one hard duration bound
         run: |
@@ -431,7 +429,6 @@ jobs:
         with:
           sync: member
           save-cache: false
-          uv-version: "0.11.19"
 
       - name: Run the complete unfiltered suite
         run: |

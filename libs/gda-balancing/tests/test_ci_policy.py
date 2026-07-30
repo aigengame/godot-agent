@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tomllib
+from typing import cast
 
 import pytest
 
@@ -14,6 +15,14 @@ _SPEC = importlib.util.spec_from_file_location("gda_balancing_ci", _SCRIPT)
 assert _SPEC is not None and _SPEC.loader is not None
 ci = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(ci)
+_CONFTEST_PATH = _MEMBER_ROOT / "tests" / "conftest.py"
+_CONFTEST_SPEC = importlib.util.spec_from_file_location(
+    "gda_balancing_suite_conftest",
+    _CONFTEST_PATH,
+)
+assert _CONFTEST_SPEC is not None and _CONFTEST_SPEC.loader is not None
+suite_conftest = importlib.util.module_from_spec(_CONFTEST_SPEC)
+_CONFTEST_SPEC.loader.exec_module(suite_conftest)
 
 
 def test_balancing_paths_and_shared_release_surfaces_are_affecting():
@@ -108,7 +117,7 @@ def test_junit_summary_reports_per_file_and_slowest_tests(tmp_path):
     assert json.loads(report_path.read_text(encoding="utf-8")) == report
 
 
-def test_outcome_closure_allows_only_declared_skips_and_rejects_xfail(tmp_path):
+def test_outcome_closure_allows_only_declared_skips(tmp_path):
     baseline = tmp_path / "baseline.json"
     baseline.write_text(
         json.dumps(
@@ -133,20 +142,55 @@ def test_outcome_closure_allows_only_declared_skips_and_rejects_xfail(tmp_path):
     assert report["unexpected_skipped_tests"] == []
     assert report["xfailed_tests"] == []
 
-    refused_junit = tmp_path / "refused.xml"
-    refused_junit.write_text(
-        '<testsuites><testsuite><testcase classname="tests.test_one" '
-        'name="test_new_skip"><skipped type="pytest.skip"/></testcase>'
-        '<testcase classname="tests.test_one" name="test_xfail">'
-        '<skipped type="pytest.xfail"/></testcase></testsuite></testsuites>',
+
+def test_outcome_closure_reports_a_module_level_collection_skip(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps({"allowed_skipped_test_ids": []}),
         encoding="utf-8",
     )
+    junit = tmp_path / "module-skip.xml"
+    junit.write_text(
+        '<testsuites><testsuite><testcase classname="" '
+        'name="test_module_skip"><skipped type="pytest.skip" '
+        'message="collection skipped"/></testcase></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "module-skip-report.json"
+
     with pytest.raises(SystemExit, match="outcome closure failed"):
         ci.verify_outcomes(
-            refused_junit,
-            tmp_path / "refused-report.json",
+            junit,
+            report_path,
             baseline,
         )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["unexpected_skipped_tests"] == ["tests/test_module_skip.py"]
+    assert report["xfailed_tests"] == []
+
+
+def test_outcome_closure_independently_rejects_xfail(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps({"allowed_skipped_test_ids": []}),
+        encoding="utf-8",
+    )
+    junit = tmp_path / "xfail.xml"
+    junit.write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one" '
+        'name="test_xfail"><skipped type="pytest.xfail"/>'
+        "</testcase></testsuite></testsuites>",
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "xfail-report.json"
+
+    with pytest.raises(SystemExit, match="outcome closure failed"):
+        ci.verify_outcomes(junit, report_path, baseline)
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["unexpected_skipped_tests"] == []
+    assert report["xfailed_tests"] == ["tests/test_one.py::test_xfail"]
 
 
 def test_pytest_treats_xpass_as_a_failure():
@@ -154,3 +198,16 @@ def test_pytest_treats_xpass_as_a_failure():
         (_MEMBER_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     assert configuration["tool"]["pytest"]["ini_options"]["xfail_strict"] is True
+
+    class NonStrictXfailItem:
+        nodeid = "tests/test_example.py::test_example"
+
+        @staticmethod
+        def iter_markers(name: str):
+            assert name == "xfail"
+            return [pytest.mark.xfail(strict=False).mark]
+
+    with pytest.raises(pytest.UsageError, match=r"xfail\(strict=False\)"):
+        suite_conftest.reject_non_strict_xfails(
+            [cast(pytest.Item, NonStrictXfailItem())]
+        )
