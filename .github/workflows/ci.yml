@@ -19,6 +19,11 @@ on:
         required: false
         default: false
         type: boolean
+      run-balancing-unfiltered:
+        description: "Run the complete unfiltered gda-balancing suite"
+        required: false
+        default: false
+        type: boolean
   schedule:
     # Nightly (03:24 UTC) — the automatic, dependable trigger for the godot-e2e job
     # (workflow_dispatch with run-e2e is the on-demand extra). Daily so a regression in
@@ -342,7 +347,12 @@ jobs:
 
   balancing-nightly:
     name: gda-balancing nightly unfiltered suite
-    if: ${{ github.event_name == 'schedule' }}
+    if: >-
+      ${{
+        github.event_name == 'schedule' ||
+        (github.event_name == 'workflow_dispatch' &&
+          inputs['run-balancing-unfiltered'])
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
