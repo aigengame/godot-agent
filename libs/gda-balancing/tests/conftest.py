@@ -43,6 +43,21 @@ RunResult = tuple[int, str, str]
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
+def reject_non_strict_xfails(items: list[pytest.Item]) -> None:
+    """Keep per-test markers from weakening the suite-wide strict xfail policy."""
+    for item in items:
+        for marker in item.iter_markers(name="xfail"):
+            if marker.kwargs.get("strict") is False:
+                raise pytest.UsageError(
+                    f"{item.nodeid}: xfail(strict=False) is forbidden"
+                )
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Reject an explicit non-strict xfail before any test can silently XPASS."""
+    reject_non_strict_xfails(items)
+
+
 @pytest.fixture(scope="session")
 def pristine_authority_context() -> AdmittedAuthorityContext:
     """One deeply immutable admitted baseline shared by read-only consumers."""

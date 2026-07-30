@@ -55,6 +55,11 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "smoke": ("test_e2e_cli.py",),
 }
+REQUIRED_TEST_SHARDS: Final = tuple(name for name in SHARDS if name != "smoke")
+PROCESS_TIMEOUT_SECONDS: Final = {
+    "required": 480,
+    "unfiltered": 900,
+}
 
 _AFFECTING_EXACT: Final = {
     ".github/workflows/ci.yml",
@@ -65,6 +70,7 @@ _AFFECTING_EXACT: Final = {
     "release-please-config.json",
     "scripts/release_scope_guard.py",
     "scripts/release_tags.py",
+    "tests/test_balancing_ci_wiring.py",
     "tests/test_release_scope_guard.py",
     "tests/test_release_tags.py",
     "uv.lock",
@@ -233,20 +239,15 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
     per_file: dict[str, dict[str, float | int]] = {}
     tests: list[dict[str, str | float]] = []
     for testcase in root.iter("testcase"):
-        classname = testcase.attrib.get("classname", "unknown")
-        module_parts: list[str] = []
-        for part in classname.split("."):
-            module_parts.append(part)
-            if part.startswith("test_"):
-                break
-        filename = "/".join(module_parts) + ".py"
+        node_id = junit_node_id(testcase)
+        filename = node_id.partition("::")[0]
         duration = float(testcase.attrib.get("time", "0"))
         row = per_file.setdefault(filename, {"count": 0, "seconds": 0.0})
         row["count"] = int(row["count"]) + 1
         row["seconds"] = round(float(row["seconds"]) + duration, 6)
         tests.append(
             {
-                "node": f"{classname}::{testcase.attrib.get('name', 'unknown')}",
+                "node": node_id,
                 "seconds": duration,
             }
         )
@@ -263,15 +264,88 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
     return report
 
 
+def junit_node_id(testcase: ElementTree.Element) -> str:
+    """Reconstruct pytest's node id from one xunit2 testcase."""
+    classname = testcase.attrib.get("classname", "")
+    name = testcase.attrib.get("name")
+    if not name:
+        raise ValueError(f"JUnit testcase has no name: {classname!r}")
+    if not classname:
+        module_parts = name.split(".")
+        if any(not part for part in module_parts) or not module_parts[-1].startswith(
+            "test_"
+        ):
+            raise ValueError(
+                f"JUnit collection testcase has no pytest test module: {name!r}"
+            )
+        return "/".join(module_parts) + ".py"
+    parts = classname.split(".")
+    module_index = next(
+        (index for index, part in enumerate(parts) if part.startswith("test_")),
+        None,
+    )
+    if module_index is None:
+        raise ValueError(f"JUnit testcase has no pytest test module: {classname!r}")
+    path = "/".join(parts[: module_index + 1]) + ".py"
+    tail = parts[module_index + 1 :]
+    return "::".join((path, *tail, name))
+
+
+def verify_outcomes(
+    junit_path: Path,
+    report_path: Path,
+    baseline_path: Path = BASELINE_PATH,
+) -> dict[str, object]:
+    """Reject new skips and every xfail while reporting allowed historical skips."""
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    migration = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
+    allowed_skips = set(baseline["allowed_skipped_test_ids"])
+    skipped: set[str] = set()
+    xfailed: set[str] = set()
+    root = ElementTree.parse(junit_path).getroot()
+    for testcase in root.iter("testcase"):
+        outcome = testcase.find("skipped")
+        if outcome is None:
+            continue
+        node_id = normalized_node_id(junit_node_id(testcase), migration)
+        if outcome.attrib.get("type") == "pytest.xfail":
+            xfailed.add(node_id)
+        else:
+            skipped.add(node_id)
+    unexpected_skips = skipped - allowed_skips
+    report: dict[str, object] = {
+        "allowed_baseline_skip_count": len(allowed_skips),
+        "skipped_tests": sorted(skipped),
+        "xfailed_tests": sorted(xfailed),
+        "unexpected_skipped_tests": sorted(unexpected_skips),
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    if unexpected_skips or xfailed:
+        raise SystemExit("gda-balancing test outcome closure failed")
+    return report
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subcommands = parser.add_subparsers(dest="command", required=True)
     classify = subcommands.add_parser("classify")
     classify.add_argument("paths", nargs="*")
+    classify.add_argument(
+        "--all",
+        action="store_true",
+        help="select the full matrix without reading changed paths from stdin",
+    )
     shard = subcommands.add_parser("shard-paths")
     shard.add_argument("shard", choices=tuple(SHARDS))
+    subcommands.add_parser("required-test-shards")
+    budget = subcommands.add_parser("process-timeout")
+    budget.add_argument("suite", choices=tuple(PROCESS_TIMEOUT_SECONDS))
     verify = subcommands.add_parser("verify-inventory")
     verify.add_argument("--report", type=Path, required=True)
+    outcomes = subcommands.add_parser("verify-outcomes")
+    outcomes.add_argument("--junit", type=Path, required=True)
+    outcomes.add_argument("--report", type=Path, required=True)
     summarize = subcommands.add_parser("summarize-junit")
     summarize.add_argument("--junit", type=Path, required=True)
     summarize.add_argument("--report", type=Path, required=True)
@@ -281,7 +355,13 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     if args.command == "classify":
-        paths = args.paths or [line.strip() for line in sys.stdin if line.strip()]
+        if args.all and args.paths:
+            raise SystemExit("classify --all does not accept paths")
+        paths = (
+            []
+            if args.all
+            else args.paths or [line.strip() for line in sys.stdin if line.strip()]
+        )
         required = balancing_required(paths)
         print(json.dumps({"required": required, "paths": paths}, sort_keys=True))
         return 0
@@ -292,9 +372,21 @@ def main() -> int:
         report = summarize_junit(args.junit, args.report)
         print(json.dumps(report, sort_keys=True))
         return 0
-    report = verify_inventory(args.report)
-    print(json.dumps(report, sort_keys=True))
-    return 0
+    if args.command == "required-test-shards":
+        print(json.dumps(REQUIRED_TEST_SHARDS))
+        return 0
+    if args.command == "process-timeout":
+        print(PROCESS_TIMEOUT_SECONDS[args.suite])
+        return 0
+    if args.command == "verify-outcomes":
+        report = verify_outcomes(args.junit, args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    if args.command == "verify-inventory":
+        report = verify_inventory(args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    raise AssertionError(f"unhandled CI policy command: {args.command}")
 
 
 if __name__ == "__main__":

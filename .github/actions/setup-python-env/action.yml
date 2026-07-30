@@ -30,6 +30,9 @@ runs:
     - name: Set up uv
       uses: astral-sh/setup-uv@v8.2.0
       with:
+        # One exact tool version for every CI and Release consumer. A moving
+        # `latest` would make gate and release behavior depend on run time.
+        version: "0.11.19"
         python-version: ${{ inputs.python-version }}
         enable-cache: true
         save-cache: ${{ inputs.save-cache }}

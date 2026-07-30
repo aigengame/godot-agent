@@ -130,6 +130,28 @@ uv project inside the repo, with its own lock under its own directory.**
   > `examples/**` is the standing case — takes a non-releasing type so it does
   > not bump `gda` falsely (ADR-0037's flip note).
 
+- **Required `gda-balancing` feedback follows the independent project
+  boundary.**
+  > **Outcome (2026-07-30, #597/#598):** required feedback no longer extends
+  > the root Python job's serial critical path. Root CI owns only the workflow
+  > topology: a fail-closed path-classification job, inventory gate, parallel
+  > required matrix, wheel/subprocess smoke, and stable
+  > `gda-balancing required` aggregator.
+  > `libs/gda-balancing/tools/ci.py` is the single authority for affecting
+  > paths, shard membership, process budgets, logical inventory, and allowed
+  > historical skip outcomes; the workflow derives those values rather than
+  > restating them. Nightly, manual evidence, and release validation retain the
+  > complete unfiltered suite. Repository protection adopted the stable
+  > aggregator before the duplicate member test/build steps were removed from
+  > the root job. Because this topology changes un-excluded root automation but
+  > not the `gda` product, its commits and squash title use non-releasing `ci`
+  > types.
+- **CI and Release share one exact uv tool version.** The shared
+  `setup-python-env` action owns the pin for every project-sync and release
+  consumer; workflows may not opt back into a moving `latest` or restate the
+  pin per job. The stdlib-only path classifier pins Python 3.13 directly with
+  `actions/setup-python`, avoiding uv installation on the latency-critical
+  unrelated-path route while keeping its interpreter explicit.
 - **Tag identity has one implementation.** Three places need to know a
   package's tag — the root release build's validation, the member release
   build's validation, and the release-PR tag gate — and each composing its own

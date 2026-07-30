@@ -269,6 +269,7 @@ jobs:
   build-release-gda-balancing:
     name: Build and verify gda-balancing release artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: cut-release
     if: >-
       !failure() && !cancelled() &&
@@ -298,8 +299,52 @@ jobs:
 
       # The member is engine- and game-agnostic by construction (its isolation
       # gate is part of this suite), so there is no e2e tier to install Godot for.
+      - name: Verify gda-balancing test and vector inventory
+        run: |
+          mkdir -p test-results
+          uv run --frozen --project libs/gda-balancing \
+            python libs/gda-balancing/tools/ci.py verify-inventory \
+            --report test-results/inventory.json
+
       - name: Run gda-balancing tests
-        run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
+        run: |
+          set -o pipefail
+          process_timeout="$(uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py process-timeout unfiltered)"
+          timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
+            uv run --frozen --project libs/gda-balancing pytest \
+              libs/gda-balancing/tests -q --durations=50 \
+              --junitxml=test-results/release-junit.xml \
+            2>&1 | tee test-results/release.log
+
+      - name: Summarize durations and verify release outcomes
+        if: ${{ always() }}
+        run: |
+          mkdir -p test-results
+          if [ -f test-results/release-junit.xml ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py summarize-junit \
+              --junit test-results/release-junit.xml \
+              --report test-results/release-durations.json
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py verify-outcomes \
+              --junit test-results/release-junit.xml \
+              --report test-results/release-outcomes.json
+          else
+            printf '{"error":"release suite timed out before JUnit was finalized"}\n' \
+              > test-results/release-durations.json
+            printf '{"error":"release suite timed out before JUnit was finalized"}\n' \
+              > test-results/release-outcomes.json
+          fi
+
+      - name: Upload release validation inventory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-release-validation
+          path: test-results/
+          if-no-files-found: error
+          overwrite: true
 
       # Same derivation as the root build job — scripts/release_tags.py is the
       # one authority. The tag prefix is NOT restated here: it follows from the

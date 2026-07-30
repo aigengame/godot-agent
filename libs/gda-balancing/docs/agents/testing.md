@@ -56,11 +56,12 @@ live separately in `schema2_bootstrap_production_support.py`.
 
 ## Inventory closure
 
-`schema2-test-inventory-v1.json` records the 1,030 logical tests and 92 packaged
-conformance vectors present before #597. Logical identifiers preserve classes
-and parameter/vector cases. `schema2-bootstrap-migration-map.json` maps every
-bootstrap test moved to one of the four semantic files; normalization applies
-only to those declared moves.
+`schema2-test-inventory-v1.json` records the 1,030 logical tests, 92 packaged
+conformance vectors, and 90 accepted skip outcomes present before the final
+#597 root-CI cutover. Logical identifiers preserve classes and parameter/vector
+cases. `schema2-bootstrap-migration-map.json` maps every bootstrap test moved
+to one of the four semantic files; normalization applies only to those
+declared moves.
 
 Run the closure check from the repository root:
 
@@ -73,14 +74,26 @@ uv run --frozen --project libs/gda-balancing \
 The check fails if a baseline test or vector disappears, two shards overlap, a
 current test is uncovered, or a shard selects a test outside the unfiltered
 collection. New regression tests are allowed and increase the current count.
+After execution, `verify-outcomes` reads each JUnit result and fails if a test
+outside the recorded set is skipped or if any test is xfailed. Member pytest
+also uses strict xfail behavior, and its collection hook rejects an explicit
+`xfail(strict=False)` override, so an XPASS cannot conceal a newly introduced
+xfail marker.
 
 ## Required, nightly, and release policy
 
 `tools/ci.py` is the reviewed path and shard authority.
 `libs/gda-balancing/**`, its lock, the shared Python setup action, CI/release
-workflows, and shared release/tag/scope tooling run the complete matrix. Only
-explicitly enumerated root-product and documentation paths are unrelated.
-Every unknown path fails closed to the complete matrix.
+workflows, the root balancing-CI wiring regression, and shared
+release/tag/scope tooling run the complete matrix. Only explicitly enumerated
+root-product and documentation paths are unrelated. Every unknown path fails
+closed to the complete matrix.
+
+The shared Python setup action owns one exact uv version for every CI and
+Release consumer; individual jobs do not restate or override that version.
+The stdlib-only scope classifier is the exception to using uv: it pins Python
+3.13 directly with `actions/setup-python` so an unrelated PR does not install a
+package manager merely to classify paths.
 
 An affecting PR runs:
 
@@ -92,23 +105,33 @@ An affecting PR runs:
 
 Each executable shard has a hard eight-minute process bound and a fifteen-minute
 job timeout. JUnit, raw logs, per-file totals, the 50 slowest tests, and the
-shard inventory are uploaded even after a test failure. A known unrelated PR
-runs only scope classification and the successful stable aggregator. Nightly
-and release validation run the complete unfiltered suite; release also checks
-inventory closure.
+outcome-closure report are uploaded even after a test failure. A known
+unrelated PR runs only scope classification and the successful stable
+aggregator. The one-minute unrelated target is measured from scope-job start to
+aggregator completion; it is not the aggregator's job timeout.
+
+Nightly and release validation run the complete unfiltered suite under a
+separate fifteen-minute process bound. The nightly job has a twenty-minute job
+timeout; the release build job has thirty minutes for inventory, tests, tag
+validation, and build. Release also checks inventory closure and uploads the
+inventory, JUnit, duration, outcome, and raw-log evidence. Maintainers can run
+the exact nightly path against a PR head with **Run workflow** and
+`run-balancing-unfiltered=true`; scheduled and manual evidence runs use unique,
+non-cancelling concurrency groups, so a later `main` push cannot discard them.
 
 Member release PRs may contain only `libs/gda-balancing/**`, so the member-owned
 policy, inventory, and tests land separately from the root-owned workflow
 wiring. That wiring must be reviewed as a non-releasing root change stacked
 after the member change; it must not be folded into a releasing member PR.
-During required-check cutover, keep the existing required context until
-`gda-balancing required` has run successfully and the repository ruleset has
-adopted it.
+The required-check cutover is complete: repository protection requires
+`gda-balancing required`, and the duplicate serial member test/build path was
+removed only after that protection was active.
 
 To reproduce a shard:
 
 ```bash
-python3 libs/gda-balancing/tools/ci.py shard-paths authority |
+uv run --no-project --python 3.13 python \
+  libs/gda-balancing/tools/ci.py shard-paths authority |
   xargs uv run --frozen --project libs/gda-balancing pytest -q --durations=50
 ```
 
@@ -143,12 +166,15 @@ OS process per command, and `/usr/bin/time -p`:
 | `model check examples/schema2/rpg-combat-cast/model-source.json` | 2.56 s | 0.83 s |
 | `template list` | 2.33 s | 0.73 s |
 
-The final unfiltered local verification collected 1,062 tests and completed in
-203.89 seconds: 972 passed and the same 90 pre-existing cases skipped. Parallel
-local shard verification completed in 21.87 seconds (`fast`), 171.84 seconds
-(`authority`), 117.73 seconds (`language`), and 164.03 seconds (`composition`).
-Command timings and local suite timings are diagnostic evidence; the CI
-service-level measurement below is the merge gate.
+The post-review PR #598 verification collects 1,085 tests and retains the same
+92 packaged vectors. The four semantic matrix shards contain 990 passing tests
+and the same 90 accepted skips; the separate required smoke shard contains five
+passing tests. Across required execution, 995 tests pass, and outcome closure
+reports zero new skips and zero xfails.
+Exact-head manual-unfiltered evidence and individual-run wall clocks are kept
+with the PR rather than frozen here. Command timings and individual-run timings
+are diagnostic evidence; the rolling CI service-level measurement below is the
+operational gate.
 
 ## CI latency measurement protocol
 

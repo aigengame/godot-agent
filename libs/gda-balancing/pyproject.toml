@@ -49,6 +49,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# #597 forbids converting coverage into expected failures. Combined with the
+# JUnit outcome gate, strict XPASS makes every static or dynamic xfail visible.
+xfail_strict = true
 
 [tool.pyright]
 include = ["src", "tests"]
