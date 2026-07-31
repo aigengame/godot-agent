@@ -27,9 +27,14 @@ stateless.
 **gda-mcp adopts MCP SDK v2 (`mcp>=2,<3`) and serves both protocol eras from the one
 low-level stdio `Server`.** Pre-2026 clients complete the legacy `initialize`
 handshake and keep today's behavior bit-for-bit; 2026-07-28 clients are served the
-stateless path by the same binary. Both eras are a permanent automated gate (the
-real console script driven under `mode="legacy"` **and** `mode="auto"`), not a
-compatibility claim. Concretely:
+stateless path by the same binary. Both eras are a permanent automated gate, not a
+compatibility claim: the real console script is driven over real stdio under
+`mode="legacy"` **and** `mode="2026-07-28"`, asserting the negotiated
+`protocol_version` per era — the modern era is pinned, never `mode="auto"`, because
+auto falls back to the legacy handshake on a server that lost modern support and
+would go green without proving it. The engine-free half (handshake + generated
+surface) runs in the PR-CI fast tier; the e2e half adds real tool dispatch.
+Concretely:
 
 - **Stay on the low-level `Server`.** The ADR-0012 rationale is unchanged by v2:
   our schemas come *from* gda, tools are discovered at runtime and served by one
