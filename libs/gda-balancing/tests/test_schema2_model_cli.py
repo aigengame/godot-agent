@@ -3678,6 +3678,150 @@ def test_resolved_model_admission_rejects_coherently_reidentified_invalid_declar
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
+def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contract(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_value["modules"][0]["formulas"] = [
+        {
+            "id": "choose-value",
+            "parameters": [
+                {"id": "condition", **quantity_contract},
+                {"id": "when-false", **quantity_contract},
+                {"id": "when-true", **quantity_contract},
+            ],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "when-true"},
+            },
+        }
+    ]
+    source_value["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "choose-value"},
+            "arguments": [
+                {
+                    "parameter": "condition",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "constant_value",
+                    },
+                },
+                {
+                    "parameter": "when-false",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                },
+                {
+                    "parameter": "when-true",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                },
+            ],
+        }
+    ]
+    _use_derived_value(source_value)
+    source = tmp_path / "conditional-admission.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    built = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "published-model"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert built[0] == 0, built
+    artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
+    assert model_module.admit_resolved_model(artifacts).admitted is True
+
+    kernel, language_bundle = authority_module.load_authorities()
+    policy = model_module._formula_policy(language_bundle)
+    actual_operand_domain = kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]["actual_operand"]
+    rir = artifacts["rir-semantic-payload"]
+    formula = rir["formulas"][0]
+    operands = {
+        name: {
+            **(body := {"kind": "parameter", "parameter": name}),
+            "identity": content_identity(actual_operand_domain, body),
+        }
+        for name in ("condition", "when-false", "when-true")
+    }
+    node_body = {
+        "id": "choice",
+        "node": "conditional",
+        "condition": operands["condition"],
+        "when_true": operands["when-true"],
+        "when_false": operands["when-false"],
+        "result": formula["result"],
+    }
+    node = {
+        **node_body,
+        "identity": content_identity(
+            policy["identity_domains"]["expression_node"], node_body
+        ),
+    }
+    result_body = {"kind": "local", "local": "choice"}
+    formula["body"] = {
+        "nodes": [node],
+        "result": {
+            **result_body,
+            "identity": content_identity(actual_operand_domain, result_body),
+        },
+    }
+    formula["identity"] = content_identity(
+        policy["identity_domains"]["declaration"],
+        {key: value for key, value in formula.items() if key != "identity"},
+    )
+    for binding in rir["formula_bindings"]:
+        binding["formula"]["identity"] = formula["identity"]
+        binding["identity"] = content_identity(
+            policy["identity_domains"]["binding"],
+            {key: value for key, value in binding.items() if key != "identity"},
+        )
+    rir["initialization_programs"] = model_module._compile_initialization_programs(
+        rir["selected_semantics"],
+        rir["formulas"],
+        rir["formula_bindings"],
+        policy,
+    )
+    _reidentify(rir, "rir-semantic-payload-v2")
+    artifacts["resolved-model"]["rir_identity"] = rir["content_identity"]
+    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
 def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
     tmp_path, run_cli
 ):

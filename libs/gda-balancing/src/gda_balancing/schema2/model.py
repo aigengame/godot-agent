@@ -6186,6 +6186,29 @@ def _formula_program_graph_is_admitted(
                 "identity_domains"
             ]["actual_operand"],
         )
+        boolean_contract = cast(
+            dict[str, Any],
+            kernel["meta_format"]["runtime_program"]["fixed_value_contracts"][
+                "kernel-boolean"
+            ],
+        )
+        boolean_type = cast(dict[str, str], boolean_contract["type"])
+        admitted_boolean_contract = {
+            "type_identity": {
+                "package": boolean_type["package"],
+                "version": boolean_type["version"],
+                "symbol": boolean_type["id"],
+            },
+            **{
+                member: boolean_contract[member]
+                for member in (
+                    "representation",
+                    "kind",
+                    "unit",
+                    "numeric_policy",
+                )
+            },
+        }
         formula_contexts = _formula_contexts(language_bundle)
     except (KeyError, TypeError, ValueError):
         return False
@@ -6454,8 +6477,11 @@ def _formula_program_graph_is_admitted(
                 false_contract = operand_contract(node.get("when_false"))
                 if (
                     condition_contract is None
-                    or condition_contract.get("kind") not in {"boolean", "scalar"}
-                    or condition_contract.get("representation") not in {"Bool", "Int"}
+                    or any(
+                        condition_contract.get(member)
+                        != admitted_boolean_contract[member]
+                        for member in admitted_boolean_contract
+                    )
                     or true_contract is None
                     or false_contract is None
                     or not _formula_contract_matches(true_contract, false_contract)
