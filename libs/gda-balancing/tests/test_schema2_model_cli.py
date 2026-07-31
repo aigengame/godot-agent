@@ -323,10 +323,23 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             "operand": rir["formula_bindings"][0]["arguments"][0]["operand"],
         }
     ]
-    assert program["body"] == []
-    assert program["result"] == {"kind": "input", "name": "base"}
+    result_name = f"init.{program['site']['identity']}.$result"
+    assert program["body"] == [
+        {
+            "evaluation_site_identity": program["body"][0][
+                "evaluation_site_identity"
+            ],
+            "instruction": {
+                "node": "copy",
+                "target": result_name,
+                "value": "base",
+            },
+        }
+    ]
+    assert program["body"][0]["evaluation_site_identity"].startswith("sha256:")
+    assert program["result"] == {"kind": "local", "name": result_name}
     assert program["numeric_policy"] == "exact-int64"
-    assert program["resource_bounds"] == {"max_steps": 0}
+    assert program["resource_bounds"] == {"max_steps": 1}
     assert program["refusals"] == []
 
 
@@ -564,11 +577,12 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
         "id": "inner",
         "identity": formulas["inner"]["identity"],
     }
+    assert formulas["inner"]["closure"]["resource_charge"] == {"max_steps": 1}
     assert formulas["outer"]["closure"] == {
         "formula_dependencies": [formulas["inner"]["identity"]],
         "operation_dependencies": [],
         "refusals": [],
-        "resource_charge": {"max_steps": 1},
+        "resource_charge": {"max_steps": 2},
         "termination_measure": 2,
     }
 
@@ -611,9 +625,14 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
             },
         }
 
+    first = formula("alpha", "beta")
+    first["body"] = {
+        "nodes": [],
+        "result": {"kind": "parameter", "parameter": "value"},
+    }
     source_document["modules"][0]["formulas"] = [
-        formula("alpha", "beta"),
-        formula("beta", "alpha"),
+        first,
+        formula("beta", "beta"),
     ]
     source_document["formula_bindings"] = [
         {
@@ -622,7 +641,7 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
                 "module": "main",
                 "symbol": "derived_value",
             },
-            "formula": {"module": "main", "id": "alpha"},
+            "formula": {"module": "main", "id": "beta"},
             "arguments": [
                 {
                     "parameter": "value",
@@ -643,7 +662,7 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/0/body"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1/body"
 
 
 def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli):
@@ -1015,6 +1034,71 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert [row["operand"]["parameter"] for row in binding["arguments"]] == [
         "damage_before_defense",
         "mitigation",
+    ]
+
+
+def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "nodes": [],
+        "result": {
+            "kind": "parameter",
+            "parameter": "damage_before_defense",
+        },
+    }
+    source = tmp_path / "direct-result-slot-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "direct-result-slot-model"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    rir = json.loads(
+        (
+            _artifact_directory(json.loads(stdout)) / "rir-semantic-payload.json"
+        ).read_text(encoding="utf-8")
+    )
+    resolved_formula = next(
+        row for row in rir["formulas"] if row["id"] == "mitigated-damage"
+    )
+    damage = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.damage-v1"
+    )
+    slot = damage["extensions"]["standard.formula-slots"][0]
+    lowered = damage["body"][
+        slot["placeholder_index"] : slot["placeholder_index"] + 1
+    ]
+
+    assert resolved_formula["closure"]["resource_charge"] == {"max_steps": 1}
+    assert lowered == [
+        {
+            "node": "copy",
+            "target": slot["target"],
+            "value": "damage_before_defense",
+        }
     ]
 
 

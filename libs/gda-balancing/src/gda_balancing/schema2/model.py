@@ -213,6 +213,14 @@ class _EntrypointBindingError(ValueError):
         self.pointer = pointer
 
 
+class _FormulaResolutionError(ValueError):
+    """Formula resolution failed at one exact author-owned source pointer."""
+
+    def __init__(self, pointer: str, message: str) -> None:
+        super().__init__(message)
+        self.pointer = pointer
+
+
 @dataclass
 class _RuntimeProjectionBudget:
     limit: int
@@ -1200,10 +1208,15 @@ def _check_model_source_bytes(
             cast(str, profile["structural_reason"]),
         )
         message = str(err)
+        pointer = (
+            err.pointer
+            if isinstance(err, _FormulaResolutionError)
+            else _formula_failure_pointer(source, message)
+        )
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
             source_identity,
-            _formula_failure_pointer(source, message),
+            pointer,
             f"Model Formula resolution failed: {message}",
             ldb,
         )
@@ -2081,7 +2094,10 @@ def _resolved_formula_programs_and_bindings(
 
     def visit(key: tuple[str, str]) -> None:
         if key in visiting:
-            raise ValueError("Formula call graph contains a cycle")
+            raise _FormulaResolutionError(
+                f"{formula_pointers[key]}/body",
+                "Formula call graph contains a cycle",
+            )
         if key in visited:
             return
         visiting.add(key)
@@ -2402,6 +2418,8 @@ def _resolved_formula_programs_and_bindings(
             result_contract, cast(dict[str, Any], prototype["result"])
         ):
             raise ValueError("Formula program result contract is incompatible")
+        if result_operand["kind"] != "local":
+            max_steps += charge_per_node
         closure = cast(
             dict[str, JsonValue],
             {
@@ -3504,6 +3522,14 @@ def _specialize_operation_formula_slots(
             cast(str, slot["target"]),
             f"formula.{site['slot']}",
         )
+        expected_steps = cast(
+            int,
+            cast(dict[str, Any], formula["closure"])["resource_charge"]["max_steps"],
+        )
+        if len(compiled) != expected_steps:
+            raise ValueError(
+                "generic event lowering does not preserve Formula charge"
+            )
         placeholder_index = cast(int, slot["placeholder_index"])
         placeholder_length = cast(int, slot["placeholder_length"])
         operation["body"][
@@ -3788,7 +3814,28 @@ def _compile_initialization_programs(
                     )
                 locals_by_id[node_id] = {"kind": "local", "name": target}
             result = cast(dict[str, Any], formula["body"]["result"])
-            return source_for_operand(result, parameters, locals_by_id, prefix)
+            result_source = source_for_operand(
+                result,
+                parameters,
+                locals_by_id,
+                prefix,
+            )
+            if result["kind"] == "local":
+                return result_source
+            result_target = f"{prefix}.$result"
+            emit(
+                {
+                    "node": "copy",
+                    "target": result_target,
+                    "value": reference(result_source),
+                },
+                evaluation_site_identity=instruction_site(
+                    formula,
+                    "$result",
+                    prefix,
+                ),
+            )
+            return {"kind": "local", "name": result_target}
 
         formula_ref = cast(dict[str, Any], binding["formula"])
         formula = formulas_by_identity[cast(str, formula_ref["identity"])]
@@ -6117,6 +6164,8 @@ def _formula_program_graph_is_admitted(
                 for node in cast(list[dict[str, Any]], formula["body"]["nodes"])
             )
         ) * cast(int, policy["resource_charge_per_node"])
+        if cast(dict[str, Any], formula["body"]["result"])["kind"] != "local":
+            expected_steps += cast(int, policy["resource_charge_per_node"])
         expected_termination = 1
         for dependency in dependency_formulas:
             closure = cast(dict[str, Any], dependency["closure"])
