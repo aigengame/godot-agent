@@ -129,7 +129,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         runtime_vectors[vector_id]["kind"]
         for vector_id in expected_vector_ids["standard.runtime"]
         if ".observation." in vector_id
-    } == {"package-contract"}
+    } == {"value-program"}
     evidence_schema_ids = {
         "formula-observation-boundary-evidence",
         "formula-observation-positive-evidence",
@@ -144,15 +144,20 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         if entry["artifact_kind"] in evidence_schema_ids
     }
     assert set(evidence_schemas) == evidence_schema_ids
-    assert evidence_schemas["formula-observation-positive-evidence"]["const"][
+    assert evidence_schemas["formula-observation-positive-evidence"]["properties"][
         "snapshot_indices"
-    ] == [1]
-    assert evidence_schemas["formula-observation-boundary-evidence"]["const"][
+    ]["const"] == [1]
+    assert evidence_schemas["formula-observation-boundary-evidence"]["properties"][
         "snapshot_indices"
-    ] == [1, 3]
-    assert evidence_schemas["formula-observation-refusal-evidence"]["const"][
+    ]["const"] == [1, 3]
+    assert evidence_schemas["formula-observation-refusal-evidence"]["properties"][
         "snapshot_indices"
-    ] == [1, 3]
+    ]["const"] == [1, 3]
+    serialized_evidence = repr(evidence_schemas)
+    assert all(
+        game_term not in serialized_evidence
+        for game_term in ("game.combat", "actor_mana", "target_health")
+    )
 
 
 @pytest.mark.parametrize(

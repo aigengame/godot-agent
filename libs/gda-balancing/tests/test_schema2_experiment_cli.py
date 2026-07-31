@@ -740,23 +740,16 @@ def _observation_evidence(
     cache_entries: int,
     events: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     outcome: str,
-    post_state: list[dict[str, Any]],
+    post_state_committed: bool,
     snapshot_identities: list[str],
     snapshot_indices: list[int],
 ) -> dict[str, Any]:
     return {
         "artifact_kind": artifact_kind,
         "cache_entries": cache_entries,
-        "committed_prefix": [
-            {
-                "index": event["index"],
-                "operation": event["operation"],
-                "outcome": event["outcome"],
-            }
-            for event in events
-        ],
+        "committed_event_indices": [event["index"] for event in events],
         "outcome": outcome,
-        "post_state": post_state,
+        "post_state_committed": post_state_committed,
         "snapshot_identities": snapshot_identities,
         "snapshot_indices": snapshot_indices,
     }
@@ -1342,7 +1335,9 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         cache_entries=observation_cache_growth[0],
         events=events[:1],
         outcome="admitted",
-        post_state=terminal_snapshots[0]["values"],
+        post_state_committed=(
+            terminal_snapshots[0]["values"] == events[0]["state_after"]
+        ),
         snapshot_identities=cast(list[str], observation_frames[:1]),
         snapshot_indices=[terminal_snapshots[0]["index"]],
     )
@@ -1351,7 +1346,9 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         cache_entries=sum(observation_cache_growth),
         events=events,
         outcome="admitted",
-        post_state=terminal_snapshots[-1]["values"],
+        post_state_committed=(
+            terminal_snapshots[-1]["values"] == events[-1]["state_after"]
+        ),
         snapshot_identities=cast(list[str], observation_frames),
         snapshot_indices=[snapshot["index"] for snapshot in terminal_snapshots],
     )
@@ -1437,10 +1434,9 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
         cache_entries=sum(observation_cache_growth),
         events=outcome.committed_trace_prefix,
         outcome="refused",
-        post_state=[
-            {"name": name, "value": value}
-            for name, value in sorted(outcome.last_state.items())
-        ],
+        post_state_committed=(
+            outcome.state_before == outcome.state_after == outcome.last_state
+        ),
         snapshot_identities=observation_frames,
         snapshot_indices=[1, 3],
     )
@@ -2679,6 +2675,9 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.accept.initialization-and-event-frames",
         "formula.runtime.refuse.initialization-atomically",
         "formula.runtime.boundary.cache-charge-invariant",
+        "formula.runtime.observation.positive.post-transition-snapshot",
+        "formula.runtime.observation.boundary.snapshot-cache-key",
+        "formula.runtime.observation.refusal.atomic-prefix",
     }
     for vector in vectors:
         production = experiment_runtime_module._evaluate_value_program_vector(vector)
@@ -2703,19 +2702,21 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
     }
-    expected_exports = [
+    expected_exports = {
         "formula-observation-boundary-evidence",
         "formula-observation-positive-evidence",
         "formula-observation-refusal-evidence",
-    ]
+    }
+    assert {
+        row["artifact_kind"]
+        for row in ldb["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] in expected_exports
+    } == expected_exports
     for vector in vectors:
-        assert vector == {
-            "category": vector["category"],
-            "expect": expected_exports,
-            "id": vector["id"],
-            "kind": "package-contract",
-            "probe": {"path": "exports.artifact_wire_schemas"},
-        }
+        assert vector["kind"] == "value-program"
+        production = experiment_runtime_module._evaluate_value_program_vector(vector)
+        reference = _reference_evaluate_value_program_vector(vector)
+        assert production == reference == vector["expect"]
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(
