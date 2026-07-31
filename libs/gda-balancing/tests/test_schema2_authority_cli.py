@@ -1230,6 +1230,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     assert {item["id"] for item in contract["kinds"]} == {
         "package-contract",
         "operation-contract",
+        "observation-lifecycle",
         "runtime-scenario",
         "value-program",
     }
