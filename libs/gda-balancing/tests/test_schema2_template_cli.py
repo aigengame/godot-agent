@@ -905,7 +905,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:460e20074ce16c7a4803d3e93d0b3a4de895b231557e5e5d187e7a3d522eeda4"
+                    "sha256:0087f6de04daa3a411767fd5e2c554fa5de6ccf313aa3e4118863c017b44ff74"
                 ),
             }
         ]
@@ -1319,10 +1319,99 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
     )
 
     accepted = deepcopy(starter)
-    accepted["modules"][0]["symbols"][0]["domain"]["minimum"] = boundary["value"]
+    accepted["modules"][0]["symbols"][0]["domain"]["maximum"] = boundary["value"]
     accepted_path = tmp_path / "boundary.json"
     accepted_path.write_text(json.dumps(accepted), encoding="utf-8")
     assert run_cli(["model", "check", str(accepted_path)])[0] == 0
+
+
+def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, run_cli):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    starter = next(
+        item["payload"]
+        for item in release["members"]
+        if item["logical_name"] == "starter-model-source"
+    )
+    module = starter["modules"][0]
+    assert [row["id"] for row in module["formulas"]] == ["derive-value"]
+    assert starter["formula_bindings"] == [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "value",
+                    },
+                }
+            ],
+        }
+    ]
+    assert starter["entrypoints"][0]["arguments"][0]["operand"]["symbol"] == (
+        "derived_value"
+    )
+    assert starter["entrypoints"][0]["result"]["symbol"] == "output_value"
+
+    edited = deepcopy(starter)
+    formula = edited["modules"][0]["formulas"][0]
+    formula["body"] = {
+        "nodes": [
+            {
+                "id": "minimum",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.maximum",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {"kind": "parameter", "parameter": "base"},
+                    },
+                    {
+                        "port": "right",
+                        "operand": {"kind": "literal", "value": 1},
+                    },
+                ],
+                "result": deepcopy(formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "minimum"},
+    }
+    edited_path = tmp_path / "edited-template-formula.json"
+    edited_path.write_text(json.dumps(edited), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(edited_path),
+            "--out",
+            str(tmp_path / "edited-template-model"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+    assert (exit_code, stderr) == (0, ""), stdout
 
 
 def test_template_get_refuses_an_unknown_release_with_a_stable_ldb_diagnostic(
@@ -2163,7 +2252,15 @@ def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(
         == 0
     )
     source = json.loads(source_path.read_text(encoding="utf-8"))
-    source["modules"][0]["symbols"][0]["domain"]["maximum"] = 250
+    module = source["modules"][0]
+    for symbol in module["symbols"]:
+        symbol["domain"]["maximum"] = 250
+    for formula in module["formulas"]:
+        for parameter in formula["parameters"]:
+            parameter["domain"]["maximum"] = 250
+        formula["result"]["domain"]["maximum"] = 250
+        for node in formula["body"]["nodes"]:
+            node["result"]["domain"]["maximum"] = 250
     source_path.write_text(json.dumps(source), encoding="utf-8")
     resolved_path = tmp_path / "resolved.json"
 

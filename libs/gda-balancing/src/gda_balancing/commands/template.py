@@ -1394,6 +1394,15 @@ def _minimal_release(
         packages_by_coordinate[coordinate]
         for coordinate in sorted(selected_coordinates)
     ]
+    quantity_contract: dict[str, JsonValue] = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
         "manifest": {
@@ -1416,20 +1425,101 @@ def _minimal_release(
                 "symbols": [
                     {
                         "symbol": "value",
-                        "type": "quantity",
+                        **deepcopy(quantity_contract),
                         "role": "parameter",
-                        "representation": "Int",
-                        "kind": "scalar",
-                        "unit": "1",
-                        "domain_kind": "closed-interval",
-                        "domain": {"minimum": 0, "maximum": 100},
-                        "numeric_policy": "exact-int64",
                         "value_policy": {"mode": "experiment-required"},
+                    },
+                    {
+                        "symbol": "derived_value",
+                        **deepcopy(quantity_contract),
+                        "role": "derived",
+                        "value_policy": {"mode": "none"},
+                    },
+                    {
+                        "symbol": "output_value",
+                        **deepcopy(quantity_contract),
+                        "role": "output",
+                        "value_policy": {"mode": "none"},
+                    },
+                ],
+                "formulas": [
+                    {
+                        "id": "derive-value",
+                        "parameters": [{"id": "base", **deepcopy(quantity_contract)}],
+                        "result": deepcopy(quantity_contract),
+                        "body": {
+                            "nodes": [
+                                {
+                                    "id": "value",
+                                    "node": "operation-call",
+                                    "operation": {
+                                        "package": "core.quantity",
+                                        "version": "2.1.0",
+                                        "id": "quantity.identity",
+                                    },
+                                    "arguments": [
+                                        {
+                                            "port": "value",
+                                            "operand": {
+                                                "kind": "parameter",
+                                                "parameter": "base",
+                                            },
+                                        }
+                                    ],
+                                    "result": deepcopy(quantity_contract),
+                                }
+                            ],
+                            "result": {"kind": "local", "local": "value"},
+                        },
                     }
                 ],
             }
         ],
-        "entrypoints": [],
+        "formula_bindings": [
+            {
+                "site": {
+                    "kind": "derived-symbol",
+                    "module": "main",
+                    "symbol": "derived_value",
+                },
+                "formula": {"module": "main", "id": "derive-value"},
+                "arguments": [
+                    {
+                        "parameter": "base",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "value",
+                        },
+                    }
+                ],
+            }
+        ],
+        "entrypoints": [
+            {
+                "id": "quantity.identity",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "derived_value",
+                        },
+                    }
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "main",
+                    "symbol": "output_value",
+                },
+            }
+        ],
     }
     profile = _template_admission_profile(language_bundle)
     member_identity_domain = cast(str, profile["member_identity_domain"])
