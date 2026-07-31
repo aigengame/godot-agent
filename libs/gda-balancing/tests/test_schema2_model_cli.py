@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import stat
 import threading
 import time
@@ -271,74 +272,54 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     published = _artifact_directory(json.loads(stdout))
     rir = json.loads((published / "rir-semantic-payload.json").read_text())
     assert [formula["id"] for formula in rir["formulas"]] == ["derive-value"]
-    assert rir["formula_bindings"] == [
-        {
-            "arguments": [
-                {
-                    "operand": {
-                        "identity": rir["formula_bindings"][0]["arguments"][0][
-                            "operand"
-                        ]["identity"],
-                        "kind": "symbol",
-                        "resolved_symbol": {
-                            "model": "example.quantity-model",
-                            "module": "main",
-                            "name": "input_value",
-                        },
-                    },
-                    "parameter": "base",
-                }
-            ],
-            "formula": {
-                "id": "derive-value",
-                "identity": rir["formulas"][0]["identity"],
-                "module": "main",
-            },
-            "identity": rir["formula_bindings"][0]["identity"],
-            "site": {
-                "context": {
-                    "frame": "pre-snapshot",
-                    "phase": "initialization",
-                },
-                "identity": rir["formula_bindings"][0]["site"]["identity"],
-                "kind": "derived-symbol",
-                "resolved_symbol": {
-                    "model": "example.quantity-model",
-                    "module": "main",
-                    "name": "derived_value",
-                },
-            },
-        }
-    ]
-    program = rir["initialization_programs"][0]
-    assert program["site"] == rir["formula_bindings"][0]["site"]
-    assert program["target"] == {
-        "model": "example.quantity-model",
-        "module": "main",
-        "name": "derived_value",
+    bindings_by_phase = {
+        binding["site"]["context"]["phase"]: binding
+        for binding in rir["formula_bindings"]
     }
-    assert program["inputs"] == [
-        {
-            "name": "base",
-            "operand": rir["formula_bindings"][0]["arguments"][0]["operand"],
+    assert set(bindings_by_phase) == {"initialization", "observation"}
+    assert bindings_by_phase["initialization"]["site"]["context"] == {
+        "frame": "pre-snapshot",
+        "phase": "initialization",
+    }
+    assert bindings_by_phase["observation"]["site"]["context"] == {
+        "frame": "post-transition-snapshot",
+        "phase": "observation",
+    }
+    assert (
+        bindings_by_phase["initialization"]["site"]["identity"]
+        != bindings_by_phase["observation"]["site"]["identity"]
+    )
+    assert len(rir["initialization_programs"]) == 2
+    for program in rir["initialization_programs"]:
+        phase = program["site"]["context"]["phase"]
+        binding = bindings_by_phase[phase]
+        assert program["site"] == binding["site"]
+        assert program["target"] == {
+            "model": "example.quantity-model",
+            "module": "main",
+            "name": "derived_value",
         }
-    ]
-    result_name = f"init.{program['site']['identity']}.$result"
-    assert program["body"] == [
-        {
-            "evaluation_site_identity": program["body"][0]["evaluation_site_identity"],
-            "instruction": {
-                "node": "copy",
-                "target": result_name,
-                "value": "base",
-            },
-        }
-    ]
-    assert program["body"][0]["evaluation_site_identity"].startswith("sha256:")
-    assert program["result"] == {"kind": "local", "name": result_name}
-    assert program["numeric_policy"] == "exact-int64"
-    assert program["resource_bounds"] == {"max_steps": 1}
-    assert program["refusals"] == []
+        assert program["inputs"] == [
+            {"name": "base", "operand": binding["arguments"][0]["operand"]}
+        ]
+        result_name = f"init.{program['site']['identity']}.$result"
+        assert program["body"] == [
+            {
+                "evaluation_site_identity": program["body"][0][
+                    "evaluation_site_identity"
+                ],
+                "instruction": {
+                    "node": "copy",
+                    "target": result_name,
+                    "value": "base",
+                },
+            }
+        ]
+        assert program["body"][0]["evaluation_site_identity"].startswith("sha256:")
+        assert program["result"] == {"kind": "local", "name": result_name}
+        assert program["numeric_policy"] == "exact-int64"
+        assert program["resource_bounds"] == {"max_steps": 1}
+        assert program["refusals"] == []
 
 
 def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
@@ -499,18 +480,22 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     assert [row["id"] for row in explanation["formula_explanations"]] == [
         "derive-value"
     ]
-    assert explanation["formula_explanations"][0]["evaluation_sites"] == [
-        {
-            "binding_identity": rir["formula_bindings"][0]["identity"],
-            "context": {
-                "frame": "pre-snapshot",
-                "phase": "initialization",
-            },
-            "identity": rir["formula_bindings"][0]["site"]["identity"],
-            "operands": rir["formula_bindings"][0]["arguments"],
+    explanation_sites = {
+        row["context"]["phase"]: row
+        for row in explanation["formula_explanations"][0]["evaluation_sites"]
+    }
+    bindings_by_phase = {
+        row["site"]["context"]["phase"]: row for row in rir["formula_bindings"]
+    }
+    assert set(explanation_sites) == {"initialization", "observation"}
+    for phase, binding in bindings_by_phase.items():
+        assert explanation_sites[phase] == {
+            "binding_identity": binding["identity"],
+            "context": binding["site"]["context"],
+            "identity": binding["site"]["identity"],
+            "operands": binding["arguments"],
             "result": rir["formulas"][0]["result"],
         }
-    ]
     identity_operation = next(
         row
         for row in explanation["operation_explanations"]
@@ -595,6 +580,51 @@ def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, r
 
     assert (inspect_exit, inspect_stderr) == (0, "")
     assert json.loads(inspect_stdout)["artifact_kind"] == "model-explanation"
+
+
+def test_model_inspect_refuses_a_coherently_relocated_publication(
+    tmp_path, run_cli
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    committed_dir = _artifact_directory(json.loads(build_stdout))
+    relocated_dir = tmp_path / "relocated-publication"
+    shutil.copytree(committed_dir, relocated_dir)
+    relocated_receipt = json.loads(
+        (relocated_dir / "artifact-set-receipt.json").read_text()
+    )
+    relocated_receipt["manifest_locator"] = str(
+        relocated_dir / "artifact-set-manifest.json"
+    )
+    for locator in relocated_receipt["member_locators"]:
+        locator["locator"] = str(
+            relocated_dir / f"{locator['logical_name']}.json"
+        )
+    receipt_path = relocated_dir / "artifact-set-receipt.json"
+    receipt_path.write_bytes(canonical_bytes(relocated_receipt))
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt_path)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (2, "")
+    error = json.loads(inspect_stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "kernel.binding_mismatch"
+    ]
 
 
 def test_model_inspect_refuses_a_malformed_receipt_without_internal_error(
@@ -1353,51 +1383,79 @@ def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_c
     ),
 )
 def test_formula_slot_value_axes_have_stable_authority_diagnostics(
-    member, value, reason_id, diagnostic
+    member,
+    value,
+    reason_id,
+    diagnostic,
+    tmp_path,
+    run_cli,
 ):
-    checked = model_module.check_model_source(
-        str(
-            Path(__file__).parents[1]
-            / "examples/schema2/rpg-combat-cast/model-source.json"
-        )
-    )
-    assert isinstance(checked, model_module.CheckedModel)
-    formula_contract = {
-        "type_identity": {
-            "package": "core.quantity",
-            "version": "2.1.0",
-            "symbol": "Quantity",
-        },
-        "representation": "Int",
-        "kind": "scalar",
-        "unit": "1",
-        "numeric_policy": "exact-int64",
-    }
-    slot_contract = {
-        "type": {
-            "package": "core.quantity",
-            "version": "2.1.0",
-            "id": "Quantity",
-        },
-        "representation": "Int",
-        "kind": "scalar",
-        "unit": "1",
-        "numeric_policy": "exact-int64",
-        member: value,
-    }
+    source_document = _model_source()
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [
+                {
+                    "id": "base",
+                    "type": "quantity",
+                    "representation": "Int",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": 0, "maximum": 100},
+                    "numeric_policy": "exact-int64",
+                }
+            ],
+            "result": {
+                "type": "quantity",
+                "representation": "Int",
+                "kind": "scalar",
+                "unit": "1",
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": 0, "maximum": 100},
+                "numeric_policy": "exact-int64",
+            },
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    formula = source_document["modules"][0]["formulas"][0]
+    formula["parameters"][0][member] = value
+    formula["result"][member] = value
+    source = tmp_path / f"formula-{member}-mismatch.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
 
-    observed = model_module._formula_contract_mismatch_reason(
-        formula_contract,
-        slot_contract,
-        operation=True,
-    )
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
-    assert observed == reason_id
-    assert observed is not None
-    assert (
-        model_module.reason_by_id(checked.language_bundle, observed)["diagnostic"]
-        == diagnostic
-    )
+    assert (exit_code, stderr) == (2, "")
+    diagnostic_row = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic_row["code"] == diagnostic
+    assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
+    _, language_bundle = authority_module.load_authorities()
+    assert model_module.reason_by_id(language_bundle, reason_id)["diagnostic"] == diagnostic
 
 
 @pytest.mark.parametrize(

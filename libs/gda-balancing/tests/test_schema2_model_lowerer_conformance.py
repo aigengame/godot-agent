@@ -1259,6 +1259,20 @@ def _reference_formulas_and_bindings(
     )
     policy = profile["extensions"]["standard.formula"]
     domains = policy["identity_domains"]
+    formula_profiles = [
+        runtime["extensions"]["standard.formula"]["contexts"]
+        for runtime in language["runtime_profiles"]
+        if "standard.formula" in runtime.get("extensions", {})
+    ]
+    assert len(formula_profiles) == 1
+    formula_contexts = {
+        context["phase"]: {
+            "phase": context["phase"],
+            "frame": context["frame"],
+        }
+        for context in formula_profiles[0]
+    }
+    assert set(formula_contexts) == {"initialization", "event", "observation"}
     actual_operand_domain = checked.kernel["meta_format"]["runtime_program"][
         "invocation_contract"
     ]["identity_domains"]["actual_operand"]
@@ -1682,17 +1696,19 @@ def _reference_formulas_and_bindings(
                         },
                     }
                 )
-            site_body = {
-                "kind": "operation-slot",
-                "operation": {
-                    "package": key[0],
-                    "version": key[1],
-                    "id": key[2],
-                    "identity": operation_identity_value,
-                },
-                "slot": key[3],
-                "context": slot["context"],
-            }
+            site_bodies = [
+                {
+                    "kind": "operation-slot",
+                    "operation": {
+                        "package": key[0],
+                        "version": key[1],
+                        "id": key[2],
+                        "identity": operation_identity_value,
+                    },
+                    "slot": key[3],
+                    "context": slot["context"],
+                }
+            ]
         else:
             site = source_binding["site"]
             declaration = declarations_by_source[(site["module"], site["symbol"])]
@@ -1707,40 +1723,41 @@ def _reference_formulas_and_bindings(
                 }
                 for argument in source_binding["arguments"]
             ]
-            site_body = {
-                "kind": "derived-symbol",
-                "context": {
-                    "phase": "initialization",
-                    "frame": "pre-snapshot",
-                },
-                "resolved_symbol": declaration["resolved_symbol"],
-            }
+            site_bodies = [
+                {
+                    "kind": "derived-symbol",
+                    "context": formula_contexts[phase],
+                    "resolved_symbol": declaration["resolved_symbol"],
+                }
+                for phase in ("initialization", "observation")
+            ]
         arguments.sort(key=lambda item: item["parameter"])
-        site = {
-            **site_body,
-            "identity": _reference_content_identity(
-                domains["evaluation_site"],
-                site_body,
-            ),
-        }
-        binding_body = {
-            "site": site,
-            "formula": {
-                "module": formula["module"],
-                "id": formula["id"],
-                "identity": formula["identity"],
-            },
-            "arguments": arguments,
-        }
-        bindings.append(
-            {
-                **binding_body,
+        for site_body in site_bodies:
+            site = {
+                **site_body,
                 "identity": _reference_content_identity(
-                    domains["binding"],
-                    binding_body,
+                    domains["evaluation_site"],
+                    site_body,
                 ),
             }
-        )
+            binding_body = {
+                "site": site,
+                "formula": {
+                    "module": formula["module"],
+                    "id": formula["id"],
+                    "identity": formula["identity"],
+                },
+                "arguments": arguments,
+            }
+            bindings.append(
+                {
+                    **binding_body,
+                    "identity": _reference_content_identity(
+                        domains["binding"],
+                        binding_body,
+                    ),
+                }
+            )
     bindings.sort(key=lambda item: item["identity"])
     if bound_slots != set(slots):
         raise _ReferenceFormulaError(

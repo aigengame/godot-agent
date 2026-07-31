@@ -135,7 +135,11 @@ def run_model_inspect(
     inp: ModelInspectInput,
 ) -> ModelInspectResult | Schema2RefusalReport:
     try:
-        explanation = read_model_explanation(inp.receipt)
+        explanation = read_model_explanation(
+            inp.receipt,
+            descriptor_identity(MODEL_BUILD),
+            MODEL_BUILD.artifact_set,
+        )
     except ModelInspectAdmissionError as err:
         return ingress_refusal(err.code, err.subject, err.message)
     return ModelInspectResult.model_validate(explanation)

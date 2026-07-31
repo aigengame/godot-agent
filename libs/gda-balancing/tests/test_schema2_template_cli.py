@@ -903,9 +903,9 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
         "templates": [
             {
                 "id": "standard.quantity-minimal",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "content_identity": (
-                    "sha256:0087f6de04daa3a411767fd5e2c554fa5de6ccf313aa3e4118863c017b44ff74"
+                    "sha256:951d75759fdd5aa37e607e1a8ed2adf9b6492227cda1d8d30efe5d3e064eaaf2"
                 ),
             }
         ]
@@ -1194,7 +1194,7 @@ def test_template_get_returns_the_complete_content_addressed_release(run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ]
     )
 
@@ -1203,7 +1203,7 @@ def test_template_get_returns_the_complete_content_addressed_release(run_cli):
     assert release["artifact_kind"] == "template-release"
     assert (release["id"], release["version"]) == (
         "standard.quantity-minimal",
-        "2.0.0",
+        "2.1.0",
     )
     assert [item["logical_name"] for item in release["manifest"]] == [
         "starter-model-source",
@@ -1249,7 +1249,7 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1334,7 +1334,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1343,6 +1343,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
         for item in release["members"]
         if item["logical_name"] == "starter-model-source"
     )
+    assert starter["manifest"]["version"] == "1.1.0"
     module = starter["modules"][0]
     assert [row["id"] for row in module["formulas"]] == ["derive-value"]
     assert starter["formula_bindings"] == [
@@ -1445,7 +1446,7 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1466,7 +1467,7 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1489,7 +1490,7 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1525,7 +1526,7 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1545,7 +1546,7 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1581,7 +1582,7 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1603,7 +1604,7 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1684,7 +1685,7 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ],
             registry=(descriptor,),
         )
@@ -1706,7 +1707,7 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1724,7 +1725,7 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1745,7 +1746,7 @@ def test_metric_identifiers_are_unique_within_each_experiment_not_globally(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1762,7 +1763,7 @@ def test_metric_identifiers_are_unique_within_each_experiment_not_globally(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1781,7 +1782,7 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1807,7 +1808,7 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -1828,7 +1829,7 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1889,7 +1890,7 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ],
             registry=(descriptor,),
         )
@@ -1917,7 +1918,7 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -1936,7 +1937,7 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.my-quantity",
             "--out",
@@ -1999,7 +2000,7 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2024,7 +2025,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2047,7 +2048,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.role-selected",
             "--out",
@@ -2083,7 +2084,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, ru
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2108,7 +2109,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(tmp_path, ru
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.renamed-role",
             "--out",
@@ -2142,7 +2143,7 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli):
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2173,7 +2174,7 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -2194,7 +2195,7 @@ def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli)
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2217,7 +2218,7 @@ def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli)
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ],
         registry=(descriptor,),
     )
@@ -2240,7 +2241,7 @@ def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
                 "--package-id",
                 "example.edited-quantity",
                 "--out",
@@ -2281,6 +2282,292 @@ def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(
     assert json.loads(resolved_path.read_text())["artifact_kind"] == ("resolved-model")
 
 
+def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
+    tmp_path, run_cli
+):
+    source_path = tmp_path / "template-game.json"
+    instantiate_exit, _instantiate_stdout, instantiate_stderr = run_cli(
+        [
+            "template",
+            "instantiate",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.1.0",
+            "--package-id",
+            "example.template-game",
+            "--out",
+            str(source_path),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+    assert (instantiate_exit, instantiate_stderr) == (0, "")
+    instantiated = json.loads(source_path.read_text(encoding="utf-8"))
+    baseline_symbols = deepcopy(instantiated["modules"][0]["symbols"])
+    baseline_out = tmp_path / "baseline-resolved.json"
+    baseline_exit, baseline_stdout, baseline_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(baseline_out),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+    assert (baseline_exit, baseline_stderr) == (0, "")
+
+    def member(receipt, logical_name):
+        locator = next(
+            row["locator"]
+            for row in receipt["member_locators"]
+            if row["logical_name"] == logical_name
+        )
+        return json.loads(Path(locator).read_text(encoding="utf-8"))
+
+    baseline_receipt = json.loads(baseline_stdout)
+    baseline_rir = member(baseline_receipt, "rir-semantic-payload")
+    baseline_build = member(baseline_receipt, "build-receipt")
+    baseline_formula_identity = next(
+        row["identity"]
+        for row in baseline_rir["formulas"]
+        if row["id"] == "derive-value"
+    )
+
+    game_example_dir = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast"
+    )
+    game_source = json.loads(
+        (game_example_dir / "model-source.json").read_text(encoding="utf-8")
+    )
+    game_module = game_source["modules"][0]
+    extended = deepcopy(instantiated)
+    module = extended["modules"][0]
+    module["imports"] = deepcopy(game_module["imports"])
+    inherited_formula = module["formulas"][0]
+    inherited_formula["body"] = {
+        "nodes": [
+            {
+                "id": "minimum",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.maximum",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {"kind": "parameter", "parameter": "base"},
+                    },
+                    {
+                        "port": "right",
+                        "operand": {"kind": "literal", "value": 1},
+                    },
+                ],
+                "result": deepcopy(inherited_formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "minimum"},
+    }
+    game_derived = deepcopy(
+        next(row for row in baseline_symbols if row["symbol"] == "derived_value")
+    )
+    game_derived["symbol"] = "game_effective_accuracy"
+    added_symbols = [
+        deepcopy(row)
+        for row in game_module["symbols"]
+        if row["symbol"]
+        in {
+            "actor_mana",
+            "action_cost",
+            "base_damage",
+            "critical_threshold",
+            "target_defense",
+            "target_health",
+        }
+    ]
+    module["symbols"].extend([*added_symbols, game_derived])
+    quantity_contract = {
+        key: deepcopy(inherited_formula["result"][key])
+        for key in (
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain_kind",
+            "domain",
+            "numeric_policy",
+        )
+    }
+    game_formula = {
+        "id": "game-effective-accuracy",
+        "parameters": [{"id": "base", **deepcopy(quantity_contract)}],
+        "result": deepcopy(quantity_contract),
+        "body": {
+            "nodes": [
+                {
+                    "id": "game-minimum",
+                    "node": "operation-call",
+                    "operation": {
+                        "package": "core.quantity",
+                        "version": "2.1.0",
+                        "id": "quantity.maximum",
+                    },
+                    "arguments": [
+                        {
+                            "port": "left",
+                            "operand": {
+                                "kind": "parameter",
+                                "parameter": "base",
+                            },
+                        },
+                        {
+                            "port": "right",
+                            "operand": {"kind": "literal", "value": 1},
+                        },
+                    ],
+                    "result": deepcopy(quantity_contract),
+                }
+            ],
+            "result": {"kind": "local", "local": "game-minimum"},
+        },
+    }
+    slot_formula = deepcopy(
+        next(row for row in game_module["formulas"] if row["id"] == "mitigated-damage")
+    )
+    module["formulas"].extend([game_formula, slot_formula])
+    game_binding = {
+        "site": {
+            "kind": "derived-symbol",
+            "module": "main",
+            "symbol": "game_effective_accuracy",
+        },
+        "formula": {"module": "main", "id": "game-effective-accuracy"},
+        "arguments": [
+            {
+                "parameter": "base",
+                "operand": {
+                    "kind": "symbol",
+                    "module": "main",
+                    "symbol": "derived_value",
+                },
+            }
+        ],
+    }
+    slot_binding = _replace_json_value(
+        deepcopy(
+            next(
+                row
+                for row in game_source["formula_bindings"]
+                if row["site"]["kind"] == "operation-slot"
+            )
+        ),
+        "combat",
+        "main",
+    )
+    extended["formula_bindings"].extend([game_binding, slot_binding])
+    entrypoint = _replace_json_value(
+        deepcopy(game_source["entrypoints"][0]), "combat", "main"
+    )
+    next(
+        row for row in entrypoint["arguments"] if row["port"] == "accuracy"
+    )["operand"]["symbol"] = "game_effective_accuracy"
+    entrypoint["result"]["symbol"] = "output_value"
+    extended["entrypoints"] = [entrypoint]
+    extended["package_requirements"] = deepcopy(game_source["package_requirements"])
+    source_path.write_text(json.dumps(extended), encoding="utf-8")
+
+    final_out = tmp_path / "game-resolved.json"
+    final_exit, final_stdout, final_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(final_out),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (final_exit, final_stderr) == (0, ""), final_stdout
+    final_receipt = json.loads(final_stdout)
+    final_rir = member(final_receipt, "rir-semantic-payload")
+    final_build = member(final_receipt, "build-receipt")
+    formula_identities = {row["id"]: row["identity"] for row in final_rir["formulas"]}
+    assert formula_identities["derive-value"] != baseline_formula_identity
+    assert "game-effective-accuracy" not in {
+        row["id"] for row in baseline_rir["formulas"]
+    }
+    assert formula_identities["game-effective-accuracy"].startswith("sha256:")
+    assert module["symbols"][: len(baseline_symbols)] == baseline_symbols
+    assert final_build["kernel_identity"] == baseline_build["kernel_identity"]
+    assert final_build["language_bundle_identity"] == baseline_build[
+        "language_bundle_identity"
+    ]
+    assert final_build["compiler"] == baseline_build["compiler"]
+
+    experiment = json.loads(
+        (game_example_dir / "experiment.json").read_text(encoding="utf-8")
+    )
+    experiment["id"] = "example.template-game.experiment"
+    experiment["kernel_identity"] = final_build["kernel_identity"]
+    experiment["language_bundle_identity"] = final_build[
+        "language_bundle_identity"
+    ]
+    experiment["model"] = {
+        "source_identity": final_build["source_identity"],
+        "build_receipt_identity": final_build["content_identity"],
+        "resolved_model_identity": member(final_receipt, "resolved-model")[
+            "content_identity"
+        ],
+        "package_lock_identity": member(final_receipt, "package-lock")[
+            "content_identity"
+        ],
+        "rir_identity": final_rir["content_identity"],
+    }
+    scenario = experiment["scenarios"][0]
+    for assignment in scenario["assignments"]:
+        assignment["target"]["model"] = "example.template-game"
+        assignment["target"]["module"] = "main"
+        if assignment["target"]["name"] == "accuracy":
+            assignment["target"]["name"] = "value"
+    for metric in experiment["metrics"]:
+        if metric["observation"]["member"] == "damage_dealt":
+            metric["observation"]["member"] = "output_value"
+    experiment_path = tmp_path / "template-game-experiment.json"
+    experiment_path.write_text(json.dumps(experiment), encoding="utf-8")
+    run_exit, run_stdout, run_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(experiment_path),
+            "--out",
+            str(tmp_path / "evaluation-run.json"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+    assert (run_exit, run_stderr) == (0, ""), run_stdout
+    run_receipt = json.loads(run_stdout)
+    event_trace = member(run_receipt, "event-trace")
+    facts = {
+        row["name"]: row["integer"]
+        for row in event_trace["events"][0]["facts"]
+        if row["kind"] == "integer"
+    }
+    value_assignment = next(
+        row["value"]
+        for row in scenario["assignments"]
+        if row["target"]["name"] == "value"
+    )
+    assert facts["game_effective_accuracy"] == value_assignment
+    evaluator = member(run_receipt, "evaluator-capability-manifest")
+    assert evaluator["evaluator_build_identity"].startswith("sha256:")
+
+
 def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, run_cli):
     release = json.loads(
         run_cli(
@@ -2290,7 +2577,7 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2301,7 +2588,7 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
         "--id",
         "standard.quantity-minimal",
         "--version",
-        "2.0.0",
+        "2.1.0",
         "--package-id",
         "example.retry-safe",
         "--invocation-key",
@@ -2343,7 +2630,7 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.different-input",
             "--out",
@@ -2377,7 +2664,7 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         )[1]
     )
@@ -2393,7 +2680,7 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
         "--id",
         "standard.quantity-minimal",
         "--version",
-        "2.0.0",
+        "2.1.0",
         "--package-id",
         f"example.{publication_fault}",
         "--out",
@@ -2470,7 +2757,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
         "--id",
         "standard.quantity-minimal",
         "--version",
-        "2.0.0",
+        "2.1.0",
         "--package-id",
         "example.anchor-fsync",
         "--out",
@@ -2514,7 +2801,7 @@ def test_template_publication_rejects_output_symlinks(tmp_path, run_cli):
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.alias",
             "--out",
@@ -2539,7 +2826,7 @@ def test_template_recovery_rejects_a_coherently_reidentified_anchor_rewrite(
         "--id",
         "standard.quantity-minimal",
         "--version",
-        "2.0.0",
+        "2.1.0",
         "--package-id",
         "example.anchor-rewrite",
         "--out",
@@ -2580,7 +2867,7 @@ def test_template_recovery_rejects_a_symlinked_committed_member(tmp_path, run_cl
         "--id",
         "standard.quantity-minimal",
         "--version",
-        "2.0.0",
+        "2.1.0",
         "--package-id",
         "example.member-alias",
         "--out",
@@ -2617,7 +2904,7 @@ def test_concurrent_template_retries_recover_one_committed_set(tmp_path, run_cli
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
                 "--package-id",
                 "example.concurrent",
                 "--out",

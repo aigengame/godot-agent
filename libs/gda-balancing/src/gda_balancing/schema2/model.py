@@ -468,7 +468,11 @@ def _formula_contexts(language_bundle: dict[str, Any]) -> dict[str, dict[str, st
             if isinstance(phase, str) and isinstance(frame, str):
                 by_phase[phase] = {"phase": phase, "frame": frame}
         candidates.append(by_phase)
-    if len(candidates) != 1 or set(candidates[0]) != {"initialization", "event"}:
+    if len(candidates) != 1 or set(candidates[0]) != {
+        "initialization",
+        "event",
+        "observation",
+    }:
         raise ValueError("the admitted Runtime profile has no unique Formula contexts")
     return candidates[0]
 
@@ -2761,14 +2765,17 @@ def _resolved_formula_programs_and_bindings_impl(
                     actual_operand_domain=actual_operand_domain,
                 )
                 arguments.append({"parameter": parameter_id, "operand": operand})
-            resolved_site = _derived_formula_evaluation_site(
-                domains,
-                cast(
-                    dict[str, JsonValue],
-                    site_declaration["resolved_symbol"],
-                ),
-                formula_contexts["initialization"],
-            )
+            resolved_sites = [
+                _derived_formula_evaluation_site(
+                    domains,
+                    cast(
+                        dict[str, JsonValue],
+                        site_declaration["resolved_symbol"],
+                    ),
+                    formula_contexts[phase],
+                )
+                for phase in ("initialization", "observation")
+            ]
         elif source_site.get("kind") == "operation-slot":
             source_operation = cast(dict[str, Any], source_site.get("operation"))
             slot_key = (
@@ -2905,31 +2912,36 @@ def _resolved_formula_programs_and_bindings_impl(
                     "context": context,
                 },
             )
-            resolved_site = {
-                **site_body,
-                "identity": content_identity(domains["evaluation_site"], site_body),
-            }
+            resolved_sites = [
+                {
+                    **site_body,
+                    "identity": content_identity(
+                        domains["evaluation_site"], site_body
+                    ),
+                }
+            ]
         else:
             raise ValueError("Formula binding site is outside the admitted policy")
         arguments.sort(key=lambda item: cast(str, item["parameter"]))
-        binding_body = cast(
-            dict[str, JsonValue],
-            {
-                "site": resolved_site,
-                "formula": {
-                    "module": formula["module"],
-                    "id": formula["id"],
-                    "identity": formula["identity"],
+        for resolved_site in resolved_sites:
+            binding_body = cast(
+                dict[str, JsonValue],
+                {
+                    "site": resolved_site,
+                    "formula": {
+                        "module": formula["module"],
+                        "id": formula["id"],
+                        "identity": formula["identity"],
+                    },
+                    "arguments": arguments,
                 },
-                "arguments": arguments,
-            },
-        )
-        resolved_bindings.append(
-            {
-                **binding_body,
-                "identity": content_identity(domains["binding"], binding_body),
-            }
-        )
+            )
+            resolved_bindings.append(
+                {
+                    **binding_body,
+                    "identity": content_identity(domains["binding"], binding_body),
+                }
+            )
     if bound_operation_slots != set(selected_slots):
         raise _FormulaResolutionError(
             _FORMULA_REASON["binding-missing"],
@@ -6176,6 +6188,7 @@ def _formula_program_graph_is_admitted(
                 "identity_domains"
             ]["actual_operand"],
         )
+        formula_contexts = _formula_contexts(language_bundle)
     except (KeyError, TypeError, ValueError):
         return False
     if (
@@ -6532,7 +6545,7 @@ def _formula_program_graph_is_admitted(
             return False
 
     bound_formula_keys: set[tuple[str, str]] = set()
-    bound_derived_sites: set[tuple[str, str]] = set()
+    bound_derived_sites: set[tuple[str, str, str]] = set()
     selected_package_versions = {
         cast(str, row["id"]): cast(str, row["version"])
         for row in cast(list[dict[str, Any]], selected_semantics["packages"])
@@ -6607,10 +6620,17 @@ def _formula_program_graph_is_admitted(
         ):
             return False
         if site.get("kind") == "derived-symbol":
+            context = site.get("context")
+            context_items = (
+                tuple(sorted(context.items())) if isinstance(context, dict) else None
+            )
             if (
                 set(site) != {"kind", "context", "resolved_symbol", "identity"}
-                or site.get("context")
-                != {"phase": "initialization", "frame": "pre-snapshot"}
+                or context_items
+                not in {
+                    tuple(sorted(formula_contexts["initialization"].items())),
+                    tuple(sorted(formula_contexts["observation"].items())),
+                }
                 or not isinstance(site.get("resolved_symbol"), dict)
             ):
                 return False
@@ -6619,18 +6639,22 @@ def _formula_program_graph_is_admitted(
                 cast(str, resolved_symbol.get("module")),
                 cast(str, resolved_symbol.get("name")),
             )
+            context_key = (
+                *site_key,
+                cast(str, cast(dict[str, Any], context)["phase"]),
+            )
             declaration = declarations_by_symbol.get(site_key)
             if (
                 declaration is None
                 or declaration.get("role") != "derived"
-                or site_key in bound_derived_sites
+                or context_key in bound_derived_sites
                 or not _formula_contract_matches(
                     cast(dict[str, Any], bound_formula["result"]),
                     declaration,
                 )
             ):
                 return False
-            bound_derived_sites.add(cast(tuple[str, str], site_key))
+            bound_derived_sites.add(context_key)
             for argument in arguments:
                 operand = argument.get("operand")
                 if (
@@ -6663,8 +6687,7 @@ def _formula_program_graph_is_admitted(
         elif site.get("kind") == "operation-slot":
             if (
                 set(site) != {"kind", "operation", "slot", "context", "identity"}
-                or site.get("context")
-                != {"phase": "event", "frame": "pre-event-snapshot"}
+                or site.get("context") != formula_contexts["event"]
                 or not isinstance(site.get("operation"), dict)
             ):
                 return False
@@ -6743,15 +6766,17 @@ def _formula_program_graph_is_admitted(
                 pending.append(dependency)
     if reachable != set(formulas_by_key):
         return False
-    return (
-        _reachable_derived_formula_sites(
-            declarations_by_symbol,
-            cast(list[dict[str, Any]], formulas),
-            cast(list[dict[str, Any]], bindings),
-            cast(list[dict[str, Any]], entrypoints),
-        )
-        == bound_derived_sites
+    reachable_derived_sites = _reachable_derived_formula_sites(
+        declarations_by_symbol,
+        cast(list[dict[str, Any]], formulas),
+        cast(list[dict[str, Any]], bindings),
+        cast(list[dict[str, Any]], entrypoints),
     )
+    return bound_derived_sites == {
+        (*site, phase)
+        for site in reachable_derived_sites
+        for phase in ("initialization", "observation")
+    }
 
 
 def _formula_graph_is_admitted(
@@ -6787,6 +6812,7 @@ def _formula_graph_is_admitted(
                 "identity_domains"
             ]["actual_operand"],
         )
+        formula_contexts = _formula_contexts(language_bundle)
     except (KeyError, TypeError, ValueError):
         return False
     if not isinstance(formulas, list) or not isinstance(bindings, list):
@@ -6853,7 +6879,7 @@ def _formula_graph_is_admitted(
         return False
 
     bound_formula_keys: set[tuple[str, str]] = set()
-    bound_sites: set[tuple[str, str]] = set()
+    bound_sites: set[tuple[str, str, str]] = set()
     for binding in bindings:
         if not isinstance(binding, dict):
             return False
@@ -6863,13 +6889,20 @@ def _formula_graph_is_admitted(
         site = binding.get("site")
         formula_ref = binding.get("formula")
         arguments = binding.get("arguments")
+        context = site.get("context") if isinstance(site, dict) else None
+        context_items = (
+            tuple(sorted(context.items())) if isinstance(context, dict) else None
+        )
         if (
             set(binding) != {"site", "formula", "arguments", "identity"}
             or not isinstance(site, dict)
             or set(site) != {"kind", "context", "resolved_symbol", "identity"}
             or site.get("kind") != "derived-symbol"
-            or site.get("context")
-            != {"phase": "initialization", "frame": "pre-snapshot"}
+            or context_items
+            not in {
+                tuple(sorted(formula_contexts["initialization"].items())),
+                tuple(sorted(formula_contexts["observation"].items())),
+            }
             or not isinstance(site.get("resolved_symbol"), dict)
             or not isinstance(formula_ref, dict)
             or set(formula_ref) != {"module", "id", "identity"}
@@ -6888,14 +6921,18 @@ def _formula_graph_is_admitted(
             cast(str, resolved_symbol.get("module")),
             cast(str, resolved_symbol.get("name")),
         )
+        context_key = (
+            *site_key,
+            cast(str, cast(dict[str, Any], context)["phase"]),
+        )
         site_declaration = declarations_by_symbol.get(site_key)
         if (
             site_declaration is None
             or site_declaration.get("role") != "derived"
-            or site_key in bound_sites
+            or context_key in bound_sites
         ):
             return False
-        bound_sites.add(cast(tuple[str, str], site_key))
+        bound_sites.add(context_key)
         formula_key = (
             cast(str, formula_ref.get("module")),
             cast(str, formula_ref.get("id")),
@@ -6965,15 +7002,17 @@ def _formula_graph_is_admitted(
         return False
     if not isinstance(entrypoints, list):
         return False
-    return (
-        _reachable_derived_formula_sites(
-            declarations_by_symbol,
-            cast(list[dict[str, Any]], formulas),
-            cast(list[dict[str, Any]], bindings),
-            cast(list[dict[str, Any]], entrypoints),
-        )
-        == bound_sites
+    reachable_derived_sites = _reachable_derived_formula_sites(
+        declarations_by_symbol,
+        cast(list[dict[str, Any]], formulas),
+        cast(list[dict[str, Any]], bindings),
+        cast(list[dict[str, Any]], entrypoints),
     )
+    return bound_sites == {
+        (*site, phase)
+        for site in reachable_derived_sites
+        for phase in ("initialization", "observation")
+    }
 
 
 def admit_resolved_model(
@@ -7562,11 +7601,16 @@ def _inspect_committed_artifact(
         ) from err
 
 
-def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
+def read_model_explanation(
+    receipt_path: str,
+    expected_descriptor_identity: str,
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+) -> dict[str, JsonValue]:
     """Retrieve and authenticate the stored explanation from one committed build."""
     path = _normalized_absolute_path(receipt_path)
     receipt = _read_receipt_input(path)
     context = packaged_authority_context()
+    kernel = context.kernel
     language_bundle = context.language_bundle
     if (
         not _verify_artifact(receipt, language_bundle)
@@ -7577,6 +7621,20 @@ def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
             "receipt",
             "Model build receipt failed exact-authority admission",
         )
+    descriptor_identity_value = receipt.get("descriptor_identity")
+    invocation_key = receipt.get("invocation_key")
+    if (
+        descriptor_identity_value != expected_descriptor_identity
+        or not isinstance(invocation_key, str)
+    ):
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "receipt.descriptor_identity",
+            "Model build receipt belongs to another command or invocation",
+        )
+    invocation_path = _store_invocation_path(
+        expected_descriptor_identity, invocation_key
+    )
     manifest_locator = receipt.get("manifest_locator")
     if not isinstance(manifest_locator, str):
         raise ModelInspectAdmissionError(
@@ -7594,14 +7652,51 @@ def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
             "receipt.manifest_locator",
             "Model build manifest locator failed admission",
         ) from err
-    if manifest_path.name != "artifact-set-manifest.json":
+    expected_manifest_path = invocation_path / "artifact-set-manifest.json"
+    if manifest_path != expected_manifest_path:
         raise ModelInspectAdmissionError(
             "kernel.binding_mismatch",
             "receipt.manifest_locator",
-            "Model build receipt has a stale manifest locator",
+            "Model build receipt does not locate its committed publication",
+        )
+    anchor_path = _store_anchor_path(expected_descriptor_identity, invocation_key)
+    try:
+        _assert_ancestor_chain_without_symlink(invocation_path)
+        _assert_ancestor_chain_without_symlink(anchor_path)
+        anchor_metadata = anchor_path.lstat()
+        if (
+            not stat.S_ISREG(anchor_metadata.st_mode)
+            or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
+        ):
+            raise RuntimeError("committed publication anchor is not immutable")
+        index = _verified_anchor(anchor_path, publication_authentication_key())
+        committed_index = _read_canonical_artifact(
+            invocation_path / "publication-index.json"
+        )
+        committed_receipt = _read_canonical_artifact(
+            invocation_path / "artifact-set-receipt.json"
+        )
+    except (OSError, RuntimeError, UsageError, ValueError) as err:
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "publication-index",
+            "Model build publication anchor failed authentication",
+        ) from err
+    if (
+        not _verify_artifact(index, language_bundle)
+        or committed_index != index
+        or index.get("descriptor_identity") != expected_descriptor_identity
+        or index.get("invocation_key") != invocation_key
+        or index.get("receipt_identity") != receipt.get("content_identity")
+        or committed_receipt != receipt
+    ):
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "publication-index",
+            "Model build publication index does not authenticate the receipt",
         )
     manifest = _inspect_committed_artifact(
-        manifest_path,
+        expected_manifest_path,
         code="kernel.binding_mismatch",
         subject="manifest",
     )
@@ -7621,46 +7716,131 @@ def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
             "manifest.members",
             "Model build has no closed artifact member map",
         )
-    explanation_rows = [
-        row
-        for row in members
-        if isinstance(row, dict)
-        and row.get("logical_name") == "model-explanation"
-        and row.get("artifact_kind") == "model-explanation"
+    expected_names = [member.logical_name for member in artifact_set]
+    expected_kinds = {
+        member.logical_name: member.artifact_kind for member in artifact_set
+    }
+    expected_locators = [
+        {
+            "logical_name": name,
+            "locator": str((invocation_path / f"{name}.json").absolute()),
+        }
+        for name in expected_names
     ]
-    explanation_locators = [
-        row
-        for row in locators
-        if isinstance(row, dict) and row.get("logical_name") == "model-explanation"
-    ]
-    expected_path = publication_dir / "model-explanation.json"
     if (
-        len(explanation_rows) != 1
-        or len(explanation_locators) != 1
-        or explanation_locators[0].get("locator") != str(expected_path.absolute())
+        [row.get("logical_name") for row in members if isinstance(row, dict)]
+        != expected_names
+        or len(members) != len(expected_names)
+        or locators != expected_locators
     ):
         raise ModelInspectAdmissionError(
             "kernel.member_set_mismatch",
-            "manifest.members.model-explanation",
-            "Model build has no unique stored Model explanation",
+            "manifest.members",
+            "Model build publication does not match the command artifact set",
         )
-    explanation = _inspect_committed_artifact(
-        expected_path,
-        code="kernel.binding_mismatch",
-        subject="model-explanation",
+    artifacts: dict[str, dict[str, Any]] = {}
+    for row in members:
+        if not isinstance(row, dict):
+            raise ModelInspectAdmissionError(
+                "kernel.member_set_mismatch",
+                "manifest.members",
+                "Model build publication contains a malformed member",
+            )
+        name = row.get("logical_name")
+        if not isinstance(name, str) or row.get("artifact_kind") != expected_kinds.get(
+            name
+        ):
+            raise ModelInspectAdmissionError(
+                "kernel.member_set_mismatch",
+                "manifest.members",
+                "Model build publication contains an undeclared member",
+            )
+        artifact = _inspect_committed_artifact(
+            invocation_path / f"{name}.json",
+            code="kernel.binding_mismatch",
+            subject=name,
+        )
+        if (
+            not _verify_artifact(artifact, language_bundle)
+            or artifact.get("artifact_kind") != row.get("artifact_kind")
+            or artifact.get("content_identity") != row.get("content_identity")
+            or artifact.get("wire_schema_identity")
+            != row.get("wire_schema_identity")
+        ):
+            raise ModelInspectAdmissionError(
+                "kernel.binding_mismatch",
+                name,
+                "committed Model build member failed exact-authority admission",
+            )
+        artifacts[name] = artifact
+
+    if not admit_resolved_model(
+        {
+            name: artifacts[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        },
+        authority_context=context,
+    ).admitted:
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "resolved-model",
+            "committed Resolved Model failed exact-authority admission",
+        )
+    lock = artifacts["package-lock"]
+    rir = artifacts["rir-semantic-payload"]
+    resolved = artifacts["resolved-model"]
+    capability_manifest = artifacts["capability-manifest"]
+    build_receipt = artifacts["build-receipt"]
+    debug_map = artifacts["debug-map"]
+    resolution_receipt = artifacts["resolution-receipt"]
+    explanation = artifacts["model-explanation"]
+    source_identity = build_receipt.get("source_identity")
+    expected_build_bindings = {
+        "compiler": _LOWERER_IMPLEMENTATION_IDENTITY,
+        "source_identity": source_identity,
+        "kernel_identity": kernel["content_identity"],
+        "language_bundle_identity": language_bundle["content_identity"],
+        "package_lock_identity": lock["content_identity"],
+        "rir_identity": rir["content_identity"],
+        "resolved_model_identity": resolved["content_identity"],
+        "capability_manifest_identity": capability_manifest["content_identity"],
+        "debug_map_identity": debug_map["content_identity"],
+        "model_explanation_identity": explanation["content_identity"],
+        "resolution_receipt_identity": resolution_receipt["content_identity"],
+    }
+    lowering = _model_lowering(language_bundle)
+    profile = _resolution_profile(
+        language_bundle, cast(str, lowering["resolution_profile"])
     )
     if (
-        not _verify_artifact(explanation, language_bundle)
-        or explanation.get("artifact_kind") != "model-explanation"
-        or explanation.get("content_identity")
-        != explanation_rows[0].get("content_identity")
-        or explanation.get("wire_schema_identity")
-        != explanation_rows[0].get("wire_schema_identity")
+        not isinstance(source_identity, str)
+        or capability_manifest
+        != _capability_manifest(lock, rir, resolved, language_bundle)
+        or any(
+            build_receipt.get(key) != value
+            for key, value in expected_build_bindings.items()
+        )
+        or debug_map.get("source_identity") != source_identity
+        or debug_map.get("rir_identity") != rir["content_identity"]
+        or resolution_receipt.get("resolver")
+        != _RESOLVER_IMPLEMENTATION_IDENTITY
+        or resolution_receipt.get("resolution_profile") != profile["id"]
+        or resolution_receipt.get("source_identity") != source_identity
+        or resolution_receipt.get("kernel_identity") != kernel["content_identity"]
+        or resolution_receipt.get("language_bundle_identity")
+        != language_bundle["content_identity"]
+        or resolution_receipt.get("package_lock_identity")
+        != lock["content_identity"]
+        or resolution_receipt.get("diagnostics") != []
     ):
         raise ModelInspectAdmissionError(
             "kernel.binding_mismatch",
-            "model-explanation",
-            "stored Model explanation failed exact-authority admission",
+            "build-receipt",
+            "committed Model build members have inconsistent bindings",
         )
     return cast(dict[str, JsonValue], explanation)
 

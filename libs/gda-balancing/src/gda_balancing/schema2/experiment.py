@@ -1309,12 +1309,17 @@ def _evaluate_initialization_programs(
     runtime_limit: int,
     cache: dict[bytes, int] | None,
     frame_token: JsonValue | None = None,
+    phase: str = "initialization",
 ) -> int:
-    """Evaluate closed generic programs against one immutable pre-Snapshot frame."""
-    programs = cast(
-        list[dict[str, Any]],
-        checked.rir["initialization_programs"],
-    )
+    """Evaluate closed generic programs in one authority-owned lifecycle frame."""
+    programs = [
+        program
+        for program in cast(
+            list[dict[str, Any]],
+            checked.rir["initialization_programs"],
+        )
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
     if not programs:
         return consumed_steps
     program_targets = {
@@ -1540,6 +1545,7 @@ def evaluate_experiment(
                     "scenario": scenario["id"],
                     "snapshot_index": len(snapshots),
                 },
+                phase="initialization",
             )
         except _InitializationProgramFault as fault:
             code = _diagnostic_for_signal(checked, fault.signal, "runtime")
@@ -1867,6 +1873,7 @@ def evaluate_experiment(
                     "scenario": scenario["id"],
                     "snapshot_index": len(snapshots),
                 },
+                phase="observation",
             )
         except _InitializationProgramFault as fault:
             code = _diagnostic_for_signal(checked, fault.signal, "runtime")

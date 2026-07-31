@@ -1007,10 +1007,11 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         actual_values[canonical_bytes(cast(Any, assignment["target"]))] = assignment[
             "value"
         ]
-    exact_charge = sum(
-        program["resource_bounds"]["max_steps"]
-        for program in checked.rir["initialization_programs"]
-    )
+        exact_charge = sum(
+            program["resource_bounds"]["max_steps"]
+            for program in checked.rir["initialization_programs"]
+            if program["site"]["context"]["phase"] == "initialization"
+        )
     cache: dict[bytes, int] = {}
     consumed = experiment_runtime_module._evaluate_initialization_programs(
         checked,

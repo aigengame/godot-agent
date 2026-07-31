@@ -63,12 +63,18 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
                 "publication": "atomic-before-snapshot-0",
                 "reads": "immutable-initialization-frame",
             },
-            {
-                "frame": "pre-event-snapshot",
-                "phase": "event",
-                "publication": "inside-atomic-event",
-                "reads": "committed-pre-event-state",
-            },
+                {
+                    "frame": "pre-event-snapshot",
+                    "phase": "event",
+                    "publication": "inside-atomic-event",
+                    "reads": "committed-pre-event-state",
+                },
+                {
+                    "frame": "post-transition-snapshot",
+                    "phase": "observation",
+                    "publication": "after-atomic-event",
+                    "reads": "committed-post-transition-state",
+                },
         ],
         "initialization_refusal": {
             "published_artifacts": [],
