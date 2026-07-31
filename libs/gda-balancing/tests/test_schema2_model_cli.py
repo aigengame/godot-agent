@@ -365,7 +365,15 @@ def test_model_build_atomically_publishes_the_formula_explanation(tmp_path, run_
             "result": rir["formulas"][0]["result"],
         }
     ]
-    assert explanation["operation_explanations"]
+    identity_operation = next(
+        row
+        for row in explanation["operation_explanations"]
+        if row["id"] == "quantity.identity"
+    )
+    assert identity_operation["control_nodes"] == ["copy"]
+    assert identity_operation["rng_streams"] == []
+    assert identity_operation["outcomes"] == []
+    assert identity_operation["default_outcome"] is None
     assert (
         build_receipt["model_explanation_identity"] == explanation["content_identity"]
     )

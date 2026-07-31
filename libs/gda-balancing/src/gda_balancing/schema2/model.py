@@ -6336,6 +6336,8 @@ def _model_explanation(
             cast(str, definition["version"]),
             cast(str, definition["id"]),
         )
+        body = cast(list[dict[str, Any]], definition["body"])
+        outcomes = cast(list[dict[str, Any]], definition.get("outcomes", []))
         operation_explanations.append(
             cast(
                 dict[str, JsonValue],
@@ -6349,6 +6351,25 @@ def _model_explanation(
                     "effects": definition["effects"],
                     "refusals": definition["refusals"],
                     "resource_bounds": definition["resource_bounds"],
+                    "control_nodes": sorted(
+                        {cast(str, instruction["node"]) for instruction in body}
+                    ),
+                    "rng_streams": sorted(
+                        {
+                            cast(str, instruction["stream"])
+                            for instruction in body
+                            if instruction["node"] == "draw"
+                        }
+                    ),
+                    "outcomes": [
+                        {
+                            "id": outcome["id"],
+                            "kind": outcome["kind"],
+                            "state_policy": outcome["state_policy"],
+                        }
+                        for outcome in outcomes
+                    ],
+                    "default_outcome": definition.get("default_outcome"),
                     "formula_evaluation_sites": [
                         cast(dict[str, Any], binding["site"])["identity"]
                         for binding in bindings

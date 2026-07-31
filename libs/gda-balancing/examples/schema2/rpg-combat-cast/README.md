@@ -9,7 +9,7 @@ Model Source Package
     |
     |  model build
     v
-Package Lock + RIR semantic payload + Resolved Model
+Package Lock + RIR + Resolved Model + Model explanation
     |
     |  experiment check
     v
@@ -21,11 +21,14 @@ Event trace + Snapshots + Metrics + Evaluation run
 ```
 
 The example models one `game.combat.cast-v1` event. A character spends mana, rolls for hit and
-critical outcome, deals damage after defense, and updates the target's health. The files are:
+critical outcome, deals damage after defense, and updates the target's health. The game owns two
+pure Formulas in Model Source: `effective-accuracy` initializes a game-owned derived Symbol, while
+`mitigated-damage` fills the combat package's `damage-policy` Formula slot. The reusable Operation
+still owns Event control, RNG, state changes, outcomes, and commit/rollback. The files are:
 
-- [`model-source.json`](model-source.json): the editable numeric model. It declares symbols such
-  as mana, damage, defense, and health, their roles and domains, its package requirements, and the
-  `combat.cast` entrypoint that explicitly binds those symbols to Operation ports.
+- [`model-source.json`](model-source.json): the editable numeric model. It declares symbols,
+  structured pure Formulas, static Formula bindings, package requirements, and the `combat.cast`
+  entrypoint that explicitly binds game-owned symbols to Operation ports.
 - [`experiment.json`](experiment.json): one exact scenario and evaluation policy. It binds the
   built Model artifacts, selects `combat.cast`, assigns its generated Scenario Input Contract,
   supplies a seed, and defines the Metrics and acceptance targets.
@@ -102,17 +105,33 @@ mechanics remain independently owned: resource spending belongs to `game.resourc
 critical checks belong to `game.check`, and damage plus cast composition belong to `game.combat`.
 No RPG-wide value constructor or genre umbrella is involved.
 
-Its symbols demonstrate three lifecycle roles:
+Its symbols demonstrate five lifecycle roles:
 
 | Role | Symbols in this example | Meaning |
 |---|---|---|
 | `state` | `actor_mana`, `target_health` | Persistent values changed by an Event |
 | `parameter` | `action_cost`, `accuracy`, `base_damage`, `critical_threshold` | Designer-controlled values supplied to the operation |
 | `input` | `target_defense` | Scenario input read by the operation |
+| `derived` | `effective_accuracy` | Read-only value computed from a Formula before Snapshot 0 |
+| `output` | `damage_dealt` | Event result exposed for observation and Metrics |
 
-All seven values use exact signed-64-bit integer semantics and an admitted range of `0..1000`.
+All nine values use exact signed-64-bit integer semantics and an admitted range of `0..1000`.
 The Model Source owns these definitions; it does not contain a scenario, seed, Metric target, or
 runtime result.
+
+The Formula bodies are structured expression graphs rather than infix strings or host scripts.
+`effective-accuracy` calls the pure `quantity.identity` Operation and binds its result to the
+`effective_accuracy` derived Symbol in the immutable Initialization frame. `mitigated-damage`
+calls `quantity.subtract` and `quantity.floor-zero`, then binds exactly once to the
+`game.combat.damage-v1` Operation's `damage-policy` slot for Event evaluation. Formula calls may
+only reach statically resolved pure Formulas and pure Operations; the compiler closes their
+refusal, resource-charge, and termination contracts before Typed HIR.
+
+Formula timing belongs to each binding site, not to the declaration. Initialization Formulas read
+only the pre-Snapshot frame and must all succeed before Snapshot 0 commits. Event Formula slots
+read the committed pre-event Snapshot and cannot observe buffered writes. An implementation may
+cache a pure result, but a cache hit applies the same charge as an uncached evaluation, so caching
+cannot move the resource-exhaustion boundary.
 
 The Model Source also owns the `combat.cast` entrypoint. `game.combat.cast-v1` is the reusable LDB
 Operation and therefore owns formal ports such as `hit_defense` and `damage_mitigation`. The
@@ -164,8 +183,38 @@ The model build publishes:
 | `resolved-model` | Immutable wrapper binding the Kernel, LDB, Package Lock, and RIR |
 | `capability-manifest` | Capabilities selected by this exact model |
 | `debug-map` | Non-semantic mapping back to authored source |
+| `model-explanation` | Stored non-semantic Formula and Operation explanation derived from the exact RIR and Debug Map |
 | `resolution-receipt` | Provenance for dependency and capability resolution |
 | `build-receipt` | Provenance tying the source and all build artifacts together |
+
+Inspect the stored explanation without regenerating or executing anything:
+
+```sh
+uv run gda-balancing model inspect \
+  "$MODEL_SET_RECEIPT" \
+  --format indented \
+  | tee "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
+
+jq '{
+  formulas: [.formula_explanations[] | {
+    id,
+    closure,
+    evaluation_sites
+  }],
+  operations: [.operation_explanations[] | {
+    id,
+    formula_evaluation_sites,
+    effects,
+    outcomes
+  }]
+}' "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
+```
+
+`formula_explanations` preserves the selected Formula declarations, bindings, operands, contexts,
+results, refusals, and resource charges. `operation_explanations` preserves control/effect/RNG/
+outcome/commit boundaries and refers to Formula-site identities without copying Formula semantics.
+The explanation, Debug Map, RIR, and receipts are generated immutable artifacts: inspect them, but
+edit `model-source.json` and rebuild instead of editing anything in the artifact store.
 
 Inspect the selected combat operation in the RIR:
 
@@ -341,58 +390,150 @@ exercise different critical outcomes and different terminal states while keeping
 scenario assignments, and Metric policy unchanged. A different seed can still produce the same
 result when its draws remain on the same modeled branches.
 
-## 6. Tune a value and run again
+## 6. Edit a Formula and run again
 
-Create a working copy that raises `base_damage` from `45` to `65`:
+An Experiment assignment tunes one run without changing model semantics. This time, change the
+game's numeric policy itself: replace the existing `mitigated-damage` Formula with a pure identity
+call that ignores mitigation. The structured edit changes no Operation control, RNG, effects,
+outcomes, or host code:
 
 ```sh
-jq '(.scenarios[0].assignments[]
-  | select(.target.name == "base_damage")
-  | .value) = 65' \
-  examples/schema2/rpg-combat-cast/experiment.json \
-  > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json"
+export EDITED_MODEL_SOURCE="$GDA_BALANCING_TUTORIAL_ROOT/model-source-unmitigated.json"
+
+jq '
+  (.manifest.version) = "1.1.0"
+  | (.modules[0].formulas[]
+      | select(.id == "mitigated-damage")) |=
+    (.body = {
+      "nodes": [{
+        "id": "unmitigated-damage",
+        "node": "operation-call",
+        "operation": {
+          "package": "core.quantity",
+          "version": "2.1.0",
+          "id": "quantity.identity"
+        },
+        "arguments": [{
+          "port": "value",
+          "operand": {
+            "kind": "parameter",
+            "parameter": "damage_before_defense"
+          }
+        }],
+        "result": .result
+      }],
+      "result": {
+        "kind": "local",
+        "local": "unmitigated-damage"
+      }
+    })
+' examples/schema2/rpg-combat-cast/model-source.json > "$EDITED_MODEL_SOURCE"
 ```
 
-The Experiment input changed, so generate a new Invocation key and choose new output/receipt
-paths:
+Build and inspect the edited model with a new Invocation key:
 
 ```sh
-export TUNED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
-export TUNED_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-set-receipt.json"
+export EDITED_MODEL_BUILD_INVOCATION_KEY="$(openssl rand -hex 32)"
+export EDITED_MODEL_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/edited-model-set-receipt.json"
 
-uv run gda-balancing experiment check \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json" \
-  | jq .
+uv run gda-balancing model build \
+  "$EDITED_MODEL_SOURCE" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/edited-resolved-model.json" \
+  --invocation-key "$EDITED_MODEL_BUILD_INVOCATION_KEY" \
+  | tee "$EDITED_MODEL_SET_RECEIPT"
+
+uv run gda-balancing model inspect \
+  "$EDITED_MODEL_SET_RECEIPT" \
+  --format indented \
+  | jq '.formula_explanations[]
+    | select(.id == "mitigated-damage")
+    | {id, body, closure, evaluation_sites}'
+```
+
+The Formula, RIR, Resolved Model, Build receipt, and Model explanation identities change. The
+Kernel, LDB, selected package releases, Package Lock, compiler build, and evaluator build stay
+fixed: the edit uses the already admitted Formula language and pure `quantity.identity` Operation.
+
+An exact Experiment cannot silently follow that new model. First make a deliberately stale
+specification by changing only its source identity; `experiment check` refuses because the old
+Build receipt and Resolved Model belong to the baseline source:
+
+```sh
+export EDITED_BUILD_RECORD_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "build-receipt")
+    | .locator' "$EDITED_MODEL_SET_RECEIPT"
+)"
+export STALE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/stale-experiment.json"
+
+jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" \
+  '.model.source_identity = $build[0].source_identity' \
+  examples/schema2/rpg-combat-cast/experiment.json \
+  > "$STALE_EXPERIMENT"
+
+set +e
+uv run gda-balancing experiment check "$STALE_EXPERIMENT"
+export STALE_EXIT="$?"
+set -e
+test "$STALE_EXIT" -eq 2
+```
+
+Create a newly identified exact Experiment by binding every edited build identity. This particular
+Formula edit also removes the `maximum` and `subtract` instructions from the reachable evaluator
+closure; all other scenario, seed, Metric, and acceptance intent stays unchanged:
+
+```sh
+export EDITED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-unmitigated.json"
+
+jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
+  .version = "1.1.0"
+  | .model = {
+      "source_identity": $build[0].source_identity,
+      "build_receipt_identity": $build[0].content_identity,
+      "resolved_model_identity": $build[0].resolved_model_identity,
+      "package_lock_identity": $build[0].package_lock_identity,
+      "rir_identity": $build[0].rir_identity
+    }
+  | .runtime.required_evaluator.instruction_nodes -=
+      ["maximum", "subtract"]
+' examples/schema2/rpg-combat-cast/experiment.json > "$EDITED_EXPERIMENT"
+
+uv run gda-balancing experiment check "$EDITED_EXPERIMENT" | jq .
+```
+
+Run the edited Formula and read its Metric:
+
+```sh
+export EDITED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
+export EDITED_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/edited-set-receipt.json"
 
 uv run gda-balancing experiment run \
-  "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-65.json" \
-  --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-evaluation-run.json" \
-  --invocation-key "$TUNED_RUN_INVOCATION_KEY" \
-  | tee "$TUNED_SET_RECEIPT"
-```
+  "$EDITED_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/edited-evaluation-run.json" \
+  --invocation-key "$EDITED_RUN_INVOCATION_KEY" \
+  | tee "$EDITED_SET_RECEIPT"
 
-Read the tuned Metric:
-
-```sh
-export TUNED_METRIC_PATH="$(
+export EDITED_METRIC_PATH="$(
   jq -r '.member_locators[]
     | select(.logical_name == "metric-dataset")
-    | .locator' "$TUNED_SET_RECEIPT"
+    | .locator' "$EDITED_SET_RECEIPT"
+)"
+export EDITED_TRACE_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "event-trace")
+    | .locator' "$EDITED_SET_RECEIPT"
 )"
 
 jq '.samples[]
   | select(.metric == "damage_dealt")
-  | {metric, value, within_target}' "$TUNED_METRIC_PATH"
+  | {metric, value, within_target}' "$EDITED_METRIC_PATH"
+jq '.events[0].state_after' "$EDITED_TRACE_PATH"
 ```
 
-For the committed seed and branch outcome, damage increases from `60` to `100`. The Experiment,
-trace, snapshots, Metrics, reproduction receipt, and Resolved Runtime profile receive new content
-identities, while the exact Model, Package Lock, and RIR bindings remain unchanged. This is the
-core tuning loop: change scenario/design intent, check it, run it, inspect evidence, and repeat.
-
-If you instead change `model-source.json`—for example, a symbol's type, role, or admitted
-domain—you must run `model build` again and create an Experiment Specification that binds the new
-build identities.
+With the same seed and assignments, damage increases from `60` to `90` and target health falls
+from `40` to `10`. Edit Model Source when changing a game's numeric policy. Publish a new Domain
+package only when changing reusable mechanic contracts such as Operation ports, Formula slots,
+control/effects, permitted refusals, or resource budgets.
 
 ## 7. Exercise a rejected Verdict
 
@@ -445,6 +586,7 @@ $GDA_BALANCING_STORE_DIR/
 │   │       ├── resolved-model.json
 │   │       ├── capability-manifest.json
 │   │       ├── debug-map.json
+│   │       ├── model-explanation.json
 │   │       ├── resolution-receipt.json
 │   │       ├── build-receipt.json
 │   │       ├── artifact-set-manifest.json
