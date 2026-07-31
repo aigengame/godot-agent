@@ -93,76 +93,9 @@ def _rpg_value(name: str, role: str) -> dict[str, Any]:
 
 
 def _rpg_model_source() -> dict[str, Any]:
-    return {
-        "schema_version": "2.0.0",
-        "manifest": {
-            "id": "example.rpg-combat-cast",
-            "version": "1.0.0",
-            "entry_module": "combat",
-        },
-        "package_requirements": [
-            {"id": "core.quantity", "version": "2.0.0"},
-            {"id": "game.combat", "version": "1.0.0"},
-        ],
-        "modules": [
-            {
-                "id": "combat",
-                "imports": [
-                    {
-                        "alias": "quantity",
-                        "package": "core.quantity",
-                        "version": "2.0.0",
-                        "symbol": "Quantity",
-                    }
-                ],
-                "symbols": [
-                    _rpg_value("actor_mana", "state"),
-                    _rpg_value("action_cost", "parameter"),
-                    _rpg_value("accuracy", "parameter"),
-                    _rpg_value("base_damage", "parameter"),
-                    _rpg_value("critical_threshold", "parameter"),
-                    _rpg_value("target_defense", "input"),
-                    _rpg_value("target_health", "state"),
-                    _rpg_value("damage_dealt", "output"),
-                ],
-            }
-        ],
-        "entrypoints": [
-            {
-                "id": "combat.cast",
-                "operation": {
-                    "package": "game.combat",
-                    "version": "1.0.0",
-                    "id": "game.combat.cast-v1",
-                },
-                "arguments": [
-                    {
-                        "port": port,
-                        "operand": {
-                            "kind": "symbol",
-                            "module": "combat",
-                            "symbol": symbol,
-                        },
-                    }
-                    for port, symbol in (
-                        ("actor_resource", "actor_mana"),
-                        ("action_cost", "action_cost"),
-                        ("accuracy", "accuracy"),
-                        ("base_damage", "base_damage"),
-                        ("critical_threshold", "critical_threshold"),
-                        ("hit_defense", "target_defense"),
-                        ("damage_mitigation", "target_defense"),
-                        ("target_health", "target_health"),
-                    )
-                ],
-                "result": {
-                    "kind": "symbol",
-                    "module": "combat",
-                    "symbol": "damage_dealt",
-                },
-            }
-        ],
-    }
+    return json.loads(
+        (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+    )
 
 
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
@@ -672,6 +605,7 @@ def _experiment(
                 "instruction_nodes": [
                     "add",
                     "constant",
+                    "copy",
                     "draw",
                     "if",
                     "invoke",
@@ -800,7 +734,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         "domain": {"minimum": 0, "maximum": 1000},
         "numeric_policy": "exact-int64",
     }
-    source_value["modules"][0]["formulas"] = [
+    source_value["modules"][0]["formulas"].append(
         {
             "id": "derived-damage",
             "parameters": [{"id": "base", **quantity_contract}],
@@ -810,8 +744,8 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                 "result": {"kind": "parameter", "parameter": "base"},
             },
         }
-    ]
-    source_value["formula_bindings"] = [
+    )
+    source_value["formula_bindings"].append(
         {
             "site": {
                 "kind": "derived-symbol",
@@ -830,7 +764,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                 }
             ],
         }
-    ]
+    )
     base_binding = next(
         row
         for row in source_value["entrypoints"][0]["arguments"]

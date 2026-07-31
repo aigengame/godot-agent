@@ -21,6 +21,7 @@
       "instruction_nodes": [
         "add",
         "constant",
+        "copy",
         "draw",
         "if",
         "invoke",

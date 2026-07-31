@@ -797,6 +797,216 @@ def test_model_build_lowers_bounded_formula_conditionals(tmp_path, run_cli):
     assert formula["closure"]["resource_charge"] == {"max_steps": 1}
 
 
+def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 200},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "mitigated-damage",
+            "parameters": [
+                {"id": "damage_before_defense", **quantity_contract},
+                {"id": "mitigation", **quantity_contract},
+            ],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "raw_damage",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.0.0",
+                            "id": "quantity.subtract",
+                        },
+                        "arguments": [
+                            {
+                                "port": "left",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "damage_before_defense",
+                                },
+                            },
+                            {
+                                "port": "right",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "mitigation",
+                                },
+                            },
+                        ],
+                        "result": {
+                            **quantity_contract,
+                            "domain": {"minimum": -200, "maximum": 200},
+                        },
+                    },
+                    {
+                        "id": "damage",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.0.0",
+                            "id": "quantity.floor-zero",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "local",
+                                    "local": "raw_damage",
+                                },
+                            },
+                        ],
+                        "result": quantity_contract,
+                    },
+                ],
+                "result": {"kind": "local", "local": "damage"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "operation-slot",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "1.0.0",
+                    "id": "game.combat.damage-v1",
+                },
+                "slot": "damage-policy",
+            },
+            "formula": {"module": "combat", "id": "mitigated-damage"},
+            "arguments": [
+                {
+                    "parameter": "damage_before_defense",
+                    "operand": {
+                        "kind": "slot-parameter",
+                        "parameter": "damage_before_defense",
+                    },
+                },
+                {
+                    "parameter": "mitigation",
+                    "operand": {
+                        "kind": "slot-parameter",
+                        "parameter": "mitigation",
+                    },
+                },
+            ],
+        }
+    ]
+    source = tmp_path / "operation-slot-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+    out = tmp_path / "resolved-model.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    receipt = json.loads(stdout)
+    rir = json.loads(
+        (
+            _artifact_directory(receipt) / "rir-semantic-payload.json"
+        ).read_text(encoding="utf-8")
+    )
+    binding = rir["formula_bindings"][0]
+    assert binding["site"]["kind"] == "operation-slot"
+    assert binding["site"]["operation"] == {
+        "package": "game.combat",
+        "version": "1.0.0",
+        "id": "game.combat.damage-v1",
+        "identity": binding["site"]["operation"]["identity"],
+    }
+    assert binding["site"]["slot"] == "damage-policy"
+    assert binding["site"]["context"] == {
+        "phase": "event",
+        "frame": "pre-event-snapshot",
+    }
+    assert [row["operand"]["parameter"] for row in binding["arguments"]] == [
+        "damage_before_defense",
+        "mitigation",
+    ]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing-binding", "duplicate-binding", "resource-budget"),
+)
+def test_model_check_refuses_operation_formula_slot_contract_violations(
+    mutation, tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    if mutation == "missing-binding":
+        source_document["formula_bindings"] = []
+    elif mutation == "duplicate-binding":
+        source_document["formula_bindings"].append(
+            deepcopy(source_document["formula_bindings"][0])
+        )
+    else:
+        formula = source_document["modules"][0]["formulas"][0]
+        result_contract = deepcopy(formula["result"])
+        formula["body"]["nodes"].append(
+            {
+                "id": "over-budget-copy",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.0.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {"kind": "local", "local": "damage"},
+                    }
+                ],
+                "result": result_contract,
+            }
+        )
+        formula["body"]["result"] = {
+            "kind": "local",
+            "local": "over-budget-copy",
+        }
+    source = tmp_path / f"{mutation}.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/modules/0/formulas/0"
+        if mutation == "resource-budget"
+        else "/formula_bindings"
+    )
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
@@ -3941,7 +4151,10 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
-        "quantity.identity"
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.maximum",
+        "quantity.subtract",
     ]
     assert original_selected["conversions"] == []
     original_closures = cast(

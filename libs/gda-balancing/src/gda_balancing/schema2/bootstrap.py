@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:71dbf3a59082ee914370907db75966e7dc6bde8faf10df96f5e6161b9ddc3d83"
+    "sha256:1fe6588e6ef521d97ebf15140194ce8f07e974674e5f7ce28d53034c5c290bae"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4560,6 +4560,143 @@ def _operation_result_source_shape_is_closed(
     return kind == "unit"
 
 
+def _operation_formula_slots_are_closed(
+    operation: dict[str, Any],
+    node_definitions: dict[str, dict[str, Any]],
+) -> bool:
+    slots = operation.get("formula_slots")
+    if slots is None:
+        return True
+    inputs = operation.get("inputs")
+    body = operation.get("body")
+    refusals = operation.get("refusals")
+    owner_bounds = operation.get("resource_bounds")
+    if (
+        not isinstance(slots, list)
+        or not slots
+        or not isinstance(inputs, list)
+        or not isinstance(body, list)
+        or not isinstance(refusals, list)
+        or not isinstance(owner_bounds, dict)
+    ):
+        return False
+    ports = {
+        item.get("id"): item
+        for item in inputs
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    owner_max_steps = owner_bounds.get("max_steps")
+    slot_ids: set[str] = set()
+    occupied_indices: set[int] = set()
+    for slot in slots:
+        if not isinstance(slot, dict):
+            return False
+        slot_id = slot.get("id")
+        parameters = slot.get("parameters")
+        result = slot.get("result")
+        context = slot.get("context")
+        start = slot.get("placeholder_index")
+        length = slot.get("placeholder_length")
+        target = slot.get("target")
+        permitted_refusals = slot.get("permitted_refusals")
+        bounds = slot.get("resource_bounds")
+        termination_measure = slot.get("termination_measure")
+        if (
+            not isinstance(slot_id, str)
+            or not slot_id
+            or slot_id in slot_ids
+            or context != {"phase": "event", "frame": "pre-event-snapshot"}
+            or not isinstance(parameters, list)
+            or not parameters
+            or not isinstance(result, dict)
+            or not isinstance(start, int)
+            or isinstance(start, bool)
+            or start < 0
+            or not isinstance(length, int)
+            or isinstance(length, bool)
+            or length < 1
+            or start + length > len(body)
+            or not isinstance(target, str)
+            or not target
+            or not isinstance(permitted_refusals, list)
+            or len(permitted_refusals) != len(set(permitted_refusals))
+            or not set(permitted_refusals) <= set(refusals)
+            or not isinstance(bounds, dict)
+            or not isinstance(bounds.get("max_steps"), int)
+            or isinstance(bounds["max_steps"], bool)
+            or bounds["max_steps"] < 1
+            or not isinstance(owner_max_steps, int)
+            or isinstance(owner_max_steps, bool)
+            or len(body) - length + bounds["max_steps"] > owner_max_steps
+            or not isinstance(termination_measure, int)
+            or isinstance(termination_measure, bool)
+            or not 1 <= termination_measure <= bounds["max_steps"]
+            or not _operation_value_contract_matches(
+                result,
+                cast(dict[str, Any], operation.get("result", {})),
+            )
+        ):
+            return False
+        slot_ids.add(slot_id)
+        region_indices = set(range(start, start + length))
+        if occupied_indices & region_indices:
+            return False
+        occupied_indices.update(region_indices)
+        region = body[start : start + length]
+        if (
+            not all(isinstance(instruction, dict) for instruction in region)
+            or region[-1].get("target") != target
+            or sum(
+                isinstance(instruction, dict)
+                and instruction.get("target") == target
+                for instruction in body
+            )
+            != 1
+            or any(
+                not isinstance(
+                    node := node_definitions.get(instruction.get("node")),
+                    dict,
+                )
+                or node.get("result", {}).get("kind") != "local"
+                for instruction in region
+            )
+        ):
+            return False
+        prefix_locals = {
+            instruction.get("target")
+            for instruction in body[:start]
+            if isinstance(instruction, dict)
+            and isinstance(instruction.get("target"), str)
+        }
+        parameter_ids: set[str] = set()
+        for parameter in parameters:
+            source = parameter.get("source") if isinstance(parameter, dict) else None
+            parameter_id = parameter.get("id") if isinstance(parameter, dict) else None
+            if (
+                not isinstance(parameter, dict)
+                or not isinstance(parameter_id, str)
+                or not parameter_id
+                or parameter_id in parameter_ids
+                or not isinstance(source, dict)
+                or set(source) != {"kind", "name"}
+                or source.get("kind") not in {"local", "port"}
+                or not isinstance(source.get("name"), str)
+                or not source["name"]
+            ):
+                return False
+            parameter_ids.add(parameter_id)
+            if source["kind"] == "port":
+                formal = ports.get(source["name"])
+                if not isinstance(formal, dict) or not _operation_value_contract_matches(
+                    parameter,
+                    formal,
+                ):
+                    return False
+            elif source["name"] not in prefix_locals:
+                return False
+    return True
+
+
 def _operation_composition_diagnostic_subjects(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -4647,6 +4784,13 @@ def _operation_composition_diagnostic_subjects(
         for _owner, operation in operations.values()
     ):
         return ("language.operations.alias-policy",)
+    invalid_formula_slots = tuple(
+        f"language.operations.{owner}.{operation['id']}.formula_slots"
+        for owner, operation in operations.values()
+        if not _operation_formula_slots_are_closed(operation, node_definitions)
+    )
+    if invalid_formula_slots:
+        return invalid_formula_slots
 
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
     found: set[str] = set()

@@ -507,14 +507,26 @@ def test_reidentified_package_vector_contract_mutations_refuse_in_both_consumers
 def test_package_identity_binds_the_complete_exported_definition_closure():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
-    package = ldb["language"]["packages"][0]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "quantity.identity"
+    )
+    operation["resource_bounds"]["max_steps"] = 2
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "core.quantity"
+    )
     operation_entry = next(
         entry
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    embedded = next(
+        item
+        for item in operation_entry["definitions"]
+        if item["id"] == "quantity.identity"
+    )
+    embedded["resource_bounds"]["max_steps"] = 2
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -532,13 +544,20 @@ def test_package_identity_binds_the_complete_exported_definition_closure():
 def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    package = ldb["language"]["packages"][0]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "core.quantity"
+    )
     operation_entry = next(
         entry
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    embedded = next(
+        item
+        for item in operation_entry["definitions"]
+        if item["id"] == "quantity.identity"
+    )
+    embedded["resource_bounds"]["max_steps"] = 2
     package["content_identity"] = _identity("domain-package-release-v2", package)
     _reidentify_graph_root(ldb)
 
@@ -552,6 +571,55 @@ def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
         and subject == "language-bundle.language.packages.0.semantic_identity"
         for _, code, subject in first["diagnostics"]
     )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "duplicate-id",
+        "unknown-port-source",
+        "placeholder-out-of-bounds",
+        "stateful-placeholder",
+        "refusal-outside-owner",
+        "resource-outside-owner",
+    ),
+)
+def test_operation_formula_slot_contract_is_closed_in_both_consumers(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "game.combat.damage-v1"
+    )
+    slot = operation["formula_slots"][0]
+    if mutation == "duplicate-id":
+        operation["formula_slots"].append(deepcopy(slot))
+    elif mutation == "unknown-port-source":
+        slot["parameters"][1]["source"]["name"] = "host-only-port"
+    elif mutation == "placeholder-out-of-bounds":
+        slot["placeholder_length"] = len(operation["body"])
+    elif mutation == "stateful-placeholder":
+        slot["placeholder_index"] = len(operation["body"]) - 1
+        slot["placeholder_length"] = 1
+        slot["target"] = "target_health"
+    elif mutation == "refusal-outside-owner":
+        slot["permitted_refusals"].append("runtime.reason.host-only")
+    else:
+        slot["resource_bounds"]["max_steps"] = operation["resource_bounds"][
+            "max_steps"
+        ]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.vector_mismatch" and ".formula_slots" in subject
+        for _, code, subject in first["diagnostics"]
+    ), first["diagnostics"]
 
 
 @pytest.mark.parametrize(
