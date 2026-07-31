@@ -2625,7 +2625,13 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(dict[str, Any], formula["result"]),
                 cast(dict[str, Any], slot["result"]),
             ):
-                raise ValueError(
+                raise _FormulaResolutionError(
+                    formula_pointers[
+                        (
+                            cast(str, formula["module"]),
+                            cast(str, formula["id"]),
+                        )
+                    ],
                     "Formula result is incompatible with its Operation slot"
                 )
             closure = cast(dict[str, Any], formula["closure"])
@@ -2642,7 +2648,15 @@ def _resolved_formula_programs_and_bindings_impl(
                 or operation_identity
                 in set(cast(list[str], closure["operation_dependencies"]))
             ):
-                raise ValueError("Formula closure exceeds its Operation-slot contract")
+                raise _FormulaResolutionError(
+                    formula_pointers[
+                        (
+                            cast(str, formula["module"]),
+                            cast(str, formula["id"]),
+                        )
+                    ],
+                    "Formula closure exceeds its Operation-slot contract",
+                )
             bound_operation_slots.add(slot_key)
             exact_operation = cast(
                 dict[str, JsonValue],
@@ -4114,10 +4128,13 @@ def _symbol_initialization_contract(
     return target, initializer
 
 
-def _derived_formula_symbol_dependencies(
+def _formula_symbol_dependencies(
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
-) -> dict[tuple[str, str, str], list[dict[str, JsonValue]]]:
+) -> tuple[
+    dict[tuple[str, str, str], list[dict[str, JsonValue]]],
+    dict[tuple[str, str, str], list[dict[str, JsonValue]]],
+]:
     formulas_by_identity = {
         cast(str, formula["identity"]): formula for formula in formulas
     }
@@ -4220,12 +4237,83 @@ def _derived_formula_symbol_dependencies(
         closed_by_site[key] = result
         return result
 
-    return {
+    derived_dependencies = {
         key: [
             symbols[dependency] for dependency in sorted(close_site(key, frozenset()))
         ]
         for key in sorted(direct_by_site)
     }
+    operation_dependencies: dict[
+        tuple[str, str, str],
+        set[tuple[str, str, str]],
+    ] = {}
+    for binding in bindings:
+        site = cast(dict[str, Any], binding["site"])
+        if site.get("kind") != "operation-slot":
+            continue
+        operation = cast(dict[str, str], site["operation"])
+        coordinate = (
+            operation["package"],
+            operation["version"],
+            operation["id"],
+        )
+        formula_ref = cast(dict[str, str], binding["formula"])
+        dependencies = operation_dependencies.setdefault(coordinate, set())
+        for dependency in close_formula(formula_ref["identity"], frozenset()):
+            if dependency in direct_by_site:
+                dependencies.update(close_site(dependency, frozenset()))
+            else:
+                dependencies.add(dependency)
+    return (
+        derived_dependencies,
+        {
+            coordinate: [
+                symbols[dependency] for dependency in sorted(dependencies)
+            ]
+            for coordinate, dependencies in sorted(operation_dependencies.items())
+        },
+    )
+
+
+def _reachable_operation_formula_dependencies(
+    root: tuple[str, str, str],
+    operations: dict[tuple[str, str, str], dict[str, Any]],
+    dependencies: dict[
+        tuple[str, str, str],
+        list[dict[str, JsonValue]],
+    ],
+) -> list[dict[str, JsonValue]]:
+    reachable: set[tuple[str, str, str]] = set()
+    pending = [root]
+    symbols: dict[tuple[str, str, str], dict[str, JsonValue]] = {}
+    while pending:
+        coordinate = pending.pop()
+        if coordinate in reachable:
+            continue
+        operation_row = operations.get(coordinate)
+        if operation_row is None:
+            raise ValueError("Operation Formula dependency graph is incomplete")
+        reachable.add(coordinate)
+        for symbol in dependencies.get(coordinate, []):
+            key = (
+                cast(str, symbol["model"]),
+                cast(str, symbol["module"]),
+                cast(str, symbol["name"]),
+            )
+            symbols[key] = symbol
+        operation = cast(dict[str, Any], operation_row["definition"])
+        for instruction in cast(list[dict[str, Any]], operation["body"]):
+            if instruction.get("node") != "invoke":
+                continue
+            called = cast(dict[str, str], instruction["operation"])
+            pending.append(
+                (
+                    called["package"],
+                    called["version"],
+                    called["id"],
+                )
+            )
+    return [symbols[key] for key in sorted(symbols)]
 
 
 def _resolved_entrypoints(
@@ -4272,7 +4360,7 @@ def _resolved_entrypoints(
         ): declaration
         for declaration in declarations
     }
-    formula_dependencies = _derived_formula_symbol_dependencies(
+    formula_dependencies, operation_formula_dependencies = _formula_symbol_dependencies(
         formulas or [],
         formula_bindings or [],
     )
@@ -4343,6 +4431,73 @@ def _resolved_entrypoints(
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
+
+        def record_formula_dependency(
+            dependency_symbol: dict[str, JsonValue],
+        ) -> None:
+            dependency_key = (
+                cast(str, dependency_symbol["module"]),
+                cast(str, dependency_symbol["name"]),
+            )
+            dependency = declarations_by_source.get(dependency_key)
+            if dependency is None:
+                raise _EntrypointBindingError(
+                    f"{pointer}/operation",
+                    "entrypoint Formula Symbol dependency is unresolved",
+                )
+            dependency_body = cast(
+                dict[str, JsonValue],
+                {
+                    "kind": "symbol",
+                    "symbol": dependency_symbol,
+                },
+            )
+            dependency_identity = content_identity(
+                domains["actual_operand"],
+                dependency_body,
+            )
+            dependency_target, dependency_initializer = (
+                _symbol_initialization_contract(
+                    dependency,
+                    assignment_policy,
+                    dependency_symbol,
+                    dependency_identity,
+                )
+            )
+            if (
+                dependency_target is None
+                and dependency_initializer is None
+                and dependency.get("role") != "derived"
+            ):
+                raise _EntrypointBindingError(
+                    f"{pointer}/operation",
+                    "entrypoint Formula Symbol dependency is absent from the "
+                    "pre-event Snapshot",
+                )
+            if dependency_target is not None:
+                previous_target = scenario_targets.get(dependency_identity)
+                if (
+                    previous_target is not None
+                    and previous_target != dependency_target
+                ):
+                    raise _EntrypointBindingError(
+                        f"{pointer}/operation",
+                        "one Formula dependency derived conflicting assignment "
+                        "contracts",
+                    )
+                scenario_targets[dependency_identity] = dependency_target
+            if dependency_initializer is not None:
+                previous_initializer = initializers.get(dependency_identity)
+                if (
+                    previous_initializer is not None
+                    and previous_initializer != dependency_initializer
+                ):
+                    raise _EntrypointBindingError(
+                        f"{pointer}/operation",
+                        "one Formula dependency derived conflicting initializers",
+                    )
+                initializers[dependency_identity] = dependency_initializer
+
         for argument_index, (formal, source_argument) in enumerate(
             zip(formal_ports, source_arguments, strict=True)
         ):
@@ -4432,34 +4587,7 @@ def _resolved_entrypoints(
                             "entrypoint derived Symbol has no Formula value producer",
                         )
                     for dependency_symbol in formula_dependencies.get(resolved_key, []):
-                        dependency_key = (
-                            cast(str, dependency_symbol["module"]),
-                            cast(str, dependency_symbol["name"]),
-                        )
-                        dependency = declarations_by_source[dependency_key]
-                        dependency_body = cast(
-                            dict[str, JsonValue],
-                            {
-                                "kind": "symbol",
-                                "symbol": dependency_symbol,
-                            },
-                        )
-                        dependency_identity = content_identity(
-                            domains["actual_operand"],
-                            dependency_body,
-                        )
-                        dependency_target, dependency_initializer = (
-                            _symbol_initialization_contract(
-                                dependency,
-                                assignment_policy,
-                                dependency_symbol,
-                                dependency_identity,
-                            )
-                        )
-                        if dependency_target is not None:
-                            scenario_targets[dependency_identity] = dependency_target
-                        if dependency_initializer is not None:
-                            initializers[dependency_identity] = dependency_initializer
+                        record_formula_dependency(dependency_symbol)
             elif source_operand["kind"] == "literal":
                 if formal["access"] != "read":
                     raise _EntrypointBindingError(
@@ -4508,6 +4636,16 @@ def _resolved_entrypoints(
                     },
                 )
             )
+        for dependency_symbol in _reachable_operation_formula_dependencies(
+            (
+                exact_operation["package"],
+                exact_operation["version"],
+                exact_operation["id"],
+            ),
+            operations,
+            operation_formula_dependencies,
+        ):
+            record_formula_dependency(dependency_symbol)
         try:
             alias_rows = _resolved_alias_rows(operation, aliases)
         except ValueError as err:
@@ -5674,7 +5812,7 @@ def _resolved_entrypoint_graph_is_admitted(
         ): declaration
         for declaration in declarations
     }
-    formula_dependencies = _derived_formula_symbol_dependencies(
+    formula_dependencies, operation_formula_dependencies = _formula_symbol_dependencies(
         formulas,
         formula_bindings,
     )
@@ -5721,6 +5859,61 @@ def _resolved_entrypoint_graph_is_admitted(
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
+
+        def record_formula_dependency(
+            dependency_symbol: dict[str, JsonValue],
+        ) -> bool:
+            dependency_key = (
+                cast(str, dependency_symbol["model"]),
+                cast(str, dependency_symbol["module"]),
+                cast(str, dependency_symbol["name"]),
+            )
+            dependency = declarations_by_symbol.get(dependency_key)
+            if dependency is None:
+                return False
+            dependency_body = cast(
+                dict[str, JsonValue],
+                {
+                    "kind": "symbol",
+                    "symbol": dependency_symbol,
+                },
+            )
+            dependency_identity = content_identity(
+                domains["actual_operand"],
+                dependency_body,
+            )
+            dependency_target, dependency_initializer = (
+                _symbol_initialization_contract(
+                    dependency,
+                    assignment_policy,
+                    dependency_symbol,
+                    dependency_identity,
+                )
+            )
+            if (
+                dependency_target is None
+                and dependency_initializer is None
+                and dependency.get("role") != "derived"
+            ):
+                return False
+            if dependency_target is not None:
+                previous_target = scenario_targets.get(dependency_identity)
+                if (
+                    previous_target is not None
+                    and previous_target != dependency_target
+                ):
+                    return False
+                scenario_targets[dependency_identity] = dependency_target
+            if dependency_initializer is not None:
+                previous_initializer = initializers.get(dependency_identity)
+                if (
+                    previous_initializer is not None
+                    and previous_initializer != dependency_initializer
+                ):
+                    return False
+                initializers[dependency_identity] = dependency_initializer
+            return True
+
         for formal, argument in zip(formal_ports, arguments, strict=True):
             if not isinstance(argument, dict):
                 return False
@@ -5799,35 +5992,8 @@ def _resolved_entrypoint_graph_is_admitted(
                         exact_symbol["name"],
                     )
                     for dependency_symbol in formula_dependencies.get(resolved_key, []):
-                        dependency_key = (
-                            cast(str, dependency_symbol["model"]),
-                            cast(str, dependency_symbol["module"]),
-                            cast(str, dependency_symbol["name"]),
-                        )
-                        dependency = declarations_by_symbol[dependency_key]
-                        dependency_body = cast(
-                            dict[str, JsonValue],
-                            {
-                                "kind": "symbol",
-                                "symbol": dependency_symbol,
-                            },
-                        )
-                        dependency_identity = content_identity(
-                            domains["actual_operand"],
-                            dependency_body,
-                        )
-                        dependency_target, dependency_initializer = (
-                            _symbol_initialization_contract(
-                                dependency,
-                                assignment_policy,
-                                dependency_symbol,
-                                dependency_identity,
-                            )
-                        )
-                        if dependency_target is not None:
-                            scenario_targets[dependency_identity] = dependency_target
-                        if dependency_initializer is not None:
-                            initializers[dependency_identity] = dependency_initializer
+                        if not record_formula_dependency(dependency_symbol):
+                            return False
             elif operand.get("kind") == "literal":
                 value = operand.get("value")
                 context_type = _literal_context_contract(
@@ -5861,6 +6027,23 @@ def _resolved_entrypoint_graph_is_admitted(
                     },
                 )
             )
+        try:
+            event_formula_dependencies = _reachable_operation_formula_dependencies(
+                (
+                    exact_operation["package"],
+                    exact_operation["version"],
+                    exact_operation["id"],
+                ),
+                operations,
+                operation_formula_dependencies,
+            )
+        except ValueError:
+            return False
+        if not all(
+            record_formula_dependency(dependency_symbol)
+            for dependency_symbol in event_formula_dependencies
+        ):
+            return False
         try:
             expected_aliases = _resolved_alias_rows(operation, aliases)
         except ValueError:

@@ -1191,6 +1191,85 @@ def test_model_check_points_a_non_first_formula_error_at_its_declaration(
     assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
 
 
+def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formulas = source_document["modules"][0]["formulas"]
+    formulas.reverse()
+    formula = next(row for row in formulas if row["id"] == "mitigated-damage")
+    result_contract = deepcopy(formula["result"])
+    formula["body"]["nodes"].append(
+        {
+            "id": "over-budget-copy",
+            "node": "operation-call",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "local", "local": "damage"},
+                }
+            ],
+            "result": result_contract,
+        }
+    )
+    formula["body"]["result"] = {
+        "kind": "local",
+        "local": "over-budget-copy",
+    }
+    source = tmp_path / "second-formula-binding-budget.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+
+
+def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "nodes": [],
+        "result": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "damage_dealt",
+        },
+    }
+    source = tmp_path / "event-formula-output-symbol.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/entrypoints/0/operation"
+
+
 def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contract(
     tmp_path, run_cli
 ):

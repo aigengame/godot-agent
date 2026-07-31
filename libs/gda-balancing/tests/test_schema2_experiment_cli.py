@@ -1144,10 +1144,13 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     assert facts["effective_accuracy"] == facts["target_health"]
 
 
-def test_event_formula_reads_a_symbol_from_the_committed_pre_event_snapshot(
+def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     tmp_path, run_cli
 ):
     source_value = _rpg_model_source()
+    source_value["modules"][0]["symbols"].append(
+        _rpg_value("formula_bonus", "input")
+    )
     formula = next(
         row
         for row in source_value["modules"][0]["formulas"]
@@ -1158,7 +1161,7 @@ def test_event_formula_reads_a_symbol_from_the_committed_pre_event_snapshot(
         "result": {
             "kind": "symbol",
             "module": "combat",
-            "symbol": "base_damage",
+            "symbol": "formula_bonus",
         },
     }
     source = tmp_path / "event-symbol-formula-model.json"
@@ -1184,6 +1187,16 @@ def test_event_formula_reads_a_symbol_from_the_committed_pre_event_snapshot(
         build_receipt=build_receipt,
         base_damage=24,
     )
+    specification["scenarios"][0]["assignments"].append(
+        {
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "formula_bonus",
+            },
+            "value": 31,
+        }
+    )
     requirements, _named_streams = (
         experiment_runtime_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
@@ -1203,8 +1216,8 @@ def test_event_formula_reads_a_symbol_from_the_committed_pre_event_snapshot(
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
     event = artifacts.members["event-trace"].value["events"][0]
     facts = {row["name"]: row["integer"] for row in event["facts"]}
-    assert facts["damage_dealt"] == 24
-    assert facts["target_health"] == 76
+    assert facts["damage_dealt"] == 31
+    assert facts["target_health"] == 69
 
 
 def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
