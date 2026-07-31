@@ -4789,11 +4789,9 @@ def _operation_composition_diagnostic_subjects(
         for owner, operation in operations.values()
         if not _operation_formula_slots_are_closed(operation, node_definitions)
     )
-    if invalid_formula_slots:
-        return invalid_formula_slots
 
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
-    found: set[str] = set()
+    found: set[str] = set(invalid_formula_slots)
 
     def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
         found.add(f"language.operations.{owner}.{operation['id']}.body.{site}.{member}")

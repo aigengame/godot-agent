@@ -1157,6 +1157,766 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
     return _reference_artifact(checked, "package-lock", payload)
 
 
+def _reference_formula_contract(
+    source_contract: dict[str, Any],
+    imports: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    imported = imports[source_contract["type"]]
+    return {
+        key: deepcopy(value)
+        for key, value in source_contract.items()
+        if key != "type"
+    } | {
+        "type_identity": {
+            "package": imported["package"],
+            "version": imported["version"],
+            "symbol": imported["symbol"],
+        }
+    }
+
+
+def _reference_formula_contract_matches_operation(
+    formula_contract: dict[str, Any],
+    operation_contract: dict[str, Any],
+) -> bool:
+    formula_type = formula_contract["type_identity"]
+    operation_type = operation_contract["type"]
+    return formula_type == {
+        "package": operation_type["package"],
+        "version": operation_type["version"],
+        "symbol": operation_type["id"],
+    } and all(
+        formula_contract[member] == operation_contract[member]
+        for member in ("representation", "kind", "unit", "numeric_policy")
+    )
+
+
+def _reference_formulas_and_bindings(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    lock: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    language = checked.language_bundle["language"]
+    lowering = _reference_lowering(language)
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
+    policy = profile["formula_policy"]
+    domains = policy["identity_domains"]
+    actual_operand_domain = checked.kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]["actual_operand"]
+    declarations_by_source = {
+        (
+            declaration["resolved_symbol"]["module"],
+            declaration["resolved_symbol"]["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    prototypes: dict[tuple[str, str], dict[str, Any]] = {}
+    dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for module in checked.source[profile["modules_member"]]:
+        module_id = module[profile["module_id_member"]]
+        imports = {
+            item[profile["import_alias_member"]]: {
+                "package": item[profile["import_package_member"]],
+                "version": item[profile["import_version_member"]],
+                "symbol": item[profile["import_symbol_member"]],
+            }
+            for item in module[profile["imports_member"]]
+        }
+        for source_formula in module.get("formulas", []):
+            key = (module_id, source_formula["id"])
+            parameters = [
+                {
+                    "id": parameter["id"],
+                    **_reference_formula_contract(parameter, imports),
+                }
+                for parameter in source_formula["parameters"]
+            ]
+            parameters.sort(key=lambda item: item["id"])
+            prototypes[key] = {
+                "module": module_id,
+                "id": source_formula["id"],
+                "parameters": parameters,
+                "result": _reference_formula_contract(
+                    source_formula["result"],
+                    imports,
+                ),
+                "imports": imports,
+                "source_body": source_formula["body"],
+            }
+            dependencies[key] = [
+                (node["formula"]["module"], node["formula"]["id"])
+                for node in source_formula["body"]["nodes"]
+                if node["node"] == "formula-call"
+            ]
+
+    order: list[tuple[str, str]] = []
+    visited: set[tuple[str, str]] = set()
+
+    def visit(key: tuple[str, str]) -> None:
+        if key in visited:
+            return
+        for dependency in dependencies[key]:
+            visit(dependency)
+        visited.add(key)
+        order.append(key)
+
+    for key in sorted(prototypes):
+        visit(key)
+
+    package_versions = {row["id"]: row["version"] for row in lock["packages"]}
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row["definition"]
+        for row in lock["operations"]
+    }
+
+    def operation_identity(coordinate: tuple[str, str, str]) -> str:
+        return _reference_content_identity(
+            domains["operation"],
+            {
+                "package": coordinate[0],
+                "version": coordinate[1],
+                "id": coordinate[2],
+            },
+        )
+
+    def operand(
+        source_operand: dict[str, Any],
+        parameters: dict[str, dict[str, Any]],
+        locals_: dict[str, dict[str, Any]],
+        expected: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        kind = source_operand["kind"]
+        if kind == "parameter":
+            body = {
+                "kind": kind,
+                "parameter": source_operand["parameter"],
+            }
+            contract = parameters[source_operand["parameter"]]
+        elif kind == "local":
+            body = {"kind": kind, "local": source_operand["local"]}
+            contract = locals_[source_operand["local"]]
+        elif kind == "symbol":
+            declaration = declarations_by_source[
+                (source_operand["module"], source_operand["symbol"])
+            ]
+            body = {
+                "kind": kind,
+                "resolved_symbol": declaration["resolved_symbol"],
+            }
+            contract = declaration
+        else:
+            assert kind == "literal" and expected is not None
+            body = {"kind": kind, "value": source_operand["value"]}
+            contract = expected
+        return (
+            {
+                **body,
+                "identity": _reference_content_identity(
+                    actual_operand_domain,
+                    body,
+                ),
+            },
+            contract,
+        )
+
+    resolved: dict[tuple[str, str], dict[str, Any]] = {}
+    for key in order:
+        prototype = prototypes[key]
+        parameters = {item["id"]: item for item in prototype["parameters"]}
+        locals_: dict[str, dict[str, Any]] = {}
+        nodes: list[dict[str, Any]] = []
+        formula_dependencies: set[str] = set()
+        operation_dependencies: set[str] = set()
+        refusals: set[str] = set()
+        max_steps = 0
+        termination_measure = 1
+        for source_node in prototype["source_body"]["nodes"]:
+            node_id = source_node["id"]
+            if source_node["node"] == "formula-call":
+                called = resolved[
+                    (
+                        source_node["formula"]["module"],
+                        source_node["formula"]["id"],
+                    )
+                ]
+                called_parameters = {
+                    item["id"]: item for item in called["parameters"]
+                }
+                arguments = [
+                    {
+                        "parameter": argument["parameter"],
+                        "operand": operand(
+                            argument["operand"],
+                            parameters,
+                            locals_,
+                            called_parameters[argument["parameter"]],
+                        )[0],
+                    }
+                    for argument in source_node["arguments"]
+                ]
+                arguments.sort(key=lambda item: item["parameter"])
+                result = called["result"]
+                body = {
+                    "id": node_id,
+                    "node": "formula-call",
+                    "formula": {
+                        "module": called["module"],
+                        "id": called["id"],
+                        "identity": called["identity"],
+                    },
+                    "arguments": arguments,
+                    "result": result,
+                }
+                formula_dependencies.add(called["identity"])
+                formula_dependencies.update(
+                    called["closure"]["formula_dependencies"]
+                )
+                operation_dependencies.update(
+                    called["closure"]["operation_dependencies"]
+                )
+                refusals.update(called["closure"]["refusals"])
+                max_steps += (
+                    policy["resource_charge_per_node"]
+                    + called["closure"]["resource_charge"]["max_steps"]
+                )
+                termination_measure = max(
+                    termination_measure,
+                    1 + called["closure"]["termination_measure"],
+                )
+            elif source_node["node"] == "operation-call":
+                coordinate = (
+                    source_node["operation"]["package"],
+                    source_node["operation"]["version"],
+                    source_node["operation"]["id"],
+                )
+                operation = operations[coordinate]
+                ports = {item["id"]: item for item in operation["inputs"]}
+                arguments = []
+                for argument in source_node["arguments"]:
+                    formal = ports[argument["port"]]
+                    source_operand = argument["operand"]
+                    if source_operand["kind"] == "literal":
+                        profile_matches = [
+                            item
+                            for item in language["literal_typing_profiles"]
+                            if item["minimum"]
+                            <= source_operand["value"]
+                            <= item["maximum"]
+                            and item["type"] == formal["type"]
+                            and all(
+                                item[member] == formal[member]
+                                for member in (
+                                    "representation",
+                                    "kind",
+                                    "unit",
+                                    "domain",
+                                    "numeric_policy",
+                                )
+                            )
+                        ]
+                        assert len(profile_matches) == 1
+                        operand_body = {
+                            "kind": "literal",
+                            "value": source_operand["value"],
+                        }
+                        actual = {
+                            **operand_body,
+                            "identity": _reference_content_identity(
+                                actual_operand_domain,
+                                operand_body,
+                            ),
+                        }
+                    else:
+                        actual, _ = operand(
+                            source_operand,
+                            parameters,
+                            locals_,
+                        )
+                    arguments.append(
+                        {"port": argument["port"], "operand": actual}
+                    )
+                arguments.sort(key=lambda item: item["port"])
+                result = _reference_formula_contract(
+                    source_node["result"],
+                    prototype["imports"],
+                )
+                identity = operation_identity(coordinate)
+                body = {
+                    "id": node_id,
+                    "node": "operation-call",
+                    "operation": {
+                        "package": coordinate[0],
+                        "version": coordinate[1],
+                        "id": coordinate[2],
+                        "identity": identity,
+                    },
+                    "arguments": arguments,
+                    "result": result,
+                }
+                operation_dependencies.add(identity)
+                refusals.update(operation["refusals"])
+                max_steps += (
+                    policy["resource_charge_per_node"]
+                    + operation["resource_bounds"]["max_steps"]
+                )
+            else:
+                assert source_node["node"] == "conditional"
+                condition, _ = operand(
+                    source_node["condition"],
+                    parameters,
+                    locals_,
+                )
+                when_true, result = operand(
+                    source_node["when_true"],
+                    parameters,
+                    locals_,
+                )
+                when_false, _ = operand(
+                    source_node["when_false"],
+                    parameters,
+                    locals_,
+                    result,
+                )
+                body = {
+                    "id": node_id,
+                    "node": "conditional",
+                    "condition": condition,
+                    "when_true": when_true,
+                    "when_false": when_false,
+                    "result": {
+                        member: value
+                        for member, value in result.items()
+                        if member != "id"
+                    },
+                }
+                max_steps += policy["resource_charge_per_node"]
+            node = {
+                **body,
+                "identity": _reference_content_identity(
+                    domains["expression_node"],
+                    body,
+                ),
+            }
+            nodes.append(node)
+            locals_[node_id] = body["result"]
+        result_operand, _ = operand(
+            prototype["source_body"]["result"],
+            parameters,
+            locals_,
+            prototype["result"],
+        )
+        formula_body = {
+            "module": prototype["module"],
+            "id": prototype["id"],
+            "parameters": prototype["parameters"],
+            "result": prototype["result"],
+            "body": {"nodes": nodes, "result": result_operand},
+            "closure": {
+                "formula_dependencies": sorted(formula_dependencies),
+                "operation_dependencies": sorted(operation_dependencies),
+                "refusals": sorted(refusals),
+                "resource_charge": {"max_steps": max_steps},
+                "termination_measure": termination_measure,
+            },
+        }
+        resolved[key] = {
+            **formula_body,
+            "identity": _reference_content_identity(
+                domains["declaration"],
+                formula_body,
+            ),
+        }
+
+    selected_keys = {
+        (binding["formula"]["module"], binding["formula"]["id"])
+        for binding in checked.source.get("formula_bindings", [])
+    }
+    pending = list(selected_keys)
+    while pending:
+        key = pending.pop()
+        for dependency in dependencies[key]:
+            if dependency not in selected_keys:
+                selected_keys.add(dependency)
+                pending.append(dependency)
+    formulas = [resolved[key] for key in sorted(selected_keys)]
+    slots = {}
+    for row in lock["operations"]:
+        coordinate = (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        )
+        identity = operation_identity(coordinate)
+        for slot in row["definition"].get("formula_slots", []):
+            slots[(*coordinate, slot["id"])] = (slot, identity)
+
+    bindings = []
+    for source_binding in checked.source.get("formula_bindings", []):
+        formula = resolved[
+            (
+                source_binding["formula"]["module"],
+                source_binding["formula"]["id"],
+            )
+        ]
+        if source_binding["site"]["kind"] == "operation-slot":
+            source_operation = source_binding["site"]["operation"]
+            key = (
+                source_operation["package"],
+                source_operation["version"],
+                source_operation["id"],
+                source_binding["site"]["slot"],
+            )
+            slot, operation_identity_value = slots[key]
+            arguments = []
+            for argument in source_binding["arguments"]:
+                operand_body = {
+                    "kind": "slot-parameter",
+                    "parameter": argument["operand"]["parameter"],
+                }
+                arguments.append(
+                    {
+                        "parameter": argument["parameter"],
+                        "operand": {
+                            **operand_body,
+                            "identity": _reference_content_identity(
+                                actual_operand_domain,
+                                operand_body,
+                            ),
+                        },
+                    }
+                )
+            site_body = {
+                "kind": "operation-slot",
+                "operation": {
+                    "package": key[0],
+                    "version": key[1],
+                    "id": key[2],
+                    "identity": operation_identity_value,
+                },
+                "slot": key[3],
+                "context": slot["context"],
+            }
+        else:
+            site = source_binding["site"]
+            declaration = declarations_by_source[
+                (site["module"], site["symbol"])
+            ]
+            arguments = [
+                {
+                    "parameter": argument["parameter"],
+                    "operand": operand(
+                        argument["operand"],
+                        {},
+                        {},
+                    )[0],
+                }
+                for argument in source_binding["arguments"]
+            ]
+            site_body = {
+                "kind": "derived-symbol",
+                "context": {
+                    "phase": "initialization",
+                    "frame": "pre-snapshot",
+                },
+                "resolved_symbol": declaration["resolved_symbol"],
+            }
+        arguments.sort(key=lambda item: item["parameter"])
+        site = {
+            **site_body,
+            "identity": _reference_content_identity(
+                domains["evaluation_site"],
+                site_body,
+            ),
+        }
+        binding_body = {
+            "site": site,
+            "formula": {
+                "module": formula["module"],
+                "id": formula["id"],
+                "identity": formula["identity"],
+            },
+            "arguments": arguments,
+        }
+        bindings.append(
+            {
+                **binding_body,
+                "identity": _reference_content_identity(
+                    domains["binding"],
+                    binding_body,
+                ),
+            }
+        )
+    bindings.sort(key=lambda item: item["identity"])
+    return formulas, bindings
+
+
+def _reference_specialize_formula_slots(
+    selected_semantics: dict[str, Any],
+    formulas: list[dict[str, Any]],
+    bindings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    specialized = deepcopy(selected_semantics)
+    package_versions = {
+        row["id"]: row["version"] for row in specialized["packages"]
+    }
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row["definition"]
+        for row in specialized["operations"]
+    }
+    formulas_by_identity = {item["identity"]: item for item in formulas}
+
+    def runtime_operand(
+        value: dict[str, Any],
+        parameter_sources: dict[str, dict[str, Any]],
+        local_sources: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        if value["kind"] == "parameter":
+            return parameter_sources[value["parameter"]]
+        if value["kind"] == "local":
+            return local_sources[value["local"]]
+        return {"kind": "literal", "literal": value["value"]}
+
+    def reference(value: dict[str, Any]) -> str:
+        return value["port"] if value["kind"] == "port" else value["local"]
+
+    def compile_formula(
+        formula: dict[str, Any],
+        parameter_sources: dict[str, dict[str, Any]],
+        result_target: str,
+        prefix: str,
+    ) -> list[dict[str, Any]]:
+        instructions = []
+        local_sources: dict[str, dict[str, Any]] = {}
+        final_local = (
+            formula["body"]["result"]["local"]
+            if formula["body"]["result"]["kind"] == "local"
+            else None
+        )
+        for node in formula["body"]["nodes"]:
+            node_id = node["id"]
+            target = result_target if node_id == final_local else f"{prefix}.{node_id}"
+            if node["node"] == "operation-call":
+                operation_ref = node["operation"]
+                called = operations[
+                    (
+                        operation_ref["package"],
+                        operation_ref["version"],
+                        operation_ref["id"],
+                    )
+                ]
+                child_values = {
+                    argument["port"]: runtime_operand(
+                        argument["operand"],
+                        parameter_sources,
+                        local_sources,
+                    )
+                    for argument in node["arguments"]
+                }
+                result_source = called["result"]["source"]
+                result_name = result_source.get("name")
+                for index, child in enumerate(called["body"]):
+                    child_target = (
+                        target
+                        if child.get("target") == result_name
+                        else f"{prefix}.{node_id}.{index}"
+                    )
+                    if child["node"] == "constant":
+                        compiled = {
+                            "node": "constant",
+                            "target": child_target,
+                            "literal": child["literal"],
+                        }
+                    elif child["node"] == "copy":
+                        compiled = {
+                            "node": "copy",
+                            "target": child_target,
+                            "value": reference(child_values[child["value"]]),
+                        }
+                    elif child["node"] in {
+                        "add",
+                        "maximum",
+                        "multiply",
+                        "subtract",
+                    }:
+                        compiled = {
+                            "node": child["node"],
+                            "target": child_target,
+                            "left": reference(child_values[child["left"]]),
+                            "right": reference(child_values[child["right"]]),
+                        }
+                    else:
+                        assert child["node"] == "if"
+                        compiled = {
+                            "node": "if",
+                            "target": child_target,
+                            "condition": reference(
+                                child_values[child["condition"]]
+                            ),
+                            "when_true": reference(
+                                child_values[child["when_true"]]
+                            ),
+                            "when_false": reference(
+                                child_values[child["when_false"]]
+                            ),
+                        }
+                    instructions.append(compiled)
+                    child_values[child["target"]] = {
+                        "kind": "local",
+                        "local": child_target,
+                    }
+                called_result = child_values[result_name]
+                if called_result != {"kind": "local", "local": target}:
+                    instructions.append(
+                        {
+                            "node": "copy",
+                            "target": target,
+                            "value": reference(called_result),
+                        }
+                    )
+                instructions.append(
+                    {"node": "copy", "target": target, "value": target}
+                )
+            elif node["node"] == "conditional":
+                instructions.append(
+                    {
+                        "node": "if",
+                        "target": target,
+                        "condition": reference(
+                            runtime_operand(
+                                node["condition"],
+                                parameter_sources,
+                                local_sources,
+                            )
+                        ),
+                        "when_true": reference(
+                            runtime_operand(
+                                node["when_true"],
+                                parameter_sources,
+                                local_sources,
+                            )
+                        ),
+                        "when_false": reference(
+                            runtime_operand(
+                                node["when_false"],
+                                parameter_sources,
+                                local_sources,
+                            )
+                        ),
+                    }
+                )
+            else:
+                called = formulas_by_identity[node["formula"]["identity"]]
+                called_sources = {
+                    argument["parameter"]: runtime_operand(
+                        argument["operand"],
+                        parameter_sources,
+                        local_sources,
+                    )
+                    for argument in node["arguments"]
+                }
+                instructions.extend(
+                    compile_formula(
+                        called,
+                        called_sources,
+                        target,
+                        f"{prefix}.{node_id}",
+                    )
+                )
+                instructions.append(
+                    {"node": "copy", "target": target, "value": target}
+                )
+            local_sources[node_id] = {"kind": "local", "local": target}
+        result = runtime_operand(
+            formula["body"]["result"],
+            parameter_sources,
+            local_sources,
+        )
+        if result != {"kind": "local", "local": result_target}:
+            instructions.append(
+                (
+                    {
+                        "node": "constant",
+                        "target": result_target,
+                        "literal": result["literal"],
+                    }
+                    if result["kind"] == "literal"
+                    else {
+                        "node": "copy",
+                        "target": result_target,
+                        "value": reference(result),
+                    }
+                )
+            )
+        return instructions
+
+    for binding in bindings:
+        site = binding["site"]
+        if site["kind"] != "operation-slot":
+            continue
+        operation_ref = site["operation"]
+        coordinate = (
+            operation_ref["package"],
+            operation_ref["version"],
+            operation_ref["id"],
+        )
+        operation = operations[coordinate]
+        slot = next(
+            item
+            for item in operation["formula_slots"]
+            if item["id"] == site["slot"]
+        )
+        slot_parameters = {
+            item["id"]: item for item in slot["parameters"]
+        }
+        parameter_sources = {}
+        for argument in binding["arguments"]:
+            slot_parameter = slot_parameters[argument["operand"]["parameter"]]
+            source = slot_parameter["source"]
+            parameter_sources[argument["parameter"]] = {
+                "kind": "port" if source["kind"] == "port" else "local",
+                "port" if source["kind"] == "port" else "local": source["name"],
+            }
+        formula = formulas_by_identity[binding["formula"]["identity"]]
+        compiled = compile_formula(
+            formula,
+            parameter_sources,
+            slot["target"],
+            f"formula.{site['slot']}",
+        )
+        start = slot["placeholder_index"]
+        operation["body"][start : start + slot["placeholder_length"]] = compiled
+
+    specialized_operations = {
+        (row["package"], row["definition"]["id"]): row["definition"]
+        for row in specialized["operations"]
+    }
+    for closure in specialized["package_semantic_closures"]:
+        for entry in closure["definitions"]:
+            if entry["authority_path"] != "language.operations":
+                continue
+            entry["definitions"] = [
+                specialized_operations.get(
+                    (closure["package"], definition["id"]),
+                    definition,
+                )
+                for definition in entry["definitions"]
+            ]
+    return specialized
+
+
 def _reference_rir(
     checked: CheckedModel, lock: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -1170,16 +1930,26 @@ def _reference_rir(
         for invocation in lowering["rule_chain"]:
             fact = _reference_apply(language, invocation, fact)
         declarations.append(fact["fields"])
+    formulas, formula_bindings = _reference_formulas_and_bindings(
+        checked,
+        declarations,
+        lock,
+    )
     selected_semantics = _reference_runtime_projection(
         checked, lock, declarations, lowering
+    )
+    selected_semantics = _reference_specialize_formula_slots(
+        selected_semantics,
+        formulas,
+        formula_bindings,
     )
     return _reference_artifact(
         checked,
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
-            "formulas": [],
-            "formula_bindings": [],
+            "formulas": formulas,
+            "formula_bindings": formula_bindings,
             "entrypoints": _reference_entrypoints(
                 checked,
                 declarations,
@@ -2082,29 +2852,49 @@ def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str
         for symbol_index, symbol in enumerate(module[symbols_member])
     }
     declarations = rir[lowering["output_member"]]
+    formula_pointers = {
+        (module[module_id_member], formula["id"]): [
+            modules_member,
+            module_index,
+            "formulas",
+            formula_index,
+        ]
+        for module_index, module in enumerate(checked.source[modules_member])
+        for formula_index, formula in enumerate(module.get("formulas", []))
+    }
+    declaration_entries = [
+        {
+            "rir_pointer": _reference_pointer(
+                [lowering["output_member"], index]
+            ),
+            "source_pointer": _reference_pointer(
+                pointers[
+                    (
+                        declaration["resolved_symbol"]["model"],
+                        declaration["resolved_symbol"]["module"],
+                        declaration["resolved_symbol"]["name"],
+                    )
+                ]
+            ),
+        }
+        for index, declaration in enumerate(declarations)
+    ]
+    formula_entries = [
+        {
+            "rir_pointer": _reference_pointer(["formulas", index]),
+            "source_pointer": _reference_pointer(
+                formula_pointers[(formula["module"], formula["id"])]
+            ),
+        }
+        for index, formula in enumerate(rir["formulas"])
+    ]
     return _reference_artifact(
         checked,
         "debug-map",
         {
             "source_identity": checked.source_identity,
             "rir_identity": rir["content_identity"],
-            "entries": [
-                {
-                    "rir_pointer": _reference_pointer(
-                        [lowering["output_member"], index]
-                    ),
-                    "source_pointer": _reference_pointer(
-                        pointers[
-                            (
-                                declaration["resolved_symbol"]["model"],
-                                declaration["resolved_symbol"]["module"],
-                                declaration["resolved_symbol"]["name"],
-                            )
-                        ]
-                    ),
-                }
-                for index, declaration in enumerate(declarations)
-            ],
+            "entries": declaration_entries + formula_entries,
         },
     )
 
@@ -3169,9 +3959,14 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
 
     assert production == reference
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
-    operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
+    operation_projections = cast(
+        list[dict[str, Any]], selected_semantics["operations"]
+    )
     assert [row["definition"]["id"] for row in operation_projections] == [
-        "quantity.identity"
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.maximum",
+        "quantity.subtract",
     ]
     lock_operations = cast(
         list[dict[str, Any]], artifacts["package-lock"]["operations"]

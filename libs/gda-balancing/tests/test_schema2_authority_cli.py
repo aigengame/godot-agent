@@ -25,7 +25,12 @@ import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
-from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
+from gda_balancing.commands.model import (
+    MODEL_BUILD,
+    MODEL_CHECK,
+    MODEL_INSPECT,
+    MODEL_MIGRATE,
+)
 from gda_balancing.commands.package import (
     package_get_success_schema,
     package_list_success_schema,
@@ -1455,6 +1460,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
             argv = invocation(EXPERIMENT_RUN)
+        elif path == "model inspect":
+            argv = invocation(MODEL_INSPECT)
         elif path == "template list":
             argv = ["template", "list"]
         elif path == "template get":
@@ -1496,6 +1503,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             descriptor = {
                 "model build": MODEL_BUILD,
                 "model check": MODEL_CHECK,
+                "model inspect": MODEL_INSPECT,
                 "model migrate": MODEL_MIGRATE,
             }[path]
             source = tmp_path / f"{path.replace(' ', '-')}.json"
