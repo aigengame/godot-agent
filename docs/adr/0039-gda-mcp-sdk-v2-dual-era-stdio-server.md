@@ -120,5 +120,7 @@ Concretely:
   tool definition wasn't cached), so canned test results must conform to the real
   output schemas — a test-tier tightening, not a behavior change.
 - Cache hints on `tools/list` (`ttlMs`/`cacheScope`, new in the revision) are a
-  natural follow-up for the process-immutable generated surface; they only reach
-  2026-07-28 clients and are tracked separately (#602).
+  natural fit for the process-immutable generated surface and shipped as the
+  follow-up slice (#602): `CacheHint(ttl_ms=3_600_000, scope="public")`. The hint
+  only reaches 2026-07-28 clients, and caching remains the client's choice —
+  pre-2026 clients see identical un-hinted traffic.

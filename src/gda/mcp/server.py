@@ -48,7 +48,7 @@ from urllib.parse import unquote, urlparse
 
 import mcp.server.stdio
 import mcp.types as types
-from mcp.server import Server, ServerRequestContext
+from mcp.server import CacheHint, Server, ServerRequestContext
 from mcp.shared.exceptions import MCPDeprecationWarning
 
 from gda.mcp.project_context import resolve_project_dir
@@ -348,6 +348,13 @@ def build_server(runner: GdaRunner) -> Server:
             on_list_tools=_list_tools,
             on_call_tool=_call_tool,
             on_roots_list_changed=_on_roots_list_changed,
+            # The tool surface is immutable for the process's lifetime (built
+            # once from the startup dump, ADR-0012) and depends on no user,
+            # auth, or project (ADR-0014 keeps the project out of the surface)
+            # — so tools/list is safely cacheable for a long TTL at public
+            # scope. Forward-compat only: the hint reaches 2026-07-28 clients;
+            # pre-2026 clients see identical uncached traffic (#602).
+            cache_hints={"tools/list": CacheHint(ttl_ms=3_600_000, scope="public")},
         )
     return server
 

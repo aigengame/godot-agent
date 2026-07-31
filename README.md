@@ -220,6 +220,10 @@ The server resolves two pieces of context — which Godot **project** to drive a
   roots to advertise). See [Configuration](#configuration) for the full CLI-vs-MCP resolution order.
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
+For clients on the MCP 2026-07-28 revision, `gda-mcp` marks its `tools/list` response cacheable
+(1-hour TTL, public scope) — the generated tool surface is fixed for a server's lifetime, so
+upgraded clients can skip re-fetching it; pre-2026 clients see identical traffic.
+
 
 #### Register with Coding Agents
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
+<!-- gda-readme-i18n: source=README.md sha256=5b0ecafe46c7228d7f155d1f36bd89885d8337cf434c5079cc69ebecb673ee0e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -220,6 +220,10 @@ uvx --from "gda[mcp]" gda-mcp
   现在的客户端行为不变，但固定 `GDA_PROJECT` 才是面向未来的配置（走新无状态协议的客户端没有
   roots 可公布）。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
+
+对走 MCP 2026-07-28 修订版协议的客户端，`gda-mcp` 会把 `tools/list` 响应标记为可缓存
+（1 小时 TTL、public 范围）——生成的工具面在服务器生命周期内固定不变，升级后的客户端
+因此可以不再反复拉取；2026 前的客户端流量完全不变。
 
 
 #### 在编程 agent 中注册
