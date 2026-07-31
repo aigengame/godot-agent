@@ -125,7 +125,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     kernel_vector_kinds = {
         kind["id"] for kind in kernel["meta_format"]["package_vector"]["kinds"]
     }
-    assert "observation-lifecycle" not in kernel_vector_kinds
+    assert "artifact-evidence" not in kernel_vector_kinds
     assert {
         runtime_vectors[vector_id]["kind"]
         for vector_id in expected_vector_ids["standard.runtime"]
@@ -154,6 +154,28 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     assert evidence_schemas["formula-observation-refusal-evidence"]["properties"][
         "snapshot_indices"
     ]["const"] == [1, 3]
+    for vector_id in expected_vector_ids["standard.runtime"]:
+        if ".observation." not in vector_id:
+            continue
+        vector = runtime_vectors[vector_id]
+        schema = evidence_schemas[vector["input"]["site"]]
+        operands = {row["name"]: row["value"] for row in vector["input"]["operands"]}
+        assert (
+            operands["lifecycle_cache_entries"]
+            == schema["properties"]["cache_entries"]["const"]
+        )
+        committed = schema["properties"]["committed_event_indices"]["const"]
+        snapshots = schema["properties"]["snapshot_indices"]["const"]
+        assert operands["lifecycle_committed_event_signature"] == (
+            len(committed) * 100 + committed[0] * 10 + committed[-1]
+        )
+        assert operands["lifecycle_snapshot_identity_signature"] == (
+            len(snapshots) * 111
+        )
+        assert operands["lifecycle_snapshot_index_signature"] == (
+            len(snapshots) * 100 + snapshots[0] * 10 + snapshots[-1]
+        )
+        assert operands["lifecycle_post_state_committed"] == 1
     serialized_evidence = repr(evidence_schemas)
     assert all(
         game_term not in serialized_evidence

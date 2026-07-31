@@ -251,6 +251,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["exports"]["operations"] == [
         "quantity.floor-zero",
         "quantity.identity",
+        "quantity.less-than",
         "quantity.maximum",
         "quantity.subtract",
     ]

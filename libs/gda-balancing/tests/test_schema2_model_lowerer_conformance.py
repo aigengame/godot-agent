@@ -4499,6 +4499,7 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     assert [row["definition"]["id"] for row in operation_projections] == [
         "quantity.floor-zero",
         "quantity.identity",
+        "quantity.less-than",
         "quantity.maximum",
         "quantity.subtract",
     ]

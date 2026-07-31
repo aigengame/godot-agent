@@ -755,6 +755,70 @@ def _observation_evidence(
     }
 
 
+def _assert_observation_evidence_matches_package_vector(
+    language_bundle: Any,
+    evidence: dict[str, Any],
+) -> None:
+    vector = next(
+        row
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.runtime"
+        and vector_set["package_version"] == "1.1.0"
+        for row in vector_set["vector_definitions"]
+        if row.get("kind") == "value-program"
+        and row.get("input", {}).get("site") == evidence["artifact_kind"]
+    )
+    snapshot_identities = evidence["snapshot_identities"]
+    assert all(
+        isinstance(identity, str)
+        and identity.startswith("sha256:")
+        and len(identity) == 71
+        and all(character in "0123456789abcdef" for character in identity[7:])
+        for identity in snapshot_identities
+    )
+    committed_event_indices = evidence["committed_event_indices"]
+    snapshot_indices = evidence["snapshot_indices"]
+    projected_operands = [
+        {"name": "lifecycle_cache_entries", "value": evidence["cache_entries"]},
+        {
+            "name": "lifecycle_committed_event_signature",
+            "value": (
+                len(committed_event_indices) * 100
+                + committed_event_indices[0] * 10
+                + committed_event_indices[-1]
+            ),
+        },
+        {
+            "name": "lifecycle_outcome_admitted",
+            "value": int(evidence["outcome"] == "admitted"),
+        },
+        {
+            "name": "lifecycle_post_state_committed",
+            "value": int(evidence["post_state_committed"]),
+        },
+        {
+            "name": "lifecycle_snapshot_identity_signature",
+            "value": (
+                len(snapshot_identities) * 100
+                + len(snapshot_identities) * 10
+                + len(set(snapshot_identities))
+            ),
+        },
+        {
+            "name": "lifecycle_snapshot_index_signature",
+            "value": (
+                len(snapshot_indices) * 100
+                + snapshot_indices[0] * 10
+                + snapshot_indices[-1]
+            ),
+        },
+    ]
+    assert projected_operands == vector["input"]["operands"]
+    production = experiment_runtime_module._evaluate_value_program_vector(vector)
+    reference = _reference_evaluate_value_program_vector(vector)
+    assert production == reference == vector["expect"]
+
+
 def _experiment(
     *,
     kernel_identity: str,
@@ -1491,6 +1555,14 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
             "formula-observation-boundary-evidence",
         ),
     )
+    _assert_observation_evidence_matches_package_vector(
+        checked.language_bundle,
+        positive_evidence,
+    )
+    _assert_observation_evidence_matches_package_vector(
+        checked.language_bundle,
+        boundary_evidence,
+    )
 
 
 def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
@@ -1571,6 +1643,10 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
             checked.language_bundle,
             "formula-observation-refusal-evidence",
         ),
+    )
+    _assert_observation_evidence_matches_package_vector(
+        checked.language_bundle,
+        evidence,
     )
 
 
@@ -2839,6 +2915,7 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
     } == expected_exports
     for vector in vectors:
         assert vector["kind"] == "value-program"
+        assert vector["input"]["site"] in expected_exports
         production = experiment_runtime_module._evaluate_value_program_vector(vector)
         reference = _reference_evaluate_value_program_vector(vector)
         assert production == reference == vector["expect"]
