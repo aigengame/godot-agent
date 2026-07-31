@@ -143,7 +143,10 @@ class McpBackend:
         # ExceptionGroup instead of our clear error.
         result = None
         error: MCPError | None = None
-        async with Client(stdio_client(params)) as client:
+        # mode="legacy" keeps the pre-migration handshake (the v1 client spoke
+        # `initialize`) and skips the default auto-mode discover probe — one
+        # fewer round trip per acquire, identical behavior for any channel server.
+        async with Client(stdio_client(params), mode="legacy") as client:
             try:
                 result = await client.call_tool(
                     self._tool,

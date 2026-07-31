@@ -49,18 +49,23 @@ def _server_params() -> StdioServerParameters:
     return StdioServerParameters(command=str(gda_mcp), args=[], env=env)
 
 
-def _call(tool: str, arguments: dict, *, mode: str = "legacy"):
+def _call(tool: str, arguments: dict, *, mode: str, expected_protocol: str):
     """Spawn the real gda-mcp over stdio, call one tool, return its result.
 
     ``mode`` pins the protocol era (ADR-0039's dual-era gate): ``"legacy"`` is
     the pre-2026 ``initialize`` handshake every surveyed agent speaks today;
-    ``"auto"`` probes ``server/discover`` first — the 2026-07-28 stateless path.
-    Deliberately NOT ``raise_exceptions`` (a client-side flag): this gate must
-    see exactly what a real agent sees on the wire.
+    ``"2026-07-28"`` pins the stateless era outright — deliberately NOT
+    ``"auto"``, which falls back to the legacy handshake on a server that lost
+    modern support, so an auto-mode run could go green without ever proving the
+    modern path. The negotiated ``expected_protocol`` is asserted for the same
+    reason: era coverage must be able to FAIL, not just happen. Deliberately
+    NOT ``raise_exceptions`` (a client-side flag): this gate must see exactly
+    what a real agent sees on the wire.
     """
 
     async def _drive():
         async with Client(stdio_client(_server_params()), mode=mode) as client:
+            assert client.protocol_version == expected_protocol
             return await client.call_tool(tool, arguments)
 
     return anyio.run(_drive)
@@ -68,11 +73,16 @@ def _call(tool: str, arguments: dict, *, mode: str = "legacy"):
 
 # Both protocol eras run the SAME assertions: backward compat ("no agent alive
 # today breaks") and forward compat (a 2026-07-28 client is served by the same
-# binary) are one gate, not a claim (ADR-0039).
+# binary) are one gate, not a claim (ADR-0039). The engine-free half of the
+# gate (handshake + surface) also runs on every PR in the fast tier
+# (test_mcp_stdio_handshake.py); this e2e half adds real tool dispatch.
+_ERAS = [("legacy", "2025-11-25"), ("2026-07-28", "2026-07-28")]
+
+
 @pytest.mark.e2e
-@pytest.mark.parametrize("mode", ["legacy", "auto"])
-def test_info_over_stdio_reports_engine_version(mode):
-    result = _call("info", {}, mode=mode)
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_info_over_stdio_reports_engine_version(mode, expected_protocol):
+    result = _call("info", {}, mode=mode, expected_protocol=expected_protocol)
 
     assert result.is_error is False, result.content
     assert result.structured_content is not None
@@ -84,12 +94,17 @@ def test_info_over_stdio_reports_engine_version(mode):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("mode", ["legacy", "auto"])
-def test_scene_create_over_stdio_creates_a_scene_file(tmp_path, mode):
+@pytest.mark.parametrize(("mode", "expected_protocol"), _ERAS)
+def test_scene_create_over_stdio_creates_a_scene_file(
+    tmp_path, mode, expected_protocol
+):
     scene = tmp_path / "main.tscn"
 
     result = _call(
-        "scene_create", {"path": str(scene), "root_type": "Node2D"}, mode=mode
+        "scene_create",
+        {"path": str(scene), "root_type": "Node2D"},
+        mode=mode,
+        expected_protocol=expected_protocol,
     )
 
     assert result.is_error is False, result.content

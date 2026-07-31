@@ -57,12 +57,16 @@ compatibility claim. Concretely:
   handler's return: gda-mcp constructs `CallToolResult` itself — the success dict
   as `structured_content` **plus** the indented-JSON `TextContent` block v1 used to
   emit (clients that render `content` rather than `structured_content` would
-  otherwise silently lose every result). The SDK still validates
-  `structured_content` against the tool's `output_schema` on success, and — spike-
-  verified — an `is_error=True` result without `structured_content` bypasses that
-  validation entirely, so ADR-0011's verbatim-envelope error relay is untouched.
+  otherwise silently lose every result). Output-schema validation **moved sides**
+  in v2 — v1 validated on the server (downgrading a non-conforming success to a
+  structured error result); v2 validates on the SDK *client* only, so a non-SDK
+  client sees results unvalidated. Accepted: gda-mcp's conformance is by
+  construction (result and `output_schema` share one Pydantic model), so the
+  check was redundant on this server. Spike-verified either way: an
+  `is_error=True` result without `structured_content` bypasses the validation
+  entirely, so ADR-0011's verbatim-envelope error relay is untouched.
 
-## Considered and rejected
+## Considered options
 
 - **Drop roots now (env → cwd only).** Where the deprecation clock ends anyway, but
   doing it inside the migration turns a dependency bump into a user-visible

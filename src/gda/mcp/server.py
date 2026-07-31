@@ -12,10 +12,12 @@ stdin; ADR-0015), and maps the result mechanically off gda's exit code
 - **exit 0** → the ``--json`` result dict, wrapped by :func:`_success_result`
   into ``structured_content`` plus a JSON ``TextContent`` block (SDK v2 removed
   v1's auto-wrap, so gda-mcp reproduces it — clients that render ``content``
-  keep seeing output). The SDK still validates ``structured_content`` against
-  the tool's ``output_schema`` (Design decision 5 — gda-mcp does NOT
-  re-validate: gda's result and its ``output_schema`` share one Pydantic model,
-  so conformance is by construction);
+  keep seeing output). SDK v2 validates ``structured_content`` against the
+  tool's ``output_schema`` on the **client** side only (v1's server-side check
+  is gone; a non-SDK client sees the result unvalidated — ADR-0039). gda-mcp
+  does NOT re-validate either way (Design decision 5): gda's result and its
+  ``output_schema`` share one Pydantic model, so conformance is by
+  construction;
 - **exit ≠ 0** → ``CallToolResult(is_error=True)`` carrying the full ``GdaError``
   envelope *verbatim* as JSON content — lossless, never flattened to prose, and
   kept out of ``structured_content`` / ``output_schema`` (an error result
@@ -158,8 +160,9 @@ def dispatch(
 
     Returns the full :class:`~mcp.types.CallToolResult` for success and failure
     alike (SDK v2 has no auto-wrap to lean on). Never raises for a gda failure:
-    the SDK flattens an exception to a prose ``is_error`` string, which would
-    lose the structured envelope, so failures are *returned* instead.
+    an exception escaping the handler becomes a JSON-RPC protocol error on the
+    client (``MCPError``, not a tool result at all), which would lose the
+    structured envelope entirely, so failures are *returned* instead.
     """
     params_json = json.dumps(arguments)
     # Verbatim passthrough (ADR-0015): the input object goes to gda on stdin via
@@ -220,10 +223,15 @@ async def _session_root_dirs(session) -> list[str]:
     try:
         # Deprecated as of 2026-07-28 (SEP-2577, 12-month window) but the only
         # roots channel legacy clients have; suppressed because stderr is the
-        # agent-visible log stream for a stdio server (ADR-0039).
+        # agent-visible log stream for a stdio server (ADR-0039). The deprecated
+        # wrapper warns synchronously at call time, so the filter block closes
+        # BEFORE the await: warnings filters are process-global state, and a
+        # block spanning a suspension could interleave with a concurrent
+        # request's save/restore and leak the filter.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MCPDeprecationWarning)
-            result = await session.list_roots()
+            pending = session.list_roots()
+        result = await pending
     except Exception:
         return []
     # A Root.uri is a file:// URI; recover the local path (percent-decoded).

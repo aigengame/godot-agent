@@ -157,11 +157,11 @@ class CommandSchema(BaseModel):
     failure-envelope schema, identical for every command, produced from the one
     shared :class:`GdaErrorEnvelope` model — zero per-command maintenance (#43).
 
-    ``gda-mcp`` later maps ``input`` → ``inputSchema`` and ``output`` →
-    ``outputSchema`` (success / structuredContent) mechanically. The ``error``
-    half is kept OUT of ``output``: a non-zero-exit failure maps to MCP's
-    separate ``isError`` channel, so the future adapter must not fold ``error``
-    into ``outputSchema``.
+    ``gda-mcp`` later maps ``input`` → ``input_schema`` and ``output`` →
+    ``output_schema`` (success / ``structured_content``) mechanically. The
+    ``error`` half is kept OUT of ``output``: a non-zero-exit failure maps to
+    MCP's separate ``is_error`` channel, so the adapter must not fold ``error``
+    into ``output_schema``.
 
     ``kind`` carries the command's static execution channel as the typed
     :class:`~gda.execution.ExecutionKind` (serialized as the lowercase value

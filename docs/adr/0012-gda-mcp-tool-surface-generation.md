@@ -103,3 +103,10 @@ does not decide for them.
   the dump, then register).
 - gda-mcp carries no per-command knowledge: it is a pure schema→tool transformation,
   so it stays correct as the `gda` surface grows without edits to gda-mcp.
+
+> **Outcome (2026-07-31, ADR-0039/#601):** the transform survived the MCP SDK v2
+> migration unchanged — still one startup dump, one generic dispatcher, zero
+> per-command knowledge. Only the SDK-side spelling of the mirrored fields
+> changed (`inputSchema`/`outputSchema` → `input_schema`/`output_schema` on the
+> v2 wire models); this ADR's prose keeps the v1 names as its point-in-time
+> record.
