@@ -214,8 +214,10 @@ The server resolves two pieces of context — which Godot **project** to drive a
 
 - **Project** — set `GDA_PROJECT` when your client can't advertise workspace **roots**; otherwise
   `gda-mcp` auto-detects the project from the roots the client sends (the folder you have open). A
-  *set-but-invalid* `GDA_PROJECT` is a reported error, not a silent fallback. See
-  [Configuration](#configuration) for the full CLI-vs-MCP resolution order.
+  *set-but-invalid* `GDA_PROJECT` is a reported error, not a silent fallback. Note the MCP
+  2026-07-28 spec revision deprecates the roots capability: today's clients keep working unchanged,
+  but pinning `GDA_PROJECT` is the future-proof setup (a client on the new stateless protocol has no
+  roots to advertise). See [Configuration](#configuration) for the full CLI-vs-MCP resolution order.
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
 
@@ -563,7 +565,7 @@ A named directory must be a project, or `gda` reports it as an error. When none 
 | Context | Project resolution order |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` (both strict — invalid is reported) → cwd if it holds `project.godot`, else projectless |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict — set-but-invalid is reported, not skipped) → a *valid* client workspace `root` → a *valid* server cwd, else projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict — set-but-invalid is reported, not skipped) → a *valid* client workspace `root` (clients on the pre-2026 MCP protocol; the 2026-07-28 revision has no roots, so those clients skip straight on) → a *valid* server cwd, else projectless |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>

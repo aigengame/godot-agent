@@ -10,7 +10,7 @@ reuses the shared ``_require_godot_engine`` gate.
 
 import anyio
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session as connect
+from mcp import Client
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
 from gda.mcp.runner import SubprocessGdaRunner
@@ -29,7 +29,7 @@ def test_info_tracer_real_chain(monkeypatch):
     server = build_server(SubprocessGdaRunner.default())
 
     async def _drive():
-        async with connect(server) as session:
+        async with Client(server, mode="legacy") as session:
             tools = await session.list_tools()
             result = await session.call_tool("info", {})
             return tools, result
@@ -39,9 +39,9 @@ def test_info_tracer_real_chain(monkeypatch):
     # Startup registered the real surface, including the info tracer tool.
     assert "info" in {t.name for t in tools.tools}
     # The call succeeded and the engine version came back as validated
-    # structuredContent (the SDK checked it against info's outputSchema).
-    assert result.isError is False, result.content
-    version = result.structuredContent
+    # structured_content (the SDK checked it against info's output_schema).
+    assert result.is_error is False, result.content
+    version = result.structured_content
     assert version is not None
     assert version["major"] == 4
     assert (version["major"], version["minor"]) >= (4, 4)  # ADR-0003 minimum

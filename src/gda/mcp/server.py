@@ -1,26 +1,38 @@
-"""The gda-mcp low-level stdio Server (ADR-0011/0012/0013, issue #193).
+"""The gda-mcp low-level stdio Server (ADR-0011/0012/0013/0039, issue #193).
 
 A *generated* server: at startup it introspects gda's aggregate schema dump
 (``gda schema``) and registers one MCP tool per command — name
-``<group>_<command>``, ``description`` ← the command's help, ``inputSchema`` /
-``outputSchema`` ← the command's input/output schemas (ADR-0012's faithful
+``<group>_<command>``, ``description`` ← the command's help, ``input_schema`` /
+``output_schema`` ← the command's input/output schemas (ADR-0012's faithful
 mirror). On a tool call it shells out to the installed gda, forwarding the tool
 input *verbatim* via ``gda <group> <command> --params-json -`` (the object on
 stdin; ADR-0015), and maps the result mechanically off gda's exit code
 (ADR-0011):
 
-- **exit 0** → the ``--json`` result dict; the SDK validates it against the
-  tool's ``outputSchema`` and wraps it as ``structuredContent`` (Design
-  decision 5 — gda-mcp does NOT re-validate: gda's result and its ``outputSchema``
-  share one Pydantic model, so conformance is by construction);
-- **exit ≠ 0** → ``CallToolResult(isError=True)`` carrying the full ``GdaError``
+- **exit 0** → the ``--json`` result dict, wrapped by :func:`_success_result`
+  into ``structured_content`` plus a JSON ``TextContent`` block (SDK v2 removed
+  v1's auto-wrap, so gda-mcp reproduces it — clients that render ``content``
+  keep seeing output). SDK v2 validates ``structured_content`` against the
+  tool's ``output_schema`` on the **client** side only (v1's server-side check
+  is gone; a non-SDK client sees the result unvalidated — ADR-0039). gda-mcp
+  does NOT re-validate either way (Design decision 5): gda's result and its
+  ``output_schema`` share one Pydantic model, so conformance is by
+  construction;
+- **exit ≠ 0** → ``CallToolResult(is_error=True)`` carrying the full ``GdaError``
   envelope *verbatim* as JSON content — lossless, never flattened to prose, and
-  kept out of ``structuredContent`` / ``outputSchema``.
+  kept out of ``structured_content`` / ``output_schema`` (an error result
+  without ``structured_content`` bypasses the SDK's output validation).
 
-Why the low-level ``Server`` and not FastMCP: our schemas come *from* gda (not
-from Python signatures), tools are discovered at runtime and served by one
-generic dispatcher, and we need direct control of the result/error channels —
-the inverse of FastMCP's "one tool = one decorated Python function" assumption.
+One server serves **both protocol eras** (ADR-0039): pre-2026 clients complete
+the legacy ``initialize`` handshake and keep the roots back-channel; 2026-07-28
+clients get the stateless request/response path, where project resolution
+degrades to env → cwd (see :func:`_session_root_dirs`).
+
+Why the low-level ``Server`` and not MCPServer (né FastMCP): our schemas come
+*from* gda (not from Python signatures), tools are discovered at runtime and
+served by one generic dispatcher, and we need direct control of the
+result/error channels — the inverse of MCPServer's "one tool = one decorated
+Python function" assumption.
 
 gda-mcp consumes only gda's public CLI ABI (``--json`` / exit code / ``GdaError``
 envelope); it never imports a gda internal symbol.
@@ -28,6 +40,7 @@ envelope); it never imports a gda internal symbol.
 
 import json
 import os
+import warnings
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Optional
@@ -35,8 +48,8 @@ from urllib.parse import unquote, urlparse
 
 import mcp.server.stdio
 import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 from gda.mcp.project_context import resolve_project_dir
 from gda.mcp.runner import GdaResult, GdaRunner, SubprocessGdaRunner
@@ -98,8 +111,24 @@ def _parse_error_envelope(stdout: str) -> Optional[dict[str, Any]]:
     return payload
 
 
+def _success_result(payload: dict[str, Any]) -> types.CallToolResult:
+    """Wrap gda's success dict the way SDK v1 used to (ADR-0011, ADR-0039).
+
+    v1's ``call_tool`` decorator auto-wrapped a returned dict into
+    ``structuredContent`` plus an indented-JSON ``TextContent`` block; v2 removed
+    the auto-wrap, so gda-mcp reproduces it verbatim (``indent=2`` included) —
+    dropping the ``content`` block would silently blank the result in every
+    client that renders ``content`` rather than ``structured_content``.
+    """
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
+        structured_content=payload,
+        is_error=False,
+    )
+
+
 def _synthesized_error(message: str, result: GdaResult) -> types.CallToolResult:
-    """gda-mcp's own ``isError`` result when gda produced no usable envelope.
+    """gda-mcp's own ``is_error`` result when gda produced no usable envelope.
 
     The edge of ADR-0011: gda failed to even run (e.g. ``-m gda`` import failure)
     or emitted non-envelope output. gda-mcp synthesizes a structured error in the
@@ -117,7 +146,7 @@ def _synthesized_error(message: str, result: GdaResult) -> types.CallToolResult:
     }
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(body))],
-        isError=True,
+        is_error=True,
     )
 
 
@@ -126,15 +155,14 @@ def dispatch(
     argv: list[str],
     arguments: dict[str, Any],
     project: Optional[Path] = None,
-) -> dict[str, Any] | types.CallToolResult:
+) -> types.CallToolResult:
     """Forward one MCP tool call to gda and map the outcome (ADR-0011/0015).
 
-    Returns the success result *dict* (the SDK validates it against the tool's
-    ``outputSchema`` and wraps it as ``structuredContent``) or a
-    :class:`~mcp.types.CallToolResult` for a failure. Never raises for a gda
-    failure: the low-level SDK flattens an exception to a prose ``isError``
-    string, which would lose the structured envelope, so failures are *returned*
-    as a ``CallToolResult`` instead.
+    Returns the full :class:`~mcp.types.CallToolResult` for success and failure
+    alike (SDK v2 has no auto-wrap to lean on). Never raises for a gda failure:
+    an exception escaping the handler becomes a JSON-RPC protocol error on the
+    client (``MCPError``, not a tool result at all), which would lose the
+    structured envelope entirely, so failures are *returned* instead.
     """
     params_json = json.dumps(arguments)
     # Verbatim passthrough (ADR-0015): the input object goes to gda on stdin via
@@ -147,7 +175,7 @@ def dispatch(
 
     if result.returncode == 0:
         try:
-            return json.loads(result.stdout)
+            return _success_result(json.loads(result.stdout))
         except json.JSONDecodeError:
             # exit 0 but non-JSON stdout: gda could not have honored ``--json``.
             # Treat as the can't-run / non-envelope edge rather than crash.
@@ -165,28 +193,45 @@ def dispatch(
         )
     # Relay gda's envelope verbatim and losslessly (ADR-0011): the exact JSON gda
     # emitted, carrying {category, code, message, diagnostics}, kept out of
-    # structuredContent / outputSchema.
+    # structured_content / output_schema.
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=result.stdout.strip())],
-        isError=True,
+        is_error=True,
     )
 
 
 async def _session_root_dirs(session) -> list[str]:
     """The client's advertised roots as local dir paths (ADR-0014 precedence 2).
 
-    A server->client ``roots/list`` request, so it needs a live session and is
-    issued lazily (see :class:`_ProjectResolver`). Best-effort: skip clients that
-    do not declare the roots capability, and degrade any failure to *no roots*
-    (gda's own cwd resolution then applies) rather than breaking dispatch — roots
-    is one optional precedence level, never a hard dependency.
+    A server->client ``roots/list`` back-channel request, so it needs a
+    connection that *has* a back-channel: the ``can_send_request`` guard skips
+    2026-07-28 stateless connections outright (SEP-2577 retired the roots
+    capability there; without the guard the call would raise
+    ``NoBackChannelError`` on every first tool call). Legacy connections — every
+    surveyed agent today — keep exactly the pre-migration behavior. Best-effort
+    beyond that: skip clients that do not declare the roots capability, and
+    degrade any failure to *no roots* (gda's own cwd resolution then applies)
+    rather than breaking dispatch — roots is one optional precedence level,
+    never a hard dependency.
     """
+    if not session.can_send_request:
+        return []
     if not session.check_client_capability(
         types.ClientCapabilities(roots=types.RootsCapability())
     ):
         return []
     try:
-        result = await session.list_roots()
+        # Deprecated as of 2026-07-28 (SEP-2577, 12-month window) but the only
+        # roots channel legacy clients have; suppressed because stderr is the
+        # agent-visible log stream for a stdio server (ADR-0039). The deprecated
+        # wrapper warns synchronously at call time, so the filter block closes
+        # BEFORE the await: warnings filters are process-global state, and a
+        # block spanning a suspension could interleave with a concurrent
+        # request's save/restore and leak the filter.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MCPDeprecationWarning)
+            pending = session.list_roots()
+        result = await pending
     except Exception:
         return []
     # A Root.uri is a file:// URI; recover the local path (percent-decoded).
@@ -241,8 +286,8 @@ def build_server(runner: GdaRunner) -> Server:
         types.Tool(
             name=tool_name(entry["name"]),
             description=entry["description"],
-            inputSchema=entry["input"],
-            outputSchema=entry["output"],
+            input_schema=entry["input"],
+            output_schema=entry["output"],
         )
         for entry in commands
     ]
@@ -254,43 +299,56 @@ def build_server(runner: GdaRunner) -> Server:
         tool_name(entry["name"]): entry["name"].split(" ") for entry in commands
     }
 
-    server: Server = Server(SERVER_NAME)
+    async def _list_tools(
+        ctx: ServerRequestContext, params: Optional[types.PaginatedRequestParams]
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=tools)
 
-    # A client roots/list_changed means the active project may have moved (#209):
-    # invalidate the cache so the next tool call re-runs the ADR-0014 precedence
-    # against the now-current roots. We only invalidate here, never resolve — a
-    # notification handler runs outside any request context, so there is no live
-    # request_context/session for the roots/list back-request; lazy re-resolution
-    # in call_tool keeps resolve_project_dir the single source of precedence
-    # (so a pinned GDA_PROJECT, read first there, still wins).
-    async def _on_roots_list_changed(_n: types.RootsListChangedNotification) -> None:
-        resolver.invalidate()
-
-    server.notification_handlers[types.RootsListChangedNotification] = (
-        _on_roots_list_changed
-    )
-
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return tools
-
-    # validate_input=False: gda owns input validation (ADR-0015 — gda-mcp forwards
+    # No input validation happens SDK-side (v2 dropped v1's opt-out jsonschema
+    # check entirely): gda owns input validation (ADR-0015 — gda-mcp forwards
     # verbatim and gda's params model validates), so invalid params surface as
-    # gda's structured ``invalid_params`` envelope, not the SDK's prose error.
-    @server.call_tool(validate_input=False)
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        argv = argv_by_tool.get(name)
+    # gda's structured ``invalid_params`` envelope, not an SDK prose error.
+    async def _call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult:
+        argv = argv_by_tool.get(params.name)
         if argv is None:
             # The SDK only routes registered tool names here; this is defensive.
             return types.CallToolResult(
                 content=[
-                    types.TextContent(type="text", text=f"unknown tool: {name!r}")
+                    types.TextContent(
+                        type="text", text=f"unknown tool: {params.name!r}"
+                    )
                 ],
-                isError=True,
+                is_error=True,
             )
-        project = await resolver.resolve(server.request_context.session)
-        return dispatch(runner, argv, arguments or {}, project)
+        project = await resolver.resolve(ctx.session)
+        return dispatch(runner, argv, params.arguments or {}, project)
 
+    # A client roots/list_changed means the active project may have moved (#209):
+    # invalidate the cache so the next tool call re-runs the ADR-0014 precedence
+    # against the now-current roots. We only invalidate here, never resolve —
+    # lazy re-resolution in _call_tool keeps resolve_project_dir the single
+    # source of precedence (so a pinned GDA_PROJECT, read first there, still
+    # wins) and cannot race an in-flight call. Legacy-only by nature: 2026-07-28
+    # connections never deliver the notification (SEP-2577).
+    async def _on_roots_list_changed(
+        ctx: ServerRequestContext, params: Optional[types.NotificationParams]
+    ) -> None:
+        resolver.invalidate()
+
+    # Registering on_roots_list_changed warns at construction time (the roots
+    # capability is deprecated, SEP-2577); suppressed for the same stderr-is-log
+    # reason as the list_roots call above (ADR-0039).
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MCPDeprecationWarning)
+        server = Server(
+            SERVER_NAME,
+            version=version("gda"),
+            on_list_tools=_list_tools,
+            on_call_tool=_call_tool,
+            on_roots_list_changed=_on_roots_list_changed,
+        )
     return server
 
 
@@ -300,7 +358,8 @@ def run_stdio() -> None:
     Builds the server once (introspecting the dump — ADR-0012's single startup
     ``gda`` subprocess) and serves it over the stdio transport every surveyed
     agent registers (``command`` + ``args``). gda and gda-mcp share one version
-    (ADR-0008), so the advertised ``server_version`` is gda's.
+    (ADR-0008), so the ``version`` advertised at construction is gda's; one run
+    loop serves both protocol eras (ADR-0039).
     """
     import anyio
 
@@ -311,14 +370,7 @@ def run_stdio() -> None:
             await server.run(
                 read_stream,
                 write_stream,
-                InitializationOptions(
-                    server_name=SERVER_NAME,
-                    server_version=version("gda"),
-                    capabilities=server.get_capabilities(
-                        notification_options=NotificationOptions(),
-                        experimental_capabilities={},
-                    ),
-                ),
+                server.create_initialization_options(),
             )
 
     anyio.run(_serve)

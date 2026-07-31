@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
+<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -221,7 +221,10 @@ ejecutar (MCP no puede pasar flags por llamada):
 
 - **Proyecto** — define `GDA_PROJECT` cuando tu cliente no pueda anunciar **roots** de workspace; de lo contrario,
   `gda-mcp` detecta automáticamente el proyecto a partir de los roots que envía el cliente (la carpeta que tienes abierta). Un
-  `GDA_PROJECT` *definido pero inválido* es un error reportado, no una alternativa silenciosa. Consulta
+  `GDA_PROJECT` *definido pero inválido* es un error reportado, no una alternativa silenciosa. Ten en cuenta que la
+  revisión 2026-07-28 de la especificación MCP marca la capacidad de roots como obsoleta: los clientes actuales siguen
+  funcionando sin cambios, pero fijar `GDA_PROJECT` es la configuración a prueba de futuro (un cliente del nuevo
+  protocolo sin estado no tiene roots que anunciar). Consulta
   [Configuración](#configuration) para conocer el orden completo de resolución CLI vs MCP.
 - **Motor** — define `GDA_GODOT` con tu binario de Godot, p. ej. `"GDA_GODOT": "/path/to/Godot"`.
 
@@ -575,7 +578,7 @@ relativas al cwd), no `res://`. El **servidor MCP** no tiene flags, así que res
 | Contexto | Orden de resolución del proyecto |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT` (ambos estrictos — lo inválido se reporta) → cwd si contiene `project.godot`, si no, sin proyecto |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` (estricto — definido pero inválido se reporta, no se omite) → un `root` de workspace del cliente *válido* → un cwd del servidor *válido*, si no, sin proyecto |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` (estricto — definido pero inválido se reporta, no se omite) → un `root` de workspace del cliente *válido* (clientes del protocolo MCP anterior a 2026; la revisión 2026-07-28 no tiene roots, así que esos clientes pasan directamente al siguiente nivel) → un cwd del servidor *válido*, si no, sin proyecto |
 
 <details>
 <summary>Ejecución del código del proyecto — qué se ejecuta cuando apuntas a un proyecto</summary>

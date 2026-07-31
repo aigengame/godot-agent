@@ -6,18 +6,18 @@ gda-mcp ``Server`` → the real ``gda`` subprocess seam → ``gda-daemon`` → a
 ``SceneTree``. It proves a live command auto-exposes and *routes* as a tool with
 NO live-specific code in gda-mcp (ADR-0011): the same generic ``--params-json``
 dispatch + exit-code map that serves a headless tool carries the live one, so on
-success the SDK validates and wraps gda's result as ``structuredContent`` and on
-failure gda's full ``GdaError`` envelope crosses verbatim as ``isError`` content.
+success the SDK validates and wraps gda's result as ``structured_content`` and on
+failure gda's full ``GdaError`` envelope crosses verbatim as ``is_error`` content.
 
 Two routings:
 
 - **success** — ``daemon_start`` then ``game_tree`` over one MCP session: the
   daemon launches the session on demand, the live op returns the runtime tree,
-  and ``structuredContent.root.name == "Main"`` (the same proof as
+  and ``structured_content.root.name == "Main"`` (the same proof as
   ``test_e2e_daemon``, now driven through gda-mcp instead of the console script).
 - **failure** — ``game_tree`` with no daemon: gda's typed
   ``daemon_not_running`` / category ``live`` envelope reaches the client
-  losslessly as ``isError`` content, with ``structuredContent is None`` (the
+  losslessly as ``is_error`` content, with ``structured_content is None`` (the
   envelope is kept out of the success channel — ADR-0011).
 
 Godot is resolved by gda's OWN precedence (gda-mcp never hardcodes it); the
@@ -32,7 +32,7 @@ import os
 
 import anyio
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session as connect
+from mcp import Client
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
 from gda.mcp.project_context import GDA_PROJECT_ENV
@@ -78,13 +78,13 @@ def test_mcp_live_game_tree_routes_through_daemon_to_a_real_tree(
 ):
     # Success routing: the live `game tree` tool, dispatched by the SAME generic
     # gda-mcp path as a headless tool, returns the RUNNING game's runtime tree as
-    # validated structuredContent.
+    # validated structured_content.
     _scaffold_project(tmp_path)
     _pin_env(monkeypatch, tmp_path)
     server = build_server(SubprocessGdaRunner.default())
 
     async def _drive():
-        async with connect(server) as session:
+        async with Client(server, mode="legacy") as session:
             # Start the daemon over MCP; it installs the harness and stands ready
             # to launch an engine session on demand.
             started = await session.call_tool("daemon_start", {})
@@ -95,16 +95,16 @@ def test_mcp_live_game_tree_routes_through_daemon_to_a_real_tree(
         started, tree = anyio.run(_drive)
 
         # daemon_start succeeded through the generic dispatcher (exit 0 → result
-        # dict wrapped as structuredContent by the SDK).
-        assert started.isError is False, started.content
-        assert started.structuredContent is not None
-        assert started.structuredContent["installed_harness"] is True
+        # dict wrapped as structured_content by the SDK).
+        assert started.is_error is False, started.content
+        assert started.structured_content is not None
+        assert started.structured_content["installed_harness"] is True
 
         # The live op routed CLI → daemon → engine session and returned the live
         # runtime tree — exactly what a headless tool's success looks like.
-        assert tree.isError is False, tree.content
-        assert tree.structuredContent is not None
-        root = tree.structuredContent["root"]
+        assert tree.is_error is False, tree.content
+        assert tree.structured_content is not None
+        root = tree.structured_content["root"]
         assert root["name"] == "Main"
         assert root["type"] == "Node2D"
     finally:
@@ -116,24 +116,24 @@ def test_mcp_live_game_tree_relays_daemon_not_running_verbatim(
     tmp_path, daemon_runtime_dir, monkeypatch
 ):
     # Failure routing: with no daemon, gda's typed `daemon_not_running` / category
-    # `live` GdaError reaches the MCP client losslessly as isError content, and is
-    # kept OUT of structuredContent (ADR-0011) — the same error channel a headless
+    # `live` GdaError reaches the MCP client losslessly as is_error content, and is
+    # kept OUT of structured_content (ADR-0011) — the same error channel a headless
     # tool failure uses, carrying a live-category code.
     _scaffold_project(tmp_path)
     _pin_env(monkeypatch, tmp_path)
     server = build_server(SubprocessGdaRunner.default())
 
     async def _drive():
-        async with connect(server) as session:
+        async with Client(server, mode="legacy") as session:
             return await session.call_tool("game_tree", {})
 
     try:
         result = anyio.run(_drive)
 
-        assert result.isError is True, result.content
+        assert result.is_error is True, result.content
         # The success channel is empty: gda-mcp never puts a failure envelope into
-        # structuredContent / outputSchema.
-        assert result.structuredContent is None
+        # structured_content / output_schema.
+        assert result.structured_content is None
         # The full GdaError envelope crossed verbatim as text content.
         assert result.content, "expected the GdaError envelope as text content"
         payload = json.loads(tool_text(result))
@@ -159,7 +159,7 @@ async def _stop_daemon(server):
     # left running so e2e runs stay isolated. Tolerant of "no daemon" (the failure
     # test never starts one).
     try:
-        async with connect(server) as session:
+        async with Client(server, mode="legacy") as session:
             await session.call_tool("daemon_stop", {})
     except Exception:
         pass

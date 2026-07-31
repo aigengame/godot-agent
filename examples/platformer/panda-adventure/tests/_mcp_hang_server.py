@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import time
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
-mcp = FastMCP("hang")
+mcp = MCPServer("hang")
 
 
 @mcp.tool()

@@ -108,3 +108,11 @@ Phase 2 automatically" literally true:
 - This ADR owns the integration mechanism **and its error mapping**. gda-mcp's
   packaging, tool-generation strategy, and transport are downstream and decided
   separately (ADR-0013, ADR-0012, and the PRD respectively).
+
+> **Outcome (2026-07-31, ADR-0039/#601):** the exit-code-keyed, lossless error
+> mapping survived the MCP SDK v2 migration unchanged. What moved: SDK v2 no
+> longer auto-wraps a success dict, so gda-mcp now constructs the result itself
+> (the dict as `structured_content` plus the v1-identical indented-JSON text
+> block); and the SDK's output-schema validation — which an `is_error=True`
+> result without `structured_content` bypasses (spike-verified) — still never
+> touches the verbatim `GdaError` envelope relay.

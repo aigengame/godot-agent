@@ -91,3 +91,16 @@ error, relayed unchanged.
 > above against the now-active roots; a pinned `GDA_PROJECT` still wins (env is read
 > first). The project stays out of the tool surface — no per-call parameter — so
 > ADR-0012 and ADR-0006 are untouched.
+
+> **Outcome (2026-07-31, ADR-0039/#601):** the 2026-07-28 spec revision
+> deprecated the roots capability outright (SEP-2577), so precedence level 2's
+> *acquisition* became connection-dependent under MCP SDK v2: gda-mcp asks for
+> roots iff the connection has a back-channel (`can_send_request`) and the
+> client advertises the capability — every pre-2026 agent keeps this behavior
+> unchanged — while a 2026-07-28 stateless connection has no roots signal at
+> all and degrades silently to `GDA_PROJECT` → cwd. `GDA_PROJECT` is thereby
+> promoted to the durable anchor of this precedence; a per-call `project` tool
+> argument (the spec's suggested roots replacement) remains rejected, and the
+> `roots/list_changed` re-resolution (#209) lives on as a legacy-connection
+> behavior. The MRTR-based roots acquisition is deferred with a written trigger
+> in ADR-0039.

@@ -14,11 +14,13 @@ The fast tiers drive the surface from the **real** aggregate dump
 true mirror of the live ``gda`` surface, not a hand-stubbed subset.
 """
 
+import warnings
 from pathlib import Path
 from typing import Callable, Optional
 
 import anyio
 from mcp.client.session import ListRootsFnT
+from mcp.shared.exceptions import MCPDeprecationWarning
 from mcp.types import CallToolResult, TextContent
 from pydantic import FileUrl
 
@@ -100,25 +102,37 @@ def tool_text(result: CallToolResult, index: int = 0) -> str:
     return block.text
 
 
-def list_tools(server):
-    """Open an in-memory MCP session and return the server's ``list_tools`` result."""
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
+def list_tools(server, *, mode: str = "legacy"):
+    """Open an in-memory MCP connection and return the server's ``list_tools`` result."""
+    from mcp import Client
 
     async def _inner():
-        async with connect(server) as session:
-            return await session.list_tools()
+        async with Client(server, mode=mode, raise_exceptions=True) as client:
+            return await client.list_tools()
 
     return anyio.run(_inner)
 
 
-def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] = None):
-    """Open an in-memory MCP session, call one tool, return its ``CallToolResult``.
+def call_tool(
+    server,
+    name: str,
+    arguments: dict,
+    *,
+    roots: Optional[list[str]] = None,
+    mode: str = "legacy",
+):
+    """Open an in-memory MCP connection, call one tool, return its ``CallToolResult``.
 
     When ``roots`` is given the in-memory client advertises them (as ``file://``
     URIs) and answers the server's ``roots/list`` request with them, so the
     server's project-context resolution (ADR-0014 precedence 2) can be exercised.
+    ``mode`` pins the protocol era: ``"legacy"`` (the default — the pre-2026
+    handshake every surveyed agent speaks today, with a roots back-channel) or
+    ``"auto"`` (the 2026-07-28 stateless path, no back-channel — ADR-0039's
+    degrade tier). ``raise_exceptions=True`` surfaces unexpected server crashes
+    in the fast tier instead of the SDK's sanitized internal-error reply.
     """
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
+    from mcp import Client
 
     list_roots_callback: ListRootsFnT | None = None
     if roots is not None:
@@ -133,8 +147,13 @@ def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] 
         list_roots_callback = _list_roots
 
     async def _inner():
-        async with connect(server, list_roots_callback=list_roots_callback) as session:
-            return await session.call_tool(name, arguments)
+        async with Client(
+            server,
+            mode=mode,
+            list_roots_callback=list_roots_callback,
+            raise_exceptions=True,
+        ) as client:
+            return await client.call_tool(name, arguments)
 
     return anyio.run(_inner)
 
@@ -154,9 +173,12 @@ def roots_changed_call(
     mutable holder, so the server's first resolve sees ``roots_before`` and the
     post-notification re-resolve sees ``roots_after`` — exercising dynamic
     re-resolution that the single-shot :func:`call_tool` (roots fixed at connect,
-    one call) structurally cannot.
+    one call) structurally cannot. Legacy-era by construction: the notification
+    only exists on back-channel connections (SEP-2577), so the client-side send
+    is deprecated too — suppressed here for the same reason the server suppresses
+    its ``list_roots`` warning.
     """
-    from mcp.shared.memory import create_connected_server_and_client_session as connect
+    from mcp import Client
     from mcp.types import ListRootsResult, Root
 
     holder = {"roots": roots_before}
@@ -170,11 +192,18 @@ def roots_changed_call(
     list_roots_callback: ListRootsFnT = _list_roots
 
     async def _inner():
-        async with connect(server, list_roots_callback=list_roots_callback) as session:
-            r1 = await session.call_tool(name, arguments)
+        async with Client(
+            server,
+            mode="legacy",
+            list_roots_callback=list_roots_callback,
+            raise_exceptions=True,
+        ) as client:
+            r1 = await client.call_tool(name, arguments)
             holder["roots"] = roots_after
-            await session.send_roots_list_changed()
-            r2 = await session.call_tool(name, arguments)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", MCPDeprecationWarning)
+                await client.send_roots_list_changed()
+            r2 = await client.call_tool(name, arguments)
             return r1, r2
 
     return anyio.run(_inner)

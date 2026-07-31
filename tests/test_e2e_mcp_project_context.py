@@ -16,7 +16,7 @@ from pathlib import Path
 import anyio
 import pytest
 from mcp.client.session import ListRootsFnT
-from mcp.shared.memory import create_connected_server_and_client_session as connect
+from mcp import Client
 from mcp.types import ListRootsResult, Root
 from pydantic import FileUrl
 
@@ -40,7 +40,9 @@ def _call_tool(server, name, arguments, *, roots=None):
         list_roots_callback = _list_roots
 
     async def _drive():
-        async with connect(server, list_roots_callback=list_roots_callback) as session:
+        async with Client(
+            server, mode="legacy", list_roots_callback=list_roots_callback
+        ) as session:
             return await session.call_tool(name, arguments)
 
     return anyio.run(_drive)
@@ -64,7 +66,7 @@ def test_roots_resolution_drives_real_tool_against_resolved_project(
         roots=[str(godot_project)],
     )
 
-    assert result.isError is False, result.content
+    assert result.is_error is False, result.content
     assert (godot_project / "from_roots.tscn").exists()
 
 
@@ -80,7 +82,7 @@ def test_gda_project_scoped_resolution_drives_real_tool(godot_project, monkeypat
         server, "scene_create", {"path": "res://pinned.tscn", "root_type": "Node2D"}
     )
 
-    assert result.isError is False, result.content
+    assert result.is_error is False, result.content
     assert (godot_project / "pinned.tscn").exists()
 
 
@@ -96,6 +98,6 @@ def test_meta_command_tolerates_a_pinned_project(godot_project, monkeypatch):
 
     result = _call_tool(server, "info", {}, roots=[str(godot_project)])
 
-    assert result.isError is False, result.content
-    assert result.structuredContent is not None
-    assert result.structuredContent["major"] == 4
+    assert result.is_error is False, result.content
+    assert result.structured_content is not None
+    assert result.structured_content["major"] == 4

@@ -47,7 +47,7 @@ def test_info_error_schema_is_the_uniform_failure_envelope():
     # issue #43 / ADR-0004: --schema now carries a third key, `error`, holding the uniform
     # failure-envelope schema shared by every command (GdaErrorEnvelope). It is
     # the same for all commands and kept OUT of `output` so gda-mcp can map
-    # `output` → outputSchema (success) and `error` → the isError channel.
+    # `output` → output_schema (success) and `error` → the is_error channel.
     result = CliRunner().invoke(app, ["info", "--schema"])
 
     doc = json.loads(result.stdout)
