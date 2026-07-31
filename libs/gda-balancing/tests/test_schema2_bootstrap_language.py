@@ -243,7 +243,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {
         "optional": [],
-        "required": [{"id": "standard.compiler", "version": "1.0.0"}],
+        "required": [{"id": "standard.compiler", "version": "1.1.0"}],
     }
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]

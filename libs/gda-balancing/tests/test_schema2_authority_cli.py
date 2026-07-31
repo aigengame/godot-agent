@@ -208,7 +208,7 @@ def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
     monkeypatch, transport
 ):
     logical_members = _authority_resource_bytes()
-    target = "packages/game-combat/game.combat@1.0.0.conformance-vectors.json"
+    target = "packages/standard-runtime/standard.runtime@1.1.0.conformance-vectors.json"
     decoded = json.loads(logical_members[target])
     if transport == "whitespace":
         logical_members[target] = json.dumps(
@@ -411,11 +411,11 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
     ("unreadable", "subject"),
     [
         (
-            "packages/core-quantity/core.quantity@2.0.0.json",
+            "packages/core-quantity/core.quantity@2.1.0.json",
             "language-bundle.package_descriptors.0",
         ),
         (
-            "packages/core-quantity/core.quantity@2.0.0.conformance-vectors.json",
+            "packages/core-quantity/core.quantity@2.1.0.conformance-vectors.json",
             "language-bundle.package_descriptors.0.conformance_vectors",
         ),
     ],
@@ -685,7 +685,7 @@ def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_c
 
     open_dependency = deepcopy(release)
     open_dependency["dependencies"]["required"] = [
-        {"id": "core.quantity", "version": "2.0.0", "peer": True}
+        {"id": "core.quantity", "version": "2.1.0", "peer": True}
     ]
     invalid_releases.append(open_dependency)
 
@@ -1032,7 +1032,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.resource",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.resource.spend-v1",
             },
         ),
@@ -1040,7 +1040,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.check.hit-v1",
             },
         ),
@@ -1048,7 +1048,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.check.critical-v1",
             },
         ),
@@ -1056,7 +1056,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.combat",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "id": "game.combat.damage-v1",
             },
         ),
@@ -1109,7 +1109,7 @@ def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     assert compiler["exports"]["model_checks"] == []
     assert compiler["exports"]["model_lowerings"] == []
     assert quantity["dependencies"]["required"] == [
-        {"id": "standard.compiler", "version": "1.0.0"}
+        {"id": "standard.compiler", "version": "1.1.0"}
     ]
     assert quantity["exports"]["model_checks"]
     assert quantity["exports"]["model_lowerings"] == ["quantity.model-lowering"]
@@ -1187,7 +1187,8 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     admitted_oracles = [
         vector["expect"]["lock_oracle"]
         for vector in vector_sets[quantity["id"]]["vector_definitions"]
-        if vector.get("expect", {}).get("outcome") == "admitted"
+        if isinstance(vector.get("expect"), dict)
+        and vector["expect"].get("outcome") == "admitted"
     ]
     assert admitted_oracles
     assert all(
@@ -1303,9 +1304,9 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "metric-dataset",
         "migration-refusal-report",
         "migration-report",
-            "model-build-command-input",
-            "model-explanation",
-            "model-migrate-command-input",
+        "model-build-command-input",
+        "model-explanation",
+        "model-migrate-command-input",
         "package-lock",
         "publication-index",
         "negative-vector",
@@ -1423,9 +1424,9 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "experiment check",
         "experiment run",
         "model check",
-            "model build",
-            "model inspect",
-            "model migrate",
+        "model build",
+        "model inspect",
+        "model migrate",
         "template list",
         "template get",
         "template instantiate",
@@ -1497,7 +1498,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--id",
                 "core.quantity",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         else:
             descriptor = {

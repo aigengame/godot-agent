@@ -230,6 +230,17 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         contract["type"]["id"] = "Currency"
     language["operations"].append(currency_identity)
     owner["exports"]["operations"].append(currency_identity["id"])
+    quantity_vector_set = next(
+        vector_set
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+    )
+    for vector in [
+        *ldb["vectors"],
+        *quantity_vector_set["vector_definitions"],
+    ]:
+        if vector["id"] == "formula.quantity.accept.pure-operation-closure":
+            vector["expect"] = list(owner["exports"]["operations"])
     _refresh_package_closure_and_reidentify(ldb)
 
     assert production_bootstrap._literal_typing_profiles_are_closed(kernel, ldb)
@@ -254,42 +265,42 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         (
             "effect",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
         (
             "cycle",
             (
-                "language.operations.game.check@1.0.0."
+                "language.operations.game.check@1.0.1."
                 "game.check.hit-v1.body.cycle.operation"
             ),
         ),
         (
             "argument-contract",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
         (
             "literal-contract",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.apply-damage.arguments"
             ),
         ),
@@ -344,7 +355,7 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
                 "operation": {
                     "id": "game.check.hit-v1",
                     "package": "game.check",
-                    "version": "1.0.0",
+                    "version": "1.0.1",
                 },
                 "outcomes": [
                     {
@@ -996,7 +1007,7 @@ def test_reidentified_operation_result_source_cannot_invent_host_semantics():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1028,7 +1039,7 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1145,7 +1156,7 @@ def test_operation_result_source_refuses_a_non_successful_producer_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 

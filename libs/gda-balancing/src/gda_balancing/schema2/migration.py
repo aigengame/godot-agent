@@ -40,12 +40,12 @@ _CONVERTER_DEFAULTS: tuple[dict[str, JsonValue], ...] = (
     },
     {
         "destination_pointer": "/package_requirements/0",
-        "value": "core.quantity@2.0.0",
+        "value": "core.quantity@2.1.0",
         "reason": "all admitted mappings target the exact Quantity package",
     },
     {
         "destination_pointer": "/modules/0/imports/0",
-        "value": "quantity=core.quantity@2.0.0#Quantity",
+        "value": "quantity=core.quantity@2.1.0#Quantity",
         "reason": "all admitted symbols use the exact Quantity constructor",
     },
 )
@@ -432,7 +432,7 @@ def migrate_design_source(
             },
         ),
         "package_requirements": cast(
-            JsonValue, [{"id": "core.quantity", "version": "2.0.0"}]
+            JsonValue, [{"id": "core.quantity", "version": "2.1.0"}]
         ),
         "modules": cast(
             JsonValue,
@@ -443,7 +443,7 @@ def migrate_design_source(
                         {
                             "alias": "quantity",
                             "package": "core.quantity",
-                            "version": "2.0.0",
+                            "version": "2.1.0",
                             "symbol": "Quantity",
                         }
                     ],

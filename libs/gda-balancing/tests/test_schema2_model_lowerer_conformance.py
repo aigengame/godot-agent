@@ -118,7 +118,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
         "entrypoints": [],
         "modules": [
             {
@@ -127,7 +127,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.0.0",
+                        "version": "2.1.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -3252,7 +3252,7 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "type": {
             "id": "Quantity",
             "package": "core.quantity",
-            "version": "2.0.0",
+            "version": "2.1.0",
         },
         "unit": "1",
     }
@@ -3401,7 +3401,7 @@ def test_nested_integer_literal_is_identical_across_lowerers(
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
             },
             "unit": "1",
         },
@@ -3830,6 +3830,12 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         for item in declaration_schema["required"]
     ]
     for vector in candidate_ldb["vectors"]:
+        if (
+            vector.get("kind") == "package-contract"
+            and vector.get("probe") == {"path": "profiles.resolution"}
+            and vector.get("expect") == [old_profile_id]
+        ):
+            vector["expect"] = [profile["id"]]
         fixture = vector.get("source_fixture")
         if not isinstance(fixture, dict):
             continue

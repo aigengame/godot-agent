@@ -21,6 +21,88 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
+def test_formula_semantics_are_owned_by_affected_package_vectors_and_runtime_profile():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    packages = {package["id"]: package for package in ldb["language"]["packages"]}
+    vector_sets = {
+        vector_set["package_id"]: vector_set
+        for vector_set in ldb.package_conformance_vector_sets
+    }
+    runtime_package = packages["standard.runtime"]
+    runtime_profile = next(
+        definition
+        for entry in runtime_package["semantic_closure"]
+        if entry["authority_path"] == "language.runtime_profiles"
+        for definition in entry["definitions"]
+        if definition["id"] == "standard.exact-int64-event-v1"
+    )
+
+    assert runtime_profile["formula_evaluation"] == {
+        "cache": {
+            "admission": "optional-non-semantic",
+            "charge_policy": "same-as-uncached-evaluation",
+            "key_members": [
+                "evaluation-site-identity",
+                "frame-or-snapshot-identity",
+                "canonical-operands",
+                "numeric-profile-identity",
+            ],
+            "snapshot_change": "requires-reevaluation",
+        },
+        "contexts": [
+            {
+                "frame": "pre-snapshot",
+                "phase": "initialization",
+                "publication": "atomic-before-snapshot-0",
+                "reads": "immutable-initialization-frame",
+            },
+            {
+                "frame": "pre-event-snapshot",
+                "phase": "event",
+                "publication": "inside-atomic-event",
+                "reads": "committed-pre-event-state",
+            },
+        ],
+        "initialization_refusal": {
+            "published_artifacts": [],
+            "published_audit": False,
+            "published_events": False,
+            "published_snapshots": False,
+        },
+        "resource_charge": {
+            "basis": "specialized-operation-instruction-closure",
+            "cache_hit": "same-as-evaluation",
+        },
+    }
+    expected_vector_ids = {
+        "standard.schema": {
+            "formula.schema.accept.named-typed-pure-graph",
+            "formula.schema.refuse.dynamic-or-effectful-graph",
+        },
+        "standard.compiler": {
+            "formula.compiler.accept.closed-static-graph",
+            "formula.compiler.refuse.invalid-closure",
+        },
+        "standard.runtime": {
+            "formula.runtime.accept.initialization-and-event-frames",
+            "formula.runtime.refuse.initialization-atomically",
+            "formula.runtime.boundary.cache-charge-invariant",
+        },
+        "core.quantity": {
+            "formula.quantity.accept.pure-operation-closure",
+        },
+        "game.combat": {
+            "formula.combat.accept.damage-slot-binding",
+            "formula.combat.refuse.missing-or-duplicate-slot-binding",
+        },
+    }
+    for package_id, expected in expected_vector_ids.items():
+        assert expected <= {
+            vector["id"] for vector in vector_sets[package_id]["vector_definitions"]
+        }
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
@@ -606,9 +688,7 @@ def test_operation_formula_slot_contract_is_closed_in_both_consumers(mutation):
     elif mutation == "refusal-outside-owner":
         slot["permitted_refusals"].append("runtime.reason.host-only")
     else:
-        slot["resource_bounds"]["max_steps"] = operation["resource_bounds"][
-            "max_steps"
-        ]
+        slot["resource_bounds"]["max_steps"] = operation["resource_bounds"]["max_steps"]
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -826,7 +906,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -865,7 +945,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

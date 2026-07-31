@@ -1369,7 +1369,7 @@ def _minimal_release(
     package_matches = [
         package
         for package in packages
-        if (package.get("id"), package.get("version")) == ("core.quantity", "2.0.0")
+        if (package.get("id"), package.get("version")) == ("core.quantity", "2.1.0")
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
@@ -1379,8 +1379,8 @@ def _minimal_release(
         if isinstance(package.get("id"), str)
         and isinstance(package.get("version"), str)
     }
-    selected_coordinates = {("core.quantity", "2.0.0")}
-    pending = [("core.quantity", "2.0.0")]
+    selected_coordinates = {("core.quantity", "2.1.0")}
+    pending = [("core.quantity", "2.1.0")]
     while pending:
         coordinate = pending.pop()
         package = packages_by_coordinate[coordinate]
@@ -1401,7 +1401,7 @@ def _minimal_release(
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
         "modules": [
             {
                 "id": "main",
@@ -1409,7 +1409,7 @@ def _minimal_release(
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.0.0",
+                        "version": "2.1.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -1520,7 +1520,7 @@ def _minimal_release(
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
-                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.1.0"}],
             },
         ),
         build_member(

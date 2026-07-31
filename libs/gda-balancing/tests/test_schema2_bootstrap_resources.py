@@ -98,7 +98,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append({"id": "game.combat", "version": "1.0.0"})
+    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.0.0"})
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 
@@ -151,7 +151,7 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
             duplicate["dependencies"]["optional"].append(
-                {"id": "game.check", "version": "1.0.0"}
+                {"id": "game.check", "version": "1.0.1"}
             )
             _reidentify_package_release(duplicate)
         ldb["language"]["packages"].append(duplicate)

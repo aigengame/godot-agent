@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:1fe6588e6ef521d97ebf15140194ce8f07e974674e5f7ce28d53034c5c290bae"
+    "sha256:6acbd4300547c6e7821e901891249f6b72e38d44ae3bcff2ec1b994afe028762"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4647,8 +4647,7 @@ def _operation_formula_slots_are_closed(
             not all(isinstance(instruction, dict) for instruction in region)
             or region[-1].get("target") != target
             or sum(
-                isinstance(instruction, dict)
-                and instruction.get("target") == target
+                isinstance(instruction, dict) and instruction.get("target") == target
                 for instruction in body
             )
             != 1
@@ -4687,7 +4686,9 @@ def _operation_formula_slots_are_closed(
             parameter_ids.add(parameter_id)
             if source["kind"] == "port":
                 formal = ports.get(source["name"])
-                if not isinstance(formal, dict) or not _operation_value_contract_matches(
+                if not isinstance(
+                    formal, dict
+                ) or not _operation_value_contract_matches(
                     parameter,
                     formal,
                 ):

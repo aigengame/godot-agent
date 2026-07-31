@@ -304,7 +304,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
     vector_set = next(
         row
         for row in language_bundle.package_conformance_vector_sets
-        if row["package_id"] == "game.combat" and row["package_version"] == "1.0.0"
+        if row["package_id"] == "game.combat" and row["package_version"] == "2.0.0"
     )
     vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
     source_fixture = vectors["game.combat.model-binding.positive"]["source_fixture"]

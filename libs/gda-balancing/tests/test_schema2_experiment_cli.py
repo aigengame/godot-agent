@@ -975,7 +975,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "id": "combat.cast",
             "operation": {
                 "package": "game.combat",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "id": "game.combat.cast-v1",
             },
             "arguments": [
@@ -1419,7 +1419,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
                 "node": "operation-call",
                 "operation": {
                     "package": "core.quantity",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "id": "quantity.identity",
                 },
                 "arguments": [
@@ -2008,7 +2008,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "game.combat"
-            and vector_set["package_version"] == "1.0.0"
+            and vector_set["package_version"] == "2.0.0"
         )
         if vector.get("kind") == "runtime-scenario"
     ]

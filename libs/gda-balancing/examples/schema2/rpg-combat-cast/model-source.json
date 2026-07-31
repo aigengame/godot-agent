@@ -8,11 +8,11 @@
   "package_requirements": [
     {
       "id": "core.quantity",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "id": "game.combat",
-      "version": "1.0.0"
+      "version": "2.0.0"
     }
   ],
   "modules": [
@@ -22,7 +22,7 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.0.0",
+          "version": "2.1.0",
           "symbol": "Quantity"
         }
       ],
@@ -231,7 +231,7 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.0.0",
+                  "version": "2.1.0",
                   "id": "quantity.subtract"
                 },
                 "arguments": [
@@ -268,7 +268,7 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.0.0",
+                  "version": "2.1.0",
                   "id": "quantity.floor-zero"
                 },
                 "arguments": [
@@ -336,7 +336,7 @@
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
-                  "version": "2.0.0",
+                  "version": "2.1.0",
                   "id": "quantity.identity"
                 },
                 "arguments": [
@@ -398,7 +398,7 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.combat",
-          "version": "1.0.0",
+          "version": "2.0.0",
           "id": "game.combat.damage-v1"
         },
         "slot": "damage-policy"
@@ -430,7 +430,7 @@
       "id": "combat.cast",
       "operation": {
         "package": "game.combat",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "id": "game.combat.cast-v1"
       },
       "arguments": [
