@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
+<!-- gda-readme-i18n: source=README.md sha256=0da6852ffc73cbf5aa589b50c5ba5c3dcf07ea1d64cf228fe784db4ca591d542 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -227,6 +227,11 @@ ejecutar (MCP no puede pasar flags por llamada):
   protocolo sin estado no tiene roots que anunciar). Consulta
   [Configuración](#configuration) para conocer el orden completo de resolución CLI vs MCP.
 - **Motor** — define `GDA_GODOT` con tu binario de Godot, p. ej. `"GDA_GODOT": "/path/to/Godot"`.
+
+Para clientes de la revisión MCP 2026-07-28, `gda-mcp` marca su respuesta de `tools/list` como
+cacheable (TTL de 1 hora, ámbito public) — la superficie de herramientas generada es fija durante
+la vida del servidor, así que los clientes actualizados evitan volver a pedirla; los clientes
+anteriores a 2026 ven tráfico idéntico.
 
 
 #### Registrar con agentes de programación

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
+<!-- gda-readme-i18n: source=README.md sha256=0da6852ffc73cbf5aa589b50c5ba5c3dcf07ea1d64cf228fe784db4ca591d542 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -231,6 +231,11 @@ uvx --from "gda[mcp]" gda-mcp
   有効な設定です(新しいステートレスプロトコルのクライアントには提示する roots がありません)。
   CLI と MCP の完全な解決順序については [設定](#configuration) を参照してください。
 - **エンジン** — `GDA_GODOT` に Godot バイナリを設定します。例: `"GDA_GODOT": "/path/to/Godot"`。
+
+MCP 2026-07-28 改訂版のクライアントに対しては、`gda-mcp` は `tools/list` 応答をキャッシュ可能
+(TTL 1 時間、public スコープ)としてマークします — 生成されるツール群はサーバーの生存期間中
+不変なので、アップグレード済みクライアントは再取得を省けます。2026 年以前のクライアントの
+トラフィックは変わりません。
 
 
 #### コーディングエージェントへの登録

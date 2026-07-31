@@ -105,3 +105,21 @@ def test_startup_introspects_the_dump_through_the_seam_once():
     # The startup introspection call carries no project (the schema meta command
     # is projectless); per-tool dispatch is what injects the resolved project.
     assert runner.calls == [(["schema"], None, None)]
+
+
+def test_tools_list_advertises_cache_hint_to_modern_clients_only():
+    # #602: the tool surface is immutable for the process's lifetime (one
+    # startup dump, ADR-0012) and depends on no user or project (ADR-0014), so
+    # tools/list carries a long public cache hint. The hint is a 2026-07-28
+    # protocol feature: a modern client observes it, a legacy client sees
+    # identical un-hinted traffic (the SDK-side defaults), so today's agents
+    # are unaffected — forward-compat, not a latency claim.
+    server = _server()
+
+    modern = list_tools(server, mode="2026-07-28")
+    assert modern.ttl_ms == 3_600_000
+    assert modern.cache_scope == "public"
+
+    legacy = list_tools(server, mode="legacy")
+    assert legacy.ttl_ms == 0
+    assert legacy.cache_scope == "private"
