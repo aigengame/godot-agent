@@ -98,6 +98,34 @@ def _model_source() -> dict[str, Any]:
     }
 
 
+def _use_derived_value(source: dict[str, Any]) -> None:
+    source["entrypoints"] = [
+        {
+            "id": "formula.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "derived_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+
+
 def _symbols(source: dict[str, Any]) -> list[dict[str, Any]]:
     return source["modules"][0]["symbols"]
 
@@ -213,7 +241,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
                     "operand": {
                         "kind": "symbol",
                         "module": "main",
-                        "symbol": "parameter_value",
+                        "symbol": "derived_value",
                     },
                 }
             ],
@@ -282,6 +310,24 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             },
         }
     ]
+    program = rir["initialization_programs"][0]
+    assert program["site"] == rir["formula_bindings"][0]["site"]
+    assert program["target"] == {
+        "model": "example.quantity-model",
+        "module": "main",
+        "name": "derived_value",
+    }
+    assert program["inputs"] == [
+        {
+            "name": "base",
+            "operand": rir["formula_bindings"][0]["arguments"][0]["operand"],
+        }
+    ]
+    assert program["body"] == []
+    assert program["result"] == {"kind": "input", "name": "base"}
+    assert program["numeric_policy"] == "exact-int64"
+    assert program["resource_bounds"] == {"max_steps": 0}
+    assert program["refusals"] == []
 
 
 def test_model_build_atomically_publishes_the_formula_explanation(tmp_path, run_cli):
@@ -326,6 +372,7 @@ def test_model_build_atomically_publishes_the_formula_explanation(tmp_path, run_
             ],
         }
     ]
+    _use_derived_value(source_document)
     source = tmp_path / "formula-explanation-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -491,6 +538,7 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
             ],
         }
     ]
+    _use_derived_value(source_document)
     source = tmp_path / "formula-call-model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -660,6 +708,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
             ],
         }
     ]
+    _use_derived_value(source_document)
     source = tmp_path / "formula-operation-call.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -777,6 +826,7 @@ def test_model_build_lowers_bounded_formula_conditionals(tmp_path, run_cli):
             ],
         }
     ]
+    _use_derived_value(source_document)
     source = tmp_path / "conditional-formula.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 

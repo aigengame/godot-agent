@@ -207,8 +207,7 @@ def _reference_execute_event(
     resolved_entrypoint: dict[str, Any] | None = None,
     resolved_declarations: list[dict[str, Any]] | None = None,
     resolved_call_sites: list[dict[str, Any]] | None = None,
-    resolved_formulas: list[dict[str, Any]] | None = None,
-    resolved_formula_bindings: list[dict[str, Any]] | None = None,
+    resolved_initialization_programs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -244,139 +243,70 @@ def _reference_execute_event(
                 for row in scenario["assignments"]
             }
         )
-        formulas_by_identity = {
-            row["identity"]: row for row in (resolved_formulas or [])
-        }
-
-        def evaluate_formula(
-            formula: dict[str, Any],
-            parameters: dict[str, int],
-        ) -> int:
-            locals_: dict[str, int] = {}
-
-            def value(operand: dict[str, Any]) -> int:
-                if operand["kind"] == "parameter":
-                    return parameters[operand["parameter"]]
-                if operand["kind"] == "local":
-                    return locals_[operand["local"]]
-                if operand["kind"] == "literal":
-                    return operand["value"]
-                symbol = operand["resolved_symbol"]
-                return variables[(symbol["model"], symbol["module"], symbol["name"])]
-
-            def pure_operation(
-                operation_definition: dict[str, Any],
-                arguments: dict[str, int],
-            ) -> int:
-                operation_locals: dict[str, int] = {}
-
-                def reference(name: str) -> int:
-                    return (
-                        operation_locals[name]
-                        if name in operation_locals
-                        else arguments[name]
+        pending_programs = list(resolved_initialization_programs or [])
+        while pending_programs:
+            progressed = False
+            for program in list(pending_programs):
+                values: dict[str, int] = {}
+                ready = True
+                for row in program["inputs"]:
+                    operand = row["operand"]
+                    if operand["kind"] == "literal":
+                        values[row["name"]] = operand["value"]
+                        continue
+                    symbol = operand["resolved_symbol"]
+                    coordinate = (
+                        symbol["model"],
+                        symbol["module"],
+                        symbol["name"],
                     )
-
-                for instruction in operation_definition["body"]:
+                    if coordinate not in variables:
+                        ready = False
+                        break
+                    values[row["name"]] = variables[coordinate]
+                if not ready:
+                    continue
+                for row in program["body"]:
+                    instruction = row["instruction"]
                     node = instruction["node"]
                     if node == "constant":
                         result = instruction["literal"]
                     elif node == "copy":
-                        result = reference(instruction["value"])
+                        result = values[instruction["value"]]
                     elif node == "add":
-                        result = reference(instruction["left"]) + reference(
-                            instruction["right"]
+                        result = (
+                            values[instruction["left"]] + values[instruction["right"]]
                         )
                     elif node == "subtract":
-                        result = reference(instruction["left"]) - reference(
-                            instruction["right"]
+                        result = (
+                            values[instruction["left"]] - values[instruction["right"]]
                         )
                     elif node == "multiply":
-                        result = reference(instruction["left"]) * reference(
-                            instruction["right"]
+                        result = (
+                            values[instruction["left"]] * values[instruction["right"]]
                         )
                     elif node == "maximum":
                         result = max(
-                            reference(instruction["left"]),
-                            reference(instruction["right"]),
+                            values[instruction["left"]],
+                            values[instruction["right"]],
                         )
                     else:
                         assert node == "if"
-                        result = reference(
-                            instruction["when_true"]
-                            if reference(instruction["condition"])
-                            else instruction["when_false"]
-                        )
-                    assert numeric["minimum"] <= result <= numeric["maximum"]
-                    operation_locals[instruction["target"]] = result
-                source = operation_definition["result"]["source"]
-                return (
-                    arguments[source["name"]]
-                    if source["kind"] == "port"
-                    else operation_locals[source["name"]]
-                )
-
-            for node in formula["body"]["nodes"]:
-                if node["node"] == "operation-call":
-                    operation_definition = operations[node["operation"]["id"]]
-                    result = pure_operation(
-                        operation_definition,
-                        {
-                            argument["port"]: value(argument["operand"])
-                            for argument in node["arguments"]
-                        },
-                    )
-                elif node["node"] == "formula-call":
-                    result = evaluate_formula(
-                        formulas_by_identity[node["formula"]["identity"]],
-                        {
-                            argument["parameter"]: value(argument["operand"])
-                            for argument in node["arguments"]
-                        },
-                    )
-                else:
-                    assert node["node"] == "conditional"
-                    result = value(
-                        node["when_true"]
-                        if value(node["condition"])
-                        else node["when_false"]
-                    )
-                locals_[node["id"]] = result
-            return value(formula["body"]["result"])
-
-        pending_bindings = [
-            binding
-            for binding in (resolved_formula_bindings or [])
-            if binding["site"]["kind"] == "derived-symbol"
-        ]
-        while pending_bindings:
-            progressed = False
-            for binding in list(pending_bindings):
-                try:
-                    parameters = {
-                        argument["parameter"]: (
-                            argument["operand"]["value"]
-                            if argument["operand"]["kind"] == "literal"
-                            else variables[
-                                (
-                                    argument["operand"]["resolved_symbol"]["model"],
-                                    argument["operand"]["resolved_symbol"]["module"],
-                                    argument["operand"]["resolved_symbol"]["name"],
-                                )
+                        result = values[
+                            instruction[
+                                "when_true"
+                                if values[instruction["condition"]]
+                                else "when_false"
                             ]
-                        )
-                        for argument in binding["arguments"]
-                    }
-                except KeyError:
-                    continue
-                site = binding["site"]["resolved_symbol"]
-                variables[(site["model"], site["module"], site["name"])] = (
-                    evaluate_formula(
-                        formulas_by_identity[binding["formula"]["identity"]],
-                        parameters,
-                    )
-                )
-                pending_bindings.remove(binding)
+                        ]
+                    assert numeric["minimum"] <= result <= numeric["maximum"]
+                    values[instruction["target"]] = result
+                target = program["target"]
+                result_source = program["result"]
+                variables[(target["model"], target["module"], target["name"])] = values[
+                    result_source["name"]
+                ]
+                pending_programs.remove(program)
                 progressed = True
             assert progressed
         state_targets = {
@@ -869,16 +799,65 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         "domain": {"minimum": 0, "maximum": 1000},
         "numeric_policy": "exact-int64",
     }
-    source_value["modules"][0]["formulas"].append(
-        {
-            "id": "derived-damage",
-            "parameters": [{"id": "base", **quantity_contract}],
-            "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
+    source_value["modules"][0]["formulas"].extend(
+        [
+            {
+                "id": "derived-damage-inner",
+                "parameters": [{"id": "base", **quantity_contract}],
+                "result": quantity_contract,
+                "body": {
+                    "nodes": [
+                        {
+                            "id": "identity",
+                            "node": "operation-call",
+                            "operation": {
+                                "package": "core.quantity",
+                                "version": "2.1.0",
+                                "id": "quantity.identity",
+                            },
+                            "arguments": [
+                                {
+                                    "port": "value",
+                                    "operand": {
+                                        "kind": "parameter",
+                                        "parameter": "base",
+                                    },
+                                }
+                            ],
+                            "result": quantity_contract,
+                        }
+                    ],
+                    "result": {"kind": "local", "local": "identity"},
+                },
             },
-        }
+            {
+                "id": "derived-damage",
+                "parameters": [{"id": "base", **quantity_contract}],
+                "result": quantity_contract,
+                "body": {
+                    "nodes": [
+                        {
+                            "id": "inner",
+                            "node": "formula-call",
+                            "formula": {
+                                "module": "combat",
+                                "id": "derived-damage-inner",
+                            },
+                            "arguments": [
+                                {
+                                    "parameter": "base",
+                                    "operand": {
+                                        "kind": "parameter",
+                                        "parameter": "base",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                    "result": {"kind": "local", "local": "inner"},
+                },
+            },
+        ]
     )
     source_value["formula_bindings"].append(
         {
@@ -934,6 +913,85 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
 
     checked = experiment_runtime_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    actual_values = {
+        canonical_bytes(cast(Any, initializer["target"])): initializer["value"]
+        for initializer in checked.rir["entrypoints"][0]["scenario_input_contract"][
+            "initializers"
+        ]
+    }
+    for assignment in checked.value["scenarios"][0]["assignments"]:
+        actual_values[canonical_bytes(cast(Any, assignment["target"]))] = assignment[
+            "value"
+        ]
+    exact_charge = sum(
+        program["resource_bounds"]["max_steps"]
+        for program in checked.rir["initialization_programs"]
+    )
+    cache: dict[bytes, int] = {}
+    consumed = experiment_runtime_module._evaluate_initialization_programs(
+        checked,
+        actual_values,
+        consumed_steps=0,
+        runtime_limit=exact_charge,
+        cache=cache,
+    )
+    assert consumed == exact_charge
+    derived_identity = canonical_bytes(
+        cast(
+            Any,
+            {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "derived_base_damage",
+            },
+        )
+    )
+    base_identity = canonical_bytes(
+        cast(
+            Any,
+            {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "base_damage",
+            },
+        )
+    )
+    assert actual_values[derived_identity] == 24
+    assert (
+        experiment_runtime_module._evaluate_initialization_programs(
+            checked,
+            actual_values,
+            consumed_steps=0,
+            runtime_limit=exact_charge,
+            cache=cache,
+        )
+        == exact_charge
+    )
+    actual_values[base_identity] = 31
+    assert (
+        experiment_runtime_module._evaluate_initialization_programs(
+            checked,
+            actual_values,
+            consumed_steps=0,
+            runtime_limit=exact_charge,
+            cache=cache,
+        )
+        == exact_charge
+    )
+    assert actual_values[derived_identity] == 31
+    without_cache = dict(actual_values)
+    without_cache[base_identity] = 32
+    assert (
+        experiment_runtime_module._evaluate_initialization_programs(
+            checked,
+            without_cache,
+            consumed_steps=0,
+            runtime_limit=exact_charge,
+            cache=None,
+        )
+        == exact_charge
+    )
+    assert without_cache[derived_identity] == 32
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
@@ -990,7 +1048,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
                 for port, symbol in (
                     ("actor_resource", "actor_mana"),
                     ("action_cost", "action_cost"),
-                    ("accuracy", "accuracy"),
+                    ("accuracy", "effective_accuracy"),
                     ("base_damage", "base_damage"),
                     ("critical_threshold", "critical_threshold"),
                     ("hit_defense", "hit_defense"),
@@ -1380,8 +1438,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
         key: value for key, value in first_trace["events"][0].items() if key != "index"
@@ -2578,8 +2635,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert reference == {
         "refusal": {
@@ -2682,8 +2738,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
         key: item for key, item in production_event.items() if key != "index"
@@ -2743,8 +2798,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
         key: value for key, value in production_event.items() if key != "index"
@@ -2807,8 +2861,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
         key: value for key, value in production_event.items() if key != "index"
@@ -2907,8 +2960,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
-        resolved_formulas=rir["formulas"],
-        resolved_formula_bindings=rir["formula_bindings"],
+        resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
         key: item for key, item in production_event.items() if key != "index"

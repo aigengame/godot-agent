@@ -655,18 +655,7 @@ def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
     )
 
 
-@pytest.mark.parametrize(
-    "mutation",
-    (
-        "duplicate-id",
-        "unknown-port-source",
-        "placeholder-out-of-bounds",
-        "stateful-placeholder",
-        "refusal-outside-owner",
-        "resource-outside-owner",
-    ),
-)
-def test_operation_formula_slot_contract_is_closed_in_both_consumers(mutation):
+def test_kernel_treats_package_extensions_as_canonical_opaque_values():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
     operation = next(
@@ -674,32 +663,15 @@ def test_operation_formula_slot_contract_is_closed_in_both_consumers(mutation):
         for item in ldb["language"]["operations"]
         if item["id"] == "game.combat.damage-v1"
     )
-    slot = operation["formula_slots"][0]
-    if mutation == "duplicate-id":
-        operation["formula_slots"].append(deepcopy(slot))
-    elif mutation == "unknown-port-source":
-        slot["parameters"][1]["source"]["name"] = "host-only-port"
-    elif mutation == "placeholder-out-of-bounds":
-        slot["placeholder_length"] = len(operation["body"])
-    elif mutation == "stateful-placeholder":
-        slot["placeholder_index"] = len(operation["body"]) - 1
-        slot["placeholder_length"] = 1
-        slot["target"] = "target_health"
-    elif mutation == "refusal-outside-owner":
-        slot["permitted_refusals"].append("runtime.reason.host-only")
-    else:
-        slot["resource_bounds"]["max_steps"] = operation["resource_bounds"]["max_steps"]
+    slots = operation["extensions"]["standard.formula-slots"]
+    slots[0]["parameters"][1]["source"]["name"] = "package-owned-port"
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
-    assert first["admitted"] is False
-    assert any(
-        code == "kernel.vector_mismatch" and ".formula_slots" in subject
-        for _, code, subject in first["diagnostics"]
-    ), first["diagnostics"]
+    assert first["admitted"] is True
 
 
 @pytest.mark.parametrize(

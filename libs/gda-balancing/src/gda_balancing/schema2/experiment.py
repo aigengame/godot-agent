@@ -112,18 +112,18 @@ class _RuntimeExecutionFault(Exception):
         self.call_site_identity = call_site_identity
 
 
-class _InitializationFormulaFault(Exception):
+class _InitializationProgramFault(Exception):
     def __init__(
         self,
         *,
         signal: str,
-        formula: str,
+        program: str,
         evaluation_site_identity: str,
         frame_identity: str,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
-        self.formula = formula
+        self.program = program
         self.evaluation_site_identity = evaluation_site_identity
         self.frame_identity = frame_identity
 
@@ -1150,234 +1150,158 @@ def _scenario_state(
     }
 
 
-def _evaluate_initialization_formulas(
+def _execute_value_instruction(
+    instruction: dict[str, Any],
+    variables: dict[str, int],
+    numeric: dict[str, Any],
+) -> None:
+    """Execute one already-admitted generic value instruction."""
+    node = cast(str, instruction["node"])
+    if node == "constant":
+        value = cast(int, instruction["literal"])
+    elif node == "copy":
+        value = variables[cast(str, instruction["value"])]
+    elif node in {"add", "subtract", "multiply", "maximum"}:
+        left = variables[cast(str, instruction["left"])]
+        right = variables[cast(str, instruction["right"])]
+        value = (
+            left + right
+            if node == "add"
+            else left - right
+            if node == "subtract"
+            else left * right
+            if node == "multiply"
+            else max(left, right)
+        )
+    elif node == "if":
+        value = variables[
+            cast(
+                str,
+                instruction[
+                    "when_true"
+                    if variables[cast(str, instruction["condition"])]
+                    else "when_false"
+                ],
+            )
+        ]
+    else:
+        raise ValueError("initialization program contains a non-value instruction")
+    variables[cast(str, instruction["target"])] = _admit_numeric(value, numeric)
+
+
+def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],
     *,
     consumed_steps: int,
     runtime_limit: int,
+    cache: dict[bytes, int] | None,
 ) -> int:
-    """Evaluate derived bindings against one immutable pre-Snapshot frame."""
-    formulas = {
-        cast(str, row["identity"]): row
-        for row in cast(list[dict[str, Any]], checked.rir["formulas"])
-    }
-    bindings = [
-        row
-        for row in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
-        if cast(dict[str, Any], row["site"]).get("kind") == "derived-symbol"
-    ]
-    if not bindings:
+    """Evaluate closed generic programs against one immutable pre-Snapshot frame."""
+    programs = cast(
+        list[dict[str, Any]],
+        checked.rir["initialization_programs"],
+    )
+    if not programs:
         return consumed_steps
-    bindings_by_symbol = {
-        canonical_bytes(
-            cast(JsonValue, cast(dict[str, Any], row["site"])["resolved_symbol"])
-        ): row
-        for row in bindings
-    }
-    operations = {
-        (
-            cast(str, row["package"]),
-            cast(str, cast(dict[str, Any], row["definition"])["version"]),
-            cast(str, cast(dict[str, Any], row["definition"])["id"]),
-        ): cast(dict[str, Any], row["definition"])
-        for row in cast(
-            list[dict[str, Any]],
-            checked.rir["selected_semantics"]["operations"],
-        )
+    program_targets = {
+        canonical_bytes(cast(JsonValue, program["target"])) for program in programs
     }
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     frame_identity = content_identity(
-        "formula-initialization-frame-v1",
+        "initialization-frame-v2",
         cast(
             JsonValue,
             [
                 {"symbol": identity.decode("utf-8").rstrip("\n"), "value": value}
                 for identity, value in sorted(actual_values.items())
+                if identity not in program_targets
             ],
         ),
     )
-    evaluating: set[bytes] = set()
-
-    def pure_operation(
-        operation: dict[str, Any],
-        arguments: dict[str, Any],
-        *,
-        formula_id: str,
-        site_identity: str,
-    ) -> Any:
-        variables = dict(arguments)
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
-            node = cast(str, instruction["node"])
-            if node == "constant":
-                variables[instruction["target"]] = instruction["literal"]
-            elif node == "copy":
-                variables[instruction["target"]] = variables[instruction["value"]]
-            elif node in {"add", "subtract", "multiply", "maximum"}:
-                left = variables[instruction["left"]]
-                right = variables[instruction["right"]]
-                value = (
-                    left + right
-                    if node == "add"
-                    else left - right
-                    if node == "subtract"
-                    else left * right
-                    if node == "multiply"
-                    else max(left, right)
-                )
-                try:
-                    variables[instruction["target"]] = _admit_numeric(value, numeric)
-                except OverflowError as error:
-                    raise _InitializationFormulaFault(
-                        signal="numeric-overflow",
-                        formula=formula_id,
-                        evaluation_site_identity=site_identity,
-                        frame_identity=frame_identity,
-                    ) from error
-            elif node == "if":
-                variables[instruction["target"]] = variables[
-                    instruction[
-                        "when_true"
-                        if variables[instruction["condition"]]
-                        else "when_false"
-                    ]
-                ]
-            else:
-                raise ValueError("Formula called a non-pure Operation program")
-        source = cast(dict[str, str], operation["result"]["source"])
-        if source["kind"] in {"local", "port"}:
-            return variables[source["name"]]
-        raise ValueError("pure Formula Operation has no value result")
-
-    def operand_value(
-        operand: dict[str, Any],
-        parameters: dict[str, Any],
-        locals_by_id: dict[str, Any],
-    ) -> Any:
-        kind = operand["kind"]
-        if kind == "parameter":
-            return parameters[operand["parameter"]]
-        if kind == "local":
-            return locals_by_id[operand["local"]]
-        if kind == "literal":
-            return operand["value"]
-        if kind == "symbol":
-            identity = canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
-            if identity not in actual_values:
-                evaluate_binding(identity)
-            return actual_values[identity]
-        raise ValueError("RIR Formula operand is not executable")
-
-    def evaluate_formula(
-        formula: dict[str, Any],
-        parameters: dict[str, Any],
-        site_identity: str,
-    ) -> Any:
-        nonlocal consumed_steps
-        charge = cast(dict[str, int], formula["closure"]["resource_charge"])[
-            "max_steps"
-        ]
-        consumed_steps += charge
-        if consumed_steps > runtime_limit:
-            raise _InitializationFormulaFault(
-                signal="step-limit",
-                formula=cast(str, formula["id"]),
-                evaluation_site_identity=site_identity,
-                frame_identity=frame_identity,
+    pending = list(programs)
+    while pending:
+        progressed = False
+        for program in list(pending):
+            input_values: dict[str, int] = {}
+            ready = True
+            for row in cast(list[dict[str, Any]], program["inputs"]):
+                operand = cast(dict[str, Any], row["operand"])
+                if operand["kind"] == "literal":
+                    value = cast(int, operand["value"])
+                else:
+                    identity = canonical_bytes(
+                        cast(JsonValue, operand["resolved_symbol"])
+                    )
+                    if identity not in actual_values:
+                        ready = False
+                        break
+                    value = actual_values[identity]
+                input_values[cast(str, row["name"])] = value
+            if not ready:
+                continue
+            charge = cast(
+                int,
+                cast(dict[str, Any], program["resource_bounds"])["max_steps"],
             )
-        locals_by_id: dict[str, Any] = {}
-        body = cast(dict[str, Any], formula["body"])
-        for node in cast(list[dict[str, Any]], body["nodes"]):
-            if node["node"] == "formula-call":
-                called = formulas[cast(dict[str, str], node["formula"])["identity"]]
-                called_arguments = {
-                    argument["parameter"]: operand_value(
-                        cast(dict[str, Any], argument["operand"]),
-                        parameters,
-                        locals_by_id,
-                    )
-                    for argument in node["arguments"]
-                }
-                locals_by_id[node["id"]] = evaluate_formula(
-                    called,
-                    called_arguments,
-                    site_identity,
+            consumed_steps += charge
+            if consumed_steps > runtime_limit:
+                raise _InitializationProgramFault(
+                    signal="step-limit",
+                    program=cast(str, program["identity"]),
+                    evaluation_site_identity=cast(
+                        str, cast(dict[str, Any], program["site"])["identity"]
+                    ),
+                    frame_identity=frame_identity,
                 )
-            elif node["node"] == "operation-call":
-                operation_ref = cast(dict[str, str], node["operation"])
-                operation = operations[
-                    (
-                        operation_ref["package"],
-                        operation_ref["version"],
-                        operation_ref["id"],
-                    )
-                ]
-                operation_arguments = {
-                    argument["port"]: operand_value(
-                        cast(dict[str, Any], argument["operand"]),
-                        parameters,
-                        locals_by_id,
-                    )
-                    for argument in node["arguments"]
-                }
-                locals_by_id[node["id"]] = pure_operation(
-                    operation,
-                    operation_arguments,
-                    formula_id=cast(str, formula["id"]),
-                    site_identity=site_identity,
+            cache_key = canonical_bytes(
+                cast(
+                    JsonValue,
+                    {
+                        "program": program["identity"],
+                        "site": cast(dict[str, Any], program["site"])["identity"],
+                        "frame": frame_identity,
+                        "operands": [
+                            {"name": name, "value": value}
+                            for name, value in sorted(input_values.items())
+                        ],
+                        "numeric": numeric,
+                    },
                 )
-            elif node["node"] == "conditional":
-                condition = operand_value(
-                    cast(dict[str, Any], node["condition"]),
-                    parameters,
-                    locals_by_id,
-                )
-                selected = node["when_true"] if condition else node["when_false"]
-                locals_by_id[node["id"]] = operand_value(
-                    cast(dict[str, Any], selected),
-                    parameters,
-                    locals_by_id,
-                )
-            else:
-                raise ValueError("RIR Formula node is not executable")
-        return operand_value(
-            cast(dict[str, Any], body["result"]),
-            parameters,
-            locals_by_id,
-        )
-
-    def evaluate_binding(identity: bytes) -> None:
-        if identity in actual_values:
-            return
-        if identity in evaluating:
-            raise ValueError("admitted derived Formula graph is cyclic")
-        binding = bindings_by_symbol.get(identity)
-        if binding is None:
-            raise ValueError("derived Symbol has no Formula binding")
-        evaluating.add(identity)
-        site = cast(dict[str, Any], binding["site"])
-        formula_ref = cast(dict[str, str], binding["formula"])
-        formula = formulas[formula_ref["identity"]]
-        parameters = {
-            argument["parameter"]: operand_value(
-                cast(dict[str, Any], argument["operand"]),
-                {},
-                {},
             )
-            for argument in cast(list[dict[str, Any]], binding["arguments"])
-        }
-        actual_values[identity] = cast(
-            int,
-            evaluate_formula(
-                formula,
-                parameters,
-                cast(str, site["identity"]),
-            ),
-        )
-        evaluating.remove(identity)
-
-    for identity in sorted(bindings_by_symbol):
-        evaluate_binding(identity)
+            if cache is not None and cache_key in cache:
+                result_value = cache[cache_key]
+            else:
+                variables = dict(input_values)
+                for row in cast(list[dict[str, Any]], program["body"]):
+                    try:
+                        _execute_value_instruction(
+                            cast(dict[str, Any], row["instruction"]),
+                            variables,
+                            numeric,
+                        )
+                    except OverflowError as error:
+                        raise _InitializationProgramFault(
+                            signal="numeric-overflow",
+                            program=cast(str, program["identity"]),
+                            evaluation_site_identity=cast(
+                                str, row["evaluation_site_identity"]
+                            ),
+                            frame_identity=frame_identity,
+                        ) from error
+                result = cast(dict[str, Any], program["result"])
+                result_value = _admit_numeric(
+                    variables[cast(str, result["name"])],
+                    numeric,
+                )
+                if cache is not None:
+                    cache[cache_key] = result_value
+            target = canonical_bytes(cast(JsonValue, program["target"]))
+            actual_values[target] = result_value
+            pending.remove(program)
+            progressed = True
+        if not progressed:
+            raise ValueError("admitted initialization program graph is cyclic")
     return consumed_steps
 
 
@@ -1465,6 +1389,7 @@ def evaluate_experiment(
     scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
+    initialization_cache: dict[bytes, int] = {}
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         entrypoint = entrypoints[scenario["entrypoint"]]
         scenario_input_contract = cast(
@@ -1482,13 +1407,14 @@ def evaluate_experiment(
             identity = canonical_bytes(cast(JsonValue, assignment["target"]))
             actual_values[identity] = assignment["value"]
         try:
-            total_steps = _evaluate_initialization_formulas(
+            total_steps = _evaluate_initialization_programs(
                 checked,
                 actual_values,
                 consumed_steps=total_steps,
                 runtime_limit=runtime_limit,
+                cache=initialization_cache,
             )
-        except _InitializationFormulaFault as fault:
+        except _InitializationProgramFault as fault:
             code = _diagnostic_for_signal(checked, fault.signal, "runtime")
             return _refusal(
                 stage="runtime",
@@ -1496,7 +1422,7 @@ def evaluate_experiment(
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message=(
-                    f"Initialization Formula {fault.formula} refused before "
+                    f"Initialization program {fault.program} refused before "
                     f"Snapshot 0 at evaluation site "
                     f"{fault.evaluation_site_identity} in immutable frame "
                     f"{fault.frame_identity}"

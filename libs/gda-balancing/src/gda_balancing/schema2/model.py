@@ -320,7 +320,10 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
-    policy = profile.get("formula_policy")
+    extensions = profile.get("extensions")
+    policy = (
+        extensions.get("standard.formula") if isinstance(extensions, dict) else None
+    )
     if (
         not isinstance(policy, dict)
         or policy.get("module_formulas_member") != "formulas"
@@ -360,6 +363,7 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
             "declaration",
             "evaluation_site",
             "expression_node",
+            "initialization_program",
             "operation",
         }
         or not all(
@@ -369,6 +373,22 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("the admitted resolution profile has no closed Formula policy")
     return cast(dict[str, Any], policy)
+
+
+def _operation_formula_slots(
+    operation: dict[str, Any],
+) -> list[dict[str, Any]]:
+    extensions = operation.get("extensions")
+    slots = (
+        extensions.get("standard.formula-slots")
+        if isinstance(extensions, dict)
+        else None
+    )
+    if slots is None:
+        return []
+    if not isinstance(slots, list) or not all(isinstance(slot, dict) for slot in slots):
+        raise ValueError("Operation Formula slot extension is not a list")
+    return cast(list[dict[str, Any]], slots)
 
 
 def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:
@@ -2400,7 +2420,7 @@ def _resolved_formula_programs_and_bindings(
         operation_identity = _formula_operation_identity(
             domains, coordinate[0], coordinate[1], coordinate[2]
         )
-        for slot in cast(list[dict[str, Any]], definition.get("formula_slots", [])):
+        for slot in _operation_formula_slots(definition):
             slot_key = (*coordinate, cast(str, slot["id"]))
             if slot_key in selected_slots:
                 raise ValueError("selected Operation repeats a Formula slot")
@@ -3401,7 +3421,7 @@ def _specialize_operation_formula_slots(
         operation = operations[coordinate]
         slot = next(
             slot
-            for slot in cast(list[dict[str, Any]], operation["formula_slots"])
+            for slot in _operation_formula_slots(operation)
             if slot["id"] == site["slot"]
         )
         slot_parameters = {
@@ -3433,6 +3453,333 @@ def _specialize_operation_formula_slots(
             placeholder_index : placeholder_index + placeholder_length
         ] = compiled
     return cast(dict[str, JsonValue], specialized)
+
+
+def _compile_initialization_programs(
+    selected_semantics: dict[str, JsonValue],
+    formulas: list[dict[str, JsonValue]],
+    bindings: list[dict[str, JsonValue]],
+    policy: dict[str, Any],
+) -> list[dict[str, JsonValue]]:
+    """Lower derived bindings to closed generic value-instruction programs."""
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(list[dict[str, Any]], selected_semantics["packages"])
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, cast(dict[str, Any], row["definition"])["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]],
+            selected_semantics["operations"],
+        )
+    }
+    formulas_by_identity = {
+        cast(str, formula["identity"]): cast(dict[str, Any], formula)
+        for formula in formulas
+    }
+    domains = cast(dict[str, str], policy["identity_domains"])
+    programs: list[dict[str, JsonValue]] = []
+
+    for binding in bindings:
+        site = cast(dict[str, Any], binding["site"])
+        if site["kind"] != "derived-symbol":
+            continue
+        inputs: dict[str, dict[str, JsonValue]] = {}
+        instructions: list[dict[str, JsonValue]] = []
+        literal_index = 0
+
+        def add_input(
+            name: str,
+            operand: dict[str, Any],
+        ) -> dict[str, JsonValue]:
+            candidate = name
+            suffix = 1
+            while candidate in inputs and inputs[candidate] != operand:
+                suffix += 1
+                candidate = f"{name}.{suffix}"
+            inputs[candidate] = cast(dict[str, JsonValue], operand)
+            return {"kind": "input", "name": candidate}
+
+        parameter_sources = {
+            cast(str, argument["parameter"]): add_input(
+                cast(str, argument["parameter"]),
+                cast(dict[str, Any], argument["operand"]),
+            )
+            for argument in cast(list[dict[str, Any]], binding["arguments"])
+        }
+
+        def source_for_operand(
+            operand: dict[str, Any],
+            parameters: dict[str, dict[str, JsonValue]],
+            locals_by_id: dict[str, dict[str, JsonValue]],
+            prefix: str,
+        ) -> dict[str, JsonValue]:
+            nonlocal literal_index
+            kind = operand["kind"]
+            if kind == "parameter":
+                return parameters[cast(str, operand["parameter"])]
+            if kind == "local":
+                return locals_by_id[cast(str, operand["local"])]
+            if kind == "symbol":
+                symbol = cast(dict[str, str], operand["resolved_symbol"])
+                return add_input(
+                    f"symbol.{symbol['module']}.{symbol['name']}",
+                    operand,
+                )
+            if kind == "literal":
+                literal_index += 1
+                return add_input(f"{prefix}.literal.{literal_index}", operand)
+            raise ValueError("Formula operand has no generic initialization source")
+
+        def reference(source: dict[str, JsonValue]) -> str:
+            if source["kind"] in {"input", "local"}:
+                return cast(str, source["name"])
+            raise ValueError("initialization instruction source is not named")
+
+        def instruction_site(
+            formula: dict[str, Any],
+            node_id: str,
+            prefix: str,
+        ) -> str:
+            body = cast(
+                dict[str, JsonValue],
+                {
+                    "kind": "initialization-instruction",
+                    "root_site_identity": site["identity"],
+                    "formula_identity": formula["identity"],
+                    "node": node_id,
+                    "path": prefix,
+                },
+            )
+            return content_identity(domains["evaluation_site"], body)
+
+        def emit(
+            instruction: dict[str, JsonValue],
+            *,
+            evaluation_site_identity: str,
+        ) -> None:
+            instructions.append(
+                {
+                    "evaluation_site_identity": evaluation_site_identity,
+                    "instruction": instruction,
+                }
+            )
+
+        def compile_formula(
+            formula: dict[str, Any],
+            parameters: dict[str, dict[str, JsonValue]],
+            prefix: str,
+        ) -> dict[str, JsonValue]:
+            locals_by_id: dict[str, dict[str, JsonValue]] = {}
+            for node in cast(
+                list[dict[str, Any]],
+                cast(dict[str, Any], formula["body"])["nodes"],
+            ):
+                node_id = cast(str, node["id"])
+                target = f"{prefix}.{node_id}"
+                site_identity = instruction_site(formula, node_id, prefix)
+                if node["node"] == "operation-call":
+                    operation_ref = cast(dict[str, Any], node["operation"])
+                    operation = operations[
+                        (
+                            cast(str, operation_ref["package"]),
+                            cast(str, operation_ref["version"]),
+                            cast(str, operation_ref["id"]),
+                        )
+                    ]
+                    values = {
+                        cast(str, argument["port"]): source_for_operand(
+                            cast(dict[str, Any], argument["operand"]),
+                            parameters,
+                            locals_by_id,
+                            prefix,
+                        )
+                        for argument in cast(list[dict[str, Any]], node["arguments"])
+                    }
+                    result_source = cast(dict[str, Any], operation["result"]["source"])
+                    result_name = (
+                        cast(str, result_source["name"])
+                        if result_source["kind"] in {"local", "port"}
+                        else None
+                    )
+                    for child_index, child in enumerate(
+                        cast(list[dict[str, Any]], operation["body"])
+                    ):
+                        child_node = cast(str, child["node"])
+                        child_target_name = cast(str, child.get("target", ""))
+                        child_target = f"{target}.{child_index}"
+
+                        def child_reference(member: str) -> str:
+                            return reference(values[cast(str, child[member])])
+
+                        if child_node == "constant":
+                            compiled_child: dict[str, JsonValue] = {
+                                "node": child_node,
+                                "target": child_target,
+                                "literal": cast(int, child["literal"]),
+                            }
+                        elif child_node == "copy":
+                            compiled_child = {
+                                "node": child_node,
+                                "target": child_target,
+                                "value": child_reference("value"),
+                            }
+                        elif child_node in {
+                            "add",
+                            "maximum",
+                            "multiply",
+                            "subtract",
+                        }:
+                            compiled_child = {
+                                "node": child_node,
+                                "target": child_target,
+                                "left": child_reference("left"),
+                                "right": child_reference("right"),
+                            }
+                        elif child_node == "if":
+                            compiled_child = {
+                                "node": child_node,
+                                "target": child_target,
+                                "condition": child_reference("condition"),
+                                "when_true": child_reference("when_true"),
+                                "when_false": child_reference("when_false"),
+                            }
+                        else:
+                            raise ValueError(
+                                "pure Operation has no generic value lowering"
+                            )
+                        emit(
+                            compiled_child,
+                            evaluation_site_identity=site_identity,
+                        )
+                        values[child_target_name] = {
+                            "kind": "local",
+                            "name": child_target,
+                        }
+                    if result_name is None:
+                        raise ValueError("pure Operation has no value result")
+                    operation_result = values[result_name]
+                    emit(
+                        {
+                            "node": "copy",
+                            "target": target,
+                            "value": reference(operation_result),
+                        },
+                        evaluation_site_identity=site_identity,
+                    )
+                elif node["node"] == "conditional":
+                    condition = source_for_operand(
+                        cast(dict[str, Any], node["condition"]),
+                        parameters,
+                        locals_by_id,
+                        prefix,
+                    )
+                    when_true = source_for_operand(
+                        cast(dict[str, Any], node["when_true"]),
+                        parameters,
+                        locals_by_id,
+                        prefix,
+                    )
+                    when_false = source_for_operand(
+                        cast(dict[str, Any], node["when_false"]),
+                        parameters,
+                        locals_by_id,
+                        prefix,
+                    )
+                    emit(
+                        {
+                            "node": "if",
+                            "target": target,
+                            "condition": reference(condition),
+                            "when_true": reference(when_true),
+                            "when_false": reference(when_false),
+                        },
+                        evaluation_site_identity=site_identity,
+                    )
+                elif node["node"] == "formula-call":
+                    called_ref = cast(dict[str, Any], node["formula"])
+                    called = formulas_by_identity[cast(str, called_ref["identity"])]
+                    called_parameters = {
+                        cast(str, argument["parameter"]): source_for_operand(
+                            cast(dict[str, Any], argument["operand"]),
+                            parameters,
+                            locals_by_id,
+                            prefix,
+                        )
+                        for argument in cast(list[dict[str, Any]], node["arguments"])
+                    }
+                    called_result = compile_formula(
+                        called,
+                        called_parameters,
+                        f"{prefix}.{node_id}",
+                    )
+                    emit(
+                        {
+                            "node": "copy",
+                            "target": target,
+                            "value": reference(called_result),
+                        },
+                        evaluation_site_identity=site_identity,
+                    )
+                else:
+                    raise ValueError(
+                        "Formula node has no generic initialization lowering"
+                    )
+                locals_by_id[node_id] = {"kind": "local", "name": target}
+            result = cast(dict[str, Any], formula["body"]["result"])
+            return source_for_operand(result, parameters, locals_by_id, prefix)
+
+        formula_ref = cast(dict[str, Any], binding["formula"])
+        formula = formulas_by_identity[cast(str, formula_ref["identity"])]
+        result_source = compile_formula(
+            formula,
+            parameter_sources,
+            f"init.{site['identity']}",
+        )
+        expected_steps = cast(
+            int,
+            cast(dict[str, Any], formula["closure"])["resource_charge"]["max_steps"],
+        )
+        if len(instructions) != expected_steps:
+            raise ValueError(
+                "generic initialization lowering does not preserve Formula charge"
+            )
+        body = cast(
+            dict[str, JsonValue],
+            {
+                "site": site,
+                "target": cast(dict[str, Any], site["resolved_symbol"]),
+                "inputs": [
+                    {"name": name, "operand": operand}
+                    for name, operand in sorted(inputs.items())
+                ],
+                "body": instructions,
+                "result": result_source,
+                "numeric_policy": cast(
+                    str, cast(dict[str, Any], formula["result"])["numeric_policy"]
+                ),
+                "resource_bounds": {"max_steps": expected_steps},
+                "refusals": cast(
+                    list[str],
+                    cast(dict[str, Any], formula["closure"])["refusals"],
+                ),
+            },
+        )
+        programs.append(
+            {
+                **body,
+                "identity": content_identity(
+                    domains["initialization_program"],
+                    body,
+                ),
+            }
+        )
+    programs.sort(key=lambda row: cast(str, row["identity"]))
+    return programs
 
 
 def _value_policy_is_valid(
@@ -5767,7 +6114,7 @@ def _formula_program_graph_is_admitted(
         operation_identity = _formula_operation_identity(
             domains, coordinate[0], coordinate[1], coordinate[2]
         )
-        for slot in cast(list[dict[str, Any]], definition.get("formula_slots", [])):
+        for slot in _operation_formula_slots(definition):
             selected_slots[(*coordinate, cast(str, slot["id"]))] = (
                 definition,
                 slot,
@@ -6257,6 +6604,12 @@ def admit_resolved_model(
             lowering,
             _runtime_projection_budget(kernel, ldb),
         )
+        expected_initialization_programs = _compile_initialization_programs(
+            expected_runtime_projection,
+            cast(list[dict[str, JsonValue]], rir.get("formulas")),
+            cast(list[dict[str, JsonValue]], rir.get("formula_bindings")),
+            _formula_policy(ldb),
+        )
         expected_runtime_projection = _specialize_operation_formula_slots(
             expected_runtime_projection,
             cast(list[dict[str, JsonValue]], rir.get("formulas")),
@@ -6272,6 +6625,7 @@ def admit_resolved_model(
     if (
         lock != expected_lock
         or rir.get("selected_semantics") != expected_runtime_projection
+        or rir.get("initialization_programs") != expected_initialization_programs
     ):
         return ResolvedModelAdmission(False, diagnostic)
     language = _language(ldb)
@@ -6549,6 +6903,12 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         lowering,
         _runtime_projection_budget(checked.kernel, checked.language_bundle),
     )
+    initialization_programs = _compile_initialization_programs(
+        selected_semantics,
+        cast(list[dict[str, JsonValue]], formulas),
+        cast(list[dict[str, JsonValue]], formula_bindings),
+        _formula_policy(checked.language_bundle),
+    )
     selected_semantics = _specialize_operation_formula_slots(
         selected_semantics,
         cast(list[dict[str, JsonValue]], formulas),
@@ -6573,6 +6933,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             output_member: cast(JsonValue, declarations),
             "formulas": cast(JsonValue, formulas),
             "formula_bindings": cast(JsonValue, formula_bindings),
+            "initialization_programs": cast(JsonValue, initialization_programs),
             "entrypoints": cast(JsonValue, entrypoints),
             "call_sites": cast(JsonValue, call_sites),
             "selected_semantics": cast(JsonValue, selected_semantics),
