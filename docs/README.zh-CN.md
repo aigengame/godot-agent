@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0da6852ffc73cbf5aa589b50c5ba5c3dcf07ea1d64cf228fe784db4ca591d542 -->
+<!-- gda-readme-i18n: source=README.md sha256=5b0ecafe46c7228d7f155d1f36bd89885d8337cf434c5079cc69ebecb673ee0e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -223,7 +223,7 @@ uvx --from "gda[mcp]" gda-mcp
 
 对走 MCP 2026-07-28 修订版协议的客户端，`gda-mcp` 会把 `tools/list` 响应标记为可缓存
 （1 小时 TTL、public 范围）——生成的工具面在服务器生命周期内固定不变，升级后的客户端
-因此无需反复拉取；2026 前的客户端流量完全不变。
+因此可以不再反复拉取；2026 前的客户端流量完全不变。
 
 
 #### 在编程 agent 中注册
