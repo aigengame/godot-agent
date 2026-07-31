@@ -326,9 +326,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     result_name = f"init.{program['site']['identity']}.$result"
     assert program["body"] == [
         {
-            "evaluation_site_identity": program["body"][0][
-                "evaluation_site_identity"
-            ],
+            "evaluation_site_identity": program["body"][0]["evaluation_site_identity"],
             "instruction": {
                 "node": "copy",
                 "target": result_name,
@@ -1088,9 +1086,7 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
         if row["definition"]["id"] == "game.combat.damage-v1"
     )
     slot = damage["extensions"]["standard.formula-slots"][0]
-    lowered = damage["body"][
-        slot["placeholder_index"] : slot["placeholder_index"] + 1
-    ]
+    lowered = damage["body"][slot["placeholder_index"] : slot["placeholder_index"] + 1]
 
     assert resolved_formula["closure"]["resource_charge"] == {"max_steps": 1}
     assert lowered == [

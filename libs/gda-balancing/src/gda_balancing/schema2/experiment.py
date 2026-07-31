@@ -1581,17 +1581,13 @@ def evaluate_experiment(
                     list[dict[str, Any]],
                     snapshot_operands.get("operands", []),
                 ):
-                    identity = canonical_bytes(
-                        cast(JsonValue, row["resolved_symbol"])
-                    )
+                    identity = canonical_bytes(cast(JsonValue, row["resolved_symbol"]))
                     variables[cast(str, row["name"])] = actual_values[identity]
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
             evaluation_sites = instruction_evaluation_sites(selected_operation)
-            for instruction_index, instruction in enumerate(
-                selected_operation["body"]
-            ):
+            for instruction_index, instruction in enumerate(selected_operation["body"]):
                 evaluation_site_identity = evaluation_sites.get(instruction_index)
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
@@ -1886,8 +1882,7 @@ def evaluate_experiment(
                 call_site_identity=None,
                 evaluation_site_identity=fault.evaluation_site_identity,
                 state_before={
-                    display_names[identity]: value
-                    for identity, value in before.items()
+                    display_names[identity]: value for identity, value in before.items()
                 },
             )
         typed_outcome = {

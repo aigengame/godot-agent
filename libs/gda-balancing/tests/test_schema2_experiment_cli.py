@@ -1148,9 +1148,7 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     tmp_path, run_cli
 ):
     source_value = _rpg_model_source()
-    source_value["modules"][0]["symbols"].append(
-        _rpg_value("formula_bonus", "input")
-    )
+    source_value["modules"][0]["symbols"].append(_rpg_value("formula_bonus", "input"))
     formula = next(
         row
         for row in source_value["modules"][0]["formulas"]

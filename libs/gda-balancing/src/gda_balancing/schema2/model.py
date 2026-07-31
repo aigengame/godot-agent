@@ -2017,9 +2017,7 @@ def _resolved_formula_programs_and_bindings_impl(
         for formula_index, source_formula in enumerate(
             cast(list[dict[str, Any]], module.get("formulas", []))
         ):
-            failure_context[:] = [
-                f"/modules/{module_index}/formulas/{formula_index}"
-            ]
+            failure_context[:] = [f"/modules/{module_index}/formulas/{formula_index}"]
             formula_id = source_formula.get("id")
             key = (module_id, cast(str, formula_id))
             if not isinstance(formula_id, str) or not formula_id or key in prototypes:
@@ -2632,7 +2630,7 @@ def _resolved_formula_programs_and_bindings_impl(
                             cast(str, formula["id"]),
                         )
                     ],
-                    "Formula result is incompatible with its Operation slot"
+                    "Formula result is incompatible with its Operation slot",
                 )
             closure = cast(dict[str, Any], formula["closure"])
             if (
@@ -3345,9 +3343,7 @@ def _specialize_operation_formula_slots(
                 raise ValueError("Formula snapshot operand alias is ambiguous")
             snapshot_sources[alias] = resolved_symbol
             return {"kind": "local", "local": alias}
-        raise ValueError(
-            "event Formula slot operand has no admitted runtime lowering"
-        )
+        raise ValueError("event Formula slot operand has no admitted runtime lowering")
 
     def runtime_reference(operand: dict[str, JsonValue]) -> str:
         if operand["kind"] == "port":
@@ -3606,9 +3602,7 @@ def _specialize_operation_formula_slots(
             cast(dict[str, Any], formula["closure"])["resource_charge"]["max_steps"],
         )
         if len(compiled) != expected_steps:
-            raise ValueError(
-                "generic event lowering does not preserve Formula charge"
-            )
+            raise ValueError("generic event lowering does not preserve Formula charge")
         placeholder_index = cast(int, slot["placeholder_index"])
         placeholder_length = cast(int, slot["placeholder_length"])
         replacements.setdefault(coordinate, []).append(
@@ -4267,9 +4261,7 @@ def _formula_symbol_dependencies(
     return (
         derived_dependencies,
         {
-            coordinate: [
-                symbols[dependency] for dependency in sorted(dependencies)
-            ]
+            coordinate: [symbols[dependency] for dependency in sorted(dependencies)]
             for coordinate, dependencies in sorted(operation_dependencies.items())
         },
     )
@@ -4456,13 +4448,11 @@ def _resolved_entrypoints(
                 domains["actual_operand"],
                 dependency_body,
             )
-            dependency_target, dependency_initializer = (
-                _symbol_initialization_contract(
-                    dependency,
-                    assignment_policy,
-                    dependency_symbol,
-                    dependency_identity,
-                )
+            dependency_target, dependency_initializer = _symbol_initialization_contract(
+                dependency,
+                assignment_policy,
+                dependency_symbol,
+                dependency_identity,
             )
             if (
                 dependency_target is None
@@ -4476,10 +4466,7 @@ def _resolved_entrypoints(
                 )
             if dependency_target is not None:
                 previous_target = scenario_targets.get(dependency_identity)
-                if (
-                    previous_target is not None
-                    and previous_target != dependency_target
-                ):
+                if previous_target is not None and previous_target != dependency_target:
                     raise _EntrypointBindingError(
                         f"{pointer}/operation",
                         "one Formula dependency derived conflicting assignment "
@@ -5882,13 +5869,11 @@ def _resolved_entrypoint_graph_is_admitted(
                 domains["actual_operand"],
                 dependency_body,
             )
-            dependency_target, dependency_initializer = (
-                _symbol_initialization_contract(
-                    dependency,
-                    assignment_policy,
-                    dependency_symbol,
-                    dependency_identity,
-                )
+            dependency_target, dependency_initializer = _symbol_initialization_contract(
+                dependency,
+                assignment_policy,
+                dependency_symbol,
+                dependency_identity,
             )
             if (
                 dependency_target is None
@@ -5898,10 +5883,7 @@ def _resolved_entrypoint_graph_is_admitted(
                 return False
             if dependency_target is not None:
                 previous_target = scenario_targets.get(dependency_identity)
-                if (
-                    previous_target is not None
-                    and previous_target != dependency_target
-                ):
+                if previous_target is not None and previous_target != dependency_target:
                     return False
                 scenario_targets[dependency_identity] = dependency_target
             if dependency_initializer is not None:
