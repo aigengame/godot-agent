@@ -1783,6 +1783,105 @@ def _derived_formula_evaluation_site(
     }
 
 
+def _reachable_derived_formula_sites(
+    declarations_by_symbol: dict[tuple[str, str], dict[str, Any]],
+    formulas: list[dict[str, Any]],
+    bindings: list[dict[str, Any]],
+    entrypoints: list[dict[str, Any]],
+) -> set[tuple[str, str]]:
+    """Close derived Formula sites reachable from executable entrypoints/slots."""
+
+    def derived_symbols(value: Any) -> set[tuple[str, str]]:
+        found: set[tuple[str, str]] = set()
+        if isinstance(value, dict):
+            if value.get("kind") == "symbol":
+                reference = value.get("resolved_symbol")
+                if not isinstance(reference, dict):
+                    reference = value.get("symbol")
+                if isinstance(reference, dict):
+                    module = reference.get("module")
+                    name = reference.get("name", reference.get("symbol"))
+                else:
+                    module = value.get("module")
+                    name = value.get("symbol")
+                if isinstance(module, str) and isinstance(name, str):
+                    key = (module, name)
+                    if declarations_by_symbol.get(key, {}).get("role") == "derived":
+                        found.add(key)
+            for child in value.values():
+                found.update(derived_symbols(child))
+        elif isinstance(value, list):
+            for child in value:
+                found.update(derived_symbols(child))
+        return found
+
+    formulas_by_key = {
+        (cast(str, formula["module"]), cast(str, formula["id"])): formula
+        for formula in formulas
+    }
+    bindings_by_site: dict[tuple[str, str], dict[str, Any]] = {}
+    reachable_formula_keys: set[tuple[str, str]] = set()
+    for binding in bindings:
+        site = cast(dict[str, Any], binding["site"])
+        formula_ref = cast(dict[str, Any], binding["formula"])
+        formula_key = (
+            cast(str, formula_ref["module"]),
+            cast(str, formula_ref["id"]),
+        )
+        if site.get("kind") == "operation-slot":
+            reachable_formula_keys.add(formula_key)
+        elif site.get("kind") == "derived-symbol":
+            symbol = cast(dict[str, Any], site["resolved_symbol"])
+            bindings_by_site[
+                (cast(str, symbol["module"]), cast(str, symbol["name"]))
+            ] = binding
+
+    reachable_sites = derived_symbols(entrypoints)
+    pending_sites = list(reachable_sites)
+    pending_formulas = list(reachable_formula_keys)
+    visited_formulas: set[tuple[str, str]] = set()
+    while pending_sites or pending_formulas:
+        while pending_sites:
+            site_key = pending_sites.pop()
+            binding = bindings_by_site.get(site_key)
+            if binding is None:
+                continue
+            discovered_sites = derived_symbols(binding["arguments"]) - reachable_sites
+            reachable_sites.update(discovered_sites)
+            pending_sites.extend(discovered_sites)
+            formula_ref = cast(dict[str, Any], binding["formula"])
+            formula_key = (
+                cast(str, formula_ref["module"]),
+                cast(str, formula_ref["id"]),
+            )
+            if formula_key not in visited_formulas:
+                pending_formulas.append(formula_key)
+        while pending_formulas:
+            formula_key = pending_formulas.pop()
+            if formula_key in visited_formulas:
+                continue
+            visited_formulas.add(formula_key)
+            formula = formulas_by_key.get(formula_key)
+            if formula is None:
+                continue
+            discovered_sites = derived_symbols(formula["body"]) - reachable_sites
+            reachable_sites.update(discovered_sites)
+            pending_sites.extend(discovered_sites)
+            for node in cast(
+                list[dict[str, Any]], cast(dict[str, Any], formula["body"])["nodes"]
+            ):
+                if node.get("node") != "formula-call":
+                    continue
+                called = cast(dict[str, Any], node["formula"])
+                called_key = (
+                    cast(str, called["module"]),
+                    cast(str, called["id"]),
+                )
+                if called_key not in visited_formulas:
+                    pending_formulas.append(called_key)
+    return reachable_sites
+
+
 def _resolved_formula_programs_and_bindings(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
@@ -2340,9 +2439,14 @@ def _resolved_formula_programs_and_bindings(
                 site_declaration is None
                 or site_declaration.get("role") != "derived"
                 or site_key in bound_derived_sites
+                or not _formula_contract_matches(
+                    cast(dict[str, Any], formula["result"]),
+                    site_declaration,
+                )
             ):
                 raise ValueError(
-                    "Formula binding site is not one unique derived Symbol"
+                    "Formula binding site/result is not one compatible unique "
+                    "derived Symbol"
                 )
             bound_derived_sites.add(site_key)
             for source_argument in source_arguments:
@@ -2486,8 +2590,21 @@ def _resolved_formula_programs_and_bindings(
         raise ValueError(
             "every selected Operation Formula slot requires exactly one binding"
         )
+    resolved_formulas = [resolved_by_key[key] for key in sorted(selected_formula_keys)]
+    if (
+        _reachable_derived_formula_sites(
+            declarations_by_source,
+            cast(list[dict[str, Any]], resolved_formulas),
+            cast(list[dict[str, Any]], resolved_bindings),
+            cast(list[dict[str, Any]], checked.source["entrypoints"]),
+        )
+        != bound_derived_sites
+    ):
+        raise ValueError(
+            "derived Formula bindings must equal the executable entrypoint closure"
+        )
     return (
-        [resolved_by_key[key] for key in sorted(selected_formula_keys)],
+        resolved_formulas,
         sorted(
             resolved_bindings,
             key=lambda item: cast(str, item["identity"]),
@@ -5723,6 +5840,10 @@ def _formula_program_graph_is_admitted(
                 declaration is None
                 or declaration.get("role") != "derived"
                 or site_key in bound_derived_sites
+                or not _formula_contract_matches(
+                    cast(dict[str, Any], bound_formula["result"]),
+                    declaration,
+                )
             ):
                 return False
             bound_derived_sites.add(cast(tuple[str, str], site_key))
@@ -5838,25 +5959,15 @@ def _formula_program_graph_is_admitted(
                 pending.append(dependency)
     if reachable != set(formulas_by_key):
         return False
-    referenced_derived_sites = {
-        (
-            operand["symbol"]["module"],
-            operand["symbol"]["name"],
+    return (
+        _reachable_derived_formula_sites(
+            declarations_by_symbol,
+            cast(list[dict[str, Any]], formulas),
+            cast(list[dict[str, Any]], bindings),
+            cast(list[dict[str, Any]], entrypoints),
         )
-        for entrypoint in entrypoints
-        if isinstance(entrypoint, dict)
-        for argument in entrypoint.get("arguments", [])
-        if isinstance(argument, dict)
-        for operand in [argument.get("operand")]
-        if isinstance(operand, dict)
-        and operand.get("kind") == "symbol"
-        and isinstance(operand.get("symbol"), dict)
-        and declarations_by_symbol.get(
-            (operand["symbol"].get("module"), operand["symbol"].get("name")), {}
-        ).get("role")
-        == "derived"
-    }
-    return referenced_derived_sites <= bound_derived_sites
+        == bound_derived_sites
+    )
 
 
 def _formula_graph_is_admitted(
@@ -6006,7 +6117,14 @@ def _formula_graph_is_admitted(
             cast(str, formula_ref.get("id")),
         )
         formula = formulas_by_key.get(formula_key)
-        if formula is None or formula_ref.get("identity") != formula.get("identity"):
+        if (
+            formula is None
+            or formula_ref.get("identity") != formula.get("identity")
+            or not _formula_contract_matches(
+                cast(dict[str, Any], formula["result"]),
+                site_declaration,
+            )
+        ):
             return False
         parameters = {
             parameter["id"]: parameter
@@ -6063,25 +6181,15 @@ def _formula_graph_is_admitted(
         return False
     if not isinstance(entrypoints, list):
         return False
-    referenced_derived_sites = {
-        (
-            operand["symbol"]["module"],
-            operand["symbol"]["name"],
+    return (
+        _reachable_derived_formula_sites(
+            declarations_by_symbol,
+            cast(list[dict[str, Any]], formulas),
+            cast(list[dict[str, Any]], bindings),
+            cast(list[dict[str, Any]], entrypoints),
         )
-        for entrypoint in entrypoints
-        if isinstance(entrypoint, dict)
-        for argument in entrypoint.get("arguments", [])
-        if isinstance(argument, dict)
-        for operand in [argument.get("operand")]
-        if isinstance(operand, dict)
-        and operand.get("kind") == "symbol"
-        and isinstance(operand.get("symbol"), dict)
-        and declarations_by_symbol.get(
-            (operand["symbol"].get("module"), operand["symbol"].get("name")), {}
-        ).get("role")
-        == "derived"
-    }
-    return referenced_derived_sites <= bound_sites
+        == bound_sites
+    )
 
 
 def admit_resolved_model(

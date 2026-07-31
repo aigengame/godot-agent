@@ -1035,6 +1035,73 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
     )
 
 
+def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contract(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    derived = next(
+        symbol
+        for symbol in source_document["modules"][0]["symbols"]
+        if symbol["symbol"] == "effective_accuracy"
+    )
+    derived["domain"]["maximum"] = 10
+    source = tmp_path / "incompatible-derived-result.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+
+
+def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    module = source_document["modules"][0]
+    unused_symbol = deepcopy(
+        next(
+            symbol
+            for symbol in module["symbols"]
+            if symbol["symbol"] == "effective_accuracy"
+        )
+    )
+    unused_symbol["symbol"] = "unused_derived"
+    module["symbols"].append(unused_symbol)
+    unused_formula = deepcopy(
+        next(
+            formula
+            for formula in module["formulas"]
+            if formula["id"] == "effective-accuracy"
+        )
+    )
+    unused_formula["id"] = "unused-formula"
+    module["formulas"].append(unused_formula)
+    unused_binding = deepcopy(source_document["formula_bindings"][0])
+    unused_binding["site"]["symbol"] = "unused_derived"
+    unused_binding["formula"]["id"] = "unused-formula"
+    source_document["formula_bindings"].append(unused_binding)
+    source = tmp_path / "unreachable-derived-binding.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
