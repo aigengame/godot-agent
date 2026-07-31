@@ -2686,7 +2686,7 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         assert production == reference == vector["expect"]
 
 
-def test_package_observation_lifecycle_vectors_export_ldb_owned_evidence_schemas():
+def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
     _kernel, ldb = authority_module.load_authorities()
     vectors = [
         vector

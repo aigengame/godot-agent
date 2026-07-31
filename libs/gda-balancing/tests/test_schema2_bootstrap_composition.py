@@ -714,7 +714,15 @@ def test_two_consumers_refuse_incomplete_identity_or_pointer_meta_contracts(
         _refresh_package_closure_and_reidentify(ldb)
         subject = "language.wire-schema-identity-domains"
     else:
-        artifact_schema = ldb["language"]["artifact_wire_schemas"][0]
+        contract_schema_kinds = {
+            contract["schema_kind"]
+            for contract in ldb["language"]["artifact_contracts"]
+        }
+        artifact_schema = next(
+            schema
+            for schema in ldb["language"]["artifact_wire_schemas"]
+            if schema["artifact_kind"] in contract_schema_kinds
+        )
         artifact_schema["wire_schema_identity_domain"] = "competing-domain"
         _refresh_package_closure_and_reidentify(ldb)
         subject = "language.wire-schema-identity-domains"
