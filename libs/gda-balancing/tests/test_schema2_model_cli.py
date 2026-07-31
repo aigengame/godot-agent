@@ -814,6 +814,10 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
         "numeric_policy": "exact-int64",
     }
     source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] != "mitigated-damage"
+    ] + [
         {
             "id": "mitigated-damage",
             "parameters": [
@@ -877,6 +881,10 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
         }
     ]
     source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"]["kind"] != "operation-slot"
+    ] + [
         {
             "site": {
                 "kind": "operation-slot",
@@ -925,9 +933,9 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert (exit_code, stderr) == (0, ""), stdout
     receipt = json.loads(stdout)
     rir = json.loads(
-        (
-            _artifact_directory(receipt) / "rir-semantic-payload.json"
-        ).read_text(encoding="utf-8")
+        (_artifact_directory(receipt) / "rir-semantic-payload.json").read_text(
+            encoding="utf-8"
+        )
     )
     binding = rir["formula_bindings"][0]
     assert binding["site"]["kind"] == "operation-slot"
@@ -950,7 +958,12 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
 
 @pytest.mark.parametrize(
     "mutation",
-    ("missing-binding", "duplicate-binding", "resource-budget"),
+    (
+        "missing-binding",
+        "missing-declaration",
+        "duplicate-binding",
+        "resource-budget",
+    ),
 )
 def test_model_check_refuses_operation_formula_slot_contract_violations(
     mutation, tmp_path, run_cli
@@ -962,6 +975,9 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
         ).read_text(encoding="utf-8")
     )
     if mutation == "missing-binding":
+        source_document["formula_bindings"] = []
+    elif mutation == "missing-declaration":
+        source_document["modules"][0]["formulas"] = []
         source_document["formula_bindings"] = []
     elif mutation == "duplicate-binding":
         source_document["formula_bindings"].append(
@@ -1010,9 +1026,11 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
-    source_document = _model_source()
-    source_document["package_requirements"].append(
-        {"id": "game.combat", "version": "1.0.0"}
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
     )
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")

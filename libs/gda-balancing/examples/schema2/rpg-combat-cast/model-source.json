@@ -147,6 +147,23 @@
           }
         },
         {
+          "symbol": "effective_accuracy",
+          "type": "quantity",
+          "role": "derived",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "none"
+          }
+        },
+        {
           "symbol": "damage_dealt",
           "type": "quantity",
           "role": "output",
@@ -282,11 +299,100 @@
               "local": "damage"
             }
           }
+        },
+        {
+          "id": "effective-accuracy",
+          "parameters": [
+            {
+              "id": "base",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "numeric_policy": "exact-int64"
+          },
+          "body": {
+            "nodes": [
+              {
+                "id": "value",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.0.0",
+                  "id": "quantity.identity"
+                },
+                "arguments": [
+                  {
+                    "port": "value",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "base"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              }
+            ],
+            "result": {
+              "kind": "local",
+              "local": "value"
+            }
+          }
         }
       ]
     }
   ],
   "formula_bindings": [
+    {
+      "site": {
+        "kind": "derived-symbol",
+        "module": "combat",
+        "symbol": "effective_accuracy"
+      },
+      "formula": {
+        "module": "combat",
+        "id": "effective-accuracy"
+      },
+      "arguments": [
+        {
+          "parameter": "base",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "accuracy"
+          }
+        }
+      ]
+    },
     {
       "site": {
         "kind": "operation-slot",
@@ -349,7 +455,7 @@
           "operand": {
             "kind": "symbol",
             "module": "combat",
-            "symbol": "accuracy"
+            "symbol": "effective_accuracy"
           }
         },
         {

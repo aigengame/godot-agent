@@ -1163,9 +1163,7 @@ def _reference_formula_contract(
 ) -> dict[str, Any]:
     imported = imports[source_contract["type"]]
     return {
-        key: deepcopy(value)
-        for key, value in source_contract.items()
-        if key != "type"
+        key: deepcopy(value) for key, value in source_contract.items() if key != "type"
     } | {
         "type_identity": {
             "package": imported["package"],
@@ -1348,9 +1346,7 @@ def _reference_formulas_and_bindings(
                         source_node["formula"]["id"],
                     )
                 ]
-                called_parameters = {
-                    item["id"]: item for item in called["parameters"]
-                }
+                called_parameters = {item["id"]: item for item in called["parameters"]}
                 arguments = [
                     {
                         "parameter": argument["parameter"],
@@ -1377,9 +1373,7 @@ def _reference_formulas_and_bindings(
                     "result": result,
                 }
                 formula_dependencies.add(called["identity"])
-                formula_dependencies.update(
-                    called["closure"]["formula_dependencies"]
-                )
+                formula_dependencies.update(called["closure"]["formula_dependencies"])
                 operation_dependencies.update(
                     called["closure"]["operation_dependencies"]
                 )
@@ -1441,9 +1435,7 @@ def _reference_formulas_and_bindings(
                             parameters,
                             locals_,
                         )
-                    arguments.append(
-                        {"port": argument["port"], "operand": actual}
-                    )
+                    arguments.append({"port": argument["port"], "operand": actual})
                 arguments.sort(key=lambda item: item["port"])
                 result = _reference_formula_contract(
                     source_node["result"],
@@ -1607,9 +1599,7 @@ def _reference_formulas_and_bindings(
             }
         else:
             site = source_binding["site"]
-            declaration = declarations_by_source[
-                (site["module"], site["symbol"])
-            ]
+            declaration = declarations_by_source[(site["module"], site["symbol"])]
             arguments = [
                 {
                     "parameter": argument["parameter"],
@@ -1665,9 +1655,7 @@ def _reference_specialize_formula_slots(
     bindings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     specialized = deepcopy(selected_semantics)
-    package_versions = {
-        row["id"]: row["version"] for row in specialized["packages"]
-    }
+    package_versions = {row["id"]: row["version"] for row in specialized["packages"]}
     operations = {
         (
             row["package"],
@@ -1762,15 +1750,9 @@ def _reference_specialize_formula_slots(
                         compiled = {
                             "node": "if",
                             "target": child_target,
-                            "condition": reference(
-                                child_values[child["condition"]]
-                            ),
-                            "when_true": reference(
-                                child_values[child["when_true"]]
-                            ),
-                            "when_false": reference(
-                                child_values[child["when_false"]]
-                            ),
+                            "condition": reference(child_values[child["condition"]]),
+                            "when_true": reference(child_values[child["when_true"]]),
+                            "when_false": reference(child_values[child["when_false"]]),
                         }
                     instructions.append(compiled)
                     child_values[child["target"]] = {
@@ -1786,9 +1768,7 @@ def _reference_specialize_formula_slots(
                             "value": reference(called_result),
                         }
                     )
-                instructions.append(
-                    {"node": "copy", "target": target, "value": target}
-                )
+                instructions.append({"node": "copy", "target": target, "value": target})
             elif node["node"] == "conditional":
                 instructions.append(
                     {
@@ -1835,9 +1815,7 @@ def _reference_specialize_formula_slots(
                         f"{prefix}.{node_id}",
                     )
                 )
-                instructions.append(
-                    {"node": "copy", "target": target, "value": target}
-                )
+                instructions.append({"node": "copy", "target": target, "value": target})
             local_sources[node_id] = {"kind": "local", "local": target}
         result = runtime_operand(
             formula["body"]["result"],
@@ -1874,13 +1852,9 @@ def _reference_specialize_formula_slots(
         )
         operation = operations[coordinate]
         slot = next(
-            item
-            for item in operation["formula_slots"]
-            if item["id"] == site["slot"]
+            item for item in operation["formula_slots"] if item["id"] == site["slot"]
         )
-        slot_parameters = {
-            item["id"]: item for item in slot["parameters"]
-        }
+        slot_parameters = {item["id"]: item for item in slot["parameters"]}
         parameter_sources = {}
         for argument in binding["arguments"]:
             slot_parameter = slot_parameters[argument["operand"]["parameter"]]
@@ -1954,6 +1928,7 @@ def _reference_rir(
                 checked,
                 declarations,
                 selected_semantics,
+                formula_bindings,
             ),
             "call_sites": _reference_call_sites(
                 checked,
@@ -2092,6 +2067,7 @@ def _reference_entrypoints(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
+    formula_bindings: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     lowering = _reference_lowering(checked.language_bundle["language"])
     policy = lowering["assignment_policy"]
@@ -2118,6 +2094,22 @@ def _reference_entrypoints(
         ): declaration
         for declaration in declarations
     }
+    derived_dependencies: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for binding in formula_bindings:
+        site = binding["site"]
+        if site["kind"] != "derived-symbol":
+            continue
+        resolved_site = site["resolved_symbol"]
+        derived_dependencies[(resolved_site["module"], resolved_site["name"])] = [
+            declarations_by_source[
+                (
+                    argument["operand"]["resolved_symbol"]["module"],
+                    argument["operand"]["resolved_symbol"]["name"],
+                )
+            ]
+            for argument in binding["arguments"]
+            if argument["operand"]["kind"] == "symbol"
+        ]
     domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
         "identity_domains"
     ]
@@ -2252,6 +2244,60 @@ def _reference_entrypoints(
                     if previous is not None and previous != initializer:
                         raise ValueError("conflicting Model initializers")
                     initializers[operand_identity] = initializer
+                pending_dependencies = list(
+                    derived_dependencies.get(
+                        (
+                            declaration["resolved_symbol"]["module"],
+                            declaration["resolved_symbol"]["name"],
+                        ),
+                        [],
+                    )
+                )
+                seen_dependencies: set[tuple[str, str]] = set()
+                while pending_dependencies:
+                    dependency = pending_dependencies.pop()
+                    dependency_key = (
+                        dependency["resolved_symbol"]["module"],
+                        dependency["resolved_symbol"]["name"],
+                    )
+                    if dependency_key in seen_dependencies:
+                        continue
+                    seen_dependencies.add(dependency_key)
+                    dependency_operand = {
+                        "kind": "symbol",
+                        "symbol": dependency["resolved_symbol"],
+                    }
+                    dependency_identity = _reference_content_identity(
+                        domains["actual_operand"],
+                        dependency_operand,
+                    )
+                    dependency_mode = _reference_assignment_mode(
+                        dependency,
+                        roles,
+                    )
+                    if dependency_mode["experiment_cardinality"] != "forbidden":
+                        targets[dependency_identity] = {
+                            "target": dependency["resolved_symbol"],
+                            "target_identity": dependency_identity,
+                            "owner": "experiment",
+                            "initialization_source": "scenario-assignment",
+                            "cardinality": dependency_mode["experiment_cardinality"],
+                            "override": dependency_mode["override"],
+                        }
+                    if dependency_mode["initialization_source"] in {
+                        "model",
+                        "model-with-experiment-override",
+                    }:
+                        initializers[dependency_identity] = {
+                            "target": dependency["resolved_symbol"],
+                            "target_identity": dependency_identity,
+                            "owner": "model",
+                            "initialization_source": "value-policy",
+                            "value": dependency["value_policy"]["value"],
+                        }
+                    pending_dependencies.extend(
+                        derived_dependencies.get(dependency_key, [])
+                    )
             elif operand["kind"] == "literal":
                 context_type = _reference_literal_context(
                     operand["value"],
@@ -2864,9 +2910,7 @@ def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str
     }
     declaration_entries = [
         {
-            "rir_pointer": _reference_pointer(
-                [lowering["output_member"], index]
-            ),
+            "rir_pointer": _reference_pointer([lowering["output_member"], index]),
             "source_pointer": _reference_pointer(
                 pointers[
                     (
@@ -3959,9 +4003,7 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
 
     assert production == reference
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
-    operation_projections = cast(
-        list[dict[str, Any]], selected_semantics["operations"]
-    )
+    operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
     assert [row["definition"]["id"] for row in operation_projections] == [
         "quantity.floor-zero",
         "quantity.identity",

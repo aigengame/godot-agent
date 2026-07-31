@@ -93,9 +93,7 @@ def _rpg_value(name: str, role: str) -> dict[str, Any]:
 
 
 def _rpg_model_source() -> dict[str, Any]:
-    return json.loads(
-        (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
-    )
+    return json.loads((_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8"))
 
 
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
@@ -209,6 +207,8 @@ def _reference_execute_event(
     resolved_entrypoint: dict[str, Any] | None = None,
     resolved_declarations: list[dict[str, Any]] | None = None,
     resolved_call_sites: list[dict[str, Any]] | None = None,
+    resolved_formulas: list[dict[str, Any]] | None = None,
+    resolved_formula_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -244,6 +244,141 @@ def _reference_execute_event(
                 for row in scenario["assignments"]
             }
         )
+        formulas_by_identity = {
+            row["identity"]: row for row in (resolved_formulas or [])
+        }
+
+        def evaluate_formula(
+            formula: dict[str, Any],
+            parameters: dict[str, int],
+        ) -> int:
+            locals_: dict[str, int] = {}
+
+            def value(operand: dict[str, Any]) -> int:
+                if operand["kind"] == "parameter":
+                    return parameters[operand["parameter"]]
+                if operand["kind"] == "local":
+                    return locals_[operand["local"]]
+                if operand["kind"] == "literal":
+                    return operand["value"]
+                symbol = operand["resolved_symbol"]
+                return variables[(symbol["model"], symbol["module"], symbol["name"])]
+
+            def pure_operation(
+                operation_definition: dict[str, Any],
+                arguments: dict[str, int],
+            ) -> int:
+                operation_locals: dict[str, int] = {}
+
+                def reference(name: str) -> int:
+                    return (
+                        operation_locals[name]
+                        if name in operation_locals
+                        else arguments[name]
+                    )
+
+                for instruction in operation_definition["body"]:
+                    node = instruction["node"]
+                    if node == "constant":
+                        result = instruction["literal"]
+                    elif node == "copy":
+                        result = reference(instruction["value"])
+                    elif node == "add":
+                        result = reference(instruction["left"]) + reference(
+                            instruction["right"]
+                        )
+                    elif node == "subtract":
+                        result = reference(instruction["left"]) - reference(
+                            instruction["right"]
+                        )
+                    elif node == "multiply":
+                        result = reference(instruction["left"]) * reference(
+                            instruction["right"]
+                        )
+                    elif node == "maximum":
+                        result = max(
+                            reference(instruction["left"]),
+                            reference(instruction["right"]),
+                        )
+                    else:
+                        assert node == "if"
+                        result = reference(
+                            instruction["when_true"]
+                            if reference(instruction["condition"])
+                            else instruction["when_false"]
+                        )
+                    assert numeric["minimum"] <= result <= numeric["maximum"]
+                    operation_locals[instruction["target"]] = result
+                source = operation_definition["result"]["source"]
+                return (
+                    arguments[source["name"]]
+                    if source["kind"] == "port"
+                    else operation_locals[source["name"]]
+                )
+
+            for node in formula["body"]["nodes"]:
+                if node["node"] == "operation-call":
+                    operation_definition = operations[node["operation"]["id"]]
+                    result = pure_operation(
+                        operation_definition,
+                        {
+                            argument["port"]: value(argument["operand"])
+                            for argument in node["arguments"]
+                        },
+                    )
+                elif node["node"] == "formula-call":
+                    result = evaluate_formula(
+                        formulas_by_identity[node["formula"]["identity"]],
+                        {
+                            argument["parameter"]: value(argument["operand"])
+                            for argument in node["arguments"]
+                        },
+                    )
+                else:
+                    assert node["node"] == "conditional"
+                    result = value(
+                        node["when_true"]
+                        if value(node["condition"])
+                        else node["when_false"]
+                    )
+                locals_[node["id"]] = result
+            return value(formula["body"]["result"])
+
+        pending_bindings = [
+            binding
+            for binding in (resolved_formula_bindings or [])
+            if binding["site"]["kind"] == "derived-symbol"
+        ]
+        while pending_bindings:
+            progressed = False
+            for binding in list(pending_bindings):
+                try:
+                    parameters = {
+                        argument["parameter"]: (
+                            argument["operand"]["value"]
+                            if argument["operand"]["kind"] == "literal"
+                            else variables[
+                                (
+                                    argument["operand"]["resolved_symbol"]["model"],
+                                    argument["operand"]["resolved_symbol"]["module"],
+                                    argument["operand"]["resolved_symbol"]["name"],
+                                )
+                            ]
+                        )
+                        for argument in binding["arguments"]
+                    }
+                except KeyError:
+                    continue
+                site = binding["site"]["resolved_symbol"]
+                variables[(site["model"], site["module"], site["name"])] = (
+                    evaluate_formula(
+                        formulas_by_identity[binding["formula"]["identity"]],
+                        parameters,
+                    )
+                )
+                pending_bindings.remove(binding)
+                progressed = True
+            assert progressed
         state_targets = {
             coordinate
             for coordinate, declaration in declarations.items()
@@ -1245,6 +1380,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert {
         key: value for key, value in first_trace["events"][0].items() if key != "index"
@@ -1268,24 +1405,118 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
     assert first_damage == 60
 
-    tuned_spec = json.loads(json.dumps(first_spec))
-    base_damage = next(
-        row
-        for row in tuned_spec["scenarios"][0]["assignments"]
-        if row["target"]["name"] == "base_damage"
+    edited_source_value = deepcopy(source_value)
+    edited_source_value["manifest"]["version"] = "1.1.0"
+    damage_formula = next(
+        formula
+        for formula in edited_source_value["modules"][0]["formulas"]
+        if formula["id"] == "mitigated-damage"
     )
-    base_damage["value"] = 65
-    tuned_path = tmp_path / "experiment-65.json"
+    damage_formula["body"] = {
+        "nodes": [
+            {
+                "id": "unmitigated-damage",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.0.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "parameter",
+                            "parameter": "damage_before_defense",
+                        },
+                    }
+                ],
+                "result": deepcopy(damage_formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "unmitigated-damage"},
+    }
+    edited_source = tmp_path / "rpg-model-edited.json"
+    edited_source.write_text(json.dumps(edited_source_value), encoding="utf-8")
+    edited_model_out = tmp_path / "resolved-model-edited.json"
+    edited_build_exit, edited_build_stdout, edited_build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(edited_source),
+            "--out",
+            str(edited_model_out),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+    assert (edited_build_exit, edited_build_stderr) == (0, "")
+    edited_build_receipt = json.loads(edited_build_stdout)
+    edited_build_record = _member(edited_build_receipt, "build-receipt")
+    assert (
+        edited_build_record["kernel_identity"] == build_record["kernel_identity"]
+        and edited_build_record["language_bundle_identity"]
+        == build_record["language_bundle_identity"]
+        and edited_build_record["package_lock_identity"]
+        == build_record["package_lock_identity"]
+    )
+    assert (
+        edited_build_record["rir_identity"] != build_record["rir_identity"]
+        and edited_build_record["resolved_model_identity"]
+        != build_record["resolved_model_identity"]
+    )
+
+    stale_spec = deepcopy(first_spec)
+    stale_spec["model"]["source_identity"] = content_identity(
+        "model-source-package-v2",
+        edited_source_value,
+    )
+    stale_path = tmp_path / "experiment-stale-model-binding.json"
+    stale_path.write_text(json.dumps(stale_spec), encoding="utf-8")
+    stale_exit, stale_stdout, stale_stderr = run_cli(
+        ["experiment", "check", str(stale_path)]
+    )
+    assert (stale_exit, stale_stderr) == (2, "")
+    assert json.loads(stale_stdout)["error"]["diagnostics"][0]["code"] == (
+        "language.resolved_authority_mismatch"
+    )
+
+    tuned_spec = deepcopy(first_spec)
+    tuned_spec["version"] = "1.1.0"
+    tuned_spec["model"] = {
+        "source_identity": content_identity(
+            "model-source-package-v2",
+            edited_source_value,
+        ),
+        "build_receipt_identity": edited_build_record["content_identity"],
+        "resolved_model_identity": edited_build_record["resolved_model_identity"],
+        "package_lock_identity": edited_build_record["package_lock_identity"],
+        "rir_identity": edited_build_record["rir_identity"],
+    }
+    tuned_requirements, _named_streams = (
+        experiment_runtime_module.derive_scenario_program_requirements(
+            _member(edited_build_receipt, "rir-semantic-payload"),
+            entrypoint_id=tuned_spec["scenarios"][0]["entrypoint"],
+            runtime_profile=tuned_spec["runtime"]["profile"],
+            rng_algorithm=tuned_spec["seed"]["algorithm"],
+        )
+    )
+    tuned_spec["runtime"]["required_evaluator"] = tuned_requirements
+    tuned_path = tmp_path / "experiment-formula-edited.json"
     tuned_path.write_text(json.dumps(tuned_spec), encoding="utf-8")
+    tuned_check_exit, tuned_check_stdout, tuned_check_stderr = run_cli(
+        ["experiment", "check", str(tuned_path)]
+    )
+    assert (tuned_check_exit, tuned_check_stderr) == (0, ""), tuned_check_stdout
     tuned_exit, tuned_stdout, tuned_stderr = run_cli(
         [
             "experiment",
             "run",
             str(tuned_path),
             "--out",
-            str(tmp_path / "evaluation-65.json"),
+            str(tmp_path / "evaluation-formula-edited.json"),
             "--invocation-key",
-            "3" * 64,
+            "4" * 64,
         ]
     )
 
@@ -1304,12 +1535,12 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for item in tuned_trace["events"][0]["facts"]
             if item["name"] == "base_damage"
         )
-        == 65
+        == 45
     )
-    assert tuned_damage == 100 > first_damage
+    assert tuned_damage == 90 > first_damage
     assert tuned_trace["events"][0]["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 0},
+        {"name": "target_health", "value": 10},
     ]
     assert (
         tuned_trace["content_identity"] != first_trace["content_identity"]
@@ -1330,7 +1561,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "--out",
             str(tmp_path / "evaluation-seed-4.json"),
             "--invocation-key",
-            "4" * 64,
+            "5" * 64,
         ]
     )
 
@@ -1371,7 +1602,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             "--out",
             str(tmp_path / "evaluation-45-repeat.json"),
             "--invocation-key",
-            "5" * 64,
+            "6" * 64,
         ]
     )
     assert (repeat_exit, repeat_stderr) == (0, "")
@@ -2347,6 +2578,8 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert reference == {
         "refusal": {
@@ -2449,6 +2682,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert {
         key: item for key, item in production_event.items() if key != "index"
@@ -2508,6 +2743,8 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert {
         key: value for key, value in production_event.items() if key != "index"
@@ -2570,6 +2807,8 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert {
         key: value for key, value in production_event.items() if key != "index"
@@ -2668,6 +2907,8 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_entrypoint=entrypoint,
         resolved_declarations=rir["declarations"],
         resolved_call_sites=rir["call_sites"],
+        resolved_formulas=rir["formulas"],
+        resolved_formula_bindings=rir["formula_bindings"],
     )
     assert {
         key: item for key, item in production_event.items() if key != "index"

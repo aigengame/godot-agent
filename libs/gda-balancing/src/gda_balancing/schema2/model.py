@@ -345,8 +345,7 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
         or policy.get("declaration_scope") != "module"
         or policy.get("first_class_values") is not False
         or policy.get("dynamic_lookup") is not False
-        or policy.get("allowed_binding_sites")
-        != ["derived-symbol", "operation-slot"]
+        or policy.get("allowed_binding_sites") != ["derived-symbol", "operation-slot"]
         or policy.get("allowed_body_nodes")
         != ["conditional", "formula-call", "operation-call"]
         or policy.get("allowed_operand_kinds")
@@ -2056,9 +2055,7 @@ def _resolved_formula_programs_and_bindings(
                 arguments = []
                 for source_argument in source_arguments:
                     port_id = cast(str, source_argument["port"])
-                    source_operand = cast(
-                        dict[str, Any], source_argument["operand"]
-                    )
+                    source_operand = cast(dict[str, Any], source_argument["operand"])
                     if source_operand.get("kind") == "literal":
                         literal_context = _literal_context_contract(
                             source_operand.get("value"),
@@ -2094,9 +2091,7 @@ def _resolved_formula_programs_and_bindings(
                                 actual_operand_domain, operand_body
                             ),
                         }
-                        literal_type = cast(
-                            dict[str, str], literal_context["type"]
-                        )
+                        literal_type = cast(dict[str, str], literal_context["type"])
                         operand_contract = {
                             "type_identity": {
                                 "package": literal_type["package"],
@@ -2388,9 +2383,7 @@ def _resolved_formula_programs_and_bindings(
             }
             for source_argument in source_arguments:
                 parameter_id = cast(str, source_argument["parameter"])
-                source_operand = cast(
-                    dict[str, Any], source_argument["operand"]
-                )
+                source_operand = cast(dict[str, Any], source_argument["operand"])
                 slot_parameter_id = cast(str, source_operand.get("parameter"))
                 slot_parameter = slot_parameters.get(slot_parameter_id)
                 if (
@@ -2435,9 +2428,7 @@ def _resolved_formula_programs_and_bindings(
                 <= set(cast(list[str], slot["permitted_refusals"]))
                 or cast(
                     int,
-                    cast(dict[str, Any], closure["resource_charge"])[
-                        "max_steps"
-                    ],
+                    cast(dict[str, Any], closure["resource_charge"])["max_steps"],
                 )
                 > cast(int, slot["resource_bounds"]["max_steps"])
                 or cast(int, closure["termination_measure"])
@@ -2445,9 +2436,7 @@ def _resolved_formula_programs_and_bindings(
                 or operation_identity
                 in set(cast(list[str], closure["operation_dependencies"]))
             ):
-                raise ValueError(
-                    "Formula closure exceeds its Operation-slot contract"
-                )
+                raise ValueError("Formula closure exceeds its Operation-slot contract")
             bound_operation_slots.add(slot_key)
             exact_operation = cast(
                 dict[str, JsonValue],
@@ -2470,9 +2459,7 @@ def _resolved_formula_programs_and_bindings(
             )
             resolved_site = {
                 **site_body,
-                "identity": content_identity(
-                    domains["evaluation_site"], site_body
-                ),
+                "identity": content_identity(domains["evaluation_site"], site_body),
             }
         else:
             raise ValueError("Formula binding site is outside the admitted policy")
@@ -2535,7 +2522,7 @@ def _resolved_formulas_and_bindings(
         for module in modules
         for formula in cast(list[dict[str, Any]], module.get("formulas", []))
     ]
-    if source_formulas and all(
+    if not source_formulas or all(
         isinstance(formula.get("body"), dict)
         and isinstance(cast(dict[str, Any], formula["body"]).get("nodes"), list)
         for formula in source_formulas
@@ -3130,9 +3117,7 @@ def _specialize_operation_formula_slots(
                         parameter_sources,
                         local_sources,
                     )
-                    for argument in cast(
-                        list[dict[str, Any]], node["arguments"]
-                    )
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
                 child_result_source = cast(
                     dict[str, Any], called_operation["result"]["source"]
@@ -3146,9 +3131,7 @@ def _specialize_operation_formula_slots(
                     cast(list[dict[str, Any]], called_operation["body"])
                 ):
                     child_node = cast(str, child_instruction["node"])
-                    child_target_name = cast(
-                        str, child_instruction.get("target", "")
-                    )
+                    child_target_name = cast(str, child_instruction.get("target", ""))
                     child_target = (
                         target
                         if child_target_name == child_result_name
@@ -3214,9 +3197,7 @@ def _specialize_operation_formula_slots(
                     )
                 # The Formula node itself is charged in addition to its
                 # selected pure Operation body.
-                instructions.append(
-                    {"node": "copy", "target": target, "value": target}
-                )
+                instructions.append({"node": "copy", "target": target, "value": target})
             elif node["node"] == "conditional":
                 condition = runtime_operand(
                     cast(dict[str, Any], node["condition"]),
@@ -3251,9 +3232,7 @@ def _specialize_operation_formula_slots(
                         parameter_sources,
                         local_sources,
                     )
-                    for argument in cast(
-                        list[dict[str, Any]], node["arguments"]
-                    )
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
                 instructions.extend(
                     compile_formula(
@@ -3263,9 +3242,7 @@ def _specialize_operation_formula_slots(
                         f"{prefix}.{node_id}",
                     )
                 )
-                instructions.append(
-                    {"node": "copy", "target": target, "value": target}
-                )
+                instructions.append({"node": "copy", "target": target, "value": target})
             else:
                 raise ValueError("Formula node has no generic Operation lowering")
             local_sources[node_id] = {"kind": "local", "local": target}
@@ -3307,9 +3284,7 @@ def _specialize_operation_formula_slots(
         operation = operations[coordinate]
         slot = next(
             slot
-            for slot in cast(
-                list[dict[str, Any]], operation["formula_slots"]
-            )
+            for slot in cast(list[dict[str, Any]], operation["formula_slots"])
             if slot["id"] == site["slot"]
         )
         slot_parameters = {
@@ -5664,9 +5639,7 @@ def _formula_program_graph_is_admitted(
     selected_slots: dict[
         tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
-    for operation_row in cast(
-        list[dict[str, Any]], selected_semantics["operations"]
-    ):
+    for operation_row in cast(list[dict[str, Any]], selected_semantics["operations"]):
         package_id = cast(str, operation_row["package"])
         definition = cast(dict[str, Any], operation_row["definition"])
         coordinate = (
@@ -5734,8 +5707,7 @@ def _formula_program_graph_is_admitted(
             return False
         if site.get("kind") == "derived-symbol":
             if (
-                set(site)
-                != {"kind", "context", "resolved_symbol", "identity"}
+                set(site) != {"kind", "context", "resolved_symbol", "identity"}
                 or site.get("context")
                 != {"phase": "initialization", "frame": "pre-snapshot"}
                 or not isinstance(site.get("resolved_symbol"), dict)
@@ -5763,9 +5735,7 @@ def _formula_program_graph_is_admitted(
                 ):
                     return False
                 operand_body = {
-                    key: value
-                    for key, value in operand.items()
-                    if key != "identity"
+                    key: value for key, value in operand.items() if key != "identity"
                 }
                 symbol = operand["resolved_symbol"]
                 declaration = declarations_by_symbol.get(
@@ -5787,8 +5757,7 @@ def _formula_program_graph_is_admitted(
                     return False
         elif site.get("kind") == "operation-slot":
             if (
-                set(site)
-                != {"kind", "operation", "slot", "context", "identity"}
+                set(site) != {"kind", "operation", "slot", "context", "identity"}
                 or site.get("context")
                 != {"phase": "event", "frame": "pre-event-snapshot"}
                 or not isinstance(site.get("operation"), dict)
@@ -5805,8 +5774,7 @@ def _formula_program_graph_is_admitted(
             if (
                 selected_slot is None
                 or slot_key in bound_operation_slots
-                or set(operation_ref)
-                != {"package", "version", "id", "identity"}
+                or set(operation_ref) != {"package", "version", "id", "identity"}
             ):
                 return False
             operation, slot, operation_identity = selected_slot
@@ -5826,19 +5794,13 @@ def _formula_program_graph_is_admitted(
                 ):
                     return False
                 operand_body = {
-                    key: value
-                    for key, value in operand.items()
-                    if key != "identity"
+                    key: value for key, value in operand.items() if key != "identity"
                 }
-                if (
-                    operand.get("identity")
-                    != content_identity(
-                        actual_operand_domain, cast(JsonValue, operand_body)
-                    )
-                    or not _formula_contract_matches_operation(
-                        parameters[argument["parameter"]],
-                        slot_parameters[cast(str, operand["parameter"])],
-                    )
+                if operand.get("identity") != content_identity(
+                    actual_operand_domain, cast(JsonValue, operand_body)
+                ) or not _formula_contract_matches_operation(
+                    parameters[argument["parameter"]],
+                    slot_parameters[cast(str, operand["parameter"])],
                 ):
                     return False
             closure = cast(dict[str, Any], bound_formula["closure"])
@@ -5851,9 +5813,7 @@ def _formula_program_graph_is_admitted(
                 <= set(cast(list[str], slot["permitted_refusals"]))
                 or cast(
                     int,
-                    cast(dict[str, Any], closure["resource_charge"])[
-                        "max_steps"
-                    ],
+                    cast(dict[str, Any], closure["resource_charge"])["max_steps"],
                 )
                 > cast(int, slot["resource_bounds"]["max_steps"])
                 or cast(int, closure["termination_measure"])
@@ -6396,9 +6356,7 @@ def _model_explanation(
                         == "operation-slot"
                         and cast(
                             dict[str, Any],
-                            cast(dict[str, Any], binding["site"]).get(
-                                "operation", {}
-                            ),
+                            cast(dict[str, Any], binding["site"]).get("operation", {}),
                         ).get("identity")
                         == operation_identity
                     ],
