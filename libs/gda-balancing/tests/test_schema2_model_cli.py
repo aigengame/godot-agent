@@ -690,6 +690,113 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
     }
 
 
+def test_model_build_lowers_bounded_formula_conditionals(tmp_path, run_cli):
+    source_document = _model_source()
+    contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "choose-value",
+            "parameters": [
+                {"id": "condition", **contract},
+                {"id": "when-false", **contract},
+                {"id": "when-true", **contract},
+            ],
+            "result": contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "choice",
+                        "node": "conditional",
+                        "condition": {
+                            "kind": "parameter",
+                            "parameter": "condition",
+                        },
+                        "when_true": {
+                            "kind": "parameter",
+                            "parameter": "when-true",
+                        },
+                        "when_false": {
+                            "kind": "parameter",
+                            "parameter": "when-false",
+                        },
+                    }
+                ],
+                "result": {"kind": "local", "local": "choice"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "choose-value"},
+            "arguments": [
+                {
+                    "parameter": "condition",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "constant_value",
+                    },
+                },
+                {
+                    "parameter": "when-false",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                },
+                {
+                    "parameter": "when-true",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                },
+            ],
+        }
+    ]
+    source = tmp_path / "conditional-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "conditional-formula-model"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    rir = json.loads(
+        (
+            _artifact_directory(json.loads(stdout)) / "rir-semantic-payload.json"
+        ).read_text()
+    )
+    formula = rir["formulas"][0]
+    node = formula["body"]["nodes"][0]
+    assert node["node"] == "conditional"
+    assert node["result"] == formula["result"]
+    assert formula["closure"]["resource_charge"] == {"max_steps": 1}
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):

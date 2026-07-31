@@ -3856,6 +3856,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         mode["experiment_cardinality"] == "forbidden"
                         and mode["initialization_source"]
                         not in {"model", "model-with-experiment-override"}
+                        and not (
+                            row.get("role") == "derived"
+                            and mode["initialization_source"] == "resolved-model"
+                        )
                         for mode in modes
                     )
                 )

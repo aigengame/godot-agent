@@ -1115,7 +1115,11 @@ def _check_model_source_bytes(
         )
     try:
         _lock, formula_declarations, _lowering, _rows = _lowering_inputs(checked)
-        _resolved_formulas_and_bindings(
+        (
+            resolved_formulas,
+            resolved_formula_bindings,
+            _formula_debug_entries,
+        ) = _resolved_formulas_and_bindings(
             checked,
             cast(list[dict[str, Any]], formula_declarations),
         )
@@ -1144,6 +1148,8 @@ def _check_model_source_bytes(
             checked,
             cast(list[dict[str, Any]], declarations),
             selected_semantics,
+            cast(list[dict[str, Any]], resolved_formulas),
+            cast(list[dict[str, Any]], resolved_formula_bindings),
         )
         _resolved_call_sites(
             kernel,
@@ -2091,6 +2097,55 @@ def _resolved_formula_programs_and_bindings(
                     int,
                     cast(dict[str, Any], operation["resource_bounds"])["max_steps"],
                 )
+            elif node_kind == "conditional":
+                condition, condition_contract = _resolved_formula_operand(
+                    cast(dict[str, Any], source_node["condition"]),
+                    parameters=parameters_by_id,
+                    locals_by_id=locals_by_id,
+                    declarations_by_source=declarations_by_source,
+                    expected=None,
+                    actual_operand_domain=actual_operand_domain,
+                )
+                if condition_contract.get("kind") not in {
+                    "boolean",
+                    "scalar",
+                } or condition_contract.get("representation") not in {"Bool", "Int"}:
+                    raise ValueError("Formula conditional has no exact truth contract")
+                when_true, true_contract = _resolved_formula_operand(
+                    cast(dict[str, Any], source_node["when_true"]),
+                    parameters=parameters_by_id,
+                    locals_by_id=locals_by_id,
+                    declarations_by_source=declarations_by_source,
+                    expected=None,
+                    actual_operand_domain=actual_operand_domain,
+                )
+                when_false, false_contract = _resolved_formula_operand(
+                    cast(dict[str, Any], source_node["when_false"]),
+                    parameters=parameters_by_id,
+                    locals_by_id=locals_by_id,
+                    declarations_by_source=declarations_by_source,
+                    expected=true_contract,
+                    actual_operand_domain=actual_operand_domain,
+                )
+                if not _formula_contract_matches(true_contract, false_contract):
+                    raise ValueError("Formula conditional branches are incompatible")
+                node_result = {
+                    member: value
+                    for member, value in true_contract.items()
+                    if member != "id"
+                }
+                node_body = cast(
+                    dict[str, JsonValue],
+                    {
+                        "id": node_id,
+                        "node": "conditional",
+                        "condition": condition,
+                        "when_true": when_true,
+                        "when_false": when_false,
+                        "result": node_result,
+                    },
+                )
+                max_steps += charge_per_node
             else:
                 raise ValueError(
                     "Formula program node has no implemented admitted lowering"
@@ -2646,6 +2701,10 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
                 mode["experiment_cardinality"] != "forbidden"
                 or mode["initialization_source"]
                 in {"model", "model-with-experiment-override"}
+                or (
+                    row["role"] == "derived"
+                    and mode["initialization_source"] == "resolved-model"
+                )
                 for mode in modes
             )
         )
@@ -2891,10 +2950,126 @@ def _symbol_initialization_contract(
     return target, initializer
 
 
+def _derived_formula_symbol_dependencies(
+    formulas: list[dict[str, Any]],
+    bindings: list[dict[str, Any]],
+) -> dict[tuple[str, str, str], list[dict[str, JsonValue]]]:
+    formulas_by_identity = {
+        cast(str, formula["identity"]): formula for formula in formulas
+    }
+    direct_by_formula: dict[str, set[tuple[str, str, str]]] = {}
+    formula_calls: dict[str, set[str]] = {}
+    symbols: dict[tuple[str, str, str], dict[str, JsonValue]] = {}
+    for identity, formula in formulas_by_identity.items():
+        direct: set[tuple[str, str, str]] = set()
+        calls: set[str] = set()
+
+        def observe_operand(operand: Any) -> None:
+            if not isinstance(operand, dict) or operand.get("kind") != "symbol":
+                return
+            resolved = operand.get("resolved_symbol")
+            if not isinstance(resolved, dict):
+                return
+            key = (
+                cast(str, resolved["model"]),
+                cast(str, resolved["module"]),
+                cast(str, resolved["name"]),
+            )
+            direct.add(key)
+            symbols[key] = cast(dict[str, JsonValue], resolved)
+
+        body = cast(dict[str, Any], formula["body"])
+        observe_operand(body.get("result"))
+        for node in cast(list[dict[str, Any]], body.get("nodes", [])):
+            for argument in cast(list[dict[str, Any]], node.get("arguments", [])):
+                observe_operand(argument.get("operand"))
+            for member in ("condition", "when_true", "when_false"):
+                observe_operand(node.get(member))
+            formula_ref = node.get("formula")
+            if (
+                node.get("node") == "formula-call"
+                and isinstance(formula_ref, dict)
+                and isinstance(formula_ref.get("identity"), str)
+            ):
+                calls.add(formula_ref["identity"])
+        direct_by_formula[identity] = direct
+        formula_calls[identity] = calls
+
+    closed_formula_symbols: dict[str, set[tuple[str, str, str]]] = {}
+
+    def close_formula(
+        identity: str, visiting: frozenset[str]
+    ) -> set[tuple[str, str, str]]:
+        if identity in closed_formula_symbols:
+            return closed_formula_symbols[identity]
+        if identity in visiting or identity not in formulas_by_identity:
+            raise ValueError("Formula dependency graph is cyclic or incomplete")
+        result = set(direct_by_formula[identity])
+        for called in formula_calls[identity]:
+            result.update(close_formula(called, visiting | {identity}))
+        closed_formula_symbols[identity] = result
+        return result
+
+    direct_by_site: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
+    for binding in bindings:
+        site = cast(dict[str, Any], binding["site"])
+        if site.get("kind") != "derived-symbol":
+            continue
+        resolved_site = cast(dict[str, str], site["resolved_symbol"])
+        site_key = (
+            resolved_site["model"],
+            resolved_site["module"],
+            resolved_site["name"],
+        )
+        formula_ref = cast(dict[str, str], binding["formula"])
+        dependencies = set(close_formula(formula_ref["identity"], frozenset()))
+        for argument in cast(list[dict[str, Any]], binding["arguments"]):
+            operand = cast(dict[str, Any], argument["operand"])
+            if operand.get("kind") != "symbol":
+                continue
+            resolved = cast(dict[str, JsonValue], operand["resolved_symbol"])
+            key = (
+                cast(str, resolved["model"]),
+                cast(str, resolved["module"]),
+                cast(str, resolved["name"]),
+            )
+            dependencies.add(key)
+            symbols[key] = resolved
+        direct_by_site[site_key] = dependencies
+
+    closed_by_site: dict[tuple[str, str, str], set[tuple[str, str, str]]] = {}
+
+    def close_site(
+        key: tuple[str, str, str],
+        visiting: frozenset[tuple[str, str, str]],
+    ) -> set[tuple[str, str, str]]:
+        if key in closed_by_site:
+            return closed_by_site[key]
+        if key in visiting:
+            raise ValueError("Derived Formula binding graph is cyclic")
+        result: set[tuple[str, str, str]] = set()
+        for dependency in direct_by_site.get(key, set()):
+            if dependency in direct_by_site:
+                result.update(close_site(dependency, visiting | {key}))
+            else:
+                result.add(dependency)
+        closed_by_site[key] = result
+        return result
+
+    return {
+        key: [
+            symbols[dependency] for dependency in sorted(close_site(key, frozenset()))
+        ]
+        for key in sorted(direct_by_site)
+    }
+
+
 def _resolved_entrypoints(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
+    formulas: list[dict[str, Any]] | None = None,
+    formula_bindings: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, JsonValue]]:
     """Resolve Source entrypoint bindings once; downstream consumers use only this graph."""
     lowering = _model_lowering(checked.language_bundle)
@@ -2933,6 +3108,10 @@ def _resolved_entrypoints(
         ): declaration
         for declaration in declarations
     }
+    formula_dependencies = _derived_formula_symbol_dependencies(
+        formulas or [],
+        formula_bindings or [],
+    )
     domains = cast(
         dict[str, str],
         checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
@@ -3077,6 +3256,46 @@ def _resolved_entrypoints(
                             "one actual target derived conflicting initializers",
                         )
                     initializers[operand_identity] = initializer
+                if role == "derived":
+                    resolved_key = (
+                        cast(str, resolved_symbol["model"]),
+                        cast(str, resolved_symbol["module"]),
+                        cast(str, resolved_symbol["name"]),
+                    )
+                    if resolved_key not in formula_dependencies:
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "entrypoint derived Symbol has no Formula value producer",
+                        )
+                    for dependency_symbol in formula_dependencies.get(resolved_key, []):
+                        dependency_key = (
+                            cast(str, dependency_symbol["module"]),
+                            cast(str, dependency_symbol["name"]),
+                        )
+                        dependency = declarations_by_source[dependency_key]
+                        dependency_body = cast(
+                            dict[str, JsonValue],
+                            {
+                                "kind": "symbol",
+                                "symbol": dependency_symbol,
+                            },
+                        )
+                        dependency_identity = content_identity(
+                            domains["actual_operand"],
+                            dependency_body,
+                        )
+                        dependency_target, dependency_initializer = (
+                            _symbol_initialization_contract(
+                                dependency,
+                                assignment_policy,
+                                dependency_symbol,
+                                dependency_identity,
+                            )
+                        )
+                        if dependency_target is not None:
+                            scenario_targets[dependency_identity] = dependency_target
+                        if dependency_initializer is not None:
+                            initializers[dependency_identity] = dependency_initializer
             elif source_operand["kind"] == "literal":
                 if formal["access"] != "read":
                     raise _EntrypointBindingError(
@@ -4252,6 +4471,8 @@ def _resolved_entrypoint_graph_is_admitted(
     ldb: dict[str, Any],
     declarations: list[dict[str, Any]],
     selected_semantics: dict[str, Any],
+    formulas: list[dict[str, Any]],
+    formula_bindings: list[dict[str, Any]],
     entrypoints: Any,
 ) -> bool:
     """Independently rederive every identity and contract in the resolved call graph."""
@@ -4289,6 +4510,10 @@ def _resolved_entrypoint_graph_is_admitted(
         ): declaration
         for declaration in declarations
     }
+    formula_dependencies = _derived_formula_symbol_dependencies(
+        formulas,
+        formula_bindings,
+    )
     domains = cast(
         dict[str, str],
         kernel["meta_format"]["runtime_program"]["invocation_contract"][
@@ -4403,6 +4628,42 @@ def _resolved_entrypoint_graph_is_admitted(
                     ):
                         return False
                     initializers[operand_identity] = initializer
+                if role == "derived":
+                    resolved_key = (
+                        exact_symbol["model"],
+                        exact_symbol["module"],
+                        exact_symbol["name"],
+                    )
+                    for dependency_symbol in formula_dependencies.get(resolved_key, []):
+                        dependency_key = (
+                            cast(str, dependency_symbol["model"]),
+                            cast(str, dependency_symbol["module"]),
+                            cast(str, dependency_symbol["name"]),
+                        )
+                        dependency = declarations_by_symbol[dependency_key]
+                        dependency_body = cast(
+                            dict[str, JsonValue],
+                            {
+                                "kind": "symbol",
+                                "symbol": dependency_symbol,
+                            },
+                        )
+                        dependency_identity = content_identity(
+                            domains["actual_operand"],
+                            dependency_body,
+                        )
+                        dependency_target, dependency_initializer = (
+                            _symbol_initialization_contract(
+                                dependency,
+                                assignment_policy,
+                                dependency_symbol,
+                                dependency_identity,
+                            )
+                        )
+                        if dependency_target is not None:
+                            scenario_targets[dependency_identity] = dependency_target
+                        if dependency_initializer is not None:
+                            initializers[dependency_identity] = dependency_initializer
             elif operand.get("kind") == "literal":
                 value = operand.get("value")
                 context_type = _literal_context_contract(
@@ -4792,6 +5053,34 @@ def _formula_program_graph_is_admitted(
                 operation_dependencies_by_key[key].append(
                     (cast(str, operation_ref["identity"]), operation)
                 )
+            elif node.get("node") == "conditional":
+                if set(node) != {
+                    "id",
+                    "node",
+                    "condition",
+                    "when_true",
+                    "when_false",
+                    "result",
+                    "identity",
+                }:
+                    return False
+                condition_contract = operand_contract(node.get("condition"))
+                true_contract = operand_contract(node.get("when_true"))
+                false_contract = operand_contract(node.get("when_false"))
+                if (
+                    condition_contract is None
+                    or condition_contract.get("kind") not in {"boolean", "scalar"}
+                    or condition_contract.get("representation") not in {"Bool", "Int"}
+                    or true_contract is None
+                    or false_contract is None
+                    or not _formula_contract_matches(true_contract, false_contract)
+                    or not isinstance(node.get("result"), dict)
+                    or not _formula_contract_matches(
+                        true_contract,
+                        cast(dict[str, Any], node["result"]),
+                    )
+                ):
+                    return False
             else:
                 return False
             locals_by_id[cast(str, node["id"])] = cast(dict[str, Any], node["result"])
@@ -4825,9 +5114,13 @@ def _formula_program_graph_is_admitted(
         }
         expected_operation_dependencies: set[str] = set()
         expected_refusals: set[str] = set()
-        expected_steps = len(dependency_formulas) * cast(
-            int, policy["resource_charge_per_node"]
-        )
+        expected_steps = (
+            len(dependency_formulas)
+            + sum(
+                node.get("node") == "conditional"
+                for node in cast(list[dict[str, Any]], formula["body"]["nodes"])
+            )
+        ) * cast(int, policy["resource_charge_per_node"])
         expected_termination = 1
         for dependency in dependency_formulas:
             closure = cast(dict[str, Any], dependency["closure"])
@@ -5349,6 +5642,8 @@ def admit_resolved_model(
             ldb,
             cast(list[dict[str, Any]], declarations),
             cast(dict[str, Any], expected_runtime_projection),
+            cast(list[dict[str, Any]], rir.get("formulas")),
+            cast(list[dict[str, Any]], rir.get("formula_bindings")),
             rir.get("entrypoints"),
         ):
             return ResolvedModelAdmission(False, diagnostic)
@@ -5553,6 +5848,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         checked,
         cast(list[dict[str, Any]], declarations),
         selected_semantics,
+        cast(list[dict[str, Any]], formulas),
+        cast(list[dict[str, Any]], formula_bindings),
     )
     call_sites = _resolved_call_sites(
         checked.kernel,

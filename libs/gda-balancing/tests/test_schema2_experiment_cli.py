@@ -769,7 +769,7 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
             "1" * 64,
         ]
     )
-    assert (build_exit, build_stderr) == (0, "")
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
     specification = _experiment(
@@ -782,6 +782,103 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     spec_path = tmp_path / "experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     return spec_path
+
+
+def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    source_value["modules"][0]["symbols"].append(
+        _rpg_value("derived_base_damage", "derived")
+    )
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 1000},
+        "numeric_policy": "exact-int64",
+    }
+    source_value["modules"][0]["formulas"] = [
+        {
+            "id": "derived-damage",
+            "parameters": [{"id": "base", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_value["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "combat",
+                "symbol": "derived_base_damage",
+            },
+            "formula": {"module": "combat", "id": "derived-damage"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "base_damage",
+                    },
+                }
+            ],
+        }
+    ]
+    base_binding = next(
+        row
+        for row in source_value["entrypoints"][0]["arguments"]
+        if row["port"] == "base_damage"
+    )
+    base_binding["operand"]["symbol"] = "derived_base_damage"
+    source = tmp_path / "formula-runtime-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "formula-runtime-model"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification_path = tmp_path / "formula-runtime-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    snapshots = artifacts.members["snapshot-series"].value["snapshots"]
+    assert snapshots[0]["name"] == "one-cast:initial"
+    event = artifacts.members["event-trace"].value["events"][0]
+    derived = next(
+        row for row in event["facts"] if row["name"] == "derived_base_damage"
+    )
+    assert derived == {"kind": "integer", "name": "derived_base_damage", "integer": 24}
+    assert (
+        next(row["integer"] for row in event["facts"] if row["name"] == "damage_dealt")
+        == 18
+    )
 
 
 def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
