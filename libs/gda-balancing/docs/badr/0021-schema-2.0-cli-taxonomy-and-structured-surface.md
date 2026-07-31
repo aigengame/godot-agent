@@ -14,6 +14,16 @@ The descriptor, structured-output, atomic-write, and noun-group principles remai
 #534 therefore replaces the 1.x nouns while making the previously deferred aggregate manifest and
 structured-params adapter part of the first vertical tracer.
 
+> **Amendment (2026-07-31, #590):** bADR-0014/0015 now distinguish initialization refusal before
+> Event dispatch from post-dispatch Runtime refusal. A Command descriptor exposes both reachable
+> variants: the initialization variant has no Snapshot/Event/trace/success artifact or
+> `terminal_audit`, while the post-dispatch variant requires the exact terminal-audit receipt.
+> Under bADR-0013, every successful `model build` publishes a Model explanation in its complete
+> build-companion set. This record owns only the CLI projection: `model inspect` retrieves that
+> stored companion, may render deterministic indented JSON without changing stored canonical bytes,
+> and never regenerates, edits, or executes it. bADR-0022 owns the explanation's Formula and
+> Operation contents.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use
@@ -122,15 +132,12 @@ structured-params adapter part of the first vertical tracer.
   index immutable. Input artifacts are never mutated, and direct/symlink aliasing of any input/output
   member is a usage error.
 
-- **Refusal publication is separate from success publication.** A pre-Runtime refusal publishes no
-  command success artifacts. Initialization happens at stage `runtime` but before Event dispatch:
-  its refusal publishes no Snapshot, Event, trace, success artifact, or terminal audit. After Event
-  dispatch, bADR-0014/0015 requires one separately typed terminal-audit artifact set; the command
-  commits that entire refusal-only set and its locator receipt before emitting the exit-2 envelope.
-  A Command descriptor declares both reachable Runtime variants and cannot make their
-  `terminal_audit` field optional by accident. Neither variant can reuse the success artifact-set
-  type, expose a partial Evaluation run/Metric dataset/Evidence set, or return an unresolvable
-  digest as a receipt.
+- **Refusal publication is separate from success publication.** A pre-runtime refusal publishes no
+  command success artifacts. After runtime dispatch, bADR-0014/0015 requires one separately typed
+  terminal-audit artifact set; the command commits that entire refusal-only set and its locator
+  receipt before emitting the exit-2 envelope. It cannot reuse the success artifact-set type,
+  expose a partial Evaluation run/Metric dataset/Evidence set, or return an unresolvable digest as a
+  receipt.
 
 - **Artifact commit and result-envelope delivery are ordered, not one cross-transport
   transaction.** The publication transaction covers the durable artifact set, locator index, and
@@ -154,18 +161,6 @@ structured-params adapter part of the first vertical tracer.
   structured internal facts, `diff` returns semantic model differences, `verify` validates evidence
   claims, and `migrate` attempts bADR-0019's limited conversion. `read`, `show`, `validate`, `format`,
   `simulate`, `tune`, and other synonyms cannot enter the 2.x tree without amending this record.
-
-- **Every `model build` publishes and `model inspect` renders the non-semantic Model
-  explanation.** The build-success artifact set and Build receipt must contain one exact
-  `model-explanation`; an empty Formula or Operation section is valid when the selected RIR has no
-  corresponding nodes. Its Formula entries bind exact evaluation sites and their transitive
-  refusal/resource closure rather than only source expression text. Generation, validation, or
-  publication failure leaves no partial success set. `model inspect` retrieves that exact companion
-  and may emit a deterministic indented JSON view for direct reading; it never regenerates the
-  projection. Presentation whitespace is not part of the stored canonical artifact bytes or
-  content identity, and `inspect` cannot reconstruct, edit, or execute Model Source from the
-  projection. bADR-0013 owns the mandatory build-companion set and bADR-0022 owns the Formula and
-  Operation projection semantics; this record owns their CLI retrieval and publication surface.
 
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without

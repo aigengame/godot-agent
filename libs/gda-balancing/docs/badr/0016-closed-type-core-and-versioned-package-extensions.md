@@ -15,6 +15,15 @@ mechanics into universal primitives. At the same time, an â€œopen extension mapâ
 would sacrifice static typing, deterministic execution, and cross-implementation meaning. PRD #534
 therefore requires a small closed type language and a constrained package extension contract.
 
+> **Amendment (2026-07-31, #590):** Operation specifications additionally close their declared
+> refusal sets. An Operation may expose zero or more named Formula slots with typed
+> parameter/result, evaluation-context, permitted-refusal, and resource-budget contracts; a
+> selected slot requires exactly one compatible Model Source binding under bADR-0022, with no
+> package, template, compiler, or evaluator fallback. Static checking, RIR projection, and Runtime
+> admission extend the original Operation-closure checks retained below with that exact selected
+> Formula closure and require it to fit the Operation's declarations and bounds. Template defaults
+> are ordinary Formula declarations and bindings materialized in editable starter Model Source.
+
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,
@@ -140,8 +149,7 @@ therefore requires a small closed type language and a constrained package extens
   as an opaque extension for a later evaluator to reinterpret.
 
 - **Operation specifications close the extension's semantic surface.** Every operation declares a
-  complete named formal-port signature and result, unit/kind rules, purity, declared refusals,
-  deterministic resource
+  complete named formal-port signature and result, unit/kind rules, purity, deterministic resource
   bounds, permitted Numeric profiles, and runtime effects: state reads/writes, emitted signals,
   scheduled/canceled events, and Named random streams. Every nested invocation has one stable call
   site and binds the callee's exact formal-port set once to caller ports, lexical locals, literals,
@@ -150,23 +158,13 @@ therefore requires a small closed type language and a constrained package extens
   Specification amendment and conformance path in bADR-0022. Host evaluator code is a conforming
   implementation only.
 
-- **Formula slots make game-owned numeric policy explicit.** An Operation may declare zero or more
-  named Formula slots, each with one closed typed parameter/result contract and one declared
-  evaluation context, permitted refusal set, and deterministic resource-charge budget. A selected
-  Operation requires its Model Source to bind exactly one compatible named Formula to every declared
-  slot under bADR-0022's binding, mixed-call-graph closure, refusal, resource, termination, and
-  no-fallback judgments. Template defaults are ordinary Formula declarations and bindings in the
-  editable starter Model Source.
-
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
   reachable result tags/payload types, state reads/writes, signal/event/cancel/random effects, and
-  resource counts, plus every Formula/pure-Operation transitive refusal, charge, and termination
-  edge, then require exact agreement with the selected release's declared signature,
-  kind/unit/Numeric rules, purity, effects, refusals, and bounds. Runtime admission compares the
-  complete RIR Operation and Formula-closure projection to that exact selected release and rejects
-  an LDB-present but Lock-unselected operation. Reidentifying a partial or inconsistent artifact
-  cannot make it executable.
+  resource counts, then require exact agreement with the selected release's declared signature,
+  kind/unit/Numeric rules, purity, effects, and bounds. Runtime admission compares the complete RIR
+  Operation projection to that exact selected release and rejects an LDB-present but Lock-unselected
+  operation. Reidentifying a partial or inconsistent artifact cannot make it executable.
 
 - **Model invocation closes the reusable Operation interface without duplicating it.** Model Source
   owns named, typed symbols and value policies plus entrypoints that explicitly bind those symbols

@@ -16,11 +16,13 @@ simple reference evaluator and optimizable by other evaluators without giving th
 scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 > **Amendment (2026-07-31, #590):** Initialization is an atomic pre-Event phase over one immutable
-> Initialization frame. Snapshot 0 exists only after that phase succeeds, superseding the original
-> “Snapshot boundary exists initially” wording retained below. Formula-result caching is
-> non-semantic: every dynamic evaluation applies the same LDB-derived charge vector to the current
-> Runtime resource ledger before returning a cached or fresh result. bADR-0022 owns the detailed
-> Formula cache conformance vector; this record owns the Runtime ledger and Snapshot boundary.
+> Initialization frame assembled from admitted Experiment inputs, constants, parameters, and
+> declared initial base state. Formula sites read only that frame and explicit operands. Successful
+> initialization validates all initial values and atomically commits Snapshot 0; refusal or resource
+> exhaustion discards the frame and publishes no Snapshot, Event, trace, Evaluation, Metric, or
+> terminal audit. The original “Snapshot boundary exists initially” and broad Runtime-refusal
+> wording retained below therefore apply only after successful initialization and Event dispatch.
+> bADR-0022 separately owns Formula-result caching semantics and its conformance vector.
 
 ## Decision
 
@@ -52,18 +54,6 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   commits them together and creates the next Snapshot boundary. An event cannot observe its own
   buffered writes unless an operation explicitly defines a local accumulator.
 
-- **Initialization is atomic and precedes Event dispatch.** After exact Experiment inputs and the
-  Resolved Runtime profile are admitted, initialization constructs one immutable
-  **Initialization frame** from constants, parameters, inputs, and declared initial base state.
-  Initialization Formula evaluation sites read only that frame and explicit operands; it is not a
-  committed Snapshot and no Event exists. Successful initialization validates all initial values
-  and atomically commits Snapshot 0, after which Event dispatch may begin. A Formula refusal or
-  resource exhaustion before that commit is a `runtime`-stage pre-Event refusal: the entire frame
-  is discarded, no Snapshot/Event/trace/Evaluation/Metric artifact becomes visible, and no
-  terminal-audit receipt is fabricated. The refusal envelope retains the exact reproduction,
-  Formula evaluation-site, frame, and Diagnostic provenance needed to retry or diagnose the same
-  attempt.
-
 - **Signals are intra-transaction facts, not Runtime events.** An emitted Signal has a nominal
   type and payload. The Model Source Package authors game-specific subscriptions; static
   resolution validates each subscriber against Language Definition Bundle signal/effect laws and
@@ -86,11 +76,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   boundary; neither a successful Event nor an atomic file rename proves an atomically published
   command result.
 
-- **Runtime refusal after Event dispatch rolls back only the current event and terminates the
-  run.** Its buffered writes, RNG draws, emitted Signals, child events, and cancellations are
-  discarded. Earlier committed snapshots remain valid. The refusal produces a separately typed
-  **terminal-audit artifact set** identifying the ordered committed trace prefix, last committed
-  Snapshot, refusing event,
+- **Runtime refusal rolls back only the current event and terminates the run.** Its buffered writes,
+  RNG draws, emitted Signals, child events, and cancellations are discarded. Earlier committed
+  snapshots remain valid. The refusal produces a separately typed **terminal-audit artifact set**
+  identifying the ordered committed trace prefix, last committed Snapshot, refusing event,
   rollback facts,
   Diagnostic, Resolved Runtime profile, and exact reproduction identities. The invocation publishes
   that set
@@ -179,10 +168,6 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   admission derives that identity from the selected LDB definition and binds it into the Resolved
   Runtime profile alongside the Evaluator Capability Manifest identity. Neither authority artifact
   refers back to the generated profile, so the three identities are distinct and acyclic.
-  Formula caching cannot bypass it: every dynamic evaluation, including a cache hit, applies the
-  same LDB-derived charge vector to the current resource ledger before returning a cached or freshly
-  computed semantic result. Resource exhaustion therefore occurs at the same evaluation boundary
-  with caching enabled or disabled.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel

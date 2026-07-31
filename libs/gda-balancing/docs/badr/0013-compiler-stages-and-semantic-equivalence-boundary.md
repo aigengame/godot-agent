@@ -14,15 +14,16 @@ Conversely, standardizing backend layouts and optimized kernels would expose eva
 as language law and prevent safe optimization. PRD #534 therefore requires a staged compiler and
 an explicit boundary for lowering equivalence.
 
-> **Amendment (2026-07-31, #590):** The original decision below allowed a compiler to emit a
-> Debug Map and a Build receipt to bind it. Formula authoring makes that companion mandatory:
-> every successful Model build publishes one exact Debug Map and one exact Model explanation, and
-> its Build receipt binds both. The Model explanation is a separately identified, non-semantic
-> projection with closed Formula and Operation sections; it cannot affect RIR, Resolved Model
-> identity, execution, or semantic equivalence. Either companion's generation, validation, or
-> publication failure prevents the complete build-success artifact set from committing. This
-> amendment supersedes the optional Debug Map wording retained in the original Decision and
-> Consequences below.
+> **Amendment (2026-07-31, #590):** Formula authoring extends Typed HIR with explicit Formula
+> evaluation sites and total named parameter-to-actual-operand mappings. Missing, extra, duplicate,
+> or unknown arguments refuse before HIR; parameter order and same-name capture have no semantic
+> force. It also supersedes the optional Debug Map language retained below: every successful Model
+> build publishes one exact Debug Map and one separately identified, non-semantic Model explanation,
+> and its Build receipt binds both. bADR-0022 owns the explanation's closed Formula/Operation
+> projection and validation rules; bADR-0021 owns retrieval and presentation. Either companion's
+> generation, validation, or publication failure prevents the complete build-success artifact set
+> from committing, while post-commit recovery returns the same bytes without regeneration. Neither
+> companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
 
 ## Decision
 
@@ -47,12 +48,10 @@ an explicit boundary for lowering equivalence.
 - **Typed HIR owns static semantics.** Construction completes name resolution, type inference or
   checking, unit checking, operation selection, and all other static legality rules. Every
   semantically relevant reference, conversion, versioned operation, Model entrypoint, Operation
-  call site, Formula evaluation site, Operation-formal binding, and Formula-parameter-to-actual
-  operand mapping is explicit. HIR rejects incomplete or duplicate closure, missing, extra, or
-  unknown arguments, illegal writable aliases, incompatible types, and recursive call graphs. It
-  may retain source-level structure and provenance for diagnostics, but no unresolved name,
-  parameter-order convention, implicit same-name capture, or implicit semantic coercion survives
-  it.
+  call site, and formal-to-actual operand binding is explicit. HIR rejects incomplete or duplicate
+  port closure, unknown arguments, illegal writable aliases, incompatible types, and recursive call
+  graphs. It may retain source-level structure and provenance for diagnostics, but no unresolved
+  name, implicit same-name capture, or implicit semantic coercion survives it.
 
 - **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
   sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an
@@ -99,19 +98,6 @@ an explicit boundary for lowering equivalence.
   source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
   separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, and
   publication facts without entering either RIR or Resolved Model identity.
-
-- **Human inspection uses a separate Model explanation.** Every successful build publishes one
-  immutable, content-addressed `model-explanation` companion that binds the exact Model Source, RIR
-  semantic payload, Debug Map, and projection schema/version. It contains separate closed
-  `formula_explanations` and `operation_explanations` sections defined by bADR-0022; the latter
-  references exact Formula evaluation-site/binding identities rather than restating their
-  expression semantics. Formula entries include the transitive refusal/resource contract derived
-  for each site. Omitted, extra, duplicate, or stale node bindings make the projection invalid. The
-  artifact and any wording or presentation revision have their own identity and cannot affect RIR
-  semantic-payload identity, Resolved Model identity, execution, or semantic equivalence. Model
-  explanation generation, validation, or publication failure prevents the complete build-success
-  artifact set from committing; invocation recovery restores that same complete set rather than
-  regenerating the projection.
 
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema
@@ -166,10 +152,7 @@ an explicit boundary for lowering equivalence.
   law, compatibility contract, and normative
   vectors. These are public Standard Schema surfaces.
 - Debug Map needs its own closed schema and identity law; build receipts may bind it without making
-  its provenance fields semantic or changing the Resolved Model identity. The 2026-07-31 amendment
-  makes both publication and receipt binding mandatory for successful Model builds.
-- Model explanation needs one closed schema, exact RIR/Debug Map projection rules, and an identity
-  law separate from RIR and Resolved Model; every build receipt binds it as a mandatory companion.
+  its provenance fields semantic or changing the Resolved Model identity.
 - Build receipt needs a closed non-semantic provenance schema and must never participate in the
   Resolved Model content-identity function.
 - EIR may evolve with an evaluator without a Schema version bump, provided its behavior remains
