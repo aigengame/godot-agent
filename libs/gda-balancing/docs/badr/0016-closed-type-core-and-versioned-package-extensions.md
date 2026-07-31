@@ -154,13 +154,9 @@ therefore requires a small closed type language and a constrained package extens
   named Formula slots, each with one closed typed parameter/result contract and one declared
   evaluation context, permitted refusal set, and deterministic resource-charge budget. A selected
   Operation requires its Model Source to bind exactly one compatible named Formula to every declared
-  slot. LDB rules derive the complete reachable Formula/pure-Operation call graph, refusal closure,
-  charge bound, and termination measure for that binding; the closure must be a subset of the
-  slot's permitted refusals and budget. Missing or duplicate bindings, incompatible signatures,
-  widened refusals, resource overflow, mixed-graph cycles, and bindings to effectful or unreachable
-  declarations refuse before HIR. An Operation, package, template, compiler, or evaluator cannot
-  supply an optional fallback or host default. Template defaults are ordinary Formula declarations
-  and bindings in the editable starter Model Source.
+  slot under bADR-0022's binding, mixed-call-graph closure, refusal, resource, termination, and
+  no-fallback judgments. Template defaults are ordinary Formula declarations and bindings in the
+  editable starter Model Source.
 
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,

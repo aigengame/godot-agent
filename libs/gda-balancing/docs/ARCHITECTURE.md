@@ -300,8 +300,8 @@ Domain-package Operations declare zero or more typed **Formula slots**. For ever
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
 bindings refuse before HIR. Every Formula call site also closes one total named
 parameter-to-actual-operand mapping: each declared parameter is bound exactly once, and missing,
-extra, duplicate, or unknown arguments are refused. Positional authoring sugar, if admitted, is
-normalized before HIR; parameter order and same-name capture have no semantic force. LDB rules
+extra, duplicate, or unknown arguments are refused. Parameter order and same-name capture have no
+semantic force. LDB rules
 traverse the complete Formula and pure-Operation call graph, reject mixed cycles, and derive the
 transitive refusal set, deterministic charge bound, and termination measure. A concrete binding
 must fit its slot and surrounding Operation contract; HIR/RIR carry the binding identity, canonical
@@ -420,8 +420,8 @@ Typed HIR closes every invocation before RIR:
    symbols to one exact Operation interface;
 3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
    rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
-   bindings, closes every Formula parameter-to-actual mapping after normalizing any positional
-   authoring sugar and without parameter-order or same-name capture, requires each literal to have
+   bindings, closes every Formula parameter-to-actual mapping without parameter-order or same-name
+   capture, requires each literal to have
    one exact contextual-type match in the selected
    package-owned Literal Typing Profiles, requires each nested callee's effect/refusal closure to
    fit the caller declaration, and
@@ -991,8 +991,8 @@ publish only their declared complete sets, admission/evaluation refusal publishe
 post-dispatch Runtime refusal rolls back the current Event and publishes only terminal audit, and
 post-commit delivery recovery covers all three published outcomes without evaluator rerun.
 
-The human product/architecture gate on #540 must accept, condition, or reopen this path before #590,
-#585, or #541–#545 proceeds.
+PRD #534 and its linked issues own live acceptance and sequencing for follow-on product-feedback
+and implementation work.
 
 ### 12.6 Sealed orthogonal LDB dogfooding
 
@@ -1112,11 +1112,9 @@ ordering/deduplication, and explicit truncation before aggregation runs.
 Implement one production vertical slice through the public CLI and durable artifact path. It must
 close all 12 `Tracer` rows in the genre coverage matrix with Golden scenarios and normative vectors.
 Within this gate, product-feedback slices exercise the public Model/Experiment path before the proof
-infrastructure they expose is hardened. The current feedback sequence is #540's scalar RPG combat
-loop, #590's Model-Source Formula authoring and explanation loop, then #585's structurally different
-Roguelike reward/build loop. These slices consume and challenge permanent artifacts but do not close
-a coverage row by themselves. PRD #534 and its linked issues own the live acceptance criteria; row
-closure remains governed by the matrix's closure rules.
+infrastructure they expose is hardened. These slices consume and challenge permanent artifacts but
+do not close a coverage row by themselves. PRD #534 and its linked issues own their live sequence
+and acceptance criteria; row closure remains governed by the matrix's closure rules.
 
 ### Gate 4 — full RPG coverage
 

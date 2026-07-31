@@ -56,10 +56,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   refusal/resource/termination judgments, HIR/RIR lowering, and their applicable semantic `static`
   and `resolution` Diagnostics. Each release's normative Formula vectors live only in its bound
   package-owned conformance-vector child. A mechanic release owns its concrete Formula-slot
-  signature, context, refusal/budget contract, and Operation integration; `game.combat` therefore
-  owns the committed #540 damage slot, while `game.resource` and `game.check` remain independent
-  dependencies. No flat peer registry, reconstructed RPG umbrella, compiler table, or host callback
-  may duplicate those authorities.
+  signature, context, refusal/budget contract, and Operation integration; bADR-0017 owns the
+  mechanic-to-package assignment. No flat peer registry, reconstructed RPG umbrella, compiler
+  table, or host callback may duplicate those authorities.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
@@ -428,11 +427,13 @@ structured formal judgments, and an honest proof/conformance boundary.
 ## References
 
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
+- Issue #590 — accepted Formula authoring and evaluation contract.
 - `docs/standard-schema-2.0/` — open specification gates and Genre coverage matrix.
 - bADR-0003/0005 — 1.x evaluator/self-description authority choices superseded for 2.x only.
 - bADR-0012 — layered machine and authored authority domains.
 - bADR-0013 — compiler stages and semantic equivalence boundary.
 - bADR-0014 — atomic event runtime.
 - bADR-0016 — type and Operation/package contracts.
+- bADR-0017 — mechanic-to-package ownership and Genre template contracts.
 - bADR-0020 — explicit external-standard mappings.
 - bADR-0021 — CLI projection and Command-descriptor surface.

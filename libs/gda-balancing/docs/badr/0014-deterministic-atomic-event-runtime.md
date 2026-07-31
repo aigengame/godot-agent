@@ -15,6 +15,13 @@ Standard Schema 2.x needs one deterministic state-transition model that is imple
 simple reference evaluator and optimizable by other evaluators without giving them observable
 scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
+> **Amendment (2026-07-31, #590):** Initialization is an atomic pre-Event phase over one immutable
+> Initialization frame. Snapshot 0 exists only after that phase succeeds, superseding the original
+> “Snapshot boundary exists initially” wording retained below. Formula-result caching is
+> non-semantic: every dynamic evaluation applies the same LDB-derived charge vector to the current
+> Runtime resource ledger before returning a cached or fresh result. bADR-0022 owns the detailed
+> Formula cache conformance vector; this record owns the Runtime ledger and Snapshot boundary.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
@@ -133,11 +140,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   contract requires continuity, or decreasing sequence numbers are refusals. Wall-clock arrival
   order and thread scheduling are never semantic inputs.
 
-- **Snapshot 0 exists only after successful initialization; later boundaries follow every
-  successful event.** The semantic snapshot includes all persistent state and scheduler state
-  required to resume deterministically. Evidence may record a canonical hash at every boundary and
-  materialize full snapshots only at declared checkpoints; storage optimization cannot change the
-  conceptual boundary or replay trace.
+- **A Snapshot boundary exists initially and after every successful event.** The semantic snapshot
+  includes all persistent state and scheduler state required to resume deterministically. Evidence
+  may record a canonical hash at every boundary and materialize full snapshots only at declared
+  checkpoints; storage optimization cannot change the conceptual boundary or replay trace.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic
@@ -308,9 +314,8 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.
-- Run the same repeated Formula reads with caching forced on and off at one near-exhausted resource
-  budget. Require identical charge events, value/non-resource-refusal sequence, and exact
-  resource-exhaustion boundary; a cache hit that skips or double-applies charge fails conformance.
+- Apply bADR-0022's Formula-cache conformance vector to the Runtime ledger and require its
+  cache-on/cache-off result, charge, and exhaustion observations to remain identical.
 - Inject a fault after an event has buffered writes, RNG draws, Signals, cancellations, and
   children; assert all are rolled back, prior commits remain, and exactly one retrievable
   terminal-audit artifact set becomes visible with no completed success artifact.

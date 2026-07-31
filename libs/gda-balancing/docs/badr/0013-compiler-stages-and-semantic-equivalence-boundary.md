@@ -14,6 +14,16 @@ Conversely, standardizing backend layouts and optimized kernels would expose eva
 as language law and prevent safe optimization. PRD #534 therefore requires a staged compiler and
 an explicit boundary for lowering equivalence.
 
+> **Amendment (2026-07-31, #590):** The original decision below allowed a compiler to emit a
+> Debug Map and a Build receipt to bind it. Formula authoring makes that companion mandatory:
+> every successful Model build publishes one exact Debug Map and one exact Model explanation, and
+> its Build receipt binds both. The Model explanation is a separately identified, non-semantic
+> projection with closed Formula and Operation sections; it cannot affect RIR, Resolved Model
+> identity, execution, or semantic equivalence. Either companion's generation, validation, or
+> publication failure prevents the complete build-success artifact set from committing. This
+> amendment supersedes the optional Debug Map wording retained in the original Decision and
+> Consequences below.
+
 ## Decision
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**
@@ -81,14 +91,14 @@ an explicit boundary for lowering equivalence.
   bADR-0022 makes these observations and the lowering relation structured Language rules in the
   Language Definition Bundle.
 
-- **Diagnostic provenance is a separate Debug Map.** Every successful build emits one immutable,
+- **Diagnostic provenance is a separate Debug Map.** A compiler may emit one immutable,
   content-addressed Debug Map that binds the exact RIR semantic-payload identity to source spans,
   AST/HIR identities,
   lowering-rule applications, and diagnostic locations. The map is a build companion for tooling,
   not part of RIR, execution authority, semantic equivalence, or the Resolved Model identity. A
   source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
-  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, Model
-  explanation, and publication facts without entering either RIR or Resolved Model identity.
+  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, and
+  publication facts without entering either RIR or Resolved Model identity.
 
 - **Human inspection uses a separate Model explanation.** Every successful build publishes one
   immutable, content-addressed `model-explanation` companion that binds the exact Model Source, RIR
@@ -155,8 +165,9 @@ an explicit boundary for lowering equivalence.
 - RIR semantic payload and Resolved Model each need a canonical encoding, distinct content-identity
   law, compatibility contract, and normative
   vectors. These are public Standard Schema surfaces.
-- Debug Map needs its own closed schema and identity law; every build receipt binds it without
-  making its provenance fields semantic or changing the Resolved Model identity.
+- Debug Map needs its own closed schema and identity law; build receipts may bind it without making
+  its provenance fields semantic or changing the Resolved Model identity. The 2026-07-31 amendment
+  makes both publication and receipt binding mandatory for successful Model builds.
 - Model explanation needs one closed schema, exact RIR/Debug Map projection rules, and an identity
   law separate from RIR and Resolved Model; every build receipt binds it as a mandatory companion.
 - Build receipt needs a closed non-semantic provenance schema and must never participate in the

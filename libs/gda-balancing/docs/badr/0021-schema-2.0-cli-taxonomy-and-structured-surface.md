@@ -164,7 +164,8 @@ structured-params adapter part of the first vertical tracer.
   and may emit a deterministic indented JSON view for direct reading; it never regenerates the
   projection. Presentation whitespace is not part of the stored canonical artifact bytes or
   content identity, and `inspect` cannot reconstruct, edit, or execute Model Source from the
-  projection.
+  projection. bADR-0013 owns the mandatory build-companion set and bADR-0022 owns the Formula and
+  Operation projection semantics; this record owns their CLI retrieval and publication surface.
 
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without
@@ -247,6 +248,7 @@ structured-params adapter part of the first vertical tracer.
 - bADR-0007/0009/0011 — 1.x taxonomy, structured I/O, and descriptor contracts superseded for the
   2.x surface only.
 - bADR-0012 — authored authority domains.
+- bADR-0013 — compiler stages and mandatory build companions.
 - bADR-0015 — invocation outcomes and diagnostic locations.
 - bADR-0018 — metrics/evidence ownership.
 - bADR-0019 — clean break and limited migration.

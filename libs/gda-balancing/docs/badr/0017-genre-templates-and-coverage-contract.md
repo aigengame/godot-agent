@@ -48,10 +48,10 @@ distribution contract and a falsifiable definition of genre completeness.
   different authority and compatibility semantics.
 
 - **Template Formula defaults are ordinary starter-source bindings.** When a selected Operation
-  declares an exactly-one Formula slot under bADR-0022, the starter Model Source may provide the
-  default Formula declaration and binding. Instantiation materializes both into the game-owned
-  Model Source; the package, template machinery, compiler, and evaluator provide no fallback if a
-  required binding is absent or invalid.
+  declares an exactly-one Formula slot under bADR-0022, an instantiable starter Model Source must
+  provide one compatible Formula declaration and binding for that slot. Instantiation materializes
+  both into the game-owned Model Source; the package, template machinery, compiler, and evaluator
+  provide no fallback if a required binding is absent or invalid.
 
 - **Template-release admission is Kernel-defined and LDB-selected.** The Kernel owns the closed
   Schema-major artifact-graph primitive specification: typed arguments and result effects,
@@ -82,7 +82,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
   | `game.action` | closed immutable Action-plan schema, admission and identity; requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion, interruption, execution, cancellation and replacement | target enumeration, candidate/plan selection, Intent projection, response-window priority, or damage math |
   | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
-  | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, defeat/revival transition policy, and the Formula-slot signature/context/refusal/budget plus Operation integration for the committed #540 damage path | entity/resource state storage, generic effect lifetime or inventory |
+  | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, defeat/revival transition policy, and the Formula-slot signature/context/refusal/budget plus Operation integration for the committed combat-damage path | entity/resource state storage, generic effect lifetime or inventory |
   | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
@@ -95,9 +95,9 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
 
   bADR-0022 owns generic Formula-language package responsibility. This genre map adds only the
-  mechanic assignment: `game.combat` owns the #540 damage slot and Operation integration, while
-  `game.resource` and `game.check` remain separate dependencies and do not become a reconstructed
-  RPG umbrella.
+  mechanic assignment: `game.combat` owns the committed combat-damage Formula slot and Operation
+  integration, while `game.resource` and `game.check` remain separate dependencies and do not
+  become a reconstructed RPG umbrella.
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
   manifests of complete sealed Package Releases, and normative vectors live in their bound
@@ -386,6 +386,8 @@ distribution contract and a falsifiable definition of genre completeness.
 
 - PRD #501 — balancing toolkit product requirements.
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
+- Issue #540 — bounded RPG combat product-feedback slice.
+- Issue #590 — accepted Formula authoring and evaluation contract.
 - `docs/standard-schema-2.0/genre-coverage.md` — normative RPG/Roguelike rows, scenarios,
   negative vectors, and tracer gate.
 - bADR-0001/0002/0006 — Standard Schema 1.x document, attribute, and effect contracts.

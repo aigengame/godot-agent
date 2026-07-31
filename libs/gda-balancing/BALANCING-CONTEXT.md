@@ -193,10 +193,10 @@ not an authored authority or editable interchange format (bADR-0012/0013).
 _Avoid_: RIR semantic payload (unqualified), authored model, normalized source
 
 **Debug Map**:
-A separately content-addressed, non-semantic artifact that binds one exact RIR semantic-payload
-identity to source
-spans, AST/HIR identities, lowering traces, and diagnostic provenance. It may change without
-changing an equivalent RIR and cannot affect compilation or runtime behavior (bADR-0013/0022).
+A mandatory, separately content-addressed, non-semantic artifact published with every successful
+Model build. It binds one exact RIR semantic-payload identity to source spans, AST/HIR identities,
+lowering traces, and diagnostic provenance. It may change without changing an equivalent RIR and
+cannot affect compilation or runtime behavior (bADR-0013/0022).
 _Avoid_: RIR metadata, semantic provenance, embedded source map
 
 **Model explanation**:
