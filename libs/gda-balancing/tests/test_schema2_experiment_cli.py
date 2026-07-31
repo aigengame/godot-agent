@@ -1262,7 +1262,8 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
 
     def record_observation_frame(*args, **kwargs):
         cache = kwargs.get("cache")
-        cache_entries_before = len(cache) if cache is not None else 0
+        assert isinstance(cache, dict)
+        cache_entries_before = len(cache)
         result = evaluate_programs(*args, **kwargs)
         if kwargs.get("phase") == "observation":
             observation_frames.append(kwargs.get("frame_identity"))

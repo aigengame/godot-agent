@@ -2915,9 +2915,7 @@ def _resolved_formula_programs_and_bindings_impl(
             resolved_sites = [
                 {
                     **site_body,
-                    "identity": content_identity(
-                        domains["evaluation_site"], site_body
-                    ),
+                    "identity": content_identity(domains["evaluation_site"], site_body),
                 }
             ]
         else:
@@ -7623,9 +7621,8 @@ def read_model_explanation(
         )
     descriptor_identity_value = receipt.get("descriptor_identity")
     invocation_key = receipt.get("invocation_key")
-    if (
-        descriptor_identity_value != expected_descriptor_identity
-        or not isinstance(invocation_key, str)
+    if descriptor_identity_value != expected_descriptor_identity or not isinstance(
+        invocation_key, str
     ):
         raise ModelInspectAdmissionError(
             "kernel.binding_mismatch",
@@ -7765,8 +7762,7 @@ def read_model_explanation(
             not _verify_artifact(artifact, language_bundle)
             or artifact.get("artifact_kind") != row.get("artifact_kind")
             or artifact.get("content_identity") != row.get("content_identity")
-            or artifact.get("wire_schema_identity")
-            != row.get("wire_schema_identity")
+            or artifact.get("wire_schema_identity") != row.get("wire_schema_identity")
         ):
             raise ModelInspectAdmissionError(
                 "kernel.binding_mismatch",
@@ -7827,15 +7823,13 @@ def read_model_explanation(
         )
         or debug_map.get("source_identity") != source_identity
         or debug_map.get("rir_identity") != rir["content_identity"]
-        or resolution_receipt.get("resolver")
-        != _RESOLVER_IMPLEMENTATION_IDENTITY
+        or resolution_receipt.get("resolver") != _RESOLVER_IMPLEMENTATION_IDENTITY
         or resolution_receipt.get("resolution_profile") != profile["id"]
         or resolution_receipt.get("source_identity") != source_identity
         or resolution_receipt.get("kernel_identity") != kernel["content_identity"]
         or resolution_receipt.get("language_bundle_identity")
         != language_bundle["content_identity"]
-        or resolution_receipt.get("package_lock_identity")
-        != lock["content_identity"]
+        or resolution_receipt.get("package_lock_identity") != lock["content_identity"]
         or resolution_receipt.get("diagnostics") != []
     ):
         raise ModelInspectAdmissionError(

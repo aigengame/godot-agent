@@ -623,9 +623,7 @@ def test_model_inspect_preserves_invalid_anchor_configuration_as_usage(
     assert "invalid_argument" in model_command_module.MODEL_INSPECT.usage_codes
 
 
-def test_model_inspect_refuses_a_coherently_relocated_publication(
-    tmp_path, run_cli
-):
+def test_model_inspect_refuses_a_coherently_relocated_publication(tmp_path, run_cli):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -650,9 +648,7 @@ def test_model_inspect_refuses_a_coherently_relocated_publication(
         relocated_dir / "artifact-set-manifest.json"
     )
     for locator in relocated_receipt["member_locators"]:
-        locator["locator"] = str(
-            relocated_dir / f"{locator['logical_name']}.json"
-        )
+        locator["locator"] = str(relocated_dir / f"{locator['logical_name']}.json")
     receipt_path = relocated_dir / "artifact-set-receipt.json"
     receipt_path.write_bytes(canonical_bytes(relocated_receipt))
 
@@ -1496,7 +1492,10 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
     assert diagnostic_row["code"] == diagnostic
     assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
     _, language_bundle = authority_module.load_authorities()
-    assert model_module.reason_by_id(language_bundle, reason_id)["diagnostic"] == diagnostic
+    assert (
+        model_module.reason_by_id(language_bundle, reason_id)["diagnostic"]
+        == diagnostic
+    )
 
 
 @pytest.mark.parametrize(

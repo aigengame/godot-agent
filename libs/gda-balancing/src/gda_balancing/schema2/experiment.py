@@ -1330,7 +1330,9 @@ def _evaluate_initialization_programs(
     runtime_nodes = _runtime_nodes(checked)
     if frame_identity is None:
         if phase != "initialization":
-            raise ValueError("observation requires an exact committed Snapshot identity")
+            raise ValueError(
+                "observation requires an exact committed Snapshot identity"
+            )
         frame_identity = content_identity(
             "initialization-frame-v2",
             cast(
@@ -1932,7 +1934,10 @@ def evaluate_experiment(
                     display_names[identity]: value for identity, value in state.items()
                 },
             )
-        event["facts"] = _resolved_value_rows(actual_values, display_names)
+        event["facts"] = cast(
+            JsonValue,
+            _resolved_value_rows(actual_values, display_names),
+        )
         scenario_outputs[scenario["id"]] = (
             event,
             {display_names[identity]: value for identity, value in state.items()},

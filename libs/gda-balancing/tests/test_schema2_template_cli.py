@@ -2342,9 +2342,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         if row["id"] == "derive-value"
     )
 
-    game_example_dir = (
-        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast"
-    )
+    game_example_dir = Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast"
     game_source = json.loads(
         (game_example_dir / "model-source.json").read_text(encoding="utf-8")
     )
@@ -2478,9 +2476,9 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     entrypoint = _replace_json_value(
         deepcopy(game_source["entrypoints"][0]), "combat", "main"
     )
-    next(
-        row for row in entrypoint["arguments"] if row["port"] == "accuracy"
-    )["operand"]["symbol"] = "game_effective_accuracy"
+    next(row for row in entrypoint["arguments"] if row["port"] == "accuracy")[
+        "operand"
+    ]["symbol"] = "game_effective_accuracy"
     entrypoint["result"]["symbol"] = "output_value"
     extended["entrypoints"] = [entrypoint]
     extended["package_requirements"] = deepcopy(game_source["package_requirements"])
@@ -2510,9 +2508,10 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     assert formula_identities["game-effective-accuracy"].startswith("sha256:")
     assert module["symbols"][: len(baseline_symbols)] == baseline_symbols
     assert final_build["kernel_identity"] == baseline_build["kernel_identity"]
-    assert final_build["language_bundle_identity"] == baseline_build[
-        "language_bundle_identity"
-    ]
+    assert (
+        final_build["language_bundle_identity"]
+        == baseline_build["language_bundle_identity"]
+    )
     assert final_build["compiler"] == baseline_build["compiler"]
 
     experiment = json.loads(
@@ -2520,9 +2519,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     )
     experiment["id"] = "example.template-game.experiment"
     experiment["kernel_identity"] = final_build["kernel_identity"]
-    experiment["language_bundle_identity"] = final_build[
-        "language_bundle_identity"
-    ]
+    experiment["language_bundle_identity"] = final_build["language_bundle_identity"]
     experiment["model"] = {
         "source_identity": final_build["source_identity"],
         "build_receipt_identity": final_build["content_identity"],
