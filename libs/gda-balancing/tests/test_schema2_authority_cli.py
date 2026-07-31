@@ -1068,6 +1068,17 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
     assert "rpg." not in serialized
 
 
+def test_unchanged_migration_package_keeps_its_existing_release_coordinate(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    migration = next(
+        release
+        for release in authority["package_releases"]
+        if release["id"] == "tooling.migration"
+    )
+
+    assert migration["version"] == "1.0.0"
+
+
 def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     releases = {release["id"]: release for release in authority["package_releases"]}
