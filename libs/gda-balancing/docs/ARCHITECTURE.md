@@ -290,6 +290,40 @@ unbounded iteration are forbidden. Unit conversion is explicit, and persistent m
 through declared transitions. Host callbacks, ambient RNG, implicit conversions, and
 implementation-defined iteration are outside the language.
 
+Model Source owns module-level named **Formula declarations** with typed parameters, result, and a
+structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
+are neither first-class values nor dynamic callbacks. Inline expression syntax, if admitted, is
+only Authoring-AST sugar normalized to the same declaration-and-binding form before HIR; infix text
+is never a peer semantic authority.
+
+Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
+Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
+bindings refuse before HIR. Every Formula call site also closes one total named
+parameter-to-actual-operand mapping: each declared parameter is bound exactly once, and missing,
+extra, duplicate, or unknown arguments are refused. Parameter order and same-name capture have no
+semantic force. LDB rules
+traverse the complete Formula and pure-Operation call graph, reject mixed cycles, and derive the
+transitive refusal set, deterministic charge bound, and termination measure. A concrete binding
+must fit its slot and surrounding Operation contract; HIR/RIR carry the binding identity, canonical
+parameter map, and exact closure, and Runtime admission revalidates them. Packages, templates,
+compilers, and evaluators provide no optional fallback. A template default is an ordinary Formula
+and binding copied into the editable starter source. This separates reusable
+mechanic/control/effect law, which remains Operation-owned, from a game's numeric design policy,
+which remains Model-Source-owned.
+
+Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
+no lifecycle timing. Every read/call lowers to an identified evaluation site with explicit operands
+and context. A `derived` Symbol is read-only computed data, not stored state: repeated reads at one
+site under the same frame/Snapshot, operands, and Numeric profile derive the same pure result and
+deterministic charge vector; a new Snapshot is a new semantic evaluation. A cache may reuse the pure
+result, but every dynamic evaluation still applies that charge to the current Runtime resource
+ledger, so caching cannot move or remove resource exhaustion. Initialization reads an immutable
+pre-Snapshot frame and commits Snapshot 0 only after all initialization succeeds; an Event reads
+that Event's pre-event Snapshot and cannot observe buffered writes; observation reads the
+post-transition committed Snapshot; a snapshot Effect evaluates once and captures; and a live
+Effect reevaluates at each declared lifecycle Event against that Event's pre-event Snapshot.
+Optimization cannot change result or charge observations.
+
 The Kernel owns a small closed operation vocabulary sufficient to interpret those rules. The LDB
 uses it to define complete language and Domain-package operations. Every operation definition must
 declare its inputs, result, effects, refusals, numeric behavior, lowering, evaluation, and vectors.
@@ -368,6 +402,15 @@ The **Debug Map** is separate from RIR semantics so that source locations and ex
 can change without changing model meaning. Resolution and build receipts record how an artifact was
 obtained; they are not part of the RIR semantic payload.
 
+Every successful build also publishes a mandatory, separately identified **Model explanation**
+derived from the exact RIR and Debug Map. Its closed `formula_explanations` section renders
+Formula declarations, bindings, parameter-to-operand mappings, result contracts/types, and
+evaluation contexts; its closed
+`operation_explanations` section renders Operation control/effect/outcome/commit boundaries and
+references the exact Formula binding identities instead of restating their expression semantics.
+It is inspection data, not execution authority. Model explanation generation, validation, and
+publication are part of the same atomic build-success artifact set.
+
 ### 6.1.1 Resolved invocation graph
 
 Typed HIR closes every invocation before RIR:
@@ -377,13 +420,16 @@ Typed HIR closes every invocation before RIR:
    symbols to one exact Operation interface;
 3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
    rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
-   bindings, requires each literal to have one exact contextual-type match in the selected
+   bindings, closes every Formula parameter-to-actual mapping without parameter-order or same-name
+   capture, requires each literal to have
+   one exact contextual-type match in the selected
    package-owned Literal Typing Profiles, requires each nested callee's effect/refusal closure to
    fit the caller declaration, and
    derives the transitive resource charge under the LDB composition policy;
 4. RIR records the exact entrypoint and call-site graph plus its generated Scenario Input Contract,
-   including each literal's resolved context type, Model-owned initializers, and exact
-   required/optional Experiment assignment targets;
+   including each Operation-formal and Formula-parameter mapping identity, each literal's resolved
+   context type, Model-owned initializers, and exact required/optional Experiment assignment
+   targets;
 5. an Experiment selects one entrypoint and totally assigns that contract; and
 6. runtime and any private EIR consume those identities without name lookup or ambient capture.
 
@@ -612,7 +658,8 @@ One execution instance follows a closed lifecycle:
 
 1. `instantiated` binds exact RIR, Experiment, Resolved Runtime profile, inputs, and seed without
    creating mutable state;
-2. `initializing` creates and validates the first Snapshot boundary;
+2. `initializing` evaluates against an immutable pre-Snapshot Initialization frame and atomically
+   creates and validates Snapshot 0;
 3. `event` dispatches the atomic events at the current logical time;
 4. `step` advances to the next declared observation or logical boundary;
 5. `terminated` seals terminal trace, Snapshot, Metrics, and evidence identities; and
@@ -638,6 +685,12 @@ Dispatching **each queued event** is one atomic transaction over the latest comm
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
 commits; refusal discards that event's buffers.
 
+Initialization is a distinct atomic pre-Event boundary. A refusal while deriving or validating
+Snapshot 0 discards the whole Initialization frame and returns a `runtime`-stage refusal with exact
+Formula-site/frame provenance. Because no Event or committed Snapshot exists, it publishes no
+terminal audit and cannot claim rollback facts. Only successful initialization begins Event
+dispatch.
+
 Each state slot has one final write, either directly or through an admitted reducer. Reads and
 writes follow explicit snapshot boundaries; iteration order and tie-breaking are never inherited
 from a host container. RNG uses named streams so unrelated features cannot perturb each other's
@@ -662,11 +715,16 @@ The architecture keeps three ideas separate:
   pipeline stage; and
 - a **Verdict** is an Experiment-level judgment under declared acceptance intent.
 
-If a refusal occurs after runtime dispatch, the invocation atomically publishes a separate,
+If a refusal occurs after Event dispatch, the invocation atomically publishes a separate,
 retrievable, and verifiable **terminal-audit artifact set**. bADR-0015 exclusively owns that set's
 closed member and binding contract. At the architecture level, it is a refusal-only publication: it
 must not publish fabricated or half-complete Evaluation, Metric, Replay, or Evidence success
 artifacts, and admission failures before dispatch have no terminal audit.
+
+An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
+`runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric
+artifact. This is not an admission failure and does not weaken the post-dispatch terminal-audit
+requirement.
 
 Event-transaction atomicity and artifact-publication atomicity are distinct invariants. Both must be
 fault-injected and verified independently.
@@ -768,6 +826,12 @@ a client to recover the already committed outcome after a transport failure. A s
 need not publish an artifact set or accept an Invocation key. Local filesystem publication and
 production storage adapters must satisfy the same observable contract, but their trust boundaries
 and durability guarantees remain explicit.
+
+Every successful `model build` set includes its Debug Map and Model explanation, and its Build
+receipt and artifact-set framing bind both exact identities. If either projection cannot be
+generated, validated, or committed, the command publishes no partial success. `model inspect`
+retrieves and pretty-renders the stored Model explanation; it never regenerates meaning from source
+or RIR. Presentation whitespace is non-canonical and cannot change artifact identity.
 
 ## 11. Quality attributes and current confidence
 
@@ -927,8 +991,8 @@ publish only their declared complete sets, admission/evaluation refusal publishe
 post-dispatch Runtime refusal rolls back the current Event and publishes only terminal audit, and
 post-commit delivery recovery covers all three published outcomes without evaluator rerun.
 
-The human product/architecture gate on #540 must accept, condition, or reopen this path before #590,
-#585, or #541–#545 proceeds.
+PRD #534 and its linked issues own live acceptance and sequencing for follow-on product-feedback
+and implementation work.
 
 ### 12.6 Sealed orthogonal LDB dogfooding
 
@@ -1048,7 +1112,8 @@ ordering/deduplication, and explicit truncation before aggregation runs.
 Implement one production vertical slice through the public CLI and durable artifact path. It must
 close all 12 `Tracer` rows in the genre coverage matrix with Golden scenarios and normative vectors.
 Within this gate, product-feedback slices exercise the public Model/Experiment path before the proof
-infrastructure they expose is hardened. PRD #534 and its linked issues own the live slice sequence
+infrastructure they expose is hardened. These slices consume and challenge permanent artifacts but
+do not close a coverage row by themselves. PRD #534 and its linked issues own their live sequence
 and acceptance criteria; row closure remains governed by the matrix's closure rules.
 
 ### Gate 4 — full RPG coverage
@@ -1133,7 +1198,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Area | Detailed decision | Acceptance/evidence surface |
 | --- | --- | --- |
 | Authority domains and artifact ownership | [bADR-0012](badr/0012-language-and-artifact-authority-domains.md) | PRD #534 authority criteria |
-| Compiler stages, RIR, Debug Map, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB and independent-lowerer vectors |
+| Compiler stages, RIR, Debug Map, Model explanation, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB, Formula/explanation, and independent-lowerer vectors |
 | Deterministic atomic runtime and profiles | [bADR-0014](badr/0014-deterministic-atomic-event-runtime.md) | Runtime, refusal, Replay, and fault vectors |
 | Outcomes, refusals, diagnostics, terminal audit | [bADR-0015](badr/0015-invocation-outcomes-and-diagnostic-locations.md) | Diagnostic catalogs and publication vectors |
 | Closed core and package extension | [bADR-0016](badr/0016-closed-type-core-and-versioned-package-extensions.md) | Package and orthogonality vectors |

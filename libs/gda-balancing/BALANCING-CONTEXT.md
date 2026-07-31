@@ -193,16 +193,24 @@ not an authored authority or editable interchange format (bADR-0012/0013).
 _Avoid_: RIR semantic payload (unqualified), authored model, normalized source
 
 **Debug Map**:
-A separately content-addressed, non-semantic artifact that binds one exact RIR semantic-payload
-identity to source
-spans, AST/HIR identities, lowering traces, and diagnostic provenance. It may change without
-changing an equivalent RIR and cannot affect compilation or runtime behavior (bADR-0013/0022).
+A mandatory, separately content-addressed, non-semantic artifact published with every successful
+Model build. It binds one exact RIR semantic-payload identity to source spans, AST/HIR identities,
+lowering traces, and diagnostic provenance. It may change without changing an equivalent RIR and
+cannot affect compilation or runtime behavior (bADR-0013/0022).
 _Avoid_: RIR metadata, semantic provenance, embedded source map
+
+**Model explanation**:
+A mandatory, separately identified, non-semantic JSON companion published with every successful
+Model build and bound to one exact Model Source, RIR semantic payload, and Debug Map. Its closed
+Formula and Operation sections make the resolved model inspectable without becoming executable
+authority or an editable substitute for Model Source (bADR-0013/0021/0022).
+_Avoid_: decompiled model, executable explanation, generated source
 
 **Build receipt**:
 A separately identified, non-semantic provenance artifact binding the Model Source Package,
 Schema-major Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model,
-compiler/tool identity, Resolution receipt, optional Debug Map, and publication facts for one build.
+compiler/tool identity, Resolution receipt, Debug Map, Model explanation, and publication facts for
+one build.
 Compiler and resolver implementation identities belong in provenance receipts and never
 participate in RIR or Resolved Model content identity, so independent conforming tools can produce
 the same semantic artifacts (bADR-0013).
@@ -339,6 +347,47 @@ or `rate` composed separately. A role constrains ownership and lifecycle; it nev
 numeric type. Domain roles are versioned package terms and never infer representation, nominal kind,
 unit/dimension, support, or Numeric policy; `rate` does not define its own denominator (bADR-0016).
 _Avoid_: attribute type, variable kind (ambiguous), numeric subtype
+
+**Formula declaration**:
+A module-level, Model Source-owned named pure computation with explicitly typed parameters, one
+result contract, and a structured expression body. It is statically resolved rather than passed,
+stored, or selected as a Runtime value, and never owns Event control, state transition, RNG,
+gameplay outcome, or commit/rollback behavior (bADR-0022).
+_Avoid_: formula script, anonymous callback, first-class function, Event program
+
+**Formula binding**:
+The exact, statically resolved association between a Model Source Formula declaration and a typed
+formula call site used by a `derived` Symbol or an Operation Formula slot. It fixes the selected
+formula and a total named parameter-to-actual-operand mapping before Runtime, and carries the
+LDB-derived transitive refusal/resource/termination contract for the complete reachable Formula and
+pure-Operation call graph. It cannot depend on parameter order, same-name capture, dynamic formula
+lookup, or host callback semantics (bADR-0013/0022).
+_Avoid_: function pointer, runtime formula selection, evaluator hook
+
+**Formula slot**:
+A named, exactly-one customization point in an Operation specification with an explicit Formula
+signature, evaluation context, permitted refusal set, and deterministic resource budget. A selected
+Operation requires exactly one compatible Model Source Formula binding for each declared slot; each
+binding's complete transitive contract must fit its owning slot, and neither the package nor
+evaluator supplies a fallback (bADR-0022).
+_Avoid_: optional callback, formula hook, package default
+
+**Formula evaluation site**:
+One statically resolved read or call of a Formula binding with a stable identity, explicit operand
+sources, one lifecycle context, and its complete transitive refusal/resource contract. Every
+dynamic evaluation, including a cache hit, replays the site's deterministic charge vector against
+the current Runtime resource ledger; a cache can reuse the pure result but never skip accounting or
+cache resource exhaustion independently of that ledger. Multiple sites may reference one Formula
+declaration; a `derived` Symbol read from different lifecycle contexts lowers to distinct sites
+rather than one ambient evaluation mode (bADR-0022).
+_Avoid_: dynamic call, formula invocation hook, implicit read context
+
+**Formula evaluation context**:
+The exact lifecycle boundary and typed value environment in which a Formula binding is evaluated.
+Initialization, Event, observation, and Effect capture/re-evaluation contexts select committed
+Snapshots or the pre-Snapshot Initialization frame plus explicit operands without giving the
+Formula ambient state or timing authority (bADR-0014/0017/0022).
+_Avoid_: formula mode, ambient evaluation environment, live formula
 
 **Core Extension Invariance**:
 The Standard Schema 2.0 promise that a later game genre can add Model Source, complete Domain
@@ -965,7 +1014,7 @@ _Avoid_: event handler (implementation term), tick mutation, transaction batch
 The invocation-level atomic boundary that makes one immutable receipt and every artifact it
 identifies visible together, or none visible. It is distinct from Event-transaction atomicity and
 from any filesystem, object-store, or transport implementation; stdout/stderr delivery is ordered
-after commit and is not a participant. A runtime refusal after dispatch begins must publish a
+after commit and is not a participant. A runtime refusal after Event dispatch begins must publish a
 separately typed terminal-audit artifact set through this boundary, but never a partial
 Evaluation/Metric/Evidence success set (bADR-0015/0021).
 _Avoid_: atomic file write, output directory, event transaction
@@ -978,24 +1027,32 @@ member names or boundaries and is non-conforming. Publication receipts and retri
 complete manifest and every member (bADR-0012/0015/0018).
 _Avoid_: file list, concatenated checksum, output directory manifest
 
+**Initialization frame**:
+The immutable pre-Snapshot value environment assembled from the exact Experiment inputs, constants,
+parameters, and declared initial base state after Runtime admission. Initialization Formula sites
+read this frame to derive and validate Snapshot 0. It is discarded on refusal and never
+misidentified as a committed Snapshot, Event, or terminal-audit member (bADR-0014/0022).
+_Avoid_: initial Snapshot, initialization Event, mutable setup state
+
 **Snapshot boundary**:
-The semantic state boundary before the first event and after every committed Event transaction.
-The full state exists conceptually at each boundary; traces may store a canonical state hash and
-materialize full state only at declared checkpoints without changing semantics (bADR-0014).
+The semantic state boundary committed after successful initialization and after every committed
+Event transaction. The pre-Snapshot Initialization frame is not a Snapshot. The full state exists
+conceptually at each boundary; traces may store a canonical state hash and materialize full state
+only at declared checkpoints without changing semantics (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
 **Runtime refusal**:
 The deterministic terminal result when execution cannot legally continue after successful static
-validation — for example an event targets a past phase, an event budget is exhausted, or a runtime
-operation violates its declared domain. The current Event transaction is rolled back, its children
-are discarded, prior commits remain represented by the terminal audit, and the run stops
-(bADR-0014). It is a `runtime`-stage typed refusal: exit 2 on stdout. Once runtime dispatch begins,
-it must carry a
-receipt for one complete, separately typed terminal-audit artifact set that committed atomically
-and is retrievable and verifiable. A Resolved Runtime profile admission refusal before dispatch
-carries no terminal audit. Failure to publish the required set before commit is an `internal`
-command outcome, not a Runtime-refusal envelope with a fake receipt; failure after commit leaves the
-set recoverable by its durable invocation identity (bADR-0015/0021).
+validation — for example initialization cannot lawfully create Snapshot 0, an Event targets a past
+phase, an Event budget is exhausted, or a Runtime Operation violates its declared domain. A refusal
+during atomic initialization discards the Initialization frame and publishes no Snapshot, Event,
+trace, or terminal audit. After Event dispatch begins, the current Event transaction is rolled
+back, its children are discarded, prior commits remain represented by one complete, atomically
+committed terminal-audit artifact set, and the run stops (bADR-0014). Both are `runtime`-stage typed
+refusals with exit 2 on stdout; only the post-dispatch variant carries the retrievable terminal-audit
+receipt. Failure to publish a required post-dispatch set before commit is an `internal` command
+outcome, while failure after commit leaves the set recoverable by its durable invocation identity
+(bADR-0015/0021).
 _Avoid_: crash, validation refusal, skipped event
 
 **Named random stream**:

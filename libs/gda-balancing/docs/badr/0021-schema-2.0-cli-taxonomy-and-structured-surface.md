@@ -14,6 +14,16 @@ The descriptor, structured-output, atomic-write, and noun-group principles remai
 #534 therefore replaces the 1.x nouns while making the previously deferred aggregate manifest and
 structured-params adapter part of the first vertical tracer.
 
+> **Amendment (2026-07-31, #590):** bADR-0014/0015 now distinguish initialization refusal before
+> Event dispatch from post-dispatch Runtime refusal. A Command descriptor exposes both reachable
+> variants: the initialization variant has no Snapshot/Event/trace/success artifact or
+> `terminal_audit`, while the post-dispatch variant requires the exact terminal-audit receipt.
+> Under bADR-0013, every successful `model build` publishes a Model explanation in its complete
+> build-companion set. This record owns only the CLI projection: `model inspect` retrieves that
+> stored companion, may render deterministic indented JSON without changing stored canonical bytes,
+> and never regenerates, edits, or executes it. bADR-0022 owns the explanation's Formula and
+> Operation contents.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use
@@ -218,6 +228,9 @@ structured-params adapter part of the first vertical tracer.
 - Inject runtime refusal after committed events and assert exactly one complete terminal-audit set
   is retrievable while no success artifact member or success-set receipt is visible. Repeat with
   concurrent readers and crash-recovery fixtures under each standardized store adapter.
+- Inject initialization refusal before Snapshot 0 and assert the same descriptor emits stage
+  `runtime` without a `terminal_audit` field or any Event/Snapshot/trace/success artifact. The
+  post-dispatch Runtime variant must still require its exact terminal-audit receipt.
 - Fail publication before commit and assert `internal_error`, exit 4, and no visible set. Fail or
   crash after commit but before/during stdout delivery and assert the set remains retrievable by its
   caller-known Invocation key and retry of the original command re-emits the recorded envelope
@@ -230,6 +243,7 @@ structured-params adapter part of the first vertical tracer.
 - bADR-0007/0009/0011 — 1.x taxonomy, structured I/O, and descriptor contracts superseded for the
   2.x surface only.
 - bADR-0012 — authored authority domains.
+- bADR-0013 — compiler stages and mandatory build companions.
 - bADR-0015 — invocation outcomes and diagnostic locations.
 - bADR-0018 — metrics/evidence ownership.
 - bADR-0019 — clean break and limited migration.

@@ -7,7 +7,8 @@ acceptance criteria, and live completion status. These documents do not by thems
 language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
 #592 now supply the permanent authority, Model-build tracer, first minimal Template release,
 limited clean-forward source migration, sealed LDB graph, and bounded RPG loop described below.
-All broader delivery claims remain bounded by PRD #534 and the coverage matrix.
+All broader delivery claims and live sequencing remain bounded by PRD #534, its linked issues, and
+the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
@@ -121,9 +122,8 @@ collapsed or ignored.
 
 This slice confirms one configure/build/check/run/inspect/edit/rerun loop and one independent
 evaluator witness only. It closes no Genre coverage row or general evaluator-conformance claim. Its
-dogfooding observations and remaining product/architecture gate are recorded in
-[`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to the human
-product/architecture decision on #540.
+dogfooding observations are recorded in [`ARCHITECTURE.md`](../ARCHITECTURE.md); PRD #534 and its
+linked issues own live follow-on acceptance and sequencing.
 
 The sealed-package conformance suite also adds one non-RPG economy Event package after freezing the
 Kernel and host implementation. The package resolves into the selected Lock and RIR, then the fixed
@@ -228,25 +228,31 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
    [`genre-coverage.md` §Closure rules](genre-coverage.md#closure-rules); this evidence index does
    not duplicate either contract.
 
-PRD #534 remains open until a later implementation/specification PR supplies and validates:
+The architecture remains incomplete until permanent implementation/specification work supplies and
+validates:
 
 1. the closed Schema-major Kernel Specification, Language Definition Bundle bootstrap schema, and
    canonical bundle;
 2. exhaustive machine rules for grammar, resolution, types/effects, evaluation, runtime steps, and
    HIR-to-RIR lowering;
 3. RIR semantic normal form with a separately identified Debug Map and independent-lowerer vectors;
-4. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
+4. closed Formula declaration, evaluation-site/slot binding, mixed call-graph
+   refusal/resource/termination closure, Initialization-frame and Snapshot-context behavior, Debug
+   Map, and mandatory Model-explanation contracts, including exact build/inspect/publication
+   behavior;
+5. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
    content-identified Runtime profile definition, Resolved Runtime
    profile, Experiment, Metrics, Evaluation run, Replay comparison, Cross-evaluator comparison,
    Evidence, artifact-envelope, receipt, and publication schemas;
-5. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;
-6. descriptor-derived closed decoding/default/channel contracts and refusal-stage/code membership;
-7. executable fixture inputs with canonical outcomes/refusals for every required vector; and
-8. public-CLI closure of every `Tracer` row before broader RPG/Roguelike support claims.
+6. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;
+7. descriptor-derived closed decoding/default/channel contracts and refusal-stage/code membership;
+8. executable fixture inputs with canonical outcomes/refusals for every required vector; and
+9. public-CLI closure of every `Tracer` row before broader RPG/Roguelike support claims.
 
-Acceptance of the architecture PR and its bADRs authorizes that permanent Gate 2/3 work. The open
-#534 criteria are delivery and claim gates evaluated by the resulting artifacts and vectors; they
-are not circular prerequisites that must be complete before implementation starts.
+Acceptance of the architecture PR and its bADRs authorizes that permanent Gate 2/3 work. PRD #534
+and its linked issues remain the sole live authority for delivery and claim acceptance; their gates
+are evaluated by the resulting artifacts and vectors rather than acting as circular prerequisites
+that must be complete before implementation starts.
 
 Free-text operation descriptions, lists of node names, or vectors containing only expected prose do
 not satisfy those gates. They must not be presented as an executable or content-addressed bundle.

@@ -10,6 +10,11 @@ status: accepted
 > generalizes typed parameters and operations, and
 > [bADR-0022](0022-machine-readable-language-rules-and-formal-semantics.md) supersedes reference-host
 > evaluator authority. Closed data, explicit parameters, and bounded pure expressions are retained.
+>
+> **Amendment (2026-07-31, #590):** Standard Schema 2.x uses module-level named Formula
+> declarations, static exactly-one Operation-slot bindings, Typed HIR, and canonical RIR. It does
+> not preserve the 1.x named-form catalog or direct expression-tree representation as a second
+> authoring/evaluation authority, and it makes no 1.x Formula compatibility or migration promise.
 
 Attribute bases, effect magnitudes, and growth curves need formulas that are
 inspectable, mechanically validatable, and mutable by agents (PRD #501 US3, US8) — and

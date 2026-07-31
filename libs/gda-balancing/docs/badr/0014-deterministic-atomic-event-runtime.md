@@ -15,6 +15,15 @@ Standard Schema 2.x needs one deterministic state-transition model that is imple
 simple reference evaluator and optimizable by other evaluators without giving them observable
 scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
+> **Amendment (2026-07-31, #590):** Initialization is an atomic pre-Event phase over one immutable
+> Initialization frame assembled from admitted Experiment inputs, constants, parameters, and
+> declared initial base state. Formula sites read only that frame and explicit operands. Successful
+> initialization validates all initial values and atomically commits Snapshot 0; refusal or resource
+> exhaustion discards the frame and publishes no Snapshot, Event, trace, Evaluation, Metric, or
+> terminal audit. The original “Snapshot boundary exists initially” and broad Runtime-refusal
+> wording retained below therefore apply only after successful initialization and Event dispatch.
+> bADR-0022 separately owns Formula-result caching semantics and its conformance vector.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
@@ -290,9 +299,14 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.
+- Apply bADR-0022's Formula-cache conformance vector to the Runtime ledger and require its
+  cache-on/cache-off result, charge, and exhaustion observations to remain identical.
 - Inject a fault after an event has buffered writes, RNG draws, Signals, cancellations, and
   children; assert all are rolled back, prior commits remain, and exactly one retrievable
   terminal-audit artifact set becomes visible with no completed success artifact.
+- Trigger one initialization Formula refusal before Snapshot 0 commits. Assert a `runtime`-stage
+  refusal with exact Initialization-frame and Formula-site provenance, no Event/rollback claim, no
+  Snapshot/trace/terminal audit, and no completed Evaluation/Metric artifact.
 - Commit a resource reservation, then execute a later compensating interruption whose current
   Event exceeds a deterministic budget. Assert the prior reservation Snapshot and trace remain,
   only the current buffers are rolled back, and the terminal audit identifies the first refusing

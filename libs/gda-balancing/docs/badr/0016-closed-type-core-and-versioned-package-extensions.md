@@ -15,6 +15,15 @@ mechanics into universal primitives. At the same time, an “open extension map�
 would sacrifice static typing, deterministic execution, and cross-implementation meaning. PRD #534
 therefore requires a small closed type language and a constrained package extension contract.
 
+> **Amendment (2026-07-31, #590):** Operation specifications additionally close their declared
+> refusal sets. An Operation may expose zero or more named Formula slots with typed
+> parameter/result, evaluation-context, permitted-refusal, and resource-budget contracts; a
+> selected slot requires exactly one compatible Model Source binding under bADR-0022, with no
+> package, template, compiler, or evaluator fallback. Static checking, RIR projection, and Runtime
+> admission extend the original Operation-closure checks retained below with that exact selected
+> Formula closure and require it to fit the Operation's declarations and bounds. Template defaults
+> are ordinary Formula declarations and bindings materialized in editable starter Model Source.
+
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,
@@ -311,6 +320,13 @@ therefore requires a small closed type language and a constrained package extens
   over-supply, duplicate assignment, raw-Operation selection, and symbol renaming. Both independent
   consumers must derive the same call graph and identities or the same bounded refusal before
   execution.
+- Mutate a selected Operation's Formula-slot name, signature, evaluation context, or cardinality;
+  omit or duplicate one Model Source binding; bind an incompatible, effectful, cyclic, or
+  unreachable Formula; widen the transitive refusal set; exceed a declared resource-charge bound;
+  create a Formula → pure Operation → Formula cycle; and attempt a package/evaluator fallback.
+  Independent compilers must emit the same pre-HIR refusal, while a valid exact-one binding and its
+  complete closure must be explicit in HIR and RIR. Reidentify a widened or truncated RIR closure
+  and require Runtime admission refusal.
 - Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
   shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
   unknown, partially checked, or host-native value cannot cross either boundary.

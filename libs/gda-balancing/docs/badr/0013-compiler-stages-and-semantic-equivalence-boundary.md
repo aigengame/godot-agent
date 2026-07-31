@@ -14,6 +14,17 @@ Conversely, standardizing backend layouts and optimized kernels would expose eva
 as language law and prevent safe optimization. PRD #534 therefore requires a staged compiler and
 an explicit boundary for lowering equivalence.
 
+> **Amendment (2026-07-31, #590):** Formula authoring extends Typed HIR with explicit Formula
+> evaluation sites and total named parameter-to-actual-operand mappings. Missing, extra, duplicate,
+> or unknown arguments refuse before HIR; parameter order and same-name capture have no semantic
+> force. It also supersedes the optional Debug Map language retained below: every successful Model
+> build publishes one exact Debug Map and one separately identified, non-semantic Model explanation,
+> and its Build receipt binds both. bADR-0022 owns the explanation's closed Formula/Operation
+> projection and validation rules; bADR-0021 owns retrieval and presentation. Either companion's
+> generation, validation, or publication failure prevents the complete build-success artifact set
+> from committing, while post-commit recovery returns the same bytes without regeneration. Neither
+> companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
+
 ## Decision
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**
@@ -175,6 +186,12 @@ an explicit boundary for lowering equivalence.
 - Reidentify a coherent but wrong Operation table, Runtime-profile definition, Diagnostic catalog,
   reason mapping, or comparison-policy projection. Runtime admission must reject it against the
   exact admitted LDB rather than trusting internal consistency or the new identity.
+- Omit, mutate, or stale-bind the mandatory Debug Map or either closed Model explanation section.
+  Model build must refuse before publishing a successful artifact set; no partial Resolved Model,
+  Debug Map, Model explanation, manifest, or receipt may become visible.
+- Inject failure before and after the atomic build publication boundary. Pre-commit failure exposes
+  no successful member, while retry after a committed response-delivery failure recovers the same
+  Debug Map and Model explanation identities and bytes without regenerating either projection.
 - An evaluator that did not build the RIR must execute it using only the RIR and its exact public
   dependencies; deleting the Debug Map cannot change execution, Metrics, trace, or refusal behavior.
 

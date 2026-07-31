@@ -47,6 +47,19 @@ structured formal judgments, and an honest proof/conformance boundary.
   produces the corresponding new identities and compatible or breaking version as applicable.
   Admission-derived flat indexes are not a serialized or independently hashed language authority.
 
+- **Formula language content follows sealed Package responsibility.** The `standard.schema`
+  Package Release owns generic module-level Formula declaration/binding wire grammar, Model Source
+  schema and Authoring-AST definitions, typed evaluation-context and result-contract shapes, and
+  their applicable `parse` and structural `static` Diagnostics. The `standard.compiler` release
+  owns generic Formula name/call
+  resolution, total parameter-to-operand binding, mixed Formula/pure-Operation closure,
+  refusal/resource/termination judgments, HIR/RIR lowering, and their applicable semantic `static`
+  and `resolution` Diagnostics. Each release's normative Formula vectors live only in its bound
+  package-owned conformance-vector child. A mechanic release owns its concrete Formula-slot
+  signature, context, refusal/budget contract, and Operation integration; bADR-0017 owns the
+  mechanic-to-package assignment. No flat peer registry, reconstructed RPG umbrella, compiler
+  table, or host callback may duplicate those authorities.
+
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
   order, integers and any admitted numeric representation, optional/default members, artifact-kind
@@ -98,6 +111,87 @@ structured formal judgments, and an honest proof/conformance boundary.
   sampling/bias policy, trace representation, and positive/multi-draw/cross-stream/boundary vectors.
   The LDB Operation declares one exhaustive typed outcome algebra with a default outcome and an
   explicit commit/rollback policy for every alternative; an evaluator may not invent outcome ids.
+
+- **Model Source formulas enter Operations only through static typed bindings.** A Formula
+  declaration is a Model Source-owned pure expression with explicit named inputs and one annotated
+  result. An Operation specification may expose typed formula call sites while retaining ownership
+  of its control, effects, RNG, outcomes, and commit/rollback policy. For each call site, resolution
+  binds one exact Formula declaration and constructs one total named parameter-to-actual-operand
+  mapping. Every declared parameter binds exactly once; missing, extra, duplicate, or unknown
+  arguments refuse before Typed HIR, and parameter order, container iteration, and same-name capture
+  have no semantic force. Resolution validates every mapped operand and the result for type, kind,
+  unit, Numeric profile, and purity. Typed HIR and canonical RIR carry the binding identity, the
+  canonical parameter map, and the resolved contracts. Runtime dispatch evaluates only that
+  resolved binding with those explicit operands; it cannot perform dynamic formula lookup, invoke a
+  host callback, or reinterpret the Formula as a user-authored Event program.
+
+- **Formula declarations are module-level named language declarations, not first-class values.**
+  Each declaration has a stable source name, explicit typed parameters, one result contract, and a
+  structured pure-expression body. A `derived` Symbol or Operation formula call site selects it
+  through ordinary static name resolution. Formula-to-Formula calls form one statically resolved
+  acyclic dependency graph; recursion and dynamic selection are refused before HIR. Anonymous or
+  inline expressions may exist only as Authoring-AST sugar that resolution expands into the same
+  named Formula/binding model before Typed HIR. They create no alternative typing, identity,
+  evaluation, or explanation rules.
+
+- **Every declared Operation Formula slot has exactly-one binding.** An Operation may declare zero
+  or more named slots, each with one explicit Formula signature and evaluation context. Selecting
+  that Operation requires the Model Source to bind exactly one compatible Formula declaration to
+  every slot. Missing, duplicate, type, kind, unit, Numeric-profile, purity, or context-incompatible
+  bindings refuse before Typed HIR. A package-owned computation that is not a declared slot remains
+  part of the immutable Operation body and requires a new package release to change. A declared
+  slot has no optional cardinality, package Formula fallback, evaluator default, or host behavior;
+  templates express defaults only as ordinary starter Model Source declarations and bindings.
+
+- **Formula closure spans Formula and pure-Operation edges.** LDB rules derive one finite reachable
+  graph from each Formula evaluation site, including Formula-to-Formula calls, calls to pure
+  Operations, and every selected Operation-slot edge back to its bound Formula. The same judgment
+  derives the closed refusal set, deterministic resource-charge upper bound, and a decreasing
+  termination measure. A mixed Formula/Operation cycle, undeclared or widened refusal, or charge
+  exceeding the surrounding Formula slot/Operation/context budget refuses before Typed HIR. Typed
+  HIR and canonical RIR carry the exact closure; Runtime admission recomputes or
+  reverse-conformance-checks it against the selected LDB/package release before execution.
+
+- **Formula evaluation timing belongs to the evaluation-site context, never the Formula
+  declaration.**
+  Every Formula **evaluation site** fixes one Formula declaration binding, total typed
+  parameter-to-operand mapping, lifecycle boundary, and transitive contract. Its identity includes
+  the declaration, call-site identity, canonical parameter map, evaluation context, and complete
+  closure. A `derived` Symbol is a read-only computed Symbol, not a stored or
+  build-time-materialized value. Each read lowers to an explicit evaluation site; sites in
+  different lifecycle contexts remain distinct even when they reference one declaration.
+  Initialization reads the immutable pre-Snapshot Initialization frame built from admitted exact
+  Experiment inputs and declared initial base values. Successful initialization atomically commits
+  Snapshot 0; refusal before that commit follows bADR-0014/0015's pre-Event Runtime path with no
+  fabricated Event, Snapshot, rollback, or terminal audit. An Event site reads that Event's
+  committed pre-event Snapshot and cannot observe buffered writes. Observation reads the committed
+  Snapshot after the transition queue for that logical time is drained. Effect `snapshot` capture
+  evaluates once at its declared capture Event and retains the result; Effect `live` reevaluates at
+  each declared lifecycle Event against that Event's pre-event Snapshot. `live` never means
+  visibility of uncommitted writes.
+
+  Repeating the same evaluation-site identity with the same Initialization-frame or Snapshot
+  identity, canonical explicit operand values, and Numeric profile derives the same pure semantic
+  value or non-resource refusal and the same deterministic charge vector. Each dynamic evaluation,
+  including a cache hit, applies that charge vector to the current Runtime resource ledger before
+  returning the semantic result. Insufficient remaining budget produces resource exhaustion at that
+  exact evaluation boundary. A cache may reuse only the pure result under the complete semantic key;
+  it cannot cache the mutable ledger or a resource-exhaustion outcome independently of that ledger.
+  A different Snapshot identity is a distinct semantic evaluation even when an optimization reuses
+  a proven-equivalent internal result. Constant folding, caching, and inlining are non-semantic
+  optimizations and must preserve both result and charge observations.
+
+- **Model explanation preserves the expression/control/effect boundary.** Its closed
+  `formula_explanations` section projects each selected, reachable Formula declaration, evaluation
+  site/binding identity, context, total parameter-to-operand mapping, mixed call-graph dependency,
+  transitive refusal/resource contract, type, kind, unit, Numeric profile, expression node, and
+  result contract/type. Its
+  closed `operation_explanations` section projects selected, reachable control and
+  effect nodes, RNG streams/draws, guards, exhaustive outcomes, and commit/rollback policy, and
+  refers to Formula binding identities when an Operation calls one. The projection rules and schema
+  are generated from or reverse-conformance-checked against the exact LDB language content. Human
+  wording may explain those facts but cannot merge node families, add semantics, or replace the
+  RIR/Debug Map bindings required by bADR-0013.
 
 - **Domain operations are machine-defined compositions whenever possible.** An Operation
   specification may give semantics as a typed kernel AST plus declared effects/resource bounds.
@@ -298,6 +392,15 @@ structured formal judgments, and an honest proof/conformance boundary.
   purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
   Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
   a reidentified but semantically inconsistent RIR projection must fail runtime admission.
+- Create a Formula/pure-Operation mixed cycle, widen one derived refusal set, overflow one
+  Formula-slot resource budget, or truncate/reidentify the RIR Formula closure. Independent
+  consumers must issue the same pre-HIR or Runtime-admission refusal. Read one derived Symbol before
+  and after a state-changing Event and again during post-transition observation; same-site reads
+  under one Snapshot agree, while the same site/context is reevaluated under the distinct new
+  Snapshot identity.
+- Execute repeated reads at a budget boundary with Formula-result caching forced on and off. The
+  value/non-resource-refusal sequence, charge events, and exact resource-exhaustion site must be
+  identical; cached evaluation cannot skip, defer, or double-apply the derived charge vector.
 - Execute at least one expression, effect, and control node, including named draw and a typed
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone
@@ -324,11 +427,13 @@ structured formal judgments, and an honest proof/conformance boundary.
 ## References
 
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
+- Issue #590 — accepted Formula authoring and evaluation contract.
 - `docs/standard-schema-2.0/` — open specification gates and Genre coverage matrix.
 - bADR-0003/0005 — 1.x evaluator/self-description authority choices superseded for 2.x only.
 - bADR-0012 — layered machine and authored authority domains.
 - bADR-0013 — compiler stages and semantic equivalence boundary.
 - bADR-0014 — atomic event runtime.
 - bADR-0016 — type and Operation/package contracts.
+- bADR-0017 — mechanic-to-package ownership and Genre template contracts.
 - bADR-0020 — explicit external-standard mappings.
 - bADR-0021 — CLI projection and Command-descriptor surface.

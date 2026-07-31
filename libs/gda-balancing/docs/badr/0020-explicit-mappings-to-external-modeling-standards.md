@@ -57,7 +57,9 @@ dependencies or alternative specifications.
   instance follows the local Runtime lifecycle:
   - `instantiated`: exact RIR, Experiment Specification, Resolved Runtime profile, inputs, and seed
     are bound; no mutable state exists;
-  - `initializing`: initialization operations create and validate the first Snapshot boundary;
+  - `initializing`: initialization operations evaluate against one immutable pre-Snapshot
+    Initialization frame and atomically create and validate Snapshot 0; refusal discards the frame
+    before Event dispatch and cannot claim an Event, Snapshot, rollback, or terminal audit;
   - `event`: the bADR-0014 scheduler executes atomic events at the current logical time;
   - `step`: the scheduler advances to the next declared observation/logical boundary;
   - `terminated`: terminal trace, snapshot, metrics, and evidence identities are sealed;
