@@ -1048,6 +1048,25 @@ def _resolved_runtime_profile(
     )
 
 
+def _formula_snapshot_identity_domain(checked: CheckedExperiment) -> str:
+    profile_id = checked.value["runtime"]["profile"]
+    definition = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == profile_id
+    )
+    extensions = definition.get("extensions")
+    formula = (
+        extensions.get("standard.formula") if isinstance(extensions, dict) else None
+    )
+    domain = (
+        formula.get("snapshot_identity_domain") if isinstance(formula, dict) else None
+    )
+    if not isinstance(domain, str) or not domain:
+        raise ValueError("Runtime profile declares no Formula Snapshot identity domain")
+    return domain
+
+
 def _check_evaluator_requirements(
     checked: CheckedExperiment, evaluator: PublicationMember
 ) -> Schema2RefusalReport | None:
@@ -1301,6 +1320,52 @@ def _evaluate_value_program_vector(
     }
 
 
+def _evaluate_observation_lifecycle_vector(
+    vector: dict[str, Any],
+    snapshot_identity_domain: str,
+) -> dict[str, JsonValue]:
+    """Execute one package-owned post-transition observation lifecycle vector."""
+    inp = cast(dict[str, Any], vector["input"])
+    identities: list[str] = []
+    committed_prefix: list[dict[str, JsonValue]] = []
+    cache: set[bytes] = set()
+    post_state: list[dict[str, JsonValue]] = []
+    outcome = "admitted"
+    for transition_index, transition in enumerate(
+        cast(list[dict[str, Any]], inp["transitions"])
+    ):
+        event = cast(dict[str, JsonValue], transition["event"])
+        snapshot = cast(dict[str, JsonValue], transition["snapshot"])
+        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
+        identities.append(snapshot_identity)
+        committed_prefix.append(event)
+        post_state = cast(list[dict[str, JsonValue]], snapshot["values"])
+        cache.add(
+            canonical_bytes(
+                cast(
+                    JsonValue,
+                    {
+                        "evaluation_site_identity": inp["evaluation_site_identity"],
+                        "snapshot_identity": snapshot_identity,
+                    },
+                )
+            )
+        )
+        if transition_index == inp["refusal_transition_index"]:
+            outcome = "refused"
+            break
+    return cast(
+        dict[str, JsonValue],
+        {
+            "cache_entries": len(cache),
+            "committed_prefix": committed_prefix,
+            "outcome": outcome,
+            "post_state": post_state,
+            "snapshot_identities": identities,
+        },
+    )
+
+
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],
@@ -1494,6 +1559,7 @@ def evaluate_experiment(
     if capability_refusal is not None:
         return capability_refusal
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+    snapshot_identity_domain = _formula_snapshot_identity_domain(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
@@ -1899,7 +1965,7 @@ def evaluate_experiment(
         )
         events.append(event)
         snapshots.append(snapshot)
-        snapshot_identity = content_identity("runtime-snapshot-v2", snapshot)
+        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
         try:
             total_steps = _evaluate_initialization_programs(
                 checked,

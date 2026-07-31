@@ -722,6 +722,42 @@ def _reference_evaluate_value_program_vector(
     }
 
 
+def _reference_evaluate_observation_lifecycle_vector(
+    vector: dict[str, Any],
+    snapshot_identity_domain: str,
+) -> dict[str, Any]:
+    inp = vector["input"]
+    identities: list[str] = []
+    committed_prefix: list[dict[str, Any]] = []
+    cache: set[bytes] = set()
+    post_state: list[dict[str, Any]] = []
+    outcome = "admitted"
+    for transition_index, transition in enumerate(inp["transitions"]):
+        snapshot = transition["snapshot"]
+        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
+        identities.append(snapshot_identity)
+        committed_prefix.append(transition["event"])
+        post_state = snapshot["values"]
+        cache.add(
+            canonical_bytes(
+                {
+                    "evaluation_site_identity": inp["evaluation_site_identity"],
+                    "snapshot_identity": snapshot_identity,
+                }
+            )
+        )
+        if transition_index == inp["refusal_transition_index"]:
+            outcome = "refused"
+            break
+    return {
+        "cache_entries": len(cache),
+        "committed_prefix": committed_prefix,
+        "outcome": outcome,
+        "post_state": post_state,
+        "snapshot_identities": identities,
+    }
+
+
 def _experiment(
     *,
     kernel_identity: str,
@@ -1284,8 +1320,11 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     terminal_snapshots = [
         snapshot for snapshot in snapshots if snapshot["name"].endswith(":terminal")
     ]
+    snapshot_identity_domain = (
+        experiment_runtime_module._formula_snapshot_identity_domain(checked)
+    )
     assert observation_frames == [
-        content_identity("runtime-snapshot-v2", cast(Any, snapshot))
+        content_identity(snapshot_identity_domain, cast(Any, snapshot))
         for snapshot in terminal_snapshots
     ]
     assert len(set(observation_frames)) == 2
@@ -2566,13 +2605,45 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.accept.initialization-and-event-frames",
         "formula.runtime.refuse.initialization-atomically",
         "formula.runtime.boundary.cache-charge-invariant",
+    }
+    for vector in vectors:
+        production = experiment_runtime_module._evaluate_value_program_vector(vector)
+        reference = _reference_evaluate_value_program_vector(vector)
+        assert production == reference == vector["expect"]
+
+
+def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
+    _kernel, ldb = authority_module.load_authorities()
+    runtime_profile = next(
+        row
+        for row in ldb["language"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    snapshot_identity_domain = runtime_profile["extensions"]["standard.formula"][
+        "snapshot_identity_domain"
+    ]
+    vectors = [
+        vector
+        for vector in next(
+            vector_set["vector_definitions"]
+            for vector_set in ldb.package_conformance_vector_sets
+            if vector_set["package_id"] == "standard.runtime"
+            and vector_set["package_version"] == "1.1.0"
+        )
+        if vector.get("kind") == "observation-lifecycle"
+    ]
+    assert {vector["id"] for vector in vectors} == {
         "formula.runtime.observation.positive.post-transition-snapshot",
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
     }
     for vector in vectors:
-        production = experiment_runtime_module._evaluate_value_program_vector(vector)
-        reference = _reference_evaluate_value_program_vector(vector)
+        production = experiment_runtime_module._evaluate_observation_lifecycle_vector(
+            vector, snapshot_identity_domain
+        )
+        reference = _reference_evaluate_observation_lifecycle_vector(
+            vector, snapshot_identity_domain
+        )
         assert production == reference == vector["expect"]
 
 

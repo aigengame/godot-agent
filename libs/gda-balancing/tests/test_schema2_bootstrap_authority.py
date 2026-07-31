@@ -86,6 +86,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "basis": "specialized-operation-instruction-closure",
             "cache_hit": "same-as-evaluation",
         },
+        "snapshot_identity_domain": "runtime-snapshot-v2",
     }
     expected_vector_ids = {
         "standard.schema": {
@@ -116,6 +117,15 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         assert expected <= {
             vector["id"] for vector in vector_sets[package_id]["vector_definitions"]
         }
+    runtime_vectors = {
+        vector["id"]: vector
+        for vector in vector_sets["standard.runtime"]["vector_definitions"]
+    }
+    assert {
+        runtime_vectors[vector_id]["kind"]
+        for vector_id in expected_vector_ids["standard.runtime"]
+        if ".observation." in vector_id
+    } == {"observation-lifecycle"}
 
 
 @pytest.mark.parametrize(
@@ -527,7 +537,14 @@ def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch)
 
 @pytest.mark.parametrize(
     "mutation",
-    ("contract-expectation", "runtime-operation", "unknown-kind"),
+    (
+        "contract-expectation",
+        "runtime-operation",
+        "unknown-kind",
+        "lifecycle-snapshot-identity",
+        "lifecycle-committed-prefix",
+        "lifecycle-authority-domain",
+    ),
 )
 def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers(
     mutation,
@@ -542,7 +559,7 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         )
         vector = _owned_vector(ldb, "game.resource.spend.effects")
         vector["expect"] = ["event.commit"]
-    else:
+    elif mutation in {"runtime-operation", "unknown-kind"}:
         package = next(
             item for item in ldb["language"]["packages"] if item["id"] == "game.combat"
         )
@@ -551,6 +568,28 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
             vector["operation"] = "game.combat.damage-v1"
         else:
             vector["kind"] = "host-runtime-scenario"
+    else:
+        package = next(
+            item
+            for item in ldb["language"]["packages"]
+            if item["id"] == "standard.runtime"
+        )
+        vector = _owned_vector(ldb, "formula.runtime.observation.refusal.atomic-prefix")
+        if mutation == "lifecycle-snapshot-identity":
+            vector["expect"]["snapshot_identities"][0] = "sha256:" + "0" * 64
+        elif mutation == "lifecycle-committed-prefix":
+            vector["expect"]["committed_prefix"].pop()
+        else:
+            runtime_profile = next(
+                definition
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] == "language.runtime_profiles"
+                for definition in entry["definitions"]
+                if definition["id"] == "standard.exact-int64-event-v1"
+            )
+            runtime_profile["extensions"]["standard.formula"].pop(
+                "snapshot_identity_domain"
+            )
     _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 

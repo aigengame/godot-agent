@@ -3770,7 +3770,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     operands = {
         name: {
             **(body := {"kind": "parameter", "parameter": name}),
-            "identity": content_identity(actual_operand_domain, body),
+            "identity": content_identity(actual_operand_domain, cast(JsonValue, body)),
         }
         for name in ("condition", "when-false", "when-true")
     }
@@ -3793,7 +3793,9 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
         "nodes": [node],
         "result": {
             **result_body,
-            "identity": content_identity(actual_operand_domain, result_body),
+            "identity": content_identity(
+                actual_operand_domain, cast(JsonValue, result_body)
+            ),
         },
     }
     formula["identity"] = content_identity(

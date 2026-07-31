@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
+  "content_identity": "sha256:bc678459acd14325711de9d6fddaff45fbc30ee7c9c31b95baf011b5576178f4",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3729,6 +3729,50 @@
             "kind",
             "operation",
             "probe"
+          ]
+        },
+        {
+          "event_members": [
+            "index",
+            "operation",
+            "outcome"
+          ],
+          "expect_members": [
+            "cache_entries",
+            "committed_prefix",
+            "outcome",
+            "post_state",
+            "snapshot_identities"
+          ],
+          "id": "observation-lifecycle",
+          "input_members": [
+            "evaluation_site_identity",
+            "refusal_transition_index",
+            "transitions"
+          ],
+          "outcome_members": [
+            "id",
+            "kind"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind"
+          ],
+          "snapshot_members": [
+            "index",
+            "name",
+            "values"
+          ],
+          "state_value_members": [
+            "name",
+            "value"
+          ],
+          "transition_members": [
+            "event",
+            "snapshot"
           ]
         },
         {

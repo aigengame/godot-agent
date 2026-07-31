@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98"
+    "sha256:bc678459acd14325711de9d6fddaff45fbc30ee7c9c31b95baf011b5576178f4"
 )
 
 
@@ -434,6 +434,17 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "probe_members",
         "required_members",
     },
+    "observation-lifecycle": {
+        "event_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "outcome_members",
+        "required_members",
+        "snapshot_members",
+        "state_value_members",
+        "transition_members",
+    },
     "runtime-scenario": {
         "expect_members",
         "id",
@@ -501,6 +512,13 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "operation",
             "probe",
         },
+        "observation-lifecycle": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
         "runtime-scenario": {
             "category",
             "expect",
@@ -525,6 +543,29 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
     return (
         kinds["package-contract"].get("probe_members") == ["path"]
         and kinds["operation-contract"].get("probe_members") == ["path"]
+        and kinds["observation-lifecycle"].get("input_members")
+        == [
+            "evaluation_site_identity",
+            "refusal_transition_index",
+            "transitions",
+        ]
+        and kinds["observation-lifecycle"].get("expect_members")
+        == [
+            "cache_entries",
+            "committed_prefix",
+            "outcome",
+            "post_state",
+            "snapshot_identities",
+        ]
+        and kinds["observation-lifecycle"].get("transition_members")
+        == ["event", "snapshot"]
+        and kinds["observation-lifecycle"].get("event_members")
+        == ["index", "operation", "outcome"]
+        and kinds["observation-lifecycle"].get("outcome_members") == ["id", "kind"]
+        and kinds["observation-lifecycle"].get("snapshot_members")
+        == ["index", "name", "values"]
+        and kinds["observation-lifecycle"].get("state_value_members")
+        == ["name", "value"]
         and kinds["runtime-scenario"].get("input_members")
         == ["seed", "state_names", "values"]
         and kinds["runtime-scenario"].get("expect_members")
@@ -615,6 +656,121 @@ def _consumer_b_value_program_instruction_is_closed(
         isinstance(value, str) and bool(value)
         for value in (instruction.get(field) for field in fields)
     )
+
+
+def _consumer_b_formula_snapshot_identity_domain(
+    package: dict[str, Any],
+) -> str | None:
+    formulas = [
+        formula
+        for entry in package.get("semantic_closure", [])
+        if isinstance(entry, dict)
+        and entry.get("authority_path") == "language.runtime_profiles"
+        for profile in entry.get("definitions", [])
+        if isinstance(profile, dict)
+        and isinstance((extensions := profile.get("extensions")), dict)
+        and isinstance((formula := extensions.get("standard.formula")), dict)
+    ]
+    domain = formulas[0].get("snapshot_identity_domain") if len(formulas) == 1 else None
+    return domain if isinstance(domain, str) and domain else None
+
+
+def _consumer_b_observation_lifecycle_projection(
+    vector: dict[str, Any],
+    kind: dict[str, Any],
+    snapshot_identity_domain: str,
+) -> dict[str, Any] | None:
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    if (
+        not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(inp.get("evaluation_site_identity"), str)
+        or not inp["evaluation_site_identity"]
+        or not isinstance(inp.get("transitions"), list)
+        or not inp["transitions"]
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+    ):
+        return None
+    refusal_index = inp.get("refusal_transition_index")
+    if refusal_index is not None and (
+        not isinstance(refusal_index, int)
+        or isinstance(refusal_index, bool)
+        or not 0 <= refusal_index < len(inp["transitions"])
+    ):
+        return None
+    if (vector.get("category") == "refusal") != (refusal_index is not None):
+        return None
+    if vector.get("category") not in {"positive", "boundary", "refusal"}:
+        return None
+    if vector.get("category") == "boundary" and len(inp["transitions"]) < 2:
+        return None
+    identities: list[str] = []
+    committed_prefix: list[dict[str, Any]] = []
+    cache: set[bytes] = set()
+    post_state: list[dict[str, Any]] = []
+    outcome = "admitted"
+    for transition_index, transition in enumerate(inp["transitions"]):
+        if not isinstance(transition, dict) or set(transition) != set(
+            kind["transition_members"]
+        ):
+            return None
+        event = transition.get("event")
+        snapshot = transition.get("snapshot")
+        if (
+            not isinstance(event, dict)
+            or set(event) != set(kind["event_members"])
+            or event.get("index") != transition_index
+            or not isinstance(event.get("operation"), str)
+            or not event["operation"]
+            or not isinstance(event.get("outcome"), dict)
+            or set(event["outcome"]) != set(kind["outcome_members"])
+            or not isinstance(event["outcome"].get("id"), str)
+            or not event["outcome"]["id"]
+            or event["outcome"].get("kind") not in {"success", "gameplay-alternative"}
+            or not isinstance(snapshot, dict)
+            or set(snapshot) != set(kind["snapshot_members"])
+            or snapshot.get("index") != transition_index
+            or not isinstance(snapshot.get("name"), str)
+            or not snapshot["name"]
+            or not isinstance(snapshot.get("values"), list)
+            or not snapshot["values"]
+        ):
+            return None
+        values = snapshot["values"]
+        if not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and isinstance(row.get("name"), str)
+            and bool(row["name"])
+            and _consumer_b_signed_int64(row.get("value"))
+            for row in values
+        ) or [row["name"] for row in values] != sorted({row["name"] for row in values}):
+            return None
+        snapshot_identity = _identity(snapshot_identity_domain, snapshot)
+        identities.append(snapshot_identity)
+        committed_prefix.append(event)
+        post_state = values
+        cache.add(
+            _encoded(
+                {
+                    "evaluation_site_identity": inp["evaluation_site_identity"],
+                    "snapshot_identity": snapshot_identity,
+                }
+            )
+        )
+        if transition_index == refusal_index:
+            outcome = "refused"
+            break
+    projection = {
+        "cache_entries": len(cache),
+        "committed_prefix": committed_prefix,
+        "outcome": outcome,
+        "post_state": post_state,
+        "snapshot_identities": identities,
+    }
+    return projection if _consumer_b_canonical_equal(projection, expect) else None
 
 
 def _consumer_b_package_vector_set_is_closed(
@@ -821,6 +977,18 @@ def _consumer_b_package_evidence_vectors_are_closed(
                         and expect["result_artifact"] is False
                     )
                 )
+            ):
+                return False
+            continue
+        if kind_id == "observation-lifecycle":
+            snapshot_identity_domain = _consumer_b_formula_snapshot_identity_domain(
+                package
+            )
+            if snapshot_identity_domain is None or (
+                _consumer_b_observation_lifecycle_projection(
+                    vector, kind, snapshot_identity_domain
+                )
+                is None
             ):
                 return False
             continue
