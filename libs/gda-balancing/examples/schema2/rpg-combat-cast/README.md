@@ -120,9 +120,10 @@ The Model Source owns these definitions; it does not contain a scenario, seed, M
 runtime result.
 
 The Formula bodies are structured expression graphs rather than infix strings or host scripts.
-`effective-accuracy` calls the pure `quantity.identity` Operation and binds its result to the
-`effective_accuracy` derived Symbol in the immutable Initialization frame. `mitigated-damage`
-calls `quantity.subtract` and `quantity.floor-zero`, then binds exactly once to the
+`effective-accuracy` calls the pure `quantity.maximum` Operation to enforce a minimum accuracy of
+one, then binds that result to the `effective_accuracy` derived Symbol in the immutable
+Initialization frame. `mitigated-damage` calls `quantity.subtract` and `quantity.floor-zero`, then
+binds exactly once to the
 `game.combat.damage-v1` Operation's `damage-policy` slot for Event evaluation. Formula calls may
 only reach statically resolved pure Formulas and pure Operations; the compiler closes their
 refusal, resource-charge, and termination contracts before Typed HIR.
@@ -132,6 +133,11 @@ only the pre-Snapshot frame and must all succeed before Snapshot 0 commits. Even
 read the committed pre-event Snapshot and cannot observe buffered writes. An implementation may
 cache a pure result, but a cache hit applies the same charge as an uncached evaluation, so caching
 cannot move the resource-exhaustion boundary.
+
+Formula arguments bind by explicit parameter or Operation-port name, never by list position. If
+two operands have the same admitted contract, swapping their named bindings is therefore a valid
+semantic edit rather than a type error; the binding, Formula, RIR, and downstream identities make
+that edit observable.
 
 The Model Source also owns the `combat.cast` entrypoint. `game.combat.cast-v1` is the reusable LDB
 Operation and therefore owns formal ports such as `hit_defense` and `damage_mitigation`. The

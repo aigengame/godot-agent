@@ -121,7 +121,11 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
                     "stage",
                     "diagnostics",
                     "truncated",
-                    *sorted(details),
+                    *sorted(
+                        detail.field_name
+                        for detail in descriptor.refusal_details
+                        if detail.stage == stage and detail.required
+                    ),
                 ],
                 "unevaluatedProperties": False,
             }
@@ -267,6 +271,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         {
             "stage": detail.stage,
             "field_name": detail.field_name,
+            "required": detail.required,
             "schema": _schema_document(
                 (
                     f"{descriptor.group or 'meta'}.{descriptor.command}.error."

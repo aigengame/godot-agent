@@ -118,6 +118,7 @@ class RefusalDetailSpec:
     stage: Literal["migration", "runtime"]
     field_name: Literal["migration_report", "terminal_audit"]
     schema: Callable[[], dict[str, object]]
+    required: bool = True
 
     def __post_init__(self) -> None:
         if (self.stage, self.field_name) not in {

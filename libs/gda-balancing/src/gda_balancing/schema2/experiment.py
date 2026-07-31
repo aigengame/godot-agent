@@ -57,6 +57,18 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "state-write",
     }
 )
+_VALUE_RUNTIME_OPERATORS = frozenset(
+    {
+        "copy-value",
+        "integer-add",
+        "integer-compare",
+        "integer-literal",
+        "integer-maximum",
+        "integer-multiply",
+        "integer-subtract",
+        "select-value",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -1158,28 +1170,42 @@ def _scenario_state(
 
 def _execute_value_instruction(
     instruction: dict[str, Any],
-    variables: dict[str, int],
+    variables: dict[str, Any],
     numeric: dict[str, Any],
+    node_contract: dict[str, Any],
 ) -> None:
-    """Execute one already-admitted generic value instruction."""
-    node = cast(str, instruction["node"])
-    if node == "constant":
+    """Execute one value instruction through its Kernel-owned operator law."""
+    semantics = cast(dict[str, Any], node_contract["semantics"])
+    operator = cast(str, semantics["operator"])
+    if operator == "integer-literal":
         value = cast(int, instruction["literal"])
-    elif node == "copy":
+    elif operator == "copy-value":
         value = variables[cast(str, instruction["value"])]
-    elif node in {"add", "subtract", "multiply", "maximum"}:
+    elif operator in {
+        "integer-add",
+        "integer-subtract",
+        "integer-multiply",
+        "integer-maximum",
+    }:
         left = variables[cast(str, instruction["left"])]
         right = variables[cast(str, instruction["right"])]
         value = (
             left + right
-            if node == "add"
+            if operator == "integer-add"
             else left - right
-            if node == "subtract"
+            if operator == "integer-subtract"
             else left * right
-            if node == "multiply"
+            if operator == "integer-multiply"
             else max(left, right)
         )
-    elif node == "if":
+    elif operator == "integer-compare":
+        variables[cast(str, instruction["target"])] = _integer_compare(
+            cast(str, semantics["comparison"]),
+            variables[cast(str, instruction["left"])],
+            variables[cast(str, instruction["right"])],
+        )
+        return
+    elif operator == "select-value":
         value = variables[
             cast(
                 str,
@@ -1191,7 +1217,7 @@ def _execute_value_instruction(
             )
         ]
     else:
-        raise ValueError("initialization program contains a non-value instruction")
+        raise ValueError(f"Kernel operator is not a value instruction: {operator}")
     variables[cast(str, instruction["target"])] = _admit_numeric(value, numeric)
 
 
@@ -1207,6 +1233,15 @@ def _evaluate_value_program_vector(
         for row in cast(list[dict[str, Any]], inp["operands"])
     }
     cache: dict[bytes, int] = {}
+    runtime_nodes = {
+        cast(str, row["id"]): row
+        for row in cast(
+            list[dict[str, Any]],
+            packaged_authority_context().kernel["meta_format"]["runtime_program"][
+                "nodes"
+            ],
+        )
+    }
     charge = 0
     result_value: int | None = None
     signal: str | None = None
@@ -1242,6 +1277,7 @@ def _evaluate_value_program_vector(
                     cast(dict[str, Any], row["instruction"]),
                     values,
                     numeric,
+                    runtime_nodes[cast(str, row["instruction"]["node"])],
                 )
             except OverflowError:
                 signal = "numeric-overflow"
@@ -1285,6 +1321,7 @@ def _evaluate_initialization_programs(
         canonical_bytes(cast(JsonValue, program["target"])) for program in programs
     }
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
+    runtime_nodes = _runtime_nodes(checked)
     frame_identity = content_identity(
         "initialization-frame-v2",
         cast(
@@ -1362,6 +1399,7 @@ def _evaluate_initialization_programs(
                             cast(dict[str, Any], row["instruction"]),
                             variables,
                             numeric,
+                            runtime_nodes[cast(str, row["instruction"]["node"])],
                         )
                     except OverflowError as error:
                         raise _InitializationProgramFault(
@@ -1705,30 +1743,13 @@ def evaluate_experiment(
                             "value": value,
                         }
                     )
-                elif operator == "integer-literal":
-                    variables[instruction["target"]] = instruction["literal"]
-                elif operator == "copy-value":
-                    variables[instruction["target"]] = variables[instruction["value"]]
-                elif operator in {
-                    "integer-add",
-                    "integer-subtract",
-                    "integer-multiply",
-                    "integer-maximum",
-                }:
-                    left = variables[instruction["left"]]
-                    right = variables[instruction["right"]]
-                    result = (
-                        left + right
-                        if operator == "integer-add"
-                        else left - right
-                        if operator == "integer-subtract"
-                        else left * right
-                        if operator == "integer-multiply"
-                        else max(left, right)
-                    )
+                elif operator in _VALUE_RUNTIME_OPERATORS:
                     try:
-                        variables[instruction["target"]] = _admit_numeric(
-                            result, numeric
+                        _execute_value_instruction(
+                            instruction,
+                            variables,
+                            numeric,
+                            node_contract,
                         )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
@@ -1738,20 +1759,6 @@ def evaluate_experiment(
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
                         ) from error
-                elif operator == "integer-compare":
-                    variables[instruction["target"]] = _integer_compare(
-                        semantics["comparison"],
-                        variables[instruction["left"]],
-                        variables[instruction["right"]],
-                    )
-                elif operator == "select-value":
-                    variables[instruction["target"]] = variables[
-                        instruction[
-                            "when_true"
-                            if variables[instruction["condition"]]
-                            else "when_false"
-                        ]
-                    ]
                 elif operator in {"state-integer-subtract", "state-write"}:
                     formal = instruction["symbol"]
                     actual = state_references[formal]

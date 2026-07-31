@@ -1092,6 +1092,109 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     )
 
 
+def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    lower = -(1 << 63)
+    upper = (1 << 63) - 1
+    for symbol_name in ("accuracy", "effective_accuracy"):
+        symbol = next(
+            row
+            for row in source_value["modules"][0]["symbols"]
+            if row["symbol"] == symbol_name
+        )
+        symbol["domain"] = {"minimum": lower, "maximum": upper}
+    formula = next(
+        row
+        for row in source_value["modules"][0]["formulas"]
+        if row["id"] == "effective-accuracy"
+    )
+    formula["parameters"][0]["domain"] = {"minimum": lower, "maximum": upper}
+    formula["result"]["domain"] = {"minimum": lower, "maximum": upper}
+    formula["body"] = {
+        "nodes": [
+            {
+                "id": "underflow",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.subtract",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {"kind": "parameter", "parameter": "base"},
+                    },
+                    {
+                        "port": "right",
+                        "operand": {"kind": "literal", "value": 1},
+                    },
+                ],
+                "result": deepcopy(formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "underflow"},
+    }
+    source = tmp_path / "initialization-overflow-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "initialization-overflow-model"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    accuracy = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "accuracy"
+    )
+    accuracy["value"] = lower
+    specification_path = tmp_path / "initialization-overflow-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    out = tmp_path / "initialization-overflow-output.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert error["diagnostics"][0]["code"] == "runtime.numeric_overflow"
+    assert error["diagnostics"][0]["primary"]["pointer"] == ("/scenarios/0/assignments")
+    message = error["diagnostics"][0]["message"]
+    assert "refused before Snapshot 0" in message
+    assert "evaluation site sha256:" in message
+    assert "immutable frame sha256:" in message
+    assert "terminal_audit" not in error
+    assert not out.exists()
+
+
 def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     tmp_path, run_cli
 ):
@@ -1720,17 +1823,25 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert (edited_build_exit, edited_build_stderr) == (0, "")
     edited_build_receipt = json.loads(edited_build_stdout)
     edited_build_record = _member(edited_build_receipt, "build-receipt")
+    edited_rir = _member(edited_build_receipt, "rir-semantic-payload")
     assert (
         edited_build_record["kernel_identity"] == build_record["kernel_identity"]
         and edited_build_record["language_bundle_identity"]
         == build_record["language_bundle_identity"]
         and edited_build_record["package_lock_identity"]
         == build_record["package_lock_identity"]
+        and edited_build_record["compiler"] == build_record["compiler"]
     )
     assert (
         edited_build_record["rir_identity"] != build_record["rir_identity"]
         and edited_build_record["resolved_model_identity"]
         != build_record["resolved_model_identity"]
+    )
+    baseline_formulas = {row["id"]: row["identity"] for row in rir["formulas"]}
+    edited_formulas = {row["id"]: row["identity"] for row in edited_rir["formulas"]}
+    assert edited_formulas["mitigated-damage"] != baseline_formulas["mitigated-damage"]
+    assert (
+        edited_formulas["effective-accuracy"] == baseline_formulas["effective-accuracy"]
     )
 
     stale_spec = deepcopy(first_spec)
@@ -1791,6 +1902,13 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     tuned_receipt = json.loads(tuned_stdout)
     tuned_trace = _member(tuned_receipt, "event-trace")
     tuned_metrics = _member(tuned_receipt, "metric-dataset")
+    tuned_evaluator = _member(tuned_receipt, "evaluator-capability-manifest")
+    baseline_evaluator = _member(first_receipt, "evaluator-capability-manifest")
+    assert (
+        tuned_evaluator["evaluator_build_identity"]
+        == baseline_evaluator["evaluator_build_identity"]
+    )
+    assert tuned_trace["experiment_identity"] != first_trace["experiment_identity"]
     tuned_damage = next(
         sample["value"]
         for sample in tuned_metrics["samples"]

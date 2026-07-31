@@ -332,19 +332,26 @@
           "body": {
             "nodes": [
               {
-                "id": "value",
+                "id": "minimum-accuracy",
                 "node": "operation-call",
                 "operation": {
                   "package": "core.quantity",
                   "version": "2.1.0",
-                  "id": "quantity.identity"
+                  "id": "quantity.maximum"
                 },
                 "arguments": [
                   {
-                    "port": "value",
+                    "port": "left",
                     "operand": {
                       "kind": "parameter",
                       "parameter": "base"
+                    }
+                  },
+                  {
+                    "port": "right",
+                    "operand": {
+                      "kind": "literal",
+                      "value": 1
                     }
                   }
                 ],
@@ -364,7 +371,7 @@
             ],
             "result": {
               "kind": "local",
-              "local": "value"
+              "local": "minimum-accuracy"
             }
           }
         }

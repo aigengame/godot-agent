@@ -85,14 +85,14 @@
     "standard.runtime@1.1.0:runtime.refuse.capability",
     "standard.runtime@1.1.0:runtime.refuse.numeric-overflow",
     "standard.runtime@1.1.0:runtime.refuse.step-limit",
-    "tooling.migration@2.0.0:migration.accept.deprecated-construct",
-    "tooling.migration@2.0.0:migration.accept.no-mappable-construct",
-    "tooling.migration@2.0.0:migration.accept.source-invalid",
-    "tooling.migration@2.0.0:migration.accept.target-limit",
-    "tooling.migration@2.0.0:migration.refuse.deprecated-construct",
-    "tooling.migration@2.0.0:migration.refuse.no-mappable-construct",
-    "tooling.migration@2.0.0:migration.refuse.source-invalid",
-    "tooling.migration@2.0.0:migration.refuse.target-limit"
+    "tooling.migration@1.0.0:migration.accept.deprecated-construct",
+    "tooling.migration@1.0.0:migration.accept.no-mappable-construct",
+    "tooling.migration@1.0.0:migration.accept.source-invalid",
+    "tooling.migration@1.0.0:migration.accept.target-limit",
+    "tooling.migration@1.0.0:migration.refuse.deprecated-construct",
+    "tooling.migration@1.0.0:migration.refuse.no-mappable-construct",
+    "tooling.migration@1.0.0:migration.refuse.source-invalid",
+    "tooling.migration@1.0.0:migration.refuse.target-limit"
   ],
   "test_ids": [
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_artifact_sink_row[experiment check]",

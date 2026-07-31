@@ -155,6 +155,22 @@ def refusal_catalog_for_reasons(
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(projected)
 
 
+_FORMULA_REASON = {
+    "binding-missing": "model.reason.formula-binding-missing",
+    "binding-duplicate": "model.reason.formula-binding-duplicate",
+    "type-mismatch": "model.reason.formula-type-mismatch",
+    "kind-mismatch": "model.reason.formula-kind-mismatch",
+    "unit-mismatch": "model.reason.formula-unit-mismatch",
+    "numeric-profile-mismatch": "model.reason.formula-numeric-profile-mismatch",
+    "purity-mismatch": "model.reason.formula-purity-mismatch",
+    "context-mismatch": "model.reason.formula-context-mismatch",
+    "unreachable": "model.reason.formula-unreachable",
+    "refusal-widening": "model.reason.formula-refusal-widening",
+    "resource-exhausted": "model.reason.formula-resource-exhausted",
+    "cycle": "model.reason.formula-cycle",
+}
+
+
 MODEL_REFUSAL_REASONS = (
     "model.reason.source-too-large",
     "model.reason.source-parse-failure",
@@ -170,6 +186,7 @@ MODEL_REFUSAL_REASONS = (
     "model.reason.name-ambiguity",
     "model.reason.package-version-unavailable",
     "model.reason.resolution-ambiguity",
+    *_FORMULA_REASON.values(),
 )
 MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
 
@@ -238,8 +255,9 @@ class _EntrypointBindingError(ValueError):
 class _FormulaResolutionError(ValueError):
     """Formula resolution failed at one exact author-owned source pointer."""
 
-    def __init__(self, pointer: str, message: str) -> None:
+    def __init__(self, reason_id: str, pointer: str, message: str) -> None:
         super().__init__(message)
+        self.reason_id = reason_id
         self.pointer = pointer
 
 
@@ -354,51 +372,58 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     policy = (
         extensions.get("standard.formula") if isinstance(extensions, dict) else None
     )
+    string_members = (
+        "module_formulas_member",
+        "bindings_member",
+        "formula_id_member",
+        "formula_parameters_member",
+        "formula_result_member",
+        "formula_body_member",
+        "body_nodes_member",
+        "body_result_member",
+        "node_id_member",
+        "parameter_id_member",
+        "binding_arguments_member",
+        "binding_parameter_member",
+        "binding_operand_member",
+        "binding_site_member",
+        "binding_formula_member",
+        "binding_cardinality",
+        "argument_cardinality",
+        "argument_order",
+        "same_name_capture",
+        "declaration_scope",
+    )
+    list_members = (
+        "allowed_binding_sites",
+        "allowed_body_nodes",
+        "allowed_operand_kinds",
+    )
+    identity_domains = (
+        policy.get("identity_domains") if isinstance(policy, dict) else None
+    )
     if (
         not isinstance(policy, dict)
-        or policy.get("module_formulas_member") != "formulas"
-        or policy.get("bindings_member") != "formula_bindings"
-        or policy.get("formula_id_member") != "id"
-        or policy.get("formula_parameters_member") != "parameters"
-        or policy.get("formula_result_member") != "result"
-        or policy.get("formula_body_member") != "body"
-        or policy.get("body_nodes_member") != "nodes"
-        or policy.get("body_result_member") != "result"
-        or policy.get("node_id_member") != "id"
-        or policy.get("parameter_id_member") != "id"
-        or policy.get("binding_arguments_member") != "arguments"
-        or policy.get("binding_parameter_member") != "parameter"
-        or policy.get("binding_operand_member") != "operand"
-        or policy.get("binding_site_member") != "site"
-        or policy.get("binding_formula_member") != "formula"
-        or policy.get("binding_cardinality") != "exactly-one"
-        or policy.get("argument_cardinality") != "exactly-one-per-parameter"
-        or policy.get("argument_order") != "parameter-id"
-        or policy.get("same_name_capture") != "forbidden"
-        or policy.get("declaration_scope") != "module"
-        or policy.get("first_class_values") is not False
-        or policy.get("dynamic_lookup") is not False
-        or policy.get("allowed_binding_sites") != ["derived-symbol", "operation-slot"]
-        or policy.get("allowed_body_nodes")
-        != ["conditional", "formula-call", "operation-call"]
-        or policy.get("allowed_operand_kinds")
-        != ["literal", "local", "parameter", "symbol"]
-        or policy.get("max_nodes_per_formula") != 256
-        or policy.get("resource_charge_per_node") != 1
-        or not isinstance(policy.get("identity_domains"), dict)
-        or set(policy["identity_domains"])
-        != {
-            "binding",
-            "closure",
-            "declaration",
-            "evaluation_site",
-            "expression_node",
-            "initialization_program",
-            "operation",
-        }
-        or not all(
-            isinstance(domain, str) and domain
-            for domain in policy["identity_domains"].values()
+        or any(
+            not isinstance(policy.get(member), str) or not policy[member]
+            for member in string_members
+        )
+        or any(
+            not isinstance(policy.get(member), list)
+            or not policy[member]
+            or not all(isinstance(item, str) and item for item in policy[member])
+            for member in list_members
+        )
+        or not isinstance(policy.get("first_class_values"), bool)
+        or not isinstance(policy.get("dynamic_lookup"), bool)
+        or not isinstance(policy.get("max_nodes_per_formula"), int)
+        or cast(int, policy["max_nodes_per_formula"]) <= 0
+        or not isinstance(policy.get("resource_charge_per_node"), int)
+        or cast(int, policy["resource_charge_per_node"]) <= 0
+        or not isinstance(identity_domains, dict)
+        or any(
+            not isinstance(domain, str) or not domain
+            for domain in identity_domains.values()
         )
     ):
         raise ValueError("the admitted resolution profile has no closed Formula policy")
@@ -419,6 +444,33 @@ def _operation_formula_slots(
     if not isinstance(slots, list) or not all(isinstance(slot, dict) for slot in slots):
         raise ValueError("Operation Formula slot extension is not a list")
     return cast(list[dict[str, Any]], slots)
+
+
+def _formula_contexts(language_bundle: dict[str, Any]) -> dict[str, dict[str, str]]:
+    profiles = cast(
+        list[dict[str, Any]], _language(language_bundle)["runtime_profiles"]
+    )
+    candidates: list[dict[str, dict[str, str]]] = []
+    for profile in profiles:
+        extensions = profile.get("extensions")
+        formula = (
+            extensions.get("standard.formula") if isinstance(extensions, dict) else None
+        )
+        contexts = formula.get("contexts") if isinstance(formula, dict) else None
+        if not isinstance(contexts, list):
+            continue
+        by_phase: dict[str, dict[str, str]] = {}
+        for context in contexts:
+            if not isinstance(context, dict):
+                continue
+            phase = context.get("phase")
+            frame = context.get("frame")
+            if isinstance(phase, str) and isinstance(frame, str):
+                by_phase[phase] = {"phase": phase, "frame": frame}
+        candidates.append(by_phase)
+    if len(candidates) != 1 or set(candidates[0]) != {"initialization", "event"}:
+        raise ValueError("the admitted Runtime profile has no unique Formula contexts")
+    return candidates[0]
 
 
 def _selected_source_operation_coordinates(
@@ -1225,20 +1277,23 @@ def _check_model_source_bytes(
             cast(list[dict[str, Any]], formula_declarations),
         )
     except (KeyError, TypeError, ValueError) as err:
-        source_contract_reason = reason_by_id(
-            ldb,
-            cast(str, profile["structural_reason"]),
-        )
         message = str(err)
-        pointer = (
-            err.pointer
+        formula_reason = (
+            reason_by_id(ldb, err.reason_id)
             if isinstance(err, _FormulaResolutionError)
-            else _formula_failure_pointer(source, message)
+            else reason_by_id(
+                ldb,
+                cast(str, profile["structural_reason"]),
+            )
         )
         return _refusal(
-            cast(str, source_contract_reason["diagnostic"]),
+            cast(str, formula_reason["diagnostic"]),
             source_identity,
-            pointer,
+            (
+                err.pointer
+                if isinstance(err, _FormulaResolutionError)
+                else _formula_failure_pointer(source, message)
+            ),
             f"Model Formula resolution failed: {message}",
             ldb,
         )
@@ -1756,6 +1811,45 @@ def _formula_contract_matches_operation(
     )
 
 
+def _formula_contract_mismatch_reason(
+    formula_contract: dict[str, Any],
+    target_contract: dict[str, Any],
+    *,
+    operation: bool,
+) -> str | None:
+    if operation:
+        formula_type = formula_contract.get("type_identity")
+        target_type = target_contract.get("type")
+        type_matches = (
+            isinstance(formula_type, dict)
+            and isinstance(target_type, dict)
+            and formula_type.get("package") == target_type.get("package")
+            and formula_type.get("version") == target_type.get("version")
+            and formula_type.get("symbol") == target_type.get("id")
+            and formula_contract.get("representation")
+            == target_contract.get("representation")
+        )
+    else:
+        type_matches = (
+            formula_contract.get("type_identity")
+            == target_contract.get("type_identity")
+            and formula_contract.get("representation")
+            == target_contract.get("representation")
+            and formula_contract.get("domain_kind")
+            == target_contract.get("domain_kind")
+            and formula_contract.get("domain") == target_contract.get("domain")
+        )
+    if not type_matches:
+        return _FORMULA_REASON["type-mismatch"]
+    if formula_contract.get("kind") != target_contract.get("kind"):
+        return _FORMULA_REASON["kind-mismatch"]
+    if formula_contract.get("unit") != target_contract.get("unit"):
+        return _FORMULA_REASON["unit-mismatch"]
+    if formula_contract.get("numeric_policy") != target_contract.get("numeric_policy"):
+        return _FORMULA_REASON["numeric-profile-mismatch"]
+    return None
+
+
 def _resolved_formula_contract(
     source_contract: dict[str, Any],
     imports: dict[str, dict[str, str]],
@@ -1871,15 +1965,13 @@ def _resolved_formula_operand(
 def _derived_formula_evaluation_site(
     domains: dict[str, str],
     resolved_symbol: dict[str, JsonValue],
+    context: dict[str, str],
 ) -> dict[str, JsonValue]:
     body = cast(
         dict[str, JsonValue],
         {
             "kind": "derived-symbol",
-            "context": {
-                "phase": "initialization",
-                "frame": "pre-snapshot",
-            },
+            "context": context,
             "resolved_symbol": resolved_symbol,
         },
     )
@@ -2006,6 +2098,21 @@ def _resolved_formula_programs_and_bindings_impl(
         list[dict[str, Any]],
         checked.source[cast(str, profile["modules_member"])],
     )
+    formulas_member = cast(str, policy["module_formulas_member"])
+    formula_id_member = cast(str, policy["formula_id_member"])
+    formula_parameters_member = cast(str, policy["formula_parameters_member"])
+    formula_result_member = cast(str, policy["formula_result_member"])
+    formula_body_member = cast(str, policy["formula_body_member"])
+    body_nodes_member = cast(str, policy["body_nodes_member"])
+    body_result_member = cast(str, policy["body_result_member"])
+    node_id_member = cast(str, policy["node_id_member"])
+    parameter_id_member = cast(str, policy["parameter_id_member"])
+    bindings_member = cast(str, policy["bindings_member"])
+    binding_site_member = cast(str, policy["binding_site_member"])
+    binding_formula_member = cast(str, policy["binding_formula_member"])
+    binding_arguments_member = cast(str, policy["binding_arguments_member"])
+    binding_parameter_member = cast(str, policy["binding_parameter_member"])
+    binding_operand_member = cast(str, policy["binding_operand_member"])
     declarations_by_source = {
         (
             cast(dict[str, str], declaration["resolved_symbol"])["module"],
@@ -2014,6 +2121,7 @@ def _resolved_formula_programs_and_bindings_impl(
         for declaration in declarations
     }
     domains = cast(dict[str, str], policy["identity_domains"])
+    formula_contexts = _formula_contexts(checked.language_bundle)
     actual_operand_domain = cast(
         str,
         checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
@@ -2037,19 +2145,21 @@ def _resolved_formula_programs_and_bindings_impl(
             )
         }
         for formula_index, source_formula in enumerate(
-            cast(list[dict[str, Any]], module.get("formulas", []))
+            cast(list[dict[str, Any]], module.get(formulas_member, []))
         ):
-            failure_context[:] = [f"/modules/{module_index}/formulas/{formula_index}"]
-            formula_id = source_formula.get("id")
+            failure_context[:] = [
+                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+            ]
+            formula_id = source_formula.get(formula_id_member)
             key = (module_id, cast(str, formula_id))
             if not isinstance(formula_id, str) or not formula_id or key in prototypes:
                 raise ValueError("Formula declarations must have unique module names")
             resolved_parameters: list[dict[str, JsonValue]] = []
             parameter_ids: set[str] = set()
             for source_parameter in cast(
-                list[dict[str, Any]], source_formula["parameters"]
+                list[dict[str, Any]], source_formula[formula_parameters_member]
             ):
-                parameter_id = source_parameter.get("id")
+                parameter_id = source_parameter.get(parameter_id_member)
                 if (
                     not isinstance(parameter_id, str)
                     or not parameter_id
@@ -2064,35 +2174,45 @@ def _resolved_formula_programs_and_bindings_impl(
                     }
                 )
             resolved_parameters.sort(key=lambda item: cast(str, item["id"]))
-            body = source_formula["body"]
+            body = source_formula[formula_body_member]
             if (
                 not isinstance(body, dict)
-                or not isinstance(body.get("nodes"), list)
-                or not isinstance(body.get("result"), dict)
+                or not isinstance(body.get(body_nodes_member), list)
+                or not isinstance(body.get(body_result_member), dict)
             ):
                 raise ValueError("Formula body is not an admitted bounded program")
-            if len(body["nodes"]) > cast(int, policy["max_nodes_per_formula"]):
-                raise ValueError("Formula body exceeds its admitted node bound")
+            if len(body[body_nodes_member]) > cast(
+                int, policy["max_nodes_per_formula"]
+            ):
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["resource-exhausted"],
+                    failure_context[0],
+                    "Formula body exceeds its admitted node bound",
+                )
             prototypes[key] = {
                 "module": module_id,
                 "id": formula_id,
                 "parameters": resolved_parameters,
                 "result": _resolved_formula_contract(
-                    cast(dict[str, Any], source_formula["result"]),
+                    cast(dict[str, Any], source_formula[formula_result_member]),
                     imports,
                 ),
                 "imports": imports,
                 "source_body": body,
             }
-            formula_pointers[key] = f"/modules/{module_index}/formulas/{formula_index}"
+            formula_pointers[key] = (
+                f"/modules/{module_index}/{formulas_member}/{formula_index}"
+            )
 
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for key, prototype in prototypes.items():
         failure_context[:] = [formula_pointers[key]]
         node_ids: set[str] = set()
         calls: list[tuple[str, str]] = []
-        for node in cast(list[dict[str, Any]], prototype["source_body"]["nodes"]):
-            node_id = node.get("id")
+        for node in cast(
+            list[dict[str, Any]], prototype["source_body"][body_nodes_member]
+        ):
+            node_id = node.get(node_id_member)
             if not isinstance(node_id, str) or not node_id or node_id in node_ids:
                 raise ValueError("Formula expression node ids must be unique")
             node_ids.add(node_id)
@@ -2120,6 +2240,7 @@ def _resolved_formula_programs_and_bindings_impl(
     def visit(key: tuple[str, str]) -> None:
         if key in visiting:
             raise _FormulaResolutionError(
+                _FORMULA_REASON["cycle"],
                 f"{formula_pointers[key]}/body",
                 "Formula call graph contains a cycle",
             )
@@ -2161,9 +2282,9 @@ def _resolved_formula_programs_and_bindings_impl(
         max_steps = 0
         termination_measure = 1
         for source_node in cast(
-            list[dict[str, Any]], prototype["source_body"]["nodes"]
+            list[dict[str, Any]], prototype["source_body"][body_nodes_member]
         ):
-            node_id = cast(str, source_node["id"])
+            node_id = cast(str, source_node[node_id_member])
             node_kind = source_node["node"]
             if node_kind == "formula-call":
                 formula_ref = cast(dict[str, str], source_node["formula"])
@@ -2247,8 +2368,10 @@ def _resolved_formula_programs_and_bindings_impl(
                     or operation.get("operation_kind") != "pure-expression"
                     or operation.get("effects") != []
                 ):
-                    raise ValueError(
-                        "Formula operation call is unresolved or effectful"
+                    raise _FormulaResolutionError(
+                        _FORMULA_REASON["purity-mismatch"],
+                        formula_pointers[key],
+                        "Formula operation call is unresolved or effectful",
                     )
                 ports = {
                     cast(str, port["id"]): port
@@ -2381,11 +2504,31 @@ def _resolved_formula_programs_and_bindings_impl(
                     expected=None,
                     actual_operand_domain=actual_operand_domain,
                 )
-                if condition_contract.get("kind") not in {
-                    "boolean",
-                    "scalar",
-                } or condition_contract.get("representation") not in {"Bool", "Int"}:
-                    raise ValueError("Formula conditional has no exact truth contract")
+                boolean_contract = cast(
+                    dict[str, Any],
+                    checked.kernel["meta_format"]["runtime_program"][
+                        "fixed_value_contracts"
+                    ]["kernel-boolean"],
+                )
+                boolean_type = cast(dict[str, str], boolean_contract["type"])
+                if condition_contract.get("type_identity") != {
+                    "package": boolean_type["package"],
+                    "version": boolean_type["version"],
+                    "symbol": boolean_type["id"],
+                } or any(
+                    condition_contract.get(member) != boolean_contract.get(member)
+                    for member in (
+                        "representation",
+                        "kind",
+                        "unit",
+                        "numeric_policy",
+                    )
+                ):
+                    raise _FormulaResolutionError(
+                        _FORMULA_REASON["type-mismatch"],
+                        formula_pointers[key],
+                        "Formula conditional requires the Kernel Boolean contract",
+                    )
                 when_true, true_contract = _resolved_formula_operand(
                     cast(dict[str, Any], source_node["when_true"]),
                     parameters=parameters_by_id,
@@ -2433,7 +2576,7 @@ def _resolved_formula_programs_and_bindings_impl(
             )
             locals_by_id[node_id] = node_result
         result_operand, result_contract = _resolved_formula_operand(
-            cast(dict[str, Any], prototype["source_body"]["result"]),
+            cast(dict[str, Any], prototype["source_body"][body_result_member]),
             parameters=parameters_by_id,
             locals_by_id=locals_by_id,
             declarations_by_source=declarations_by_source,
@@ -2482,16 +2625,26 @@ def _resolved_formula_programs_and_bindings_impl(
     failure_context.clear()
     selected_formula_keys: set[tuple[str, str]] = set()
     source_bindings = cast(
-        list[dict[str, Any]], checked.source.get("formula_bindings", [])
+        list[dict[str, Any]], checked.source.get(bindings_member, [])
     )
-    for source_binding in source_bindings:
-        formula_ref = cast(dict[str, str], source_binding["formula"])
-        selected_formula_keys.add((formula_ref["module"], formula_ref["id"]))
+    binding_pointer_by_formula: dict[tuple[str, str], str] = {}
+    for binding_index, source_binding in enumerate(source_bindings):
+        formula_ref = cast(dict[str, str], source_binding[binding_formula_member])
+        formula_key = (formula_ref["module"], formula_ref["id"])
+        selected_formula_keys.add(formula_key)
+        binding_pointer_by_formula.setdefault(
+            formula_key,
+            f"/{bindings_member}/{binding_index}/{binding_formula_member}",
+        )
     pending = list(selected_formula_keys)
     while pending:
         key = pending.pop()
         if key not in resolved_by_key:
-            raise ValueError("Formula binding names no declaration")
+            raise _FormulaResolutionError(
+                _FORMULA_REASON["binding-missing"],
+                binding_pointer_by_formula[key],
+                "Formula binding names no declaration",
+            )
         for dependency in dependencies[key]:
             if dependency not in selected_formula_keys:
                 selected_formula_keys.add(dependency)
@@ -2530,9 +2683,13 @@ def _resolved_formula_programs_and_bindings_impl(
 
     bound_derived_sites: set[tuple[str, str]] = set()
     bound_operation_slots: set[tuple[str, str, str, str]] = set()
-    for source_binding in source_bindings:
-        source_site = cast(dict[str, Any], source_binding["site"])
-        source_formula_ref = cast(dict[str, str], source_binding["formula"])
+    for binding_index, source_binding in enumerate(source_bindings):
+        binding_pointer = f"/{bindings_member}/{binding_index}"
+        failure_context[:] = [binding_pointer]
+        source_site = cast(dict[str, Any], source_binding[binding_site_member])
+        source_formula_ref = cast(
+            dict[str, str], source_binding[binding_formula_member]
+        )
         formula = resolved_by_key[
             (source_formula_ref["module"], source_formula_ref["id"])
         ]
@@ -2540,16 +2697,28 @@ def _resolved_formula_programs_and_bindings_impl(
             cast(str, item["id"]): item
             for item in cast(list[dict[str, Any]], formula["parameters"])
         }
-        source_arguments = cast(list[dict[str, Any]], source_binding["arguments"])
+        source_arguments = cast(
+            list[dict[str, Any]], source_binding[binding_arguments_member]
+        )
         binding_parameter_ids = [
-            cast(str, argument.get("parameter")) for argument in source_arguments
+            cast(str, argument.get(binding_parameter_member))
+            for argument in source_arguments
         ]
         if (
             len(binding_parameter_ids) != len(binding_parameters)
             or len(binding_parameter_ids) != len(set(binding_parameter_ids))
             or set(binding_parameter_ids) != set(binding_parameters)
         ):
-            raise ValueError("Formula binding does not totally bind its parameters")
+            reason = (
+                _FORMULA_REASON["binding-duplicate"]
+                if len(binding_parameter_ids) != len(set(binding_parameter_ids))
+                else _FORMULA_REASON["binding-missing"]
+            )
+            raise _FormulaResolutionError(
+                reason,
+                f"{binding_pointer}/arguments",
+                "Formula binding does not totally bind its parameters",
+            )
         arguments: list[dict[str, JsonValue]] = []
         if source_site.get("kind") == "derived-symbol":
             site_key = (
@@ -2557,24 +2726,34 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, source_site.get("symbol")),
             )
             site_declaration = declarations_by_source.get(site_key)
-            if (
-                site_declaration is None
-                or site_declaration.get("role") != "derived"
-                or site_key in bound_derived_sites
-                or not _formula_contract_matches(
-                    cast(dict[str, Any], formula["result"]),
-                    site_declaration,
+            if site_declaration is None or site_declaration.get("role") != "derived":
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["unreachable"],
+                    f"{binding_pointer}/site",
+                    "Formula binding site is not a reachable derived Symbol",
                 )
-            ):
-                raise ValueError(
-                    "Formula binding site/result is not one compatible unique "
-                    "derived Symbol"
+            if site_key in bound_derived_sites:
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["binding-duplicate"],
+                    f"{binding_pointer}/site",
+                    "Formula derived Symbol is bound more than once",
+                )
+            mismatch_reason = _formula_contract_mismatch_reason(
+                cast(dict[str, Any], formula["result"]),
+                site_declaration,
+                operation=False,
+            )
+            if mismatch_reason is not None:
+                raise _FormulaResolutionError(
+                    mismatch_reason,
+                    f"{binding_pointer}/formula",
+                    "Formula result is incompatible with its derived Symbol",
                 )
             bound_derived_sites.add(site_key)
             for source_argument in source_arguments:
-                parameter_id = cast(str, source_argument["parameter"])
+                parameter_id = cast(str, source_argument[binding_parameter_member])
                 operand, _contract = _resolved_formula_operand(
-                    cast(dict[str, Any], source_argument["operand"]),
+                    cast(dict[str, Any], source_argument[binding_operand_member]),
                     parameters={},
                     locals_by_id={},
                     declarations_by_source=declarations_by_source,
@@ -2588,6 +2767,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     dict[str, JsonValue],
                     site_declaration["resolved_symbol"],
                 ),
+                formula_contexts["initialization"],
             )
         elif source_site.get("kind") == "operation-slot":
             source_operation = cast(dict[str, Any], source_site.get("operation"))
@@ -2598,30 +2778,55 @@ def _resolved_formula_programs_and_bindings_impl(
                 cast(str, source_site.get("slot")),
             )
             selected_slot = selected_slots.get(slot_key)
-            if selected_slot is None or slot_key in bound_operation_slots:
-                raise ValueError(
-                    "Formula binding site is not one unique selected Operation slot"
+            if selected_slot is None:
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["unreachable"],
+                    f"{binding_pointer}/site",
+                    "Formula binding site is not a selected Operation slot",
+                )
+            if slot_key in bound_operation_slots:
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["binding-duplicate"],
+                    f"{binding_pointer}/site",
+                    "Formula Operation slot is bound more than once",
                 )
             operation, slot, operation_identity = selected_slot
+            if slot.get("context") != formula_contexts["event"]:
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["context-mismatch"],
+                    f"{binding_pointer}/site",
+                    "Formula Operation slot uses no admitted Runtime context",
+                )
             slot_parameters = {
                 cast(str, parameter["id"]): parameter
                 for parameter in cast(list[dict[str, Any]], slot["parameters"])
             }
             for source_argument in source_arguments:
-                parameter_id = cast(str, source_argument["parameter"])
-                source_operand = cast(dict[str, Any], source_argument["operand"])
+                parameter_id = cast(str, source_argument[binding_parameter_member])
+                source_operand = cast(
+                    dict[str, Any], source_argument[binding_operand_member]
+                )
                 slot_parameter_id = cast(str, source_operand.get("parameter"))
                 slot_parameter = slot_parameters.get(slot_parameter_id)
                 if (
                     source_operand.get("kind") != "slot-parameter"
                     or slot_parameter is None
-                    or not _formula_contract_matches_operation(
-                        binding_parameters[parameter_id], slot_parameter
-                    )
                 ):
-                    raise ValueError(
-                        "Formula Operation-slot argument is unresolved or "
-                        "type-incompatible"
+                    raise _FormulaResolutionError(
+                        _FORMULA_REASON["binding-missing"],
+                        f"{binding_pointer}/arguments/{len(arguments)}/operand",
+                        "Formula Operation-slot argument is unresolved",
+                    )
+                mismatch_reason = _formula_contract_mismatch_reason(
+                    binding_parameters[parameter_id],
+                    slot_parameter,
+                    operation=True,
+                )
+                if mismatch_reason is not None:
+                    raise _FormulaResolutionError(
+                        mismatch_reason,
+                        f"{binding_pointer}/arguments/{len(arguments)}/operand",
+                        "Formula Operation-slot argument is incompatible",
                     )
                 operand_body = cast(
                     dict[str, JsonValue],
@@ -2641,41 +2846,44 @@ def _resolved_formula_programs_and_bindings_impl(
                         },
                     }
                 )
-            if not _formula_contract_matches_operation(
+            mismatch_reason = _formula_contract_mismatch_reason(
                 cast(dict[str, Any], formula["result"]),
                 cast(dict[str, Any], slot["result"]),
-            ):
+                operation=True,
+            )
+            if mismatch_reason is not None:
                 raise _FormulaResolutionError(
-                    formula_pointers[
-                        (
-                            cast(str, formula["module"]),
-                            cast(str, formula["id"]),
-                        )
-                    ],
+                    mismatch_reason,
+                    f"{binding_pointer}/formula",
                     "Formula result is incompatible with its Operation slot",
                 )
             closure = cast(dict[str, Any], formula["closure"])
-            if (
-                not set(cast(list[str], closure["refusals"]))
-                <= set(cast(list[str], slot["permitted_refusals"]))
-                or cast(
-                    int,
-                    cast(dict[str, Any], closure["resource_charge"])["max_steps"],
-                )
-                > cast(int, slot["resource_bounds"]["max_steps"])
-                or cast(int, closure["termination_measure"])
-                > cast(int, slot["termination_measure"])
-                or operation_identity
-                in set(cast(list[str], closure["operation_dependencies"]))
+            if not set(cast(list[str], closure["refusals"])) <= set(
+                cast(list[str], slot["permitted_refusals"])
             ):
                 raise _FormulaResolutionError(
-                    formula_pointers[
-                        (
-                            cast(str, formula["module"]),
-                            cast(str, formula["id"]),
-                        )
-                    ],
-                    "Formula closure exceeds its Operation-slot contract",
+                    _FORMULA_REASON["refusal-widening"],
+                    f"{binding_pointer}/formula",
+                    "Formula closure widens its Operation-slot refusals",
+                )
+            if cast(
+                int,
+                cast(dict[str, Any], closure["resource_charge"])["max_steps"],
+            ) > cast(int, slot["resource_bounds"]["max_steps"]) or cast(
+                int, closure["termination_measure"]
+            ) > cast(int, slot["termination_measure"]):
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["resource-exhausted"],
+                    f"{binding_pointer}/formula",
+                    "Formula closure exceeds its Operation-slot resource contract",
+                )
+            if operation_identity in set(
+                cast(list[str], closure["operation_dependencies"])
+            ):
+                raise _FormulaResolutionError(
+                    _FORMULA_REASON["cycle"],
+                    f"{binding_pointer}/formula",
+                    "Formula closure cycles through its Operation slot",
                 )
             bound_operation_slots.add(slot_key)
             exact_operation = cast(
@@ -2723,8 +2931,10 @@ def _resolved_formula_programs_and_bindings_impl(
             }
         )
     if bound_operation_slots != set(selected_slots):
-        raise ValueError(
-            "every selected Operation Formula slot requires exactly one binding"
+        raise _FormulaResolutionError(
+            _FORMULA_REASON["binding-missing"],
+            "/entrypoints/0/operation",
+            "every selected Operation Formula slot requires exactly one binding",
         )
     resolved_formulas = [resolved_by_key[key] for key in sorted(selected_formula_keys)]
     if (
@@ -2736,8 +2946,38 @@ def _resolved_formula_programs_and_bindings_impl(
         )
         != bound_derived_sites
     ):
-        raise ValueError(
-            "derived Formula bindings must equal the executable entrypoint closure"
+        raise _FormulaResolutionError(
+            _FORMULA_REASON["unreachable"],
+            next(
+                (
+                    f"/{bindings_member}/{index}/{binding_site_member}"
+                    for index, binding in enumerate(source_bindings)
+                    if cast(dict[str, Any], binding[binding_site_member]).get("kind")
+                    == "derived-symbol"
+                    and (
+                        cast(
+                            str,
+                            cast(dict[str, Any], binding[binding_site_member])[
+                                "module"
+                            ],
+                        ),
+                        cast(
+                            str,
+                            cast(dict[str, Any], binding[binding_site_member])[
+                                "symbol"
+                            ],
+                        ),
+                    )
+                    not in _reachable_derived_formula_sites(
+                        declarations_by_source,
+                        cast(list[dict[str, Any]], resolved_formulas),
+                        cast(list[dict[str, Any]], resolved_bindings),
+                        cast(list[dict[str, Any]], checked.source["entrypoints"]),
+                    )
+                ),
+                f"/{bindings_member}",
+            ),
+            "derived Formula binding is outside the executable entrypoint closure",
         )
     return (
         resolved_formulas,
@@ -2773,9 +3013,26 @@ def _resolved_formula_programs_and_bindings(
         raise
     except (KeyError, TypeError, ValueError) as error:
         if failure_context:
+            message = str(error)
+            if "incompatible" in message or "does not match" in message:
+                reason_id = _FORMULA_REASON["type-mismatch"]
+            else:
+                reason_id = cast(
+                    str,
+                    _resolution_profile(
+                        checked.language_bundle,
+                        cast(
+                            str,
+                            _model_lowering(checked.language_bundle)[
+                                "resolution_profile"
+                            ],
+                        ),
+                    )["structural_reason"],
+                )
             raise _FormulaResolutionError(
+                reason_id,
                 failure_context[0],
-                str(error),
+                message,
             ) from error
         raise
 
@@ -2788,279 +3045,51 @@ def _resolved_formulas_and_bindings(
     list[dict[str, JsonValue]],
     list[tuple[str, str]],
 ]:
-    """Resolve the selected named Formula graph before RIR construction."""
+    """Normalize authoring sugar, then resolve one Formula program grammar."""
     policy = _formula_policy(checked.language_bundle)
     profile = _resolution_profile(
         checked.language_bundle,
         cast(str, _model_lowering(checked.language_bundle)["resolution_profile"]),
     )
-    modules = cast(
+    normalized_source = deepcopy(checked.source)
+    changed = False
+    for module in cast(
         list[dict[str, Any]],
-        checked.source[cast(str, profile["modules_member"])],
-    )
-    source_formulas = [
-        formula
-        for module in modules
-        for formula in cast(list[dict[str, Any]], module.get("formulas", []))
-    ]
-    if not source_formulas or all(
-        isinstance(formula.get("body"), dict)
-        and isinstance(cast(dict[str, Any], formula["body"]).get("nodes"), list)
-        for formula in source_formulas
+        normalized_source[cast(str, profile["modules_member"])],
     ):
-        return _resolved_formula_programs_and_bindings(
-            checked,
-            declarations,
-            policy,
-        )
-    declarations_by_source = {
-        (
-            cast(dict[str, str], declaration["resolved_symbol"])["module"],
-            cast(dict[str, str], declaration["resolved_symbol"])["name"],
-        ): declaration
-        for declaration in declarations
-    }
-    formulas_by_source: dict[tuple[str, str], dict[str, JsonValue]] = {}
-    formula_pointers: dict[tuple[str, str], str] = {}
-    domains = cast(dict[str, str], policy["identity_domains"])
-    for module_index, module in enumerate(modules):
-        module_id = cast(str, module[cast(str, profile["module_id_member"])])
-        imports = {
-            cast(str, item[cast(str, profile["import_alias_member"])]): {
-                "alias": cast(str, item[cast(str, profile["import_alias_member"])]),
-                "package": cast(str, item[cast(str, profile["import_package_member"])]),
-                "version": cast(str, item[cast(str, profile["import_version_member"])]),
-                "symbol": cast(str, item[cast(str, profile["import_symbol_member"])]),
-            }
-            for item in cast(
-                list[dict[str, Any]],
-                module[cast(str, profile["imports_member"])],
-            )
-        }
-        source_formulas = cast(
+        for formula in cast(
             list[dict[str, Any]],
             module.get(cast(str, policy["module_formulas_member"]), []),
-        )
-        for formula_index, source_formula in enumerate(source_formulas):
-            formula_id = source_formula.get(cast(str, policy["formula_id_member"]))
-            if not isinstance(formula_id, str) or not formula_id:
-                raise ValueError("Formula id is not a non-empty string")
-            key = (module_id, formula_id)
-            if key in formulas_by_source:
-                raise ValueError(f"duplicate module Formula: {module_id}.{formula_id}")
-            source_parameters = cast(
-                list[dict[str, Any]],
-                source_formula[cast(str, policy["formula_parameters_member"])],
-            )
-            parameters: list[dict[str, JsonValue]] = []
-            parameter_ids: set[str] = set()
-            for source_parameter in source_parameters:
-                parameter_id = source_parameter.get(
-                    cast(str, policy["parameter_id_member"])
-                )
-                if (
-                    not isinstance(parameter_id, str)
-                    or not parameter_id
-                    or parameter_id in parameter_ids
-                ):
-                    raise ValueError("Formula parameter ids must be unique")
-                parameter_ids.add(parameter_id)
-                parameters.append(
-                    {
-                        "id": parameter_id,
-                        **_resolved_formula_contract(source_parameter, imports),
-                    }
-                )
-            parameters.sort(key=lambda item: cast(str, item["id"]))
-            result = _resolved_formula_contract(
-                cast(
-                    dict[str, Any],
-                    source_formula[cast(str, policy["formula_result_member"])],
-                ),
-                imports,
-            )
-            source_body = cast(
-                dict[str, Any],
-                source_formula[cast(str, policy["formula_body_member"])],
-            )
+        ):
+            body = formula.get(cast(str, policy["formula_body_member"]))
             if (
-                set(source_body) != {"node", "parameter"}
-                or source_body.get("node") != "parameter"
+                isinstance(body, dict)
+                and set(body) == {"node", "parameter"}
+                and body.get("node") == "parameter"
             ):
-                raise ValueError("Formula body node is outside the admitted grammar")
-            body_parameter = source_body.get("parameter")
-            parameter = next(
-                (item for item in parameters if item["id"] == body_parameter),
-                None,
-            )
-            if parameter is None or not _formula_contract_matches(parameter, result):
-                raise ValueError(
-                    "Formula body result does not match its result contract"
-                )
-            formula_body = cast(
-                dict[str, JsonValue],
-                {
-                    "module": module_id,
-                    "id": formula_id,
-                    "parameters": parameters,
-                    "result": result,
-                    "body": {
-                        "node": "parameter",
-                        "parameter": body_parameter,
-                    },
-                },
-            )
-            formulas_by_source[key] = {
-                **formula_body,
-                "identity": content_identity(domains["declaration"], formula_body),
-            }
-            formula_pointers[key] = (
-                f"/modules/{module_index}/"
-                f"{policy['module_formulas_member']}/{formula_index}"
-            )
-
-    resolved_bindings: list[dict[str, JsonValue]] = []
-    selected_formula_keys: set[tuple[str, str]] = set()
-    binding_sites: set[tuple[str, str, str]] = set()
-    for binding_index, source_binding in enumerate(
-        cast(
-            list[dict[str, Any]],
-            checked.source.get(cast(str, policy["bindings_member"]), []),
-        )
-    ):
-        source_site = cast(
-            dict[str, Any],
-            source_binding[cast(str, policy["binding_site_member"])],
-        )
-        if (
-            set(source_site) != {"kind", "module", "symbol"}
-            or source_site.get("kind") != "derived-symbol"
-        ):
-            raise ValueError("Formula binding site is outside the admitted policy")
-        site_module = cast(str, source_site.get("module"))
-        site_symbol = cast(str, source_site.get("symbol"))
-        site_declaration = declarations_by_source.get((site_module, site_symbol))
-        if site_declaration is None or site_declaration.get("role") != "derived":
-            raise ValueError("Formula binding site is not a derived Symbol")
-        resolved_symbol = cast(
-            dict[str, JsonValue], site_declaration["resolved_symbol"]
-        )
-        site_key = (
-            "derived-symbol",
-            cast(str, resolved_symbol["module"]),
-            cast(str, resolved_symbol["name"]),
-        )
-        if site_key in binding_sites:
-            raise ValueError("Formula binding site is bound more than once")
-        binding_sites.add(site_key)
-
-        source_formula_ref = cast(
-            dict[str, Any],
-            source_binding[cast(str, policy["binding_formula_member"])],
-        )
-        formula_key = (
-            cast(str, source_formula_ref.get("module")),
-            cast(str, source_formula_ref.get("id")),
-        )
-        formula = formulas_by_source.get(formula_key)
-        if formula is None:
-            raise ValueError("Formula binding names no declaration")
-        parameters_by_id = {
-            cast(str, parameter["id"]): parameter
-            for parameter in cast(list[dict[str, Any]], formula["parameters"])
-        }
-        source_arguments = cast(
-            list[dict[str, Any]],
-            source_binding[cast(str, policy["binding_arguments_member"])],
-        )
-        parameter_names = [
-            cast(
-                str,
-                argument.get(cast(str, policy["binding_parameter_member"])),
-            )
-            for argument in source_arguments
-        ]
-        if (
-            len(parameter_names) != len(parameters_by_id)
-            or len(set(parameter_names)) != len(parameter_names)
-            or set(parameter_names) != set(parameters_by_id)
-        ):
-            raise ValueError("Formula arguments do not exactly close parameters")
-        arguments: list[dict[str, JsonValue]] = []
-        actual_operand_domain = cast(
-            str,
-            checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
-                "identity_domains"
-            ]["actual_operand"],
-        )
-        for source_argument in source_arguments:
-            parameter_id = cast(
-                str, source_argument[cast(str, policy["binding_parameter_member"])]
-            )
-            source_operand = cast(
-                dict[str, Any],
-                source_argument[cast(str, policy["binding_operand_member"])],
-            )
-            if source_operand.get("kind") != "symbol":
-                raise ValueError("Formula tracer admits only explicit Symbol operands")
-            operand_declaration = declarations_by_source.get(
-                (
-                    cast(str, source_operand.get("module")),
-                    cast(str, source_operand.get("symbol")),
-                )
-            )
-            if operand_declaration is None or not _formula_contract_matches(
-                operand_declaration, parameters_by_id[parameter_id]
-            ):
-                raise ValueError("Formula operand is incompatible with its parameter")
-            operand_body = cast(
-                dict[str, JsonValue],
-                {
-                    "kind": "symbol",
-                    "resolved_symbol": operand_declaration["resolved_symbol"],
-                },
-            )
-            arguments.append(
-                {
-                    "parameter": parameter_id,
-                    "operand": {
-                        **operand_body,
-                        "identity": content_identity(
-                            actual_operand_domain, operand_body
-                        ),
+                formula[cast(str, policy["formula_body_member"])] = {
+                    "nodes": [],
+                    "result": {
+                        "kind": "parameter",
+                        "parameter": body["parameter"],
                     },
                 }
-            )
-        arguments.sort(key=lambda item: cast(str, item["parameter"]))
-        binding_body = cast(
-            dict[str, JsonValue],
-            {
-                "site": _derived_formula_evaluation_site(domains, resolved_symbol),
-                "formula": {
-                    "module": formula["module"],
-                    "id": formula["id"],
-                    "identity": formula["identity"],
-                },
-                "arguments": arguments,
-            },
+                changed = True
+    normalized = (
+        CheckedModel(
+            source=normalized_source,
+            source_identity=checked.source_identity,
+            kernel=checked.kernel,
+            language_bundle=checked.language_bundle,
+            authority_context=checked.authority_context,
         )
-        resolved_bindings.append(
-            {
-                **binding_body,
-                "identity": content_identity(domains["binding"], binding_body),
-            }
-        )
-        selected_formula_keys.add(formula_key)
-    return (
-        [formulas_by_source[key] for key in sorted(selected_formula_keys)],
-        sorted(
-            resolved_bindings,
-            key=lambda item: cast(str, item["identity"]),
-        ),
-        [
-            (formula_pointers[key], cast(str, formulas_by_source[key]["identity"]))
-            for key in sorted(selected_formula_keys)
-        ],
+        if changed
+        else checked
+    )
+    return _resolved_formula_programs_and_bindings(
+        normalized,
+        declarations,
+        policy,
     )
 
 

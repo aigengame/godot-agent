@@ -585,46 +585,35 @@ def _consumer_b_value_program_instruction_is_closed(
     row: Any,
     allowed_nodes: set[str],
 ) -> bool:
-    if (
-        not isinstance(row, dict)
-        or set(row) != {"evaluation_site_identity", "instruction"}
-        or not isinstance(row.get("evaluation_site_identity"), str)
-        or not row["evaluation_site_identity"]
-        or not isinstance(row.get("instruction"), dict)
-    ):
+    if not isinstance(row, dict) or len(row) != 2:
         return False
-    instruction = row["instruction"]
-    node = instruction.get("node")
-    members = {
-        "constant": {"node", "target", "literal"},
-        "copy": {"node", "target", "value"},
-        "add": {"node", "target", "left", "right"},
-        "maximum": {"node", "target", "left", "right"},
-        "multiply": {"node", "target", "left", "right"},
-        "subtract": {"node", "target", "left", "right"},
-        "if": {
-            "node",
-            "target",
-            "condition",
-            "when_true",
-            "when_false",
-        },
+    site = row.get("evaluation_site_identity")
+    instruction = row.get("instruction")
+    if not isinstance(site, str) or not site or not isinstance(instruction, dict):
+        return False
+
+    operand_fields = {
+        "copy": ("value",),
+        "add": ("left", "right"),
+        "maximum": ("left", "right"),
+        "multiply": ("left", "right"),
+        "subtract": ("left", "right"),
+        "if": ("condition", "when_true", "when_false"),
     }
-    required = members.get(node) if isinstance(node, str) else None
-    return (
-        isinstance(required, set)
-        and node in allowed_nodes
-        and set(instruction) == required
-        and isinstance(instruction.get("target"), str)
-        and bool(instruction["target"])
-        and (
-            _consumer_b_signed_int64(instruction.get("literal"))
-            if node == "constant"
-            else all(
-                isinstance(instruction.get(member), str) and bool(instruction[member])
-                for member in required - {"node", "target"}
-            )
-        )
+    node = instruction.get("node")
+    if not isinstance(node, str) or node not in allowed_nodes:
+        return False
+    fields = ("literal",) if node == "constant" else operand_fields.get(node)
+    if fields is None or set(instruction) != {"node", "target", *fields}:
+        return False
+    target = instruction.get("target")
+    if not isinstance(target, str) or not target:
+        return False
+    if node == "constant":
+        return _consumer_b_signed_int64(instruction.get("literal"))
+    return all(
+        isinstance(value, str) and bool(value)
+        for value in (instruction.get(field) for field in fields)
     )
 
 

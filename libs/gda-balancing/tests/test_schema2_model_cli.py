@@ -341,6 +341,94 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     assert program["refusals"] == []
 
 
+def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
+    program_source = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    program_source["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    program_source["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(program_source)
+    sugar_source = deepcopy(program_source)
+    sugar_source["modules"][0]["formulas"][0]["body"] = {
+        "node": "parameter",
+        "parameter": "base",
+    }
+
+    checked_program = model_module.check_model_source_value(program_source)
+    checked_sugar = model_module.check_model_source_value(sugar_source)
+    assert isinstance(checked_program, model_module.CheckedModel)
+    assert isinstance(checked_sugar, model_module.CheckedModel)
+    program_artifacts = model_module.lower_checked_model(checked_program)
+    sugar_artifacts = model_module.lower_checked_model(checked_sugar)
+    program_rir = cast(dict[str, Any], program_artifacts["rir-semantic-payload"])
+    sugar_rir = cast(dict[str, Any], sugar_artifacts["rir-semantic-payload"])
+
+    assert program_rir == sugar_rir
+    assert (
+        program_rir["formulas"][0]["identity"] == sugar_rir["formulas"][0]["identity"]
+    )
+
+
+def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
+    _kernel, language_bundle = authority_module.load_authorities()
+    candidate = deepcopy(language_bundle)
+    profile = next(
+        row
+        for row in candidate["language"]["resolution_profiles"]
+        if row["id"] == "exact-import-resolution-v1"
+    )
+    policy = profile["extensions"]["standard.formula"]
+    policy["body_nodes_member"] = "authority-owned-expressions"
+    policy["allowed_body_nodes"] = ["authority-owned-node"]
+    policy["max_nodes_per_formula"] = 37
+    policy["resource_charge_per_node"] = 41
+    policy["identity_domains"]["formula"] = "authority-formula-domain"
+
+    resolved = model_module._formula_policy(candidate)
+
+    assert resolved["body_nodes_member"] == "authority-owned-expressions"
+    assert resolved["allowed_body_nodes"] == ["authority-owned-node"]
+    assert resolved["max_nodes_per_formula"] == 37
+    assert resolved["resource_charge_per_node"] == 41
+    assert resolved["identity_domains"]["formula"] == "authority-formula-domain"
+
+
 def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     source_document = _model_source()
     quantity_contract = {
@@ -483,9 +571,7 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     assert explanation_path.read_bytes() == expected_bytes
 
 
-def test_model_inspect_accepts_the_public_build_receipt_presentation(
-    tmp_path, run_cli
-):
+def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, run_cli):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -703,7 +789,7 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["code"] == "language.formula_cycle"
     assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1/body"
 
 
@@ -808,7 +894,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
     }
 
 
-def test_model_build_lowers_bounded_formula_conditionals(tmp_path, run_cli):
+def test_model_check_refuses_scalar_formula_conditionals(tmp_path, run_cli):
     source_document = _model_source()
     contract = {
         "type": "quantity",
@@ -891,29 +977,12 @@ def test_model_build_lowers_bounded_formula_conditionals(tmp_path, run_cli):
     source = tmp_path / "conditional-formula.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(
-        [
-            "model",
-            "build",
-            str(source),
-            "--out",
-            str(tmp_path / "conditional-formula-model"),
-            "--invocation-key",
-            "7" * 64,
-        ]
-    )
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
-    assert (exit_code, stderr) == (0, "")
-    rir = json.loads(
-        (
-            _artifact_directory(json.loads(stdout)) / "rir-semantic-payload.json"
-        ).read_text()
-    )
-    formula = rir["formulas"][0]
-    node = formula["body"]["nodes"][0]
-    assert node["node"] == "conditional"
-    assert node["result"] == formula["result"]
-    assert formula["closure"]["resource_charge"] == {"max_steps": 1}
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/0"
 
 
 def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
@@ -1143,16 +1212,32 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    ("mutation", "expected_code", "expected_pointer"),
     (
-        "missing-binding",
-        "missing-declaration",
-        "duplicate-binding",
-        "resource-budget",
+        (
+            "missing-binding",
+            "language.formula_binding_missing",
+            "/entrypoints/0/operation",
+        ),
+        (
+            "missing-declaration",
+            "language.formula_binding_missing",
+            "/entrypoints/0/operation",
+        ),
+        (
+            "duplicate-binding",
+            "language.formula_binding_duplicate",
+            "/formula_bindings/2/site",
+        ),
+        (
+            "resource-budget",
+            "language.formula_resource_exhausted",
+            "/formula_bindings/1/formula",
+        ),
     ),
 )
 def test_model_check_refuses_operation_formula_slot_contract_violations(
-    mutation, tmp_path, run_cli
+    mutation, expected_code, expected_pointer, tmp_path, run_cli
 ):
     source_document = json.loads(
         (
@@ -1201,12 +1286,173 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == (
-        "/modules/0/formulas/0"
-        if mutation == "resource-budget"
-        else "/formula_bindings"
+    assert diagnostic["code"] == expected_code
+    assert diagnostic["primary"]["pointer"] == expected_pointer
+
+
+def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
     )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "effective-accuracy"
+    )
+    formula["body"] = {
+        "nodes": [
+            {
+                "id": "effectful-call",
+                "node": "operation-call",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "2.0.0",
+                    "id": "game.combat.cast-v1",
+                },
+                "arguments": [],
+                "result": deepcopy(formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "effectful-call"},
+    }
+    source = tmp_path / "effectful-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_purity_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+
+
+@pytest.mark.parametrize(
+    ("member", "value", "reason_id", "diagnostic"),
+    (
+        (
+            "kind",
+            "boolean",
+            "model.reason.formula-kind-mismatch",
+            "language.formula_kind_mismatch",
+        ),
+        (
+            "unit",
+            "turn",
+            "model.reason.formula-unit-mismatch",
+            "language.formula_unit_mismatch",
+        ),
+        (
+            "numeric_policy",
+            "exact-bool",
+            "model.reason.formula-numeric-profile-mismatch",
+            "language.formula_numeric_profile_mismatch",
+        ),
+    ),
+)
+def test_formula_slot_value_axes_have_stable_authority_diagnostics(
+    member, value, reason_id, diagnostic
+):
+    checked = model_module.check_model_source(
+        str(
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        )
+    )
+    assert isinstance(checked, model_module.CheckedModel)
+    formula_contract = {
+        "type_identity": {
+            "package": "core.quantity",
+            "version": "2.1.0",
+            "symbol": "Quantity",
+        },
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "numeric_policy": "exact-int64",
+    }
+    slot_contract = {
+        "type": {
+            "package": "core.quantity",
+            "version": "2.1.0",
+            "id": "Quantity",
+        },
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "numeric_policy": "exact-int64",
+        member: value,
+    }
+
+    observed = model_module._formula_contract_mismatch_reason(
+        formula_contract,
+        slot_contract,
+        operation=True,
+    )
+
+    assert observed == reason_id
+    assert observed is not None
+    assert (
+        model_module.reason_by_id(checked.language_bundle, observed)["diagnostic"]
+        == diagnostic
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason_id", "pointer"),
+    (
+        (
+            "context",
+            "model.reason.formula-context-mismatch",
+            "/formula_bindings/1/site",
+        ),
+        (
+            "refusals",
+            "model.reason.formula-refusal-widening",
+            "/formula_bindings/1/formula",
+        ),
+    ),
+)
+def test_formula_slot_authority_drift_has_a_stable_typed_reason(
+    mutation, reason_id, pointer
+):
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    language_bundle = deepcopy(checked.language_bundle)
+    combat_package = next(
+        package
+        for package in language_bundle["language"]["packages"]
+        if package["id"] == "game.combat"
+    )
+    damage = next(
+        operation
+        for entry in combat_package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+        for operation in entry["definitions"]
+        if operation["id"] == "game.combat.damage-v1"
+    )
+    slot = damage["extensions"]["standard.formula-slots"][0]
+    if mutation == "context":
+        slot["context"] = {"phase": "event", "frame": "host-owned-frame"}
+    else:
+        slot["permitted_refusals"] = []
+    drifted = replace(
+        checked,
+        language_bundle=language_bundle,
+        authority_context=None,
+    )
+    _lock, declarations, _lowering, _rows = model_module._lowering_inputs(drifted)
+
+    with pytest.raises(model_module._FormulaResolutionError) as raised:
+        model_module._resolved_formulas_and_bindings(drifted, declarations)
+
+    assert raised.value.reason_id == reason_id
+    assert raised.value.pointer == pointer
 
 
 def test_model_check_points_a_non_first_formula_error_at_its_declaration(
@@ -1227,7 +1473,7 @@ def test_model_check_points_a_non_first_formula_error_at_its_declaration(
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["code"] == "language.formula_type_mismatch"
     assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
 
 
@@ -1273,8 +1519,8 @@ def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+    assert diagnostic["code"] == "language.formula_resource_exhausted"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/1/formula"
 
 
 def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
@@ -1332,8 +1578,8 @@ def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contrac
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/formula"
 
 
 def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, run_cli):
@@ -1373,8 +1619,8 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+    assert diagnostic["code"] == "language.formula_unreachable"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/site"
 
 
 def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run_cli):
@@ -1425,8 +1671,8 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
 
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+    assert diagnostic["code"] == "language.formula_unreachable"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/site"
 
 
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(

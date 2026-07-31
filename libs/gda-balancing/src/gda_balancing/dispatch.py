@@ -225,12 +225,13 @@ def _invoke_descriptor(
             for name in expected_details
             if (value := getattr(outcome, name)) is not None
         }
-        if set(observed_details) != set(expected_details):
-            raise TypeError(
-                "handler returned Schema 2.x refusal details absent from its descriptor"
-            )
-        for name, detail in expected_details.items():
-            jsonschema.validate(observed_details[name], detail.schema())
+        required_details = {
+            name for name, detail in expected_details.items() if detail.required
+        }
+        if not required_details <= set(observed_details):
+            raise TypeError("handler omitted required Schema 2.x refusal details")
+        for name, value in observed_details.items():
+            jsonschema.validate(value, expected_details[name].schema())
         envelope = schema2_refusal_envelope(outcome)
         stdout.write(canonical_json(envelope))
         return EXIT_REFUSAL

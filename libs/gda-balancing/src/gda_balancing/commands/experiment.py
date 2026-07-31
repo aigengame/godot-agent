@@ -495,6 +495,7 @@ EXPERIMENT_RUN = CommandDescriptor(
             stage="runtime",
             field_name="terminal_audit",
             schema=_terminal_audit_receipt_schema,
+            required=False,
         ),
     ),
     usage_codes=(
