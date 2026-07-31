@@ -145,6 +145,412 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert set(tmp_path.iterdir()) == before
 
 
+def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [
+                {
+                    "id": "base",
+                    "type": "quantity",
+                    "representation": "Int",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": 0, "maximum": 100},
+                    "numeric_policy": "exact-int64",
+                }
+            ],
+            "result": {
+                "type": "quantity",
+                "representation": "Int",
+                "kind": "scalar",
+                "unit": "1",
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": 0, "maximum": 100},
+                "numeric_policy": "exact-int64",
+            },
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source_document["entrypoints"] = [
+        {
+            "id": "formula.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "formula-model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "1" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    assert [formula["id"] for formula in rir["formulas"]] == ["derive-value"]
+    assert rir["formula_bindings"] == [
+        {
+            "arguments": [
+                {
+                    "operand": {
+                        "identity": rir["formula_bindings"][0]["arguments"][0][
+                            "operand"
+                        ]["identity"],
+                        "kind": "symbol",
+                        "resolved_symbol": {
+                            "model": "example.quantity-model",
+                            "module": "main",
+                            "name": "input_value",
+                        },
+                    },
+                    "parameter": "base",
+                }
+            ],
+            "formula": {
+                "id": "derive-value",
+                "module": "main",
+            },
+            "identity": rir["formula_bindings"][0]["identity"],
+            "site": {
+                "kind": "derived-symbol",
+                "resolved_symbol": {
+                    "model": "example.quantity-model",
+                    "module": "main",
+                    "name": "derived_value",
+                },
+            },
+        }
+    ]
+
+
+def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "inner",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "value"},
+            },
+        },
+        {
+            "id": "outer",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "inner-call",
+                        "node": "formula-call",
+                        "formula": {"module": "main", "id": "inner"},
+                        "arguments": [
+                            {
+                                "parameter": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "result": {"kind": "local", "local": "inner-call"},
+            },
+        },
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "outer"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source = tmp_path / "formula-call-model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    formulas = {formula["id"]: formula for formula in rir["formulas"]}
+    assert set(formulas) == {"inner", "outer"}
+    assert formulas["outer"]["body"]["nodes"][0]["formula"] == {
+        "module": "main",
+        "id": "inner",
+        "identity": formulas["inner"]["identity"],
+    }
+    assert formulas["outer"]["closure"] == {
+        "formula_dependencies": [formulas["inner"]["identity"]],
+        "operation_dependencies": [],
+        "refusals": [],
+        "resource_charge": {"max_steps": 1},
+        "termination_measure": 2,
+    }
+
+
+def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+
+    def formula(formula_id: str, target: str) -> dict[str, Any]:
+        return {
+            "id": formula_id,
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "recursive-call",
+                        "node": "formula-call",
+                        "formula": {"module": "main", "id": target},
+                        "arguments": [
+                            {
+                                "parameter": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "result": {"kind": "local", "local": "recursive-call"},
+            },
+        }
+
+    source_document["modules"][0]["formulas"] = [
+        formula("alpha", "beta"),
+        formula("beta", "alpha"),
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "alpha"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source = tmp_path / "cyclic-formulas.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/0/body"
+
+
+def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "through-operation",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "identity-call",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.0.0",
+                            "id": "quantity.identity",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                        "result": quantity_contract,
+                    }
+                ],
+                "result": {"kind": "local", "local": "identity-call"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "through-operation"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source = tmp_path / "formula-operation-call.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    formula = rir["formulas"][0]
+    operation = formula["body"]["nodes"][0]["operation"]
+    assert {
+        "package": operation["package"],
+        "version": operation["version"],
+        "id": operation["id"],
+    } == {
+        "package": "core.quantity",
+        "version": "2.0.0",
+        "id": "quantity.identity",
+    }
+    assert formula["closure"] == {
+        "formula_dependencies": [],
+        "operation_dependencies": [operation["identity"]],
+        "refusals": [],
+        "resource_charge": {"max_steps": 2},
+        "termination_measure": 1,
+    }
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):

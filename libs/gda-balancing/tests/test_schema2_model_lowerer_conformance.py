@@ -1178,6 +1178,8 @@ def _reference_rir(
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
+            "formulas": [],
+            "formula_bindings": [],
             "entrypoints": _reference_entrypoints(
                 checked,
                 declarations,

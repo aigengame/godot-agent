@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2"
+    "sha256:71dbf3a59082ee914370907db75966e7dc6bde8faf10df96f5e6161b9ddc3d83"
 )
 
 

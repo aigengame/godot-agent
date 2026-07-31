@@ -843,7 +843,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          ""
+          "\u007f"
         ]
       },
       {
@@ -858,7 +858,7 @@
             1
           ],
           "quote": "\"\n\\",
-          "é": "雪"
+          "\u00e9": "\u96ea"
         }
       },
       {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2",
+  "content_identity": "sha256:71dbf3a59082ee914370907db75966e7dc6bde8faf10df96f5e6161b9ddc3d83",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2923,6 +2923,153 @@
             },
             "relation_recipes": {
               "type": "list"
+            },
+            "formula_policy": {
+              "field_types": {
+                "allowed_binding_sites": {
+                  "type": "string-list"
+                },
+                "allowed_body_nodes": {
+                  "type": "string-list"
+                },
+                "allowed_operand_kinds": {
+                  "type": "string-list"
+                },
+                "argument_cardinality": {
+                  "type": "non-empty-string"
+                },
+                "argument_order": {
+                  "type": "non-empty-string"
+                },
+                "binding_arguments_member": {
+                  "type": "non-empty-string"
+                },
+                "binding_cardinality": {
+                  "type": "non-empty-string"
+                },
+                "binding_formula_member": {
+                  "type": "non-empty-string"
+                },
+                "binding_operand_member": {
+                  "type": "non-empty-string"
+                },
+                "binding_parameter_member": {
+                  "type": "non-empty-string"
+                },
+                "binding_site_member": {
+                  "type": "non-empty-string"
+                },
+                "bindings_member": {
+                  "type": "non-empty-string"
+                },
+                "body_nodes_member": {
+                  "type": "non-empty-string"
+                },
+                "body_result_member": {
+                  "type": "non-empty-string"
+                },
+                "declaration_scope": {
+                  "type": "non-empty-string"
+                },
+                "dynamic_lookup": {
+                  "type": "boolean"
+                },
+                "first_class_values": {
+                  "type": "boolean"
+                },
+                "formula_body_member": {
+                  "type": "non-empty-string"
+                },
+                "formula_id_member": {
+                  "type": "non-empty-string"
+                },
+                "formula_parameters_member": {
+                  "type": "non-empty-string"
+                },
+                "formula_result_member": {
+                  "type": "non-empty-string"
+                },
+                "identity_domains": {
+                  "field_types": {
+                    "binding": {
+                      "type": "non-empty-string"
+                    },
+                    "closure": {
+                      "type": "non-empty-string"
+                    },
+                    "declaration": {
+                      "type": "non-empty-string"
+                    },
+                    "evaluation_site": {
+                      "type": "non-empty-string"
+                    },
+                    "expression_node": {
+                      "type": "non-empty-string"
+                    },
+                    "operation": {
+                      "type": "non-empty-string"
+                    }
+                  },
+                  "required_members": [
+                    "binding",
+                    "closure",
+                    "declaration",
+                    "evaluation_site",
+                    "expression_node",
+                    "operation"
+                  ],
+                  "type": "closed-object"
+                },
+                "max_nodes_per_formula": {
+                  "type": "positive-signed-int64"
+                },
+                "module_formulas_member": {
+                  "type": "non-empty-string"
+                },
+                "node_id_member": {
+                  "type": "non-empty-string"
+                },
+                "parameter_id_member": {
+                  "type": "non-empty-string"
+                },
+                "resource_charge_per_node": {
+                  "type": "positive-signed-int64"
+                },
+                "same_name_capture": {
+                  "type": "non-empty-string"
+                }
+              },
+              "required_members": [
+                "allowed_binding_sites",
+                "allowed_body_nodes",
+                "allowed_operand_kinds",
+                "argument_cardinality",
+                "argument_order",
+                "binding_arguments_member",
+                "binding_cardinality",
+                "binding_formula_member",
+                "binding_operand_member",
+                "binding_parameter_member",
+                "binding_site_member",
+                "bindings_member",
+                "body_nodes_member",
+                "body_result_member",
+                "declaration_scope",
+                "dynamic_lookup",
+                "first_class_values",
+                "formula_body_member",
+                "formula_id_member",
+                "formula_parameters_member",
+                "formula_result_member",
+                "identity_domains",
+                "max_nodes_per_formula",
+                "module_formulas_member",
+                "node_id_member",
+                "parameter_id_member",
+                "resource_charge_per_node",
+                "same_name_capture"
+              ],
+              "type": "closed-object"
             }
           },
           "required_members": [
@@ -2952,7 +3099,8 @@
             "default",
             "model_lowering",
             "relation_recipes",
-            "judgment_chain"
+            "judgment_chain",
+            "formula_policy"
           ]
         },
         "template_admission_profiles": {
@@ -6023,33 +6171,33 @@
           "literal",
           "expression"
         ],
-      "result_binding_kinds": [
-        "local",
-        "operation-result",
-        "discard"
-      ],
-      "result_source_shapes": {
-        "local": [
-          "kind",
-          "name"
+        "result_binding_kinds": [
+          "local",
+          "operation-result",
+          "discard"
         ],
-        "operation-result": [
-          "kind",
-          "site"
+        "result_source_shapes": {
+          "local": [
+            "kind",
+            "name"
+          ],
+          "operation-result": [
+            "kind",
+            "site"
+          ],
+          "port": [
+            "kind",
+            "name"
+          ],
+          "unit": [
+            "kind"
+          ]
+        },
+        "result_producer_cardinality": "exactly-one-compatible-producer-on-every-success-path",
+        "outcome_actions": [
+          "continue",
+          "propagate"
         ],
-        "port": [
-          "kind",
-          "name"
-        ],
-        "unit": [
-          "kind"
-        ]
-      },
-      "result_producer_cardinality": "exactly-one-compatible-producer-on-every-success-path",
-      "outcome_actions": [
-        "continue",
-        "propagate"
-      ],
         "outcome_mapping": "exactly-once-and-exhaustive",
         "scope": "lexical-call-frame",
         "ambient_capture": "forbidden",
