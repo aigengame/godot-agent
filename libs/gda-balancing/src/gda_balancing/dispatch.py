@@ -29,7 +29,7 @@ from gda_balancing.descriptors import (
     CommandDescriptor,
     option_bindings,
 )
-from gda_balancing.emit import canonical_json, model_payload
+from gda_balancing.emit import canonical_json, indented_json, model_payload
 from gda_balancing.envelope import (
     ERROR_ENVELOPE_SCHEMA,
     EXIT_INTERNAL,
@@ -258,7 +258,18 @@ def _invoke_descriptor(
     payload = model_payload(outcome)
     if descriptor.schema_major == 2 and descriptor.success_schema is not None:
         jsonschema.validate(payload, descriptor.success_schema())
-    body = canonical_json(payload)
+    presentation = (
+        getattr(input_obj, descriptor.json_presentation_field)
+        if descriptor.json_presentation_field is not None
+        else "canonical"
+    )
+    if presentation not in {"canonical", "indented"}:
+        raise TypeError("descriptor JSON presentation field is outside its contract")
+    body = (
+        indented_json(payload)
+        if presentation == "indented"
+        else canonical_json(payload)
+    )
     if descriptor.artifact_sink and out is not None:
         # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
         # The sink is written BEFORE stdout, and an unwritable sink raises

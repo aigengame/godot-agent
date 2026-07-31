@@ -263,10 +263,16 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             ],
             "formula": {
                 "id": "derive-value",
+                "identity": rir["formulas"][0]["identity"],
                 "module": "main",
             },
             "identity": rir["formula_bindings"][0]["identity"],
             "site": {
+                "context": {
+                    "frame": "pre-snapshot",
+                    "phase": "initialization",
+                },
+                "identity": rir["formula_bindings"][0]["site"]["identity"],
                 "kind": "derived-symbol",
                 "resolved_symbol": {
                     "model": "example.quantity-model",
@@ -276,6 +282,139 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
             },
         }
     ]
+
+
+def test_model_build_atomically_publishes_the_formula_explanation(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source = tmp_path / "formula-explanation-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    artifact_dir = _artifact_directory(json.loads(stdout))
+    explanation = json.loads((artifact_dir / "model-explanation.json").read_text())
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    debug_map = json.loads((artifact_dir / "debug-map.json").read_text())
+    build_receipt = json.loads((artifact_dir / "build-receipt.json").read_text())
+    assert explanation["artifact_kind"] == "model-explanation"
+    assert explanation["rir_identity"] == rir["content_identity"]
+    assert explanation["debug_map_identity"] == debug_map["content_identity"]
+    assert [row["id"] for row in explanation["formula_explanations"]] == [
+        "derive-value"
+    ]
+    assert explanation["formula_explanations"][0]["evaluation_sites"] == [
+        {
+            "binding_identity": rir["formula_bindings"][0]["identity"],
+            "context": {
+                "frame": "pre-snapshot",
+                "phase": "initialization",
+            },
+            "identity": rir["formula_bindings"][0]["site"]["identity"],
+            "operands": rir["formula_bindings"][0]["arguments"],
+            "result": rir["formulas"][0]["result"],
+        }
+    ]
+    assert explanation["operation_explanations"]
+    assert (
+        build_receipt["model_explanation_identity"] == explanation["content_identity"]
+    )
+    manifest = json.loads((artifact_dir / "artifact-set-manifest.json").read_text())
+    assert "model-explanation" in {
+        member["logical_name"] for member in manifest["members"]
+    }
+
+
+def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+    assert (exit_code, stderr) == (0, "")
+    artifact_dir = _artifact_directory(json.loads(stdout))
+    receipt_path = artifact_dir / "artifact-set-receipt.json"
+    explanation_path = artifact_dir / "model-explanation.json"
+    expected_bytes = explanation_path.read_bytes()
+
+    def fail_if_regenerated(*_args, **_kwargs):
+        raise AssertionError("model inspect must not regenerate an explanation")
+
+    monkeypatch.setattr(model_module, "_model_explanation", fail_if_regenerated)
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        [
+            "model",
+            "inspect",
+            str(receipt_path),
+            "--format",
+            "indented",
+        ]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (0, "")
+    assert inspect_stdout.startswith("{\n  ")
+    assert json.loads(inspect_stdout) == json.loads(expected_bytes)
+    assert explanation_path.read_bytes() == expected_bytes
 
 
 def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli):
@@ -1057,6 +1196,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
             "build-receipt",
             "capability-manifest",
             "debug-map",
+            "model-explanation",
             "package-lock",
             "resolution-receipt",
             "resolved-model",
@@ -1085,6 +1225,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         "build-receipt",
         "capability-manifest",
         "debug-map",
+        "model-explanation",
         "package-lock",
         "resolution-receipt",
         "resolved-model",
@@ -1108,6 +1249,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         "build-receipt.json",
         "capability-manifest.json",
         "debug-map.json",
+        "model-explanation.json",
         "package-lock.json",
         "publication-index.json",
         "resolution-receipt.json",
@@ -2087,6 +2229,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         "build-receipt",
         "capability-manifest",
         "debug-map",
+        "model-explanation",
         "package-lock",
         "resolution-receipt",
         "resolved-model",

@@ -1739,6 +1739,27 @@ def _resolved_formula_operand(
     )
 
 
+def _derived_formula_evaluation_site(
+    domains: dict[str, str],
+    resolved_symbol: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    body = cast(
+        dict[str, JsonValue],
+        {
+            "kind": "derived-symbol",
+            "context": {
+                "phase": "initialization",
+                "frame": "pre-snapshot",
+            },
+            "resolved_symbol": resolved_symbol,
+        },
+    )
+    return {
+        **body,
+        "identity": content_identity(domains["evaluation_site"], body),
+    }
+
+
 def _resolved_formula_programs_and_bindings(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
@@ -1777,15 +1798,9 @@ def _resolved_formula_programs_and_bindings(
         imports = {
             cast(str, item[cast(str, profile["import_alias_member"])]): {
                 "alias": cast(str, item[cast(str, profile["import_alias_member"])]),
-                "package": cast(
-                    str, item[cast(str, profile["import_package_member"])]
-                ),
-                "version": cast(
-                    str, item[cast(str, profile["import_version_member"])]
-                ),
-                "symbol": cast(
-                    str, item[cast(str, profile["import_symbol_member"])]
-                ),
+                "package": cast(str, item[cast(str, profile["import_package_member"])]),
+                "version": cast(str, item[cast(str, profile["import_version_member"])]),
+                "symbol": cast(str, item[cast(str, profile["import_symbol_member"])]),
             }
             for item in cast(
                 list[dict[str, Any]],
@@ -2200,13 +2215,17 @@ def _resolved_formula_programs_and_bindings(
         binding_body = cast(
             dict[str, JsonValue],
             {
-                "site": {
-                    "kind": "derived-symbol",
-                    "resolved_symbol": site_declaration["resolved_symbol"],
-                },
+                "site": _derived_formula_evaluation_site(
+                    domains,
+                    cast(
+                        dict[str, JsonValue],
+                        site_declaration["resolved_symbol"],
+                    ),
+                ),
                 "formula": {
                     "module": formula["module"],
                     "id": formula["id"],
+                    "identity": formula["identity"],
                 },
                 "arguments": arguments,
             },
@@ -2278,15 +2297,9 @@ def _resolved_formulas_and_bindings(
         imports = {
             cast(str, item[cast(str, profile["import_alias_member"])]): {
                 "alias": cast(str, item[cast(str, profile["import_alias_member"])]),
-                "package": cast(
-                    str, item[cast(str, profile["import_package_member"])]
-                ),
-                "version": cast(
-                    str, item[cast(str, profile["import_version_member"])]
-                ),
-                "symbol": cast(
-                    str, item[cast(str, profile["import_symbol_member"])]
-                ),
+                "package": cast(str, item[cast(str, profile["import_package_member"])]),
+                "version": cast(str, item[cast(str, profile["import_version_member"])]),
+                "symbol": cast(str, item[cast(str, profile["import_symbol_member"])]),
             }
             for item in cast(
                 list[dict[str, Any]],
@@ -2491,13 +2504,11 @@ def _resolved_formulas_and_bindings(
         binding_body = cast(
             dict[str, JsonValue],
             {
-                "site": {
-                    "kind": "derived-symbol",
-                    "resolved_symbol": resolved_symbol,
-                },
+                "site": _derived_formula_evaluation_site(domains, resolved_symbol),
                 "formula": {
                     "module": formula["module"],
                     "id": formula["id"],
+                    "identity": formula["identity"],
                 },
                 "arguments": arguments,
             },
@@ -4865,17 +4876,24 @@ def _formula_program_graph_is_admitted(
         if (
             set(binding) != {"site", "formula", "arguments", "identity"}
             or not isinstance(site, dict)
-            or set(site) != {"kind", "resolved_symbol"}
+            or set(site) != {"kind", "context", "resolved_symbol", "identity"}
             or site.get("kind") != "derived-symbol"
+            or site.get("context")
+            != {"phase": "initialization", "frame": "pre-snapshot"}
             or not isinstance(site.get("resolved_symbol"), dict)
             or not isinstance(formula_ref, dict)
-            or set(formula_ref) != {"module", "id"}
+            or set(formula_ref) != {"module", "id", "identity"}
             or not isinstance(arguments, list)
             or binding.get("identity")
             != content_identity(domains["binding"], cast(JsonValue, binding_body))
         ):
             return False
         resolved_symbol = cast(dict[str, str], site["resolved_symbol"])
+        site_body = {key: value for key, value in site.items() if key != "identity"}
+        if site.get("identity") != content_identity(
+            domains["evaluation_site"], cast(JsonValue, site_body)
+        ):
+            return False
         site_key = (
             cast(str, resolved_symbol.get("module")),
             cast(str, resolved_symbol.get("name")),
@@ -4893,7 +4911,9 @@ def _formula_program_graph_is_admitted(
             cast(str, formula_ref.get("id")),
         )
         bound_formula = formulas_by_key.get(formula_key)
-        if bound_formula is None:
+        if bound_formula is None or formula_ref.get("identity") != bound_formula.get(
+            "identity"
+        ):
             return False
         parameters = {
             parameter["id"]: parameter for parameter in bound_formula["parameters"]
@@ -5083,17 +5103,24 @@ def _formula_graph_is_admitted(
         if (
             set(binding) != {"site", "formula", "arguments", "identity"}
             or not isinstance(site, dict)
-            or set(site) != {"kind", "resolved_symbol"}
+            or set(site) != {"kind", "context", "resolved_symbol", "identity"}
             or site.get("kind") != "derived-symbol"
+            or site.get("context")
+            != {"phase": "initialization", "frame": "pre-snapshot"}
             or not isinstance(site.get("resolved_symbol"), dict)
             or not isinstance(formula_ref, dict)
-            or set(formula_ref) != {"module", "id"}
+            or set(formula_ref) != {"module", "id", "identity"}
             or not isinstance(arguments, list)
             or binding.get("identity")
             != content_identity(domains["binding"], cast(JsonValue, binding_body))
         ):
             return False
         resolved_symbol = cast(dict[str, str], site["resolved_symbol"])
+        site_body = {key: value for key, value in site.items() if key != "identity"}
+        if site.get("identity") != content_identity(
+            domains["evaluation_site"], cast(JsonValue, site_body)
+        ):
+            return False
         site_key = (
             cast(str, resolved_symbol.get("module")),
             cast(str, resolved_symbol.get("name")),
@@ -5111,7 +5138,7 @@ def _formula_graph_is_admitted(
             cast(str, formula_ref.get("id")),
         )
         formula = formulas_by_key.get(formula_key)
-        if formula is None:
+        if formula is None or formula_ref.get("identity") != formula.get("identity"):
             return False
         parameters = {
             parameter["id"]: parameter
@@ -5378,6 +5405,112 @@ def _lowering_inputs(
     return lock, declarations, lowering, source_rows
 
 
+def _model_explanation(
+    language_bundle: dict[str, Any],
+    rir: dict[str, JsonValue],
+    debug_map: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Project the immutable human inspection companion from exact build data."""
+    formulas = cast(list[dict[str, Any]], rir["formulas"])
+    bindings = cast(list[dict[str, Any]], rir["formula_bindings"])
+    selected_semantics = cast(dict[str, Any], rir["selected_semantics"])
+    formula_explanations: list[dict[str, JsonValue]] = []
+    for formula in formulas:
+        identity = cast(str, formula["identity"])
+        evaluation_sites = [
+            {
+                "identity": cast(dict[str, Any], binding["site"])["identity"],
+                "binding_identity": binding["identity"],
+                "context": cast(dict[str, Any], binding["site"])["context"],
+                "operands": binding["arguments"],
+                "result": formula["result"],
+            }
+            for binding in bindings
+            if cast(dict[str, Any], binding["formula"]).get("identity") == identity
+        ]
+        formula_explanations.append(
+            cast(
+                dict[str, JsonValue],
+                {
+                    "module": formula["module"],
+                    "id": formula["id"],
+                    "identity": identity,
+                    "parameters": formula["parameters"],
+                    "result": formula["result"],
+                    "body": formula["body"],
+                    "closure": formula["closure"],
+                    "evaluation_sites": evaluation_sites,
+                },
+            )
+        )
+    formula_explanations.sort(
+        key=lambda row: (cast(str, row["module"]), cast(str, row["id"]))
+    )
+
+    operation_domain = cast(
+        str,
+        _formula_policy(language_bundle)["identity_domains"]["operation"],
+    )
+    operation_explanations: list[dict[str, JsonValue]] = []
+    for row in cast(list[dict[str, Any]], selected_semantics["operations"]):
+        package = cast(str, row["package"])
+        definition = cast(dict[str, Any], row["definition"])
+        operation_body = cast(
+            dict[str, JsonValue],
+            {
+                "package": package,
+                "version": definition["version"],
+                "id": definition["id"],
+                "definition": definition,
+            },
+        )
+        operation_explanations.append(
+            cast(
+                dict[str, JsonValue],
+                {
+                    "package": package,
+                    "version": definition["version"],
+                    "id": definition["id"],
+                    "identity": content_identity(operation_domain, operation_body),
+                    "operation_kind": definition["operation_kind"],
+                    "purity": definition["purity"],
+                    "effects": definition["effects"],
+                    "refusals": definition["refusals"],
+                    "resource_bounds": definition["resource_bounds"],
+                    "formula_evaluation_sites": [
+                        cast(dict[str, Any], binding["site"])["identity"]
+                        for binding in bindings
+                        if cast(dict[str, Any], binding["site"]).get("kind")
+                        == "operation-slot"
+                        and cast(dict[str, Any], binding["site"]).get("operation")
+                        == {
+                            "package": package,
+                            "version": definition["version"],
+                            "id": definition["id"],
+                        }
+                    ],
+                },
+            )
+        )
+    operation_explanations.sort(
+        key=lambda row: (
+            cast(str, row["package"]),
+            cast(str, row["version"]),
+            cast(str, row["id"]),
+        )
+    )
+    return _identified_artifact(
+        language_bundle,
+        "model-explanation",
+        {
+            "rir_identity": rir["content_identity"],
+            "debug_map_identity": debug_map["content_identity"],
+            "formula_explanations": cast(JsonValue, formula_explanations),
+            "operation_explanations": cast(JsonValue, operation_explanations),
+        },
+    )
+
+
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
     """Lower one checked source to the semantic and provenance artifacts."""
     context = checked.authority_context
@@ -5475,6 +5608,11 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             ),
         },
     )
+    model_explanation = _model_explanation(
+        checked.language_bundle,
+        rir,
+        debug_map,
+    )
     resolution_receipt = _identified_artifact(
         checked.language_bundle,
         "resolution-receipt",
@@ -5504,6 +5642,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "resolved_model_identity": resolved["content_identity"],
             "capability_manifest_identity": capability_manifest["content_identity"],
             "debug_map_identity": debug_map["content_identity"],
+            "model_explanation_identity": model_explanation["content_identity"],
             "resolution_receipt_identity": resolution_receipt["content_identity"],
         },
     )
@@ -5513,6 +5652,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         "resolved-model": resolved,
         "capability-manifest": capability_manifest,
         "debug-map": debug_map,
+        "model-explanation": model_explanation,
         "resolution-receipt": resolution_receipt,
         "build-receipt": build_receipt,
     }
@@ -5577,6 +5717,66 @@ def _read_canonical_artifact(path: Path) -> dict[str, Any]:
             f"committed publication member is not canonical: {path.name}"
         )
     return value
+
+
+def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
+    """Retrieve and authenticate the stored explanation from one committed build."""
+    path = _normalized_absolute_path(receipt_path)
+    receipt = _read_canonical_artifact(path)
+    context = packaged_authority_context()
+    language_bundle = context.language_bundle
+    if (
+        not _verify_artifact(receipt, language_bundle)
+        or receipt.get("artifact_kind") != "artifact-set-receipt"
+    ):
+        raise RuntimeError("Model build receipt failed exact-authority admission")
+    manifest_locator = receipt.get("manifest_locator")
+    if not isinstance(manifest_locator, str):
+        raise RuntimeError("Model build receipt has no manifest locator")
+    manifest_path = _normalized_absolute_path(manifest_locator)
+    publication_dir = manifest_path.parent
+    _assert_directory_without_symlink(publication_dir)
+    if manifest_path.name != "artifact-set-manifest.json":
+        raise RuntimeError("Model build receipt has a stale manifest locator")
+    manifest = _read_canonical_artifact(manifest_path)
+    if not _verify_artifact(manifest, language_bundle) or manifest.get(
+        "content_identity"
+    ) != receipt.get("manifest_identity"):
+        raise RuntimeError("Model build manifest failed exact-authority admission")
+    members = manifest.get("members")
+    locators = receipt.get("member_locators")
+    if not isinstance(members, list) or not isinstance(locators, list):
+        raise RuntimeError("Model build has no closed artifact member map")
+    explanation_rows = [
+        row
+        for row in members
+        if isinstance(row, dict)
+        and row.get("logical_name") == "model-explanation"
+        and row.get("artifact_kind") == "model-explanation"
+    ]
+    explanation_locators = [
+        row
+        for row in locators
+        if isinstance(row, dict) and row.get("logical_name") == "model-explanation"
+    ]
+    expected_path = publication_dir / "model-explanation.json"
+    if (
+        len(explanation_rows) != 1
+        or len(explanation_locators) != 1
+        or explanation_locators[0].get("locator") != str(expected_path.absolute())
+    ):
+        raise RuntimeError("Model build has no unique stored Model explanation")
+    explanation = _read_canonical_artifact(expected_path)
+    if (
+        not _verify_artifact(explanation, language_bundle)
+        or explanation.get("artifact_kind") != "model-explanation"
+        or explanation.get("content_identity")
+        != explanation_rows[0].get("content_identity")
+        or explanation.get("wire_schema_identity")
+        != explanation_rows[0].get("wire_schema_identity")
+    ):
+        raise RuntimeError("stored Model explanation failed exact-authority admission")
+    return cast(dict[str, JsonValue], explanation)
 
 
 def _assert_directory_without_symlink(path: Path) -> None:
@@ -5995,6 +6195,12 @@ def _recover_publication(
         lock, rir, resolved, language_bundle
     ):
         raise RuntimeError("committed Capability manifest is not an exact projection")
+    if artifacts["model-explanation"] != _model_explanation(
+        language_bundle,
+        cast(dict[str, JsonValue], rir),
+        cast(dict[str, JsonValue], artifacts["debug-map"]),
+    ):
+        raise RuntimeError("committed Model explanation is not an exact projection")
     build_receipt = artifacts["build-receipt"]
     debug_map = artifacts["debug-map"]
     resolution_receipt = artifacts["resolution-receipt"]
@@ -6015,6 +6221,9 @@ def _recover_publication(
             "content_identity"
         ],
         "debug_map_identity": debug_map["content_identity"],
+        "model_explanation_identity": artifacts["model-explanation"][
+            "content_identity"
+        ],
         "resolution_receipt_identity": resolution_receipt["content_identity"],
     }
     if any(

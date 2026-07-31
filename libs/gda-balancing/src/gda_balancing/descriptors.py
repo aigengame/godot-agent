@@ -170,6 +170,9 @@ class CommandDescriptor:
     # emitted on stdout with exit 1 and remains distinct from refusal.
     verdict_model: type[BaseModel] | None = field(default=None)
     positional_field: str | None = None
+    # Optional input field selecting canonical or indented JSON presentation.
+    # It changes whitespace only; handlers still return the same typed value.
+    json_presentation_field: str | None = field(default=None)
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
     # off them.
     stochastic: bool = field(default=False)
@@ -288,6 +291,14 @@ class CommandDescriptor:
         ):
             raise ValueError(
                 f"positional designation {self.positional_field!r} names no "
+                f"{self.input_model.__name__} field"
+            )
+        if (
+            self.json_presentation_field is not None
+            and self.json_presentation_field not in self.input_model.model_fields
+        ):
+            raise ValueError(
+                f"JSON presentation field {self.json_presentation_field!r} names no "
                 f"{self.input_model.__name__} field"
             )
 

@@ -307,6 +307,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         "execution": {
             "stochastic": descriptor.stochastic,
             "structured_params": descriptor.structured_params,
+            "json_presentation_field": descriptor.json_presentation_field,
             "refusal_stages": list(descriptor.refusal_stages),
             "refusal_catalog": [
                 {"code": code, "stage": stage}
@@ -382,6 +383,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
         "properties": {
             "stochastic": {"type": "boolean"},
             "structured_params": {"type": "boolean"},
+            "json_presentation_field": {"type": ["string", "null"]},
             "refusal_stages": {"type": "array", "items": {"type": "string"}},
             "refusal_catalog": {
                 "type": "array",
@@ -400,6 +402,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
         "required": [
             "stochastic",
             "structured_params",
+            "json_presentation_field",
             "refusal_stages",
             "refusal_catalog",
             "usage_codes",
@@ -529,6 +532,7 @@ def surface_manifest(
                 "execution": {
                     "stochastic": descriptor.stochastic,
                     "structured_params": descriptor.structured_params,
+                    "json_presentation_field": descriptor.json_presentation_field,
                     "refusal_stages": list(descriptor.refusal_stages),
                     "refusal_catalog": [
                         {"code": code, "stage": stage}
