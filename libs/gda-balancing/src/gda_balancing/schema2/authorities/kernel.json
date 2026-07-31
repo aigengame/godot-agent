@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:96416f9c759d340a12a251a5af8087d1e3309556ee73113625f9629c7baf0d97",
+  "content_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3101,7 +3101,7 @@
             "runtime_program_version": {
               "type": "non-empty-string"
             },
-            "formula_evaluation": {
+            "extensions": {
               "type": "canonical-value"
             }
           },
@@ -3118,7 +3118,7 @@
             "numeric_law",
             "rng",
             "budget_scopes",
-            "formula_evaluation"
+            "extensions"
           ]
         },
         "wire_schemas": {

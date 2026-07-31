@@ -21,8 +21,9 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
-def test_formula_semantics_are_owned_by_affected_package_vectors_and_runtime_profile():
+def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     authority = _authority_candidate()
+    kernel = authority["kernel"]
     ldb = authority["language_bundle"]
     packages = {package["id"]: package for package in ldb["language"]["packages"]}
     vector_sets = {
@@ -38,7 +39,12 @@ def test_formula_semantics_are_owned_by_affected_package_vectors_and_runtime_pro
         if definition["id"] == "standard.exact-int64-event-v1"
     )
 
-    assert runtime_profile["formula_evaluation"] == {
+    runtime_profile_contract = kernel["meta_format"]["language_definitions"][
+        "collections"
+    ]["runtime_profiles"]
+    assert "formula_evaluation" not in runtime_profile_contract["field_types"]
+    assert "formula_evaluation" not in runtime_profile_contract["optional_members"]
+    assert runtime_profile["extensions"]["standard.formula"] == {
         "cache": {
             "admission": "optional-non-semantic",
             "charge_policy": "same-as-uncached-evaluation",
