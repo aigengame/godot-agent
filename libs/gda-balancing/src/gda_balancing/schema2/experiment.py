@@ -1309,6 +1309,7 @@ def _evaluate_initialization_programs(
     runtime_limit: int,
     cache: dict[bytes, int] | None,
     frame_token: JsonValue | None = None,
+    frame_identity: str | None = None,
     phase: str = "initialization",
 ) -> int:
     """Evaluate closed generic programs in one authority-owned lifecycle frame."""
@@ -1327,23 +1328,26 @@ def _evaluate_initialization_programs(
     }
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     runtime_nodes = _runtime_nodes(checked)
-    frame_identity = content_identity(
-        "initialization-frame-v2",
-        cast(
-            JsonValue,
-            {
-                "token": frame_token,
-                "values": [
-                    {
-                        "symbol": identity.decode("utf-8").rstrip("\n"),
-                        "value": value,
-                    }
-                    for identity, value in sorted(actual_values.items())
-                    if identity not in program_targets
-                ],
-            },
-        ),
-    )
+    if frame_identity is None:
+        if phase != "initialization":
+            raise ValueError("observation requires an exact committed Snapshot identity")
+        frame_identity = content_identity(
+            "initialization-frame-v2",
+            cast(
+                JsonValue,
+                {
+                    "token": frame_token,
+                    "values": [
+                        {
+                            "symbol": identity.decode("utf-8").rstrip("\n"),
+                            "value": value,
+                        }
+                        for identity, value in sorted(actual_values.items())
+                        if identity not in program_targets
+                    ],
+                },
+            ),
+        )
     pending = list(programs)
     while pending:
         progressed = False
@@ -1862,6 +1866,38 @@ def evaluate_experiment(
                 cast(JsonValue, entrypoint["result"]["symbol"])
             )
             actual_values[result_identity] = root_result
+        typed_outcome = {
+            "id": outcome,
+            "kind": outcome_definition["kind"],
+        }
+        event = cast(
+            dict[str, JsonValue],
+            {
+                "index": len(events),
+                "operation": operation["id"],
+                "entrypoint": {
+                    "id": entrypoint["id"],
+                    "identity": entrypoint["identity"],
+                },
+                "calls": call_trace,
+                "outcome": typed_outcome,
+                "facts": _resolved_value_rows(actual_values, display_names),
+                "state_before": _resolved_int_rows(before, display_names),
+                "state_after": _resolved_int_rows(state, display_names),
+                "rng_draws": draws,
+            },
+        )
+        snapshot = cast(
+            dict[str, JsonValue],
+            {
+                "index": len(snapshots),
+                "name": f"{scenario['id']}:terminal",
+                "values": _resolved_int_rows(state, display_names),
+            },
+        )
+        events.append(event)
+        snapshots.append(snapshot)
+        snapshot_identity = content_identity("runtime-snapshot-v2", snapshot)
         try:
             total_steps = _evaluate_initialization_programs(
                 checked,
@@ -1869,10 +1905,7 @@ def evaluate_experiment(
                 consumed_steps=total_steps,
                 runtime_limit=runtime_limit,
                 cache=initialization_cache,
-                frame_token={
-                    "scenario": scenario["id"],
-                    "snapshot_index": len(snapshots),
-                },
+                frame_identity=snapshot_identity,
                 phase="observation",
             )
         except _InitializationProgramFault as fault:
@@ -1896,41 +1929,10 @@ def evaluate_experiment(
                 call_site_identity=None,
                 evaluation_site_identity=fault.evaluation_site_identity,
                 state_before={
-                    display_names[identity]: value for identity, value in before.items()
+                    display_names[identity]: value for identity, value in state.items()
                 },
             )
-        typed_outcome = {
-            "id": outcome,
-            "kind": outcome_definition["kind"],
-        }
-        event = cast(
-            dict[str, JsonValue],
-            {
-                "index": len(events),
-                "operation": operation["id"],
-                "entrypoint": {
-                    "id": entrypoint["id"],
-                    "identity": entrypoint["identity"],
-                },
-                "calls": call_trace,
-                "outcome": typed_outcome,
-                "facts": _resolved_value_rows(actual_values, display_names),
-                "state_before": _resolved_int_rows(before, display_names),
-                "state_after": _resolved_int_rows(state, display_names),
-                "rng_draws": draws,
-            },
-        )
-        events.append(event)
-        snapshots.append(
-            cast(
-                dict[str, JsonValue],
-                {
-                    "index": len(snapshots),
-                    "name": f"{scenario['id']}:terminal",
-                    "values": _resolved_int_rows(state, display_names),
-                },
-            )
-        )
+        event["facts"] = _resolved_value_rows(actual_values, display_names)
         scenario_outputs[scenario["id"]] = (
             event,
             {display_names[identity]: value for identity, value in state.items()},

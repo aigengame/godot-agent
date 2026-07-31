@@ -100,6 +100,9 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
             "formula.runtime.accept.initialization-and-event-frames",
             "formula.runtime.refuse.initialization-atomically",
             "formula.runtime.boundary.cache-charge-invariant",
+            "formula.runtime.observation.positive.post-transition-snapshot",
+            "formula.runtime.observation.boundary.snapshot-cache-key",
+            "formula.runtime.observation.refusal.atomic-prefix",
         },
         "core.quantity": {
             "formula.quantity.accept.pure-operation-closure",

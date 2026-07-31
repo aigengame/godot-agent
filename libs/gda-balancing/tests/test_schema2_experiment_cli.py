@@ -1197,7 +1197,7 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
 
 
 def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
-    tmp_path, run_cli
+    tmp_path, run_cli, monkeypatch
 ):
     source_value = _rpg_model_source()
     derived_binding = next(
@@ -1234,18 +1234,109 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] != "accuracy"
     ]
+    second = deepcopy(specification["scenarios"][0])
+    second["id"] = "second-cast"
+    specification["scenarios"].append(second)
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first-terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "one-cast:terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 82, "maximum": 82},
+            }
+        )
+    ]
     spec_path = tmp_path / "snapshot-derived-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     checked = experiment_runtime_module.check_experiment(str(spec_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    observation_frames: list[str | None] = []
+    observation_cache_growth: list[int] = []
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+
+    def record_observation_frame(*args, **kwargs):
+        cache = kwargs.get("cache")
+        cache_entries_before = len(cache) if cache is not None else 0
+        result = evaluate_programs(*args, **kwargs)
+        if kwargs.get("phase") == "observation":
+            observation_frames.append(kwargs.get("frame_identity"))
+            observation_cache_growth.append(len(cache) - cache_entries_before)
+        return result
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        record_observation_frame,
+    )
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
-    event = artifacts.members["event-trace"].value["events"][0]
-    facts = {row["name"]: row["integer"] for row in event["facts"]}
-    assert facts["target_health"] == 82
-    assert facts["effective_accuracy"] == facts["target_health"]
+    events = artifacts.members["event-trace"].value["events"]
+    snapshots = artifacts.members["snapshot-series"].value["snapshots"]
+    terminal_snapshots = [
+        snapshot for snapshot in snapshots if snapshot["name"].endswith(":terminal")
+    ]
+    assert observation_frames == [
+        content_identity("runtime-snapshot-v2", cast(Any, snapshot))
+        for snapshot in terminal_snapshots
+    ]
+    assert len(set(observation_frames)) == 2
+    assert observation_cache_growth == [1, 1]
+    for event in events:
+        facts = {row["name"]: row["integer"] for row in event["facts"]}
+        assert facts["target_health"] == 82
+        assert facts["effective_accuracy"] == facts["target_health"]
+
+
+def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+    observation_frame: str | None = None
+
+    def refuse_observation(*args, **kwargs):
+        nonlocal observation_frame
+        if kwargs.get("phase") == "observation":
+            observation_frame = kwargs.get("frame_identity")
+            raise experiment_runtime_module._InitializationProgramFault(
+                signal="numeric-overflow",
+                program="formula.observation",
+                evaluation_site_identity="sha256:" + "f" * 64,
+                frame_identity=observation_frame or "missing-snapshot-identity",
+            )
+        return evaluate_programs(*args, **kwargs)
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        refuse_observation,
+    )
+
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert observation_frame is not None
+    assert observation_frame.startswith("sha256:")
+    assert outcome.committed_trace_prefix == (
+        {
+            "index": 0,
+            "operation": "game.combat.cast-v1",
+            "outcome": {"id": "cast-resolved", "kind": "success"},
+        },
+    )
+    assert outcome.refusing_event_index == 1
+    assert outcome.last_state["target_health"] == 82
+    assert outcome.state_before == outcome.state_after == outcome.last_state
 
 
 def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
@@ -2474,6 +2565,9 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         "formula.runtime.accept.initialization-and-event-frames",
         "formula.runtime.refuse.initialization-atomically",
         "formula.runtime.boundary.cache-charge-invariant",
+        "formula.runtime.observation.positive.post-transition-snapshot",
+        "formula.runtime.observation.boundary.snapshot-cache-key",
+        "formula.runtime.observation.refusal.atomic-prefix",
     }
     for vector in vectors:
         production = experiment_runtime_module._evaluate_value_program_vector(vector)
