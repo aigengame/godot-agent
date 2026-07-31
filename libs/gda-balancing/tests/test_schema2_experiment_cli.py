@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+import jsonschema
 import pytest
 
 import gda_balancing.commands.experiment as experiment_command_module
@@ -722,39 +723,42 @@ def _reference_evaluate_value_program_vector(
     }
 
 
-def _reference_evaluate_observation_lifecycle_vector(
-    vector: dict[str, Any],
-    snapshot_identity_domain: str,
+def _observation_evidence_schema(
+    language_bundle: Any,
+    artifact_kind: str,
 ) -> dict[str, Any]:
-    inp = vector["input"]
-    identities: list[str] = []
-    committed_prefix: list[dict[str, Any]] = []
-    cache: set[bytes] = set()
-    post_state: list[dict[str, Any]] = []
-    outcome = "admitted"
-    for transition_index, transition in enumerate(inp["transitions"]):
-        snapshot = transition["snapshot"]
-        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
-        identities.append(snapshot_identity)
-        committed_prefix.append(transition["event"])
-        post_state = snapshot["values"]
-        cache.add(
-            canonical_bytes(
-                {
-                    "evaluation_site_identity": inp["evaluation_site_identity"],
-                    "snapshot_identity": snapshot_identity,
-                }
-            )
-        )
-        if transition_index == inp["refusal_transition_index"]:
-            outcome = "refused"
-            break
+    return next(
+        row["schema"]
+        for row in language_bundle["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == artifact_kind
+    )
+
+
+def _observation_evidence(
+    *,
+    artifact_kind: str,
+    cache_entries: int,
+    events: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    outcome: str,
+    post_state: list[dict[str, Any]],
+    snapshot_identities: list[str],
+    snapshot_indices: list[int],
+) -> dict[str, Any]:
     return {
-        "cache_entries": len(cache),
-        "committed_prefix": committed_prefix,
+        "artifact_kind": artifact_kind,
+        "cache_entries": cache_entries,
+        "committed_prefix": [
+            {
+                "index": event["index"],
+                "operation": event["operation"],
+                "outcome": event["outcome"],
+            }
+            for event in events
+        ],
         "outcome": outcome,
         "post_state": post_state,
-        "snapshot_identities": identities,
+        "snapshot_identities": snapshot_identities,
+        "snapshot_indices": snapshot_indices,
     }
 
 
@@ -1333,27 +1337,73 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         facts = {row["name"]: row["integer"] for row in event["facts"]}
         assert facts["target_health"] == 82
         assert facts["effective_accuracy"] == facts["target_health"]
+    positive_evidence = _observation_evidence(
+        artifact_kind="formula-observation-positive-evidence",
+        cache_entries=observation_cache_growth[0],
+        events=events[:1],
+        outcome="admitted",
+        post_state=terminal_snapshots[0]["values"],
+        snapshot_identities=cast(list[str], observation_frames[:1]),
+        snapshot_indices=[terminal_snapshots[0]["index"]],
+    )
+    boundary_evidence = _observation_evidence(
+        artifact_kind="formula-observation-boundary-evidence",
+        cache_entries=sum(observation_cache_growth),
+        events=events,
+        outcome="admitted",
+        post_state=terminal_snapshots[-1]["values"],
+        snapshot_identities=cast(list[str], observation_frames),
+        snapshot_indices=[snapshot["index"] for snapshot in terminal_snapshots],
+    )
+    jsonschema.validate(
+        positive_evidence,
+        _observation_evidence_schema(
+            checked.language_bundle,
+            "formula-observation-positive-evidence",
+        ),
+    )
+    jsonschema.validate(
+        boundary_evidence,
+        _observation_evidence_schema(
+            checked.language_bundle,
+            "formula-observation-boundary-evidence",
+        ),
+    )
 
 
 def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     tmp_path, run_cli, monkeypatch
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    second = deepcopy(specification["scenarios"][0])
+    second["id"] = "second-cast"
+    specification["scenarios"].append(second)
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
     checked = experiment_runtime_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
-    observation_frame: str | None = None
+    observation_frames: list[str] = []
+    observation_cache_growth: list[int] = []
 
     def refuse_observation(*args, **kwargs):
-        nonlocal observation_frame
         if kwargs.get("phase") == "observation":
-            observation_frame = kwargs.get("frame_identity")
-            raise experiment_runtime_module._InitializationProgramFault(
-                signal="numeric-overflow",
-                program="formula.observation",
-                evaluation_site_identity="sha256:" + "f" * 64,
-                frame_identity=observation_frame or "missing-snapshot-identity",
-            )
+            frame_identity = kwargs.get("frame_identity")
+            assert isinstance(frame_identity, str)
+            observation_frames.append(frame_identity)
+            if len(observation_frames) == 2:
+                raise experiment_runtime_module._InitializationProgramFault(
+                    signal="numeric-overflow",
+                    program="formula.observation",
+                    evaluation_site_identity="sha256:" + "f" * 64,
+                    frame_identity=frame_identity,
+                )
+            cache = kwargs.get("cache")
+            assert isinstance(cache, dict)
+            cache_entries_before = len(cache)
+            result = evaluate_programs(*args, **kwargs)
+            observation_cache_growth.append(len(cache) - cache_entries_before)
+            return result
         return evaluate_programs(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -1365,18 +1415,42 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    assert observation_frame is not None
-    assert observation_frame.startswith("sha256:")
+    assert len(observation_frames) == 2
+    assert all(frame.startswith("sha256:") for frame in observation_frames)
     assert outcome.committed_trace_prefix == (
         {
             "index": 0,
             "operation": "game.combat.cast-v1",
             "outcome": {"id": "cast-resolved", "kind": "success"},
         },
+        {
+            "index": 1,
+            "operation": "game.combat.cast-v1",
+            "outcome": {"id": "cast-resolved", "kind": "success"},
+        },
     )
-    assert outcome.refusing_event_index == 1
+    assert outcome.refusing_event_index == 2
     assert outcome.last_state["target_health"] == 82
     assert outcome.state_before == outcome.state_after == outcome.last_state
+    evidence = _observation_evidence(
+        artifact_kind="formula-observation-refusal-evidence",
+        cache_entries=sum(observation_cache_growth),
+        events=outcome.committed_trace_prefix,
+        outcome="refused",
+        post_state=[
+            {"name": name, "value": value}
+            for name, value in sorted(outcome.last_state.items())
+        ],
+        snapshot_identities=observation_frames,
+        snapshot_indices=[1, 3],
+    )
+    jsonschema.validate(
+        evidence,
+        _observation_evidence_schema(
+            checked.language_bundle,
+            "formula-observation-refusal-evidence",
+        ),
+    )
 
 
 def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
@@ -2612,16 +2686,8 @@ def test_package_value_program_vectors_execute_in_two_consumers():
         assert production == reference == vector["expect"]
 
 
-def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
+def test_package_observation_lifecycle_vectors_export_ldb_owned_evidence_schemas():
     _kernel, ldb = authority_module.load_authorities()
-    runtime_profile = next(
-        row
-        for row in ldb["language"]["runtime_profiles"]
-        if row["id"] == "standard.exact-int64-event-v1"
-    )
-    snapshot_identity_domain = runtime_profile["extensions"]["standard.formula"][
-        "snapshot_identity_domain"
-    ]
     vectors = [
         vector
         for vector in next(
@@ -2630,21 +2696,26 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
             if vector_set["package_id"] == "standard.runtime"
             and vector_set["package_version"] == "1.1.0"
         )
-        if vector.get("kind") == "observation-lifecycle"
+        if ".observation." in vector["id"]
     ]
     assert {vector["id"] for vector in vectors} == {
         "formula.runtime.observation.positive.post-transition-snapshot",
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
     }
+    expected_exports = [
+        "formula-observation-boundary-evidence",
+        "formula-observation-positive-evidence",
+        "formula-observation-refusal-evidence",
+    ]
     for vector in vectors:
-        production = experiment_runtime_module._evaluate_observation_lifecycle_vector(
-            vector, snapshot_identity_domain
-        )
-        reference = _reference_evaluate_observation_lifecycle_vector(
-            vector, snapshot_identity_domain
-        )
-        assert production == reference == vector["expect"]
+        assert vector == {
+            "category": vector["category"],
+            "expect": expected_exports,
+            "id": vector["id"],
+            "kind": "package-contract",
+            "probe": {"path": "exports.artifact_wire_schemas"},
+        }
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(

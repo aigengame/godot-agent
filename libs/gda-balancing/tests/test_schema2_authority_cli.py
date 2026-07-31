@@ -1230,7 +1230,6 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     assert {item["id"] for item in contract["kinds"]} == {
         "package-contract",
         "operation-contract",
-        "observation-lifecycle",
         "runtime-scenario",
         "value-program",
     }
@@ -1310,9 +1309,12 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "evaluator-capability-manifest",
         "event-trace",
         "experiment-specification",
-        "experiment-template",
-        "experiment-verdict",
-        "genre-coverage-matrix",
+            "experiment-template",
+            "experiment-verdict",
+            "formula-observation-boundary-evidence",
+            "formula-observation-positive-evidence",
+            "formula-observation-refusal-evidence",
+            "genre-coverage-matrix",
         "golden-scenario",
         "metric-dataset",
         "migration-refusal-report",

@@ -3767,6 +3767,31 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     ]["identity_domains"]["actual_operand"]
     rir = artifacts["rir-semantic-payload"]
     formula = rir["formulas"][0]
+    wrong_boolean_domain = {
+        "type_identity": {
+            "package": "kernel",
+            "version": "2.0.0",
+            "symbol": "Boolean",
+        },
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"kind": "closed-interval", "minimum": 0, "maximum": 1},
+        "numeric_policy": "exact-bool",
+    }
+    condition_parameter = next(
+        parameter
+        for parameter in formula["parameters"]
+        if parameter["id"] == "condition"
+    )
+    condition_parameter.update(wrong_boolean_domain)
+    condition_declaration = next(
+        declaration
+        for declaration in rir["declarations"]
+        if declaration["resolved_symbol"]["name"] == "constant_value"
+    )
+    condition_declaration.update(wrong_boolean_domain)
     operands = {
         name: {
             **(body := {"kind": "parameter", "parameter": name}),
@@ -3814,6 +3839,20 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
         rir["formula_bindings"],
         policy,
     )
+
+    assert (
+        model_module._formula_program_graph_is_admitted(
+            kernel,
+            language_bundle,
+            rir["declarations"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            rir["entrypoints"],
+            rir["selected_semantics"],
+        )
+        is False
+    )
+
     _reidentify(rir, "rir-semantic-payload-v2")
     artifacts["resolved-model"]["rir_identity"] = rir["content_identity"]
     _reidentify(artifacts["resolved-model"], "resolved-model-v2")

@@ -2525,6 +2525,7 @@ def _resolved_formula_programs_and_bindings_impl(
                         "representation",
                         "kind",
                         "unit",
+                        "domain",
                         "numeric_policy",
                     )
                 ):
@@ -6205,6 +6206,7 @@ def _formula_program_graph_is_admitted(
                     "representation",
                     "kind",
                     "unit",
+                    "domain",
                     "numeric_policy",
                 )
             },

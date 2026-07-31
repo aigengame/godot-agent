@@ -1320,52 +1320,6 @@ def _evaluate_value_program_vector(
     }
 
 
-def _evaluate_observation_lifecycle_vector(
-    vector: dict[str, Any],
-    snapshot_identity_domain: str,
-) -> dict[str, JsonValue]:
-    """Execute one package-owned post-transition observation lifecycle vector."""
-    inp = cast(dict[str, Any], vector["input"])
-    identities: list[str] = []
-    committed_prefix: list[dict[str, JsonValue]] = []
-    cache: set[bytes] = set()
-    post_state: list[dict[str, JsonValue]] = []
-    outcome = "admitted"
-    for transition_index, transition in enumerate(
-        cast(list[dict[str, Any]], inp["transitions"])
-    ):
-        event = cast(dict[str, JsonValue], transition["event"])
-        snapshot = cast(dict[str, JsonValue], transition["snapshot"])
-        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
-        identities.append(snapshot_identity)
-        committed_prefix.append(event)
-        post_state = cast(list[dict[str, JsonValue]], snapshot["values"])
-        cache.add(
-            canonical_bytes(
-                cast(
-                    JsonValue,
-                    {
-                        "evaluation_site_identity": inp["evaluation_site_identity"],
-                        "snapshot_identity": snapshot_identity,
-                    },
-                )
-            )
-        )
-        if transition_index == inp["refusal_transition_index"]:
-            outcome = "refused"
-            break
-    return cast(
-        dict[str, JsonValue],
-        {
-            "cache_entries": len(cache),
-            "committed_prefix": committed_prefix,
-            "outcome": outcome,
-            "post_state": post_state,
-            "snapshot_identities": identities,
-        },
-    )
-
-
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],

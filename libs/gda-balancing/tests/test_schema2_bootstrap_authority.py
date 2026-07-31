@@ -121,11 +121,39 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         vector["id"]: vector
         for vector in vector_sets["standard.runtime"]["vector_definitions"]
     }
+    kernel_vector_kinds = {
+        kind["id"]
+        for kind in kernel["meta_format"]["package_vector"]["kinds"]
+    }
+    assert "observation-lifecycle" not in kernel_vector_kinds
     assert {
         runtime_vectors[vector_id]["kind"]
         for vector_id in expected_vector_ids["standard.runtime"]
         if ".observation." in vector_id
-    } == {"observation-lifecycle"}
+    } == {"package-contract"}
+    evidence_schema_ids = {
+        "formula-observation-boundary-evidence",
+        "formula-observation-positive-evidence",
+        "formula-observation-refusal-evidence",
+    }
+    assert set(runtime_package["exports"]["artifact_wire_schemas"]) == (
+        evidence_schema_ids
+    )
+    evidence_schemas = {
+        entry["artifact_kind"]: entry["schema"]
+        for entry in ldb["language"]["artifact_wire_schemas"]
+        if entry["artifact_kind"] in evidence_schema_ids
+    }
+    assert set(evidence_schemas) == evidence_schema_ids
+    assert evidence_schemas["formula-observation-positive-evidence"]["const"][
+        "snapshot_indices"
+    ] == [1]
+    assert evidence_schemas["formula-observation-boundary-evidence"]["const"][
+        "snapshot_indices"
+    ] == [1, 3]
+    assert evidence_schemas["formula-observation-refusal-evidence"]["const"][
+        "snapshot_indices"
+    ] == [1, 3]
 
 
 @pytest.mark.parametrize(
@@ -541,9 +569,6 @@ def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch)
         "contract-expectation",
         "runtime-operation",
         "unknown-kind",
-        "lifecycle-snapshot-identity",
-        "lifecycle-committed-prefix",
-        "lifecycle-authority-domain",
     ),
 )
 def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers(
@@ -568,28 +593,6 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
             vector["operation"] = "game.combat.damage-v1"
         else:
             vector["kind"] = "host-runtime-scenario"
-    else:
-        package = next(
-            item
-            for item in ldb["language"]["packages"]
-            if item["id"] == "standard.runtime"
-        )
-        vector = _owned_vector(ldb, "formula.runtime.observation.refusal.atomic-prefix")
-        if mutation == "lifecycle-snapshot-identity":
-            vector["expect"]["snapshot_identities"][0] = "sha256:" + "0" * 64
-        elif mutation == "lifecycle-committed-prefix":
-            vector["expect"]["committed_prefix"].pop()
-        else:
-            runtime_profile = next(
-                definition
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] == "language.runtime_profiles"
-                for definition in entry["definitions"]
-                if definition["id"] == "standard.exact-int64-event-v1"
-            )
-            runtime_profile["extensions"]["standard.formula"].pop(
-                "snapshot_identity_domain"
-            )
     _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 
@@ -602,6 +605,37 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         code == "kernel.vector_mismatch" and subject.endswith(".vectors")
         for _, code, subject in first["diagnostics"]
     ), first["diagnostics"]
+
+
+def test_two_consumers_refuse_a_missing_formula_evidence_wire_schema_domain():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        item
+        for item in ldb["language"]["packages"]
+        if item["id"] == "standard.runtime"
+    )
+    evidence_schema = next(
+        definition
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.artifact_wire_schemas"
+        for definition in entry["definitions"]
+        if definition["artifact_kind"] == "formula-observation-refusal-evidence"
+    )
+    evidence_schema.pop("wire_schema_identity_domain")
+    _bind_package_vector_set(package, _package_vector_set(ldb, package))
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.wire-schema-identity-domains",
+    ) in first["diagnostics"]
 
 
 @pytest.mark.parametrize(
