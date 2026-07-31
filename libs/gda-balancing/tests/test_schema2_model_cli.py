@@ -1459,39 +1459,48 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
 
 
 @pytest.mark.parametrize(
-    ("mutation", "reason_id", "pointer"),
+    ("mutation", "vector_id", "reason_id", "diagnostic", "pointer"),
     (
         (
             "context",
+            "formula.refuse.context-mismatch",
             "model.reason.formula-context-mismatch",
+            "language.formula_context_mismatch",
             "/formula_bindings/1/site",
         ),
         (
             "refusals",
+            "formula.refuse.refusal-widening",
             "model.reason.formula-refusal-widening",
+            "language.formula_refusal_widening",
             "/formula_bindings/1/formula",
         ),
     ),
 )
-def test_formula_slot_authority_drift_has_a_stable_typed_reason(
-    mutation, reason_id, pointer
+def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
+    mutation,
+    vector_id,
+    reason_id,
+    diagnostic,
+    pointer,
+    run_cli,
+    monkeypatch,
 ):
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
-    assert isinstance(checked, model_module.CheckedModel)
-    language_bundle = deepcopy(checked.language_bundle)
-    combat_package = next(
-        package
-        for package in language_bundle["language"]["packages"]
-        if package["id"] == "game.combat"
+    context = authority_module.packaged_authority_context()
+    kernel, language_bundle = context.mutable_pair()
+    vector = next(
+        item
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.compiler"
+        for item in vector_set["vector_definitions"]
+        if item["id"] == vector_id
     )
     damage = next(
         operation
-        for entry in combat_package["semantic_closure"]
-        if entry["authority_path"] == "language.operations"
-        for operation in entry["definitions"]
+        for operation in language_bundle["language"]["operations"]
         if operation["id"] == "game.combat.damage-v1"
     )
     slot = damage["extensions"]["standard.formula-slots"][0]
@@ -1499,18 +1508,29 @@ def test_formula_slot_authority_drift_has_a_stable_typed_reason(
         slot["context"] = {"phase": "event", "frame": "host-owned-frame"}
     else:
         slot["permitted_refusals"] = []
-    drifted = replace(
-        checked,
-        language_bundle=language_bundle,
-        authority_context=None,
+    assert vector == {
+        "diagnostic": diagnostic,
+        "id": vector_id,
+        "input": {"actual": "incompatible", "expected": "compatible"},
+        "matched": True,
+        "reason": reason_id,
+        "stage": "static",
+    }
+    _reidentify_language_bundle(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        model_module,
+        "packaged_authority_context",
+        lambda: drifted,
     )
-    _lock, declarations, _lowering, _rows = model_module._lowering_inputs(drifted)
 
-    with pytest.raises(model_module._FormulaResolutionError) as raised:
-        model_module._resolved_formulas_and_bindings(drifted, declarations)
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
-    assert raised.value.reason_id == reason_id
-    assert raised.value.pointer == pointer
+    assert (exit_code, stderr) == (2, "")
+    row = json.loads(stdout)["error"]["diagnostics"][0]
+    assert row["code"] == diagnostic
+    assert row["primary"]["pointer"] == pointer
 
 
 def test_model_check_points_a_non_first_formula_error_at_its_declaration(
