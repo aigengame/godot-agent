@@ -1562,7 +1562,7 @@ def _minimal_release(
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
                 "model_source_identity": starter_identity,

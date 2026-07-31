@@ -51,7 +51,7 @@ Quantity slice:
 Issue #539 extends that authority through `model check|build`: one authored Quantity Model Source
 resolves to an exact Package Lock, canonical RIR, Resolved Model, provenance companions, and one
 authenticated atomic publication. Issue #553 adds `template list|get|instantiate` and publishes
-`standard.quantity-minimal@2.0.0`, whose content identity fixes its exact Kernel/LDB, starter
+`standard.quantity-minimal@2.1.0`, whose content identity fixes its exact Kernel/LDB, starter
 source, package dependency, defaults, compatibility, documentation, pre-build Experiment template,
 coverage row,
 Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected

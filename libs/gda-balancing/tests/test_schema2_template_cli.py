@@ -905,7 +905,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:951d75759fdd5aa37e607e1a8ed2adf9b6492227cda1d8d30efe5d3e064eaaf2"
+                    "sha256:05328f6ef599ebc06798020786e9f5cad6753cc8b594de2ddc7a41f08bb9e55b"
                 ),
             }
         ]
@@ -1218,6 +1218,12 @@ def test_template_get_returns_the_complete_content_addressed_release(run_cli):
         "boundary-vector",
     ]
     assert len(release["members"]) == len(release["manifest"])
+    experiment = next(
+        member
+        for member in release["members"]
+        if member["logical_name"] == "experiment-specification"
+    )
+    assert experiment["payload"]["version"] == "1.1.0"
     for entry, member in zip(release["manifest"], release["members"], strict=True):
         assert {
             key: member[key]
