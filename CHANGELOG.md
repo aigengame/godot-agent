@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/aigengame/godot-agent/compare/v0.8.1...v0.9.0) (2026-07-31)
+
+
+### Features
+
+* **mcp:** advertise a public cache hint on tools/list ([#605](https://github.com/aigengame/godot-agent/issues/605)) ([a723942](https://github.com/aigengame/godot-agent/commit/a7239425524411bfc5fba0e0016e0708379e80e7))
+* **mcp:** migrate gda-mcp to MCP SDK v2 dual-era stdio server ([#603](https://github.com/aigengame/godot-agent/issues/603)) ([d130f8f](https://github.com/aigengame/godot-agent/commit/d130f8f9e7f3b8140db043568d68d6c8fa3dd6d6))
+
+
+### Bug Fixes
+
+* **skills:** state skill — cross-session Backlog with filtered inheritance ([#499](https://github.com/aigengame/godot-agent/issues/499)) ([ae97bbd](https://github.com/aigengame/godot-agent/commit/ae97bbda6e4d6b1069db24f8701e6c2123ff25c4))
+
 ## [0.8.1](https://github.com/aigengame/godot-agent/compare/v0.8.0...v0.8.1) (2026-07-10)
 
 
