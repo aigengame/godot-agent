@@ -1126,6 +1126,131 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     )
 
 
+def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, run_cli):
+    source_value = _rpg_model_source()
+    formula = next(
+        row
+        for row in source_value["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    boolean_contract = {
+        "type": "Boolean",
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain": {"kind": "boolean"},
+        "numeric_policy": "exact-bool",
+    }
+    formula["body"] = {
+        "nodes": [
+            {
+                "id": "fully-mitigated",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.less-than",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {
+                            "kind": "parameter",
+                            "parameter": "damage_before_defense",
+                        },
+                    },
+                    {
+                        "port": "right",
+                        "operand": {
+                            "kind": "parameter",
+                            "parameter": "mitigation",
+                        },
+                    },
+                ],
+                "result": boolean_contract,
+            },
+            {
+                "id": "bounded-damage",
+                "node": "conditional",
+                "condition": {"kind": "local", "local": "fully-mitigated"},
+                "when_true": {"kind": "parameter", "parameter": "mitigation"},
+                "when_false": {
+                    "kind": "parameter",
+                    "parameter": "damage_before_defense",
+                },
+            },
+        ],
+        "result": {"kind": "local", "local": "bounded-damage"},
+    }
+    source = tmp_path / "conditional-formula-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "conditional-formula-model"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    rir = _member(build_receipt, "rir-semantic-payload")
+    resolved_formula = next(
+        row for row in rir["formulas"] if row["id"] == formula["id"]
+    )
+    assert [node["node"] for node in resolved_formula["body"]["nodes"]] == [
+        "operation-call",
+        "conditional",
+    ]
+
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification["runtime"]["required_evaluator"]["instruction_nodes"] = [
+        "add",
+        "constant",
+        "copy",
+        "draw",
+        "if",
+        "invoke",
+        "less-than",
+        "less-than-or-equal",
+        "multiply",
+        "precondition-greater-than-or-equal",
+        "subtract-state",
+    ]
+    specification_path = tmp_path / "conditional-formula-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "conditional-formula-evaluation"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    assert trace["events"][0]["state_after"] == [
+        {"name": "actor_mana", "value": 22},
+        {"name": "target_health", "value": 76},
+    ]
+
+
 def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     tmp_path, run_cli
 ):

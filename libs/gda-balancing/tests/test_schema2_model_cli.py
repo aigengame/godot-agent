@@ -5134,6 +5134,7 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
         "quantity.floor-zero",
         "quantity.identity",
+        "quantity.less-than",
         "quantity.maximum",
         "quantity.subtract",
     ]

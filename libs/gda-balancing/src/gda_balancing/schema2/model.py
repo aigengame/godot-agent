@@ -1857,10 +1857,42 @@ def _formula_contract_mismatch_reason(
 def _resolved_formula_contract(
     source_contract: dict[str, Any],
     imports: dict[str, dict[str, str]],
+    kernel: dict[str, Any],
+    policy: dict[str, Any],
 ) -> dict[str, JsonValue]:
     alias = source_contract.get("type")
     imported = imports.get(alias) if isinstance(alias, str) else None
-    if imported is None:
+    fixed_aliases = [
+        row
+        for row in cast(list[dict[str, Any]], policy["fixed_value_type_aliases"])
+        if row.get("alias") == alias
+    ]
+    if imported is not None and fixed_aliases:
+        raise ValueError("Formula value-contract type alias is ambiguous")
+    if imported is None and len(fixed_aliases) == 1:
+        fixed_contracts = cast(
+            dict[str, dict[str, JsonValue]],
+            kernel["meta_format"]["runtime_program"]["fixed_value_contracts"],
+        )
+        fixed = fixed_contracts.get(cast(str, fixed_aliases[0].get("contract")))
+        if fixed is None:
+            raise ValueError("Formula fixed value-contract alias is unresolved")
+        expected_members = {key: value for key, value in fixed.items() if key != "type"}
+        if any(
+            source_contract.get(member) != value
+            for member, value in expected_members.items()
+        ):
+            raise ValueError("Formula fixed value-contract does not match authority")
+        fixed_type = cast(dict[str, str], fixed["type"])
+        return {
+            **expected_members,
+            "type_identity": {
+                "package": fixed_type["package"],
+                "version": fixed_type["version"],
+                "symbol": fixed_type["id"],
+            },
+        }
+    if imported is None or fixed_aliases:
         raise ValueError("Formula value-contract type alias is unresolved")
     return cast(
         dict[str, JsonValue],
@@ -2174,7 +2206,12 @@ def _resolved_formula_programs_and_bindings_impl(
                 resolved_parameters.append(
                     {
                         "id": parameter_id,
-                        **_resolved_formula_contract(source_parameter, imports),
+                        **_resolved_formula_contract(
+                            source_parameter,
+                            imports,
+                            checked.kernel,
+                            policy,
+                        ),
                     }
                 )
             resolved_parameters.sort(key=lambda item: cast(str, item["id"]))
@@ -2200,6 +2237,8 @@ def _resolved_formula_programs_and_bindings_impl(
                 "result": _resolved_formula_contract(
                     cast(dict[str, Any], source_formula[formula_result_member]),
                     imports,
+                    checked.kernel,
+                    policy,
                 ),
                 "imports": imports,
                 "source_body": body,
@@ -2468,6 +2507,8 @@ def _resolved_formula_programs_and_bindings_impl(
                 node_result = _resolved_formula_contract(
                     cast(dict[str, Any], source_node["result"]),
                     cast(dict[str, dict[str, str]], prototype["imports"]),
+                    checked.kernel,
+                    policy,
                 )
                 if not _formula_contract_matches_operation(
                     node_result, cast(dict[str, Any], operation["result"])
@@ -3353,6 +3394,33 @@ def _literal_context_contract(
     return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
 
 
+def _inline_pure_expression_instruction(
+    instruction: dict[str, Any],
+    *,
+    target: str,
+    values: dict[str, dict[str, JsonValue]],
+    reference: Callable[[dict[str, JsonValue]], str],
+) -> dict[str, JsonValue]:
+    """Lower a sealed pure-Operation instruction without node-specific dispatch."""
+    node = instruction.get("node")
+    source_target = instruction.get("target")
+    if not isinstance(node, str) or not isinstance(source_target, str):
+        raise ValueError("pure Operation instruction has no named result")
+    compiled: dict[str, JsonValue] = {"node": node, "target": target}
+    for member, value in instruction.items():
+        if member in {"node", "target"}:
+            continue
+        if member == "literal":
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("pure Operation literal is not an integer")
+            compiled[member] = value
+            continue
+        if not isinstance(value, str) or value not in values:
+            raise ValueError("pure Operation operand is not a named value")
+        compiled[member] = reference(values[value])
+    return compiled
+
+
 def _specialize_operation_formula_slots(
     selected_semantics: dict[str, JsonValue],
     formulas: list[dict[str, JsonValue]],
@@ -3463,7 +3531,6 @@ def _specialize_operation_formula_slots(
                 for child_index, child_instruction in enumerate(
                     cast(list[dict[str, Any]], called_operation["body"])
                 ):
-                    child_node = cast(str, child_instruction["node"])
                     child_target_name = cast(str, child_instruction.get("target", ""))
                     child_target = (
                         target
@@ -3471,47 +3538,12 @@ def _specialize_operation_formula_slots(
                         else f"{prefix}.{node_id}.{child_index}"
                     )
 
-                    def child_reference(member: str) -> str:
-                        return runtime_reference(
-                            child_values[cast(str, child_instruction[member])]
-                        )
-
-                    if child_node == "constant":
-                        compiled_child: dict[str, JsonValue] = {
-                            "node": child_node,
-                            "target": child_target,
-                            "literal": cast(int, child_instruction["literal"]),
-                        }
-                    elif child_node == "copy":
-                        compiled_child = {
-                            "node": child_node,
-                            "target": child_target,
-                            "value": child_reference("value"),
-                        }
-                    elif child_node in {
-                        "add",
-                        "maximum",
-                        "multiply",
-                        "subtract",
-                    }:
-                        compiled_child = {
-                            "node": child_node,
-                            "target": child_target,
-                            "left": child_reference("left"),
-                            "right": child_reference("right"),
-                        }
-                    elif child_node == "if":
-                        compiled_child = {
-                            "node": child_node,
-                            "target": child_target,
-                            "condition": child_reference("condition"),
-                            "when_true": child_reference("when_true"),
-                            "when_false": child_reference("when_false"),
-                        }
-                    else:
-                        raise ValueError(
-                            "Formula pure Operation has no generic inline lowering"
-                        )
+                    compiled_child = _inline_pure_expression_instruction(
+                        child_instruction,
+                        target=child_target,
+                        values=child_values,
+                        reference=runtime_reference,
+                    )
                     instructions.append(compiled_child)
                     child_values[child_target_name] = {
                         "kind": "local",
@@ -3877,49 +3909,15 @@ def _compile_initialization_programs(
                     for child_index, child in enumerate(
                         cast(list[dict[str, Any]], operation["body"])
                     ):
-                        child_node = cast(str, child["node"])
                         child_target_name = cast(str, child.get("target", ""))
                         child_target = f"{target}.{child_index}"
 
-                        def child_reference(member: str) -> str:
-                            return reference(values[cast(str, child[member])])
-
-                        if child_node == "constant":
-                            compiled_child: dict[str, JsonValue] = {
-                                "node": child_node,
-                                "target": child_target,
-                                "literal": cast(int, child["literal"]),
-                            }
-                        elif child_node == "copy":
-                            compiled_child = {
-                                "node": child_node,
-                                "target": child_target,
-                                "value": child_reference("value"),
-                            }
-                        elif child_node in {
-                            "add",
-                            "maximum",
-                            "multiply",
-                            "subtract",
-                        }:
-                            compiled_child = {
-                                "node": child_node,
-                                "target": child_target,
-                                "left": child_reference("left"),
-                                "right": child_reference("right"),
-                            }
-                        elif child_node == "if":
-                            compiled_child = {
-                                "node": child_node,
-                                "target": child_target,
-                                "condition": child_reference("condition"),
-                                "when_true": child_reference("when_true"),
-                                "when_false": child_reference("when_false"),
-                            }
-                        else:
-                            raise ValueError(
-                                "pure Operation has no generic value lowering"
-                            )
+                        compiled_child = _inline_pure_expression_instruction(
+                            child,
+                            target=child_target,
+                            values=values,
+                            reference=reference,
+                        )
                         emit(
                             compiled_child,
                             evaluation_site_identity=site_identity,

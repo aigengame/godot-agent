@@ -107,6 +107,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         },
         "core.quantity": {
             "formula.quantity.accept.pure-operation-closure",
+            "formula.quantity.accept.boolean-comparison",
         },
         "game.combat": {
             "formula.combat.accept.damage-slot-binding",
@@ -158,6 +159,39 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         game_term not in serialized_evidence
         for game_term in ("game.combat", "actor_mana", "target_health")
     )
+    compiler_package = packages["standard.compiler"]
+    resolution_profile = next(
+        definition
+        for entry in compiler_package["semantic_closure"]
+        if entry["authority_path"] == "language.resolution_profiles"
+        for definition in entry["definitions"]
+        if definition["id"] == "exact-import-resolution-v1"
+    )
+    assert resolution_profile["extensions"]["standard.formula"][
+        "fixed_value_type_aliases"
+    ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
+    quantity_operations = {
+        definition["id"]: definition
+        for entry in packages["core.quantity"]["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+        for definition in entry["definitions"]
+    }
+    less_than = quantity_operations["quantity.less-than"]
+    assert less_than["body"] == [
+        {"left": "left", "node": "less-than", "right": "right", "target": "result"}
+    ]
+    assert less_than["result"] == {
+        "access": "read",
+        "discardable": False,
+        "domain": {"kind": "boolean"},
+        "id": "result",
+        "kind": "boolean",
+        "numeric_policy": "exact-bool",
+        "representation": "Bool",
+        "source": {"kind": "local", "name": "result"},
+        "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
+        "unit": "1",
+    }
 
 
 @pytest.mark.parametrize(
