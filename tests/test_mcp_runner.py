@@ -3,7 +3,7 @@
 Reviewer-requested regression (PR #203): a gda command that cannot be launched —
 e.g. a bad ``$GDA_BIN`` override pointing nowhere — must surface as a structured
 non-zero :class:`~gda.mcp.runner.GdaResult` that :func:`~gda.mcp.server.dispatch`
-turns into an ``isError`` ``CallToolResult``, NOT an ``OSError`` escaping across
+turns into an ``is_error`` ``CallToolResult``, NOT an ``OSError`` escaping across
 the MCP boundary (ADR-0011's "can't-run" edge, synthesized by gda-mcp). These are
 fast: the bad binary fails to exec immediately, no Godot involved.
 """
@@ -34,14 +34,14 @@ def test_unlaunchable_command_returns_a_failure_result_not_an_exception():
 
 def test_dispatch_synthesizes_is_error_for_a_launch_failure():
     # End to end through the real seam: an unlaunchable gda becomes gda-mcp's own
-    # structured isError (the can't-run edge), with the launch diagnostics
+    # structured is_error (the can't-run edge), with the launch diagnostics
     # preserved — not a traceback.
     outcome = dispatch(_UNLAUNCHABLE, ["info"], {})
 
     # A CallToolResult (failure channel), not a raised exception or a result dict.
     assert isinstance(outcome, CallToolResult)
-    assert outcome.isError is True
-    assert outcome.structuredContent is None
+    assert outcome.is_error is True
+    assert outcome.structured_content is None
     body = json.loads(tool_text(outcome))
     assert body["error"]["category"] == "adapter"  # gda-mcp's own synthesized error
     assert "/does/not/exist/gda" in body["error"]["diagnostics"]

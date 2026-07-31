@@ -50,6 +50,11 @@ it is not a valid project, `gda` reports a typed error rather than silently fall
 or cwd. **Recommended: register at project scope, or pin `GDA_PROJECT`.** Each recipe below shows the
 right way to pin the project for that agent.
 
+Heads-up: the MCP **2026-07-28** spec revision deprecates the roots capability. Clients on the
+pre-2026 protocol (all of the agents below today) keep the `roots/list` auto-detection unchanged;
+a client on the new stateless protocol advertises no roots and resolves by `GDA_PROJECT` → cwd —
+one more reason a pinned `GDA_PROJECT` is the durable setup.
+
 ## Two cross-cutting constraints
 
 ### Minimal PATH on GUI-launched agents

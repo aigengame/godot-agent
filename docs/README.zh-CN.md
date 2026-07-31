@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
+<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -216,7 +216,9 @@ uvx --from "gda[mcp]" gda-mcp
 
 - **项目** — 当你的客户端无法公布工作区 **roots** 时，设置 `GDA_PROJECT`；否则 `gda-mcp`
   会从客户端发来的 roots（你打开的那个文件夹）自动检测项目。*已设置但无效*的 `GDA_PROJECT`
-  会被当作一个上报的错误，而不是悄悄兜底。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
+  会被当作一个上报的错误，而不是悄悄兜底。注意 MCP 2026-07-28 规范修订版弃用了 roots 能力：
+  现在的客户端行为不变，但固定 `GDA_PROJECT` 才是面向未来的配置（走新无状态协议的客户端没有
+  roots 可公布）。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
 
 
@@ -557,7 +559,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | 上下文 | 项目解析顺序 |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT`（两者都严格——无效即上报）→ 含有 `project.godot` 的 cwd，否则无项目 |
-| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格——已设置但无效会被上报，而非跳过）→ 一个*有效的*客户端工作区 `root` → 一个*有效的*服务器 cwd，否则无项目 |
+| **MCP**（`gda-mcp`） | `GDA_PROJECT`（严格——已设置但无效会被上报，而非跳过）→ 一个*有效的*客户端工作区 `root`（走 2026 前 MCP 协议的客户端；2026-07-28 修订版没有 roots，这类客户端直接跳到下一级）→ 一个*有效的*服务器 cwd，否则无项目 |
 
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>

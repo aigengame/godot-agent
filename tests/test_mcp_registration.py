@@ -54,21 +54,21 @@ def test_tool_names_are_group_command_with_separators_underscored():
 
 
 def test_each_tool_mirrors_its_commands_description_and_schemas():
-    # description ← command help; inputSchema ← input; outputSchema ← output —
+    # description ← command help; input_schema ← input; output_schema ← output —
     # passed through verbatim from the dump (ADR-0012's per-field fidelity).
     by_name = {tool_name(e["name"]): e for e in _manifest_entries()}
     for tool in list_tools(_server()).tools:
         entry = by_name[tool.name]
         assert tool.description == entry["description"]
-        assert tool.inputSchema == entry["input"]
-        assert tool.outputSchema == entry["output"]
+        assert tool.input_schema == entry["input"]
+        assert tool.output_schema == entry["output"]
 
 
 def test_known_tool_has_a_nonempty_output_schema():
-    # info's outputSchema is the EngineVersion contract — present so the SDK can
-    # validate a successful call's structuredContent against it (Design dec. 5).
+    # info's output_schema is the EngineVersion contract — present so the SDK can
+    # validate a successful call's structured_content against it (Design dec. 5).
     info = next(t for t in list_tools(_server()).tools if t.name == "info")
-    assert info.outputSchema and info.outputSchema.get("type") == "object"
+    assert info.output_schema and info.output_schema.get("type") == "object"
 
 
 def test_non_dispatchable_meta_commands_are_not_registered():
@@ -93,8 +93,8 @@ def test_live_command_game_tree_appears_as_a_tool_mirroring_the_dump():
     tool = tools["game_tree"]
     entry = by_name["game_tree"]
     assert tool.description == entry["description"]
-    assert tool.inputSchema == entry["input"]
-    assert tool.outputSchema == entry["output"]
+    assert tool.input_schema == entry["input"]
+    assert tool.output_schema == entry["output"]
 
 
 def test_startup_introspects_the_dump_through_the_seam_once():

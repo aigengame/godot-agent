@@ -19,8 +19,7 @@ import sysconfig
 
 import anyio
 import pytest
-from mcp import StdioServerParameters
-from mcp.client.session import ClientSession
+from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
@@ -50,42 +49,54 @@ def _server_params() -> StdioServerParameters:
     return StdioServerParameters(command=str(gda_mcp), args=[], env=env)
 
 
-def _call(tool: str, arguments: dict):
-    """Spawn the real gda-mcp over stdio, call one tool, return its result."""
+def _call(tool: str, arguments: dict, *, mode: str = "legacy"):
+    """Spawn the real gda-mcp over stdio, call one tool, return its result.
+
+    ``mode`` pins the protocol era (ADR-0039's dual-era gate): ``"legacy"`` is
+    the pre-2026 ``initialize`` handshake every surveyed agent speaks today;
+    ``"auto"`` probes ``server/discover`` first — the 2026-07-28 stateless path.
+    Deliberately NOT ``raise_exceptions`` (a client-side flag): this gate must
+    see exactly what a real agent sees on the wire.
+    """
 
     async def _drive():
-        async with stdio_client(_server_params()) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                return await session.call_tool(tool, arguments)
+        async with Client(stdio_client(_server_params()), mode=mode) as client:
+            return await client.call_tool(tool, arguments)
 
     return anyio.run(_drive)
 
 
+# Both protocol eras run the SAME assertions: backward compat ("no agent alive
+# today breaks") and forward compat (a 2026-07-28 client is served by the same
+# binary) are one gate, not a claim (ADR-0039).
 @pytest.mark.e2e
-def test_info_over_stdio_reports_engine_version():
-    result = _call("info", {})
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+def test_info_over_stdio_reports_engine_version(mode):
+    result = _call("info", {}, mode=mode)
 
-    assert result.isError is False, result.content
-    assert result.structuredContent is not None
-    assert result.structuredContent["major"] == 4
-    assert (result.structuredContent["major"], result.structuredContent["minor"]) >= (
+    assert result.is_error is False, result.content
+    assert result.structured_content is not None
+    assert result.structured_content["major"] == 4
+    assert (result.structured_content["major"], result.structured_content["minor"]) >= (
         4,
         4,
     )
 
 
 @pytest.mark.e2e
-def test_scene_create_over_stdio_creates_a_scene_file(tmp_path):
+@pytest.mark.parametrize("mode", ["legacy", "auto"])
+def test_scene_create_over_stdio_creates_a_scene_file(tmp_path, mode):
     scene = tmp_path / "main.tscn"
 
-    result = _call("scene_create", {"path": str(scene), "root_type": "Node2D"})
+    result = _call(
+        "scene_create", {"path": str(scene), "root_type": "Node2D"}, mode=mode
+    )
 
-    assert result.isError is False, result.content
-    assert result.structuredContent is not None
+    assert result.is_error is False, result.content
+    assert result.structured_content is not None
     # The verbatim --params-json dispatch produced gda's typed result…
-    assert result.structuredContent["root_type"] == "Node2D"
+    assert result.structured_content["root_type"] == "Node2D"
     # root_name derived model-side from the filename, same as the argv path.
-    assert result.structuredContent["root_name"] == "main"
+    assert result.structured_content["root_name"] == "main"
     # …and the .tscn really landed on disk (the real outcome, not a fake).
     assert scene.exists()

@@ -20,10 +20,10 @@ from typing import Annotated
 
 from google import genai
 from google.genai import types
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from pydantic import Field
 
-mcp = FastMCP("gemini-nano-banana")
+mcp = MCPServer("gemini-nano-banana")
 
 _client: genai.Client | None = None
 

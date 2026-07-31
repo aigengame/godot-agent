@@ -37,11 +37,11 @@ def _project(dir_path: Path) -> Path:
 def test_no_tool_inputschema_carries_a_project_field():
     # ADR-0014/0012: the project is server context, never a tool parameter — the
     # tool surface stays a faithful mirror of --schema, so gda-mcp synthesizes no
-    # `project` field into any tool's inputSchema.
+    # `project` field into any tool's input_schema.
     runner = FakeGdaRunner(schema_then(lambda _args, _stdin: gda_result("{}")))
     server = build_server(runner)
     for tool in list_tools(server).tools:
-        properties = (tool.inputSchema or {}).get("properties", {})
+        properties = (tool.input_schema or {}).get("properties", {})
         assert "project" not in properties, tool.name
 
 
@@ -247,6 +247,52 @@ def test_no_roots_capability_degrades_to_no_project_without_error(
         server, "scene_create", {"path": "x.tscn", "root_type": "Node2D"}
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     _args, _stdin, project = runner.calls[-1]
     assert project is None
+
+
+def test_stateless_connection_degrades_to_no_project_without_error(
+    tmp_path, monkeypatch
+):
+    # ADR-0039: a 2026-07-28 connection has no back-channel (can_send_request is
+    # False), so the roots precedence level is skipped outright — even a client
+    # WITH a roots callback wired can never be asked. The call must succeed
+    # projectless (no NoBackChannelError escapes the server), landing on the
+    # env→cwd tail of the ADR-0014 precedence.
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    unreachable = _project(tmp_path / "game")
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    result = call_tool(
+        server,
+        "scene_create",
+        {"path": "x.tscn", "root_type": "Node2D"},
+        roots=[str(unreachable)],
+        mode="auto",
+    )
+
+    assert result.is_error is False
+    _args, _stdin, project = runner.calls[-1]
+    assert project is None
+
+
+def test_gda_project_env_resolves_on_stateless_connection(tmp_path, monkeypatch):
+    # ADR-0039 promotes GDA_PROJECT to the durable anchor: on a 2026-07-28
+    # connection (no roots signal at all) the env pin must keep resolving exactly
+    # as it does for legacy clients.
+    proj = _project(tmp_path)
+    monkeypatch.setenv("GDA_PROJECT", str(proj))
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "main.tscn", "root_type": "Node2D"},
+        mode="auto",
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == proj

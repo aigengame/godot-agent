@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
+<!-- gda-readme-i18n: source=README.md sha256=3a595c5ac14763cd6aa8236c34d543ecaa719371040f852645327be2d78af73f -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -226,8 +226,10 @@ uvx --from "gda[mcp]" gda-mcp
 - **プロジェクト** — クライアントがワークスペースの **roots** を提示できない場合は `GDA_PROJECT` を
   設定します。そうでなければ、`gda-mcp` はクライアントが送る roots(あなたが開いているフォルダ)から
   プロジェクトを自動検出します。*設定されているが無効な* `GDA_PROJECT` は、静かにフォールバックする
-  のではなくエラーとして報告されます。CLI と MCP の完全な解決順序については
-  [設定](#configuration) を参照してください。
+  のではなくエラーとして報告されます。なお、MCP の 2026-07-28 仕様改訂は roots 機能を非推奨に
+  しました。現在のクライアントはそのまま動作しますが、`GDA_PROJECT` を固定するのが将来にわたって
+  有効な設定です(新しいステートレスプロトコルのクライアントには提示する roots がありません)。
+  CLI と MCP の完全な解決順序については [設定](#configuration) を参照してください。
 - **エンジン** — `GDA_GODOT` に Godot バイナリを設定します。例: `"GDA_GODOT": "/path/to/Godot"`。
 
 
@@ -578,7 +580,7 @@ Godot は daemon セッション内で `get_mouse_position()` /
 | コンテキスト | プロジェクトの解決順序 |
 | --- | --- |
 | **CLI** | `--project` → `GDA_PROJECT`(どちらも厳格 — 無効ならエラー報告)→ `project.godot` を持つなら cwd、なければ projectless |
-| **MCP**(`gda-mcp`) | `GDA_PROJECT`(厳格 — 設定済みだが無効ならスキップせずエラー報告)→ *有効な* クライアントワークスペースの `root` → *有効な* サーバーの cwd、なければ projectless |
+| **MCP**(`gda-mcp`) | `GDA_PROJECT`(厳格 — 設定済みだが無効ならスキップせずエラー報告)→ *有効な* クライアントワークスペースの `root`(2026 年以前の MCP プロトコルのクライアント。2026-07-28 改訂版には roots がないため、そのクライアントは次へ進む)→ *有効な* サーバーの cwd、なければ projectless |
 
 <details>
 <summary>プロジェクトコードの実行 — プロジェクトを指定したときに何が実行されるか</summary>
