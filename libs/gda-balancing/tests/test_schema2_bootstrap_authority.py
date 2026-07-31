@@ -122,8 +122,7 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         for vector in vector_sets["standard.runtime"]["vector_definitions"]
     }
     kernel_vector_kinds = {
-        kind["id"]
-        for kind in kernel["meta_format"]["package_vector"]["kinds"]
+        kind["id"] for kind in kernel["meta_format"]["package_vector"]["kinds"]
     }
     assert "observation-lifecycle" not in kernel_vector_kinds
     assert {
@@ -611,9 +610,7 @@ def test_two_consumers_refuse_a_missing_formula_evidence_wire_schema_domain():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
     package = next(
-        item
-        for item in ldb["language"]["packages"]
-        if item["id"] == "standard.runtime"
+        item for item in ldb["language"]["packages"] if item["id"] == "standard.runtime"
     )
     evidence_schema = next(
         definition
