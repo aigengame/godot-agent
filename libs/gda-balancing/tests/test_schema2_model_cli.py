@@ -341,7 +341,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     assert program["refusals"] == []
 
 
-def test_model_build_atomically_publishes_the_formula_explanation(tmp_path, run_cli):
+def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     source_document = _model_source()
     quantity_contract = {
         "type": "quantity",
@@ -481,6 +481,50 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     assert inspect_stdout.startswith("{\n  ")
     assert json.loads(inspect_stdout) == json.loads(expected_bytes)
     assert explanation_path.read_bytes() == expected_bytes
+
+
+def test_model_inspect_accepts_the_public_build_receipt_presentation(
+    tmp_path, run_cli
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt = tmp_path / "public-build-receipt.json"
+    receipt.write_text(build_stdout, encoding="utf-8")
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (0, "")
+    assert json.loads(inspect_stdout)["artifact_kind"] == "model-explanation"
+
+
+def test_model_inspect_refuses_a_malformed_receipt_without_internal_error(
+    tmp_path, run_cli
+):
+    receipt = tmp_path / "invalid-receipt.json"
+    receipt.write_text("{}\n", encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "inspect", str(receipt)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "kernel.identity_mismatch"
+    ]
 
 
 def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli):

@@ -59,6 +59,28 @@ class PublishedArtifactIntegrityError(RuntimeError):
     """An authenticated publication named the target but failed verification."""
 
 
+class ModelInspectAdmissionError(ValueError):
+    """A caller-supplied build receipt or its committed set failed admission."""
+
+    def __init__(self, code: str, subject: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.subject = subject
+        self.message = message
+
+
+MODEL_INSPECT_REFUSAL_CATALOG = tuple(
+    item
+    for item in BOOTSTRAP_REFUSAL_CATALOG
+    if item[0]
+    in {
+        "kernel.binding_mismatch",
+        "kernel.identity_mismatch",
+        "kernel.member_set_mismatch",
+    }
+)
+
+
 def _descriptor_language_bundle() -> LanguageBundleIndex:
     """Admit the packaged graph once while assembling static command descriptors."""
     return cast(
@@ -7473,34 +7495,103 @@ def _read_canonical_artifact(path: Path) -> dict[str, Any]:
     return value
 
 
+def _read_receipt_input(path: Path) -> dict[str, Any]:
+    """Decode a public CLI JSON presentation before artifact admission."""
+    try:
+        metadata = path.stat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise UnreadableInputError(f"input document is not a regular file: {path}")
+        return parse_canonical_object(
+            path.read_bytes(),
+            artifact_name="Model build receipt",
+        )
+    except UnreadableInputError:
+        raise
+    except OSError as err:
+        raise UnreadableInputError(f"cannot read input document: {path}") from err
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as err:
+        raise ModelInspectAdmissionError(
+            "kernel.identity_mismatch",
+            "receipt",
+            "Model build receipt is not an admissible JSON artifact",
+        ) from err
+
+
+def _inspect_committed_artifact(
+    path: Path,
+    *,
+    code: str,
+    subject: str,
+) -> dict[str, Any]:
+    try:
+        return _read_canonical_artifact(path)
+    except (RuntimeError, UsageError) as err:
+        raise ModelInspectAdmissionError(
+            code,
+            subject,
+            f"committed Model build member failed admission: {path.name}",
+        ) from err
+
+
 def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
     """Retrieve and authenticate the stored explanation from one committed build."""
     path = _normalized_absolute_path(receipt_path)
-    receipt = _read_canonical_artifact(path)
+    receipt = _read_receipt_input(path)
     context = packaged_authority_context()
     language_bundle = context.language_bundle
     if (
         not _verify_artifact(receipt, language_bundle)
         or receipt.get("artifact_kind") != "artifact-set-receipt"
     ):
-        raise RuntimeError("Model build receipt failed exact-authority admission")
+        raise ModelInspectAdmissionError(
+            "kernel.identity_mismatch",
+            "receipt",
+            "Model build receipt failed exact-authority admission",
+        )
     manifest_locator = receipt.get("manifest_locator")
     if not isinstance(manifest_locator, str):
-        raise RuntimeError("Model build receipt has no manifest locator")
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "receipt.manifest_locator",
+            "Model build receipt has no manifest locator",
+        )
     manifest_path = _normalized_absolute_path(manifest_locator)
     publication_dir = manifest_path.parent
-    _assert_directory_without_symlink(publication_dir)
+    try:
+        _assert_directory_without_symlink(publication_dir)
+    except (RuntimeError, UsageError) as err:
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "receipt.manifest_locator",
+            "Model build manifest locator failed admission",
+        ) from err
     if manifest_path.name != "artifact-set-manifest.json":
-        raise RuntimeError("Model build receipt has a stale manifest locator")
-    manifest = _read_canonical_artifact(manifest_path)
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "receipt.manifest_locator",
+            "Model build receipt has a stale manifest locator",
+        )
+    manifest = _inspect_committed_artifact(
+        manifest_path,
+        code="kernel.binding_mismatch",
+        subject="manifest",
+    )
     if not _verify_artifact(manifest, language_bundle) or manifest.get(
         "content_identity"
     ) != receipt.get("manifest_identity"):
-        raise RuntimeError("Model build manifest failed exact-authority admission")
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "manifest",
+            "Model build manifest failed exact-authority admission",
+        )
     members = manifest.get("members")
     locators = receipt.get("member_locators")
     if not isinstance(members, list) or not isinstance(locators, list):
-        raise RuntimeError("Model build has no closed artifact member map")
+        raise ModelInspectAdmissionError(
+            "kernel.member_set_mismatch",
+            "manifest.members",
+            "Model build has no closed artifact member map",
+        )
     explanation_rows = [
         row
         for row in members
@@ -7519,8 +7610,16 @@ def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
         or len(explanation_locators) != 1
         or explanation_locators[0].get("locator") != str(expected_path.absolute())
     ):
-        raise RuntimeError("Model build has no unique stored Model explanation")
-    explanation = _read_canonical_artifact(expected_path)
+        raise ModelInspectAdmissionError(
+            "kernel.member_set_mismatch",
+            "manifest.members.model-explanation",
+            "Model build has no unique stored Model explanation",
+        )
+    explanation = _inspect_committed_artifact(
+        expected_path,
+        code="kernel.binding_mismatch",
+        subject="model-explanation",
+    )
     if (
         not _verify_artifact(explanation, language_bundle)
         or explanation.get("artifact_kind") != "model-explanation"
@@ -7529,7 +7628,11 @@ def read_model_explanation(receipt_path: str) -> dict[str, JsonValue]:
         or explanation.get("wire_schema_identity")
         != explanation_rows[0].get("wire_schema_identity")
     ):
-        raise RuntimeError("stored Model explanation failed exact-authority admission")
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "model-explanation",
+            "stored Model explanation failed exact-authority admission",
+        )
     return cast(dict[str, JsonValue], explanation)
 
 

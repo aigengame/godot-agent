@@ -1186,7 +1186,6 @@
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[manifest]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[model build]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[model check]",
-    "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[model inspect]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[package list]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[schema get]",
     "tests/test_cli_conformance.py::TestPerDescriptorRows::test_refusal_row[template list]",

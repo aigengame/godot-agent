@@ -25,6 +25,7 @@ gda-balancing schema get wire-schema       # exact generated wire-schema project
 gda-balancing schema get diagnostic-catalog # exact generated Diagnostic projection
 gda-balancing model check <source>         # admit a Schema 2.0 Model Source
 gda-balancing model build <source> [...]   # build and atomically publish a Model
+gda-balancing model inspect <receipt> [...] # render a stored Model explanation
 gda-balancing model migrate <source> [...] # migrate only the safe Schema 1.x source subset
 gda-balancing template list                # list admitted Template releases
 gda-balancing template get [...]           # retrieve an exact Template release

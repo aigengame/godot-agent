@@ -17,6 +17,7 @@ from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
+    ingress_refusal,
 )
 from gda_balancing.schema2.migration import (
     MigrationFailure,
@@ -27,7 +28,9 @@ from gda_balancing.schema2.migration import (
 )
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
+    MODEL_INSPECT_REFUSAL_CATALOG,
     CheckedModel,
+    ModelInspectAdmissionError,
     PublicationMember,
     admit_resolved_model,
     artifact_wire_schema,
@@ -128,8 +131,14 @@ class ModelInspectResult(RootModel[dict[str, Any]]):
     model_config = ConfigDict(frozen=True)
 
 
-def run_model_inspect(inp: ModelInspectInput) -> ModelInspectResult:
-    return ModelInspectResult.model_validate(read_model_explanation(inp.receipt))
+def run_model_inspect(
+    inp: ModelInspectInput,
+) -> ModelInspectResult | Schema2RefusalReport:
+    try:
+        explanation = read_model_explanation(inp.receipt)
+    except ModelInspectAdmissionError as err:
+        return ingress_refusal(err.code, err.subject, err.message)
+    return ModelInspectResult.model_validate(explanation)
 
 
 def _model_explanation_schema() -> dict[str, object]:
@@ -455,15 +464,18 @@ MODEL_INSPECT = CommandDescriptor(
     handler=run_model_inspect,
     fixtures=ConformanceFixtures(
         prepare_valid_document=_prepare_model_inspect,
+        refusing_document="{}",
     ),
     positional_field="receipt",
     json_presentation_field="format",
     schema_major=2,
     structured_params=True,
     success_schema=_model_explanation_schema,
+    refusal_catalog=MODEL_INSPECT_REFUSAL_CATALOG,
     usage_codes=(
         "invalid_argument",
         "unknown_argument",
+        "unreadable_input",
     ),
 )
 

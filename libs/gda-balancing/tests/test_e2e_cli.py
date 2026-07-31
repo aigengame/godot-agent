@@ -21,6 +21,7 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import jsonschema
 
@@ -136,6 +137,45 @@ class TestKeyUserPath:
         ]
         assert payload["error"]["migration_report"]["status"] == "refused"
         assert output.exists() is False
+
+    def test_formula_model_build_then_inspect_key_path(self, tmp_path):
+        source = (
+            Path(__file__).parents[1]
+            / "examples"
+            / "schema2"
+            / "rpg-combat-cast"
+            / "model-source.json"
+        )
+        built = _run(
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "4" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        receipt = tmp_path / "build-receipt.json"
+        receipt.write_text(built.stdout, encoding="utf-8")
+
+        inspected = _run(
+            "model",
+            "inspect",
+            str(receipt),
+            "--format",
+            "indented",
+        )
+
+        assert (inspected.returncode, inspected.stderr) == (0, "")
+        explanation = json.loads(inspected.stdout)
+        assert {row["id"] for row in explanation["formula_explanations"]} == {
+            "effective-accuracy",
+            "mitigated-damage",
+        }
+        assert "game.combat.cast-v1" in {
+            row["id"] for row in explanation["operation_explanations"]
+        }
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")
