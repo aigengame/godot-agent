@@ -3394,8 +3394,14 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             "maximum": 1000,
         }
     elif outcome == "runtime":
+        admit_numeric = experiment_runtime_module._admit_numeric
+        numeric_admissions = 0
 
-        def overflow_at_runtime(_value, _numeric):
+        def overflow_at_runtime(value, numeric):
+            nonlocal numeric_admissions
+            numeric_admissions += 1
+            if numeric_admissions <= 3:
+                return admit_numeric(value, numeric)
             raise OverflowError
 
         monkeypatch.setattr(

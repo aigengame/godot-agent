@@ -1194,6 +1194,48 @@ def _reference_formula_contract_matches_operation(
     )
 
 
+def _reference_selected_operation_coordinates(
+    checked: CheckedModel,
+    lock: dict[str, Any],
+) -> set[tuple[str, str, str]]:
+    package_versions = {row["id"]: row["version"] for row in lock["packages"]}
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row["definition"]
+        for row in lock["operations"]
+    }
+    selected = {
+        (
+            entrypoint["operation"]["package"],
+            entrypoint["operation"]["version"],
+            entrypoint["operation"]["id"],
+        )
+        for entrypoint in checked.source.get("entrypoints", [])
+    }
+    if any(coordinate not in operations for coordinate in selected):
+        return set(operations)
+    pending = list(selected)
+    while pending:
+        operation = operations.get(pending.pop())
+        if operation is None:
+            continue
+        for instruction in operation.get("body", []):
+            if instruction.get("node") != "invoke":
+                continue
+            dependency = (
+                instruction["operation"]["package"],
+                instruction["operation"]["version"],
+                instruction["operation"]["id"],
+            )
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return selected
+
+
 def _reference_formulas_and_bindings(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
@@ -1546,12 +1588,18 @@ def _reference_formulas_and_bindings(
                 pending.append(dependency)
     formulas = [resolved[key] for key in sorted(selected_keys)]
     slots = {}
+    selected_operation_coordinates = _reference_selected_operation_coordinates(
+        checked,
+        lock,
+    )
     for row in lock["operations"]:
         coordinate = (
             row["package"],
             package_versions[row["package"]],
             row["definition"]["id"],
         )
+        if coordinate not in selected_operation_coordinates:
+            continue
         identity = operation_identity(coordinate)
         for slot in (
             row["definition"].get("extensions", {}).get("standard.formula-slots", [])

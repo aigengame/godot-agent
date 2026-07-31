@@ -1220,6 +1220,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "package-contract",
         "operation-contract",
         "runtime-scenario",
+        "value-program",
     }
 
     releases = {release["id"]: release for release in authority["package_releases"]}

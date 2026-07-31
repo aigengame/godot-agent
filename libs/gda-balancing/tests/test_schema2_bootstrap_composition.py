@@ -230,17 +230,6 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         contract["type"]["id"] = "Currency"
     language["operations"].append(currency_identity)
     owner["exports"]["operations"].append(currency_identity["id"])
-    quantity_vector_set = next(
-        vector_set
-        for vector_set in ldb.package_conformance_vector_sets
-        if vector_set["package_id"] == "core.quantity"
-    )
-    for vector in [
-        *ldb["vectors"],
-        *quantity_vector_set["vector_definitions"],
-    ]:
-        if vector["id"] == "formula.quantity.accept.pure-operation-closure":
-            vector["expect"] = list(owner["exports"]["operations"])
     _refresh_package_closure_and_reidentify(ldb)
 
     assert production_bootstrap._literal_typing_profiles_are_closed(kernel, ldb)

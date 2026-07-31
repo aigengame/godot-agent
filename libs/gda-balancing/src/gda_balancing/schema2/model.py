@@ -391,6 +391,57 @@ def _operation_formula_slots(
     return cast(list[dict[str, Any]], slots)
 
 
+def _selected_source_operation_coordinates(
+    source: dict[str, Any],
+    lock: dict[str, Any],
+) -> set[tuple[str, str, str]]:
+    """Close the exact Operation graph selected by authored entrypoints."""
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(list[dict[str, Any]], lock["packages"])
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, cast(dict[str, Any], row["definition"])["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(list[dict[str, Any]], lock["operations"])
+    }
+    selected = {
+        (
+            cast(str, operation["package"]),
+            cast(str, operation["version"]),
+            cast(str, operation["id"]),
+        )
+        for entrypoint in cast(list[dict[str, Any]], source.get("entrypoints", []))
+        if isinstance((operation := entrypoint.get("operation")), dict)
+    }
+    if any(coordinate not in operations for coordinate in selected):
+        # Exact Operation-resolution diagnostics own precedence over Formula
+        # reachability when an authored root coordinate cannot resolve.
+        return set(operations)
+    pending = list(selected)
+    while pending:
+        coordinate = pending.pop()
+        operation = operations.get(coordinate)
+        if operation is None:
+            continue
+        for instruction in cast(list[dict[str, Any]], operation.get("body", [])):
+            invoked = instruction.get("operation")
+            if instruction.get("node") != "invoke" or not isinstance(invoked, dict):
+                continue
+            dependency = (
+                cast(str, invoked.get("package")),
+                cast(str, invoked.get("version")),
+                cast(str, invoked.get("id")),
+            )
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return selected
+
+
 def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:
     """Return the single admitted Model Source identity authority."""
     domain = _resolution_profile(language_bundle).get("source_identity_domain")
@@ -2409,6 +2460,10 @@ def _resolved_formula_programs_and_bindings(
     selected_slots: dict[
         tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
+    selected_operation_coordinates = _selected_source_operation_coordinates(
+        checked.source,
+        lock,
+    )
     for operation_row in cast(list[dict[str, Any]], lock["operations"]):
         package_id = cast(str, operation_row["package"])
         definition = cast(dict[str, Any], operation_row["definition"])
@@ -2417,6 +2472,8 @@ def _resolved_formula_programs_and_bindings(
             package_versions[package_id],
             cast(str, definition["id"]),
         )
+        if coordinate not in selected_operation_coordinates:
+            continue
         operation_identity = _formula_operation_identity(
             domains, coordinate[0], coordinate[1], coordinate[2]
         )

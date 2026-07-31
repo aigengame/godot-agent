@@ -1152,6 +1152,58 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
     assert diagnostic["primary"]["pointer"] == "/formula_bindings"
 
 
+def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["entrypoints"] = [
+        {
+            "id": "resource.spend",
+            "operation": {
+                "package": "game.resource",
+                "version": "1.0.1",
+                "id": "game.resource.spend-v1",
+            },
+            "arguments": [
+                {
+                    "port": "resource",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "actor_mana",
+                    },
+                },
+                {
+                    "port": "cost",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "action_cost",
+                    },
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+    ]
+    source = tmp_path / "unreachable-operation-slot-binding.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings"
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
@@ -3205,7 +3257,9 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/entrypoints/0/arguments/0/operand"
+        "/formula_bindings"
+        if role == "derived"
+        else "/entrypoints/0/arguments/0/operand"
     )
 
 
@@ -3461,6 +3515,11 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source_value = json.loads(source_path.read_text(encoding="utf-8"))
+    source_value["formula_bindings"] = [
+        binding
+        for binding in source_value["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+    ]
     source_value["entrypoints"] = [
         {
             "id": "combat.damage",
@@ -4083,6 +4142,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source_value = json.loads(example.read_text(encoding="utf-8"))
+    source_value["formula_bindings"] = []
     source_value["entrypoints"] = [
         {
             "id": "resource.spend",
