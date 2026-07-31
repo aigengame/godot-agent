@@ -92,6 +92,7 @@ class RuntimeRefusalOutcome:
     refusing_operation: str
     refusing_call_path: str
     refusing_call_site_identity: str | None
+    refusing_evaluation_site_identity: str | None
     state_before: dict[str, int]
     state_after: dict[str, int]
 
@@ -104,12 +105,14 @@ class _RuntimeExecutionFault(Exception):
         operation: str,
         call_path: tuple[str, ...],
         call_site_identity: str | None,
+        evaluation_site_identity: str | None,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
         self.operation = operation
         self.call_path = call_path
         self.call_site_identity = call_site_identity
+        self.evaluation_site_identity = evaluation_site_identity
 
 
 class _InitializationProgramFault(Exception):
@@ -1116,6 +1119,9 @@ def runtime_terminal_audit_members(
                     "operation": outcome.refusing_operation,
                     "call_path": outcome.refusing_call_path,
                     "call_site_identity": outcome.refusing_call_site_identity,
+                    "evaluation_site_identity": (
+                        outcome.refusing_evaluation_site_identity
+                    ),
                     "reason": diagnostic.code,
                 },
                 "rollback": {
@@ -1266,6 +1272,7 @@ def _evaluate_initialization_programs(
     consumed_steps: int,
     runtime_limit: int,
     cache: dict[bytes, int] | None,
+    frame_token: JsonValue | None = None,
 ) -> int:
     """Evaluate closed generic programs against one immutable pre-Snapshot frame."""
     programs = cast(
@@ -1282,11 +1289,17 @@ def _evaluate_initialization_programs(
         "initialization-frame-v2",
         cast(
             JsonValue,
-            [
-                {"symbol": identity.decode("utf-8").rstrip("\n"), "value": value}
-                for identity, value in sorted(actual_values.items())
-                if identity not in program_targets
-            ],
+            {
+                "token": frame_token,
+                "values": [
+                    {
+                        "symbol": identity.decode("utf-8").rstrip("\n"),
+                        "value": value,
+                    }
+                    for identity, value in sorted(actual_values.items())
+                    if identity not in program_targets
+                ],
+            },
         ),
     )
     pending = list(programs)
@@ -1388,6 +1401,7 @@ def _runtime_refusal_outcome(
     operation: str,
     call_path: tuple[str, ...],
     call_site_identity: str | None,
+    evaluation_site_identity: str | None,
     state_before: dict[str, int],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
@@ -1416,6 +1430,7 @@ def _runtime_refusal_outcome(
         refusing_operation=operation,
         refusing_call_path="/".join(call_path),
         refusing_call_site_identity=call_site_identity,
+        refusing_evaluation_site_identity=evaluation_site_identity,
         state_before=dict(state_before),
         state_after=dict(state_before),
     )
@@ -1483,6 +1498,10 @@ def evaluate_experiment(
                 consumed_steps=total_steps,
                 runtime_limit=runtime_limit,
                 cache=initialization_cache,
+                frame_token={
+                    "scenario": scenario["id"],
+                    "snapshot_index": len(snapshots),
+                },
             )
         except _InitializationProgramFault as fault:
             code = _diagnostic_for_signal(checked, fault.signal, "runtime")
@@ -1521,6 +1540,26 @@ def evaluate_experiment(
         event_steps = 0
         root_step_limit = operation["resource_bounds"]["max_steps"]
 
+        def instruction_evaluation_sites(
+            selected_operation: dict[str, Any],
+        ) -> dict[int, str]:
+            extensions = selected_operation.get("extensions")
+            if not isinstance(extensions, dict):
+                return {}
+            provenance = extensions.get("standard.instruction-provenance")
+            if (
+                not isinstance(provenance, dict)
+                or provenance.get("kind") != "instruction-evaluation-sites"
+                or not isinstance(provenance.get("sites"), list)
+            ):
+                return {}
+            return {
+                cast(int, row["instruction_index"]): cast(
+                    str, row["evaluation_site_identity"]
+                )
+                for row in cast(list[dict[str, Any]], provenance["sites"])
+            }
+
         def execute_operation(
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
@@ -1534,7 +1573,11 @@ def evaluate_experiment(
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
-            for instruction in selected_operation["body"]:
+            evaluation_sites = instruction_evaluation_sites(selected_operation)
+            for instruction_index, instruction in enumerate(
+                selected_operation["body"]
+            ):
+                evaluation_site_identity = evaluation_sites.get(instruction_index)
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
                 total_steps += charge
@@ -1551,6 +1594,7 @@ def evaluate_experiment(
                         operation=selected_operation["id"],
                         call_path=call_path,
                         call_site_identity=call_site_identity,
+                        evaluation_site_identity=evaluation_site_identity,
                     )
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
@@ -1681,6 +1725,7 @@ def evaluate_experiment(
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
                         ) from error
                 elif operator == "integer-compare":
                     variables[instruction["target"]] = _integer_compare(
@@ -1712,6 +1757,7 @@ def evaluate_experiment(
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
                         ) from error
                     for alias, alias_actual in state_references.items():
                         if alias_actual == actual:
@@ -1776,6 +1822,7 @@ def evaluate_experiment(
                 operation=fault.operation,
                 call_path=fault.call_path,
                 call_site_identity=fault.call_site_identity,
+                evaluation_site_identity=fault.evaluation_site_identity,
                 state_before={
                     display_names[identity]: value for identity, value in before.items()
                 },
@@ -1791,6 +1838,43 @@ def evaluate_experiment(
                 cast(JsonValue, entrypoint["result"]["symbol"])
             )
             actual_values[result_identity] = root_result
+        try:
+            total_steps = _evaluate_initialization_programs(
+                checked,
+                actual_values,
+                consumed_steps=total_steps,
+                runtime_limit=runtime_limit,
+                cache=initialization_cache,
+                frame_token={
+                    "scenario": scenario["id"],
+                    "snapshot_index": len(snapshots),
+                },
+            )
+        except _InitializationProgramFault as fault:
+            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            message = (
+                "Runtime program exhausted its exact step bound"
+                if fault.signal == "step-limit"
+                else "Exact-int64 operation overflowed its numeric domain"
+            )
+            return _runtime_refusal_outcome(
+                checked,
+                scenario_id=scenario["id"],
+                scenario_index=scenario_index,
+                code=code,
+                message=message,
+                events=events,
+                entrypoint_id=entrypoint["id"],
+                entrypoint_identity=entrypoint["identity"],
+                operation=operation["id"],
+                call_path=(cast(str, entrypoint["id"]),),
+                call_site_identity=None,
+                evaluation_site_identity=fault.evaluation_site_identity,
+                state_before={
+                    display_names[identity]: value
+                    for identity, value in before.items()
+                },
+            )
         typed_outcome = {
             "id": outcome,
             "kind": outcome_definition["kind"],

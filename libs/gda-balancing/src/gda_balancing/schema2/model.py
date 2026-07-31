@@ -3483,6 +3483,10 @@ def _specialize_operation_formula_slots(
             )
         return instructions
 
+    replacements: dict[
+        tuple[str, str, str],
+        list[tuple[int, int, list[dict[str, JsonValue]], str]],
+    ] = {}
     for binding in bindings:
         site = cast(dict[str, Any], binding["site"])
         if site["kind"] != "operation-slot":
@@ -3532,9 +3536,47 @@ def _specialize_operation_formula_slots(
             )
         placeholder_index = cast(int, slot["placeholder_index"])
         placeholder_length = cast(int, slot["placeholder_length"])
-        operation["body"][
-            placeholder_index : placeholder_index + placeholder_length
-        ] = compiled
+        replacements.setdefault(coordinate, []).append(
+            (
+                placeholder_index,
+                placeholder_length,
+                compiled,
+                cast(str, site["identity"]),
+            )
+        )
+
+    for coordinate, operation_replacements in replacements.items():
+        operation = operations[coordinate]
+        ordered = sorted(operation_replacements, key=lambda row: row[0])
+        if any(
+            left[0] + left[1] > right[0]
+            for left, right in zip(ordered, ordered[1:], strict=False)
+        ):
+            raise ValueError("Operation Formula slot placeholders overlap")
+        for start, length, compiled, _site_identity in reversed(ordered):
+            operation["body"][start : start + length] = compiled
+        extensions = cast(dict[str, Any], operation.setdefault("extensions", {}))
+        provenance = cast(
+            dict[str, Any],
+            extensions.setdefault(
+                "standard.instruction-provenance",
+                {
+                    "kind": "instruction-evaluation-sites",
+                    "sites": [],
+                },
+            ),
+        )
+        shift = 0
+        for start, length, compiled, site_identity in ordered:
+            final_start = start + shift
+            cast(list[dict[str, JsonValue]], provenance["sites"]).extend(
+                {
+                    "instruction_index": final_start + index,
+                    "evaluation_site_identity": site_identity,
+                }
+                for index in range(len(compiled))
+            )
+            shift += len(compiled) - length
     return cast(dict[str, JsonValue], specialized)
 
 

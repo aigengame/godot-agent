@@ -1553,6 +1553,8 @@ def _reference_formulas_and_bindings(
             locals_,
             prototype["result"],
         )
+        if result_operand["kind"] != "local":
+            max_steps += policy["resource_charge_per_node"]
         formula_body = {
             "module": prototype["module"],
             "id": prototype["id"],
@@ -1906,6 +1908,10 @@ def _reference_specialize_formula_slots(
             )
         return instructions
 
+    replacements: dict[
+        tuple[str, str, str],
+        list[tuple[int, int, list[dict[str, Any]], str]],
+    ] = {}
     for binding in bindings:
         site = binding["site"]
         if site["kind"] != "operation-slot":
@@ -1939,7 +1945,38 @@ def _reference_specialize_formula_slots(
             f"formula.{site['slot']}",
         )
         start = slot["placeholder_index"]
-        operation["body"][start : start + slot["placeholder_length"]] = compiled
+        replacements.setdefault(coordinate, []).append(
+            (
+                start,
+                slot["placeholder_length"],
+                compiled,
+                site["identity"],
+            )
+        )
+
+    for coordinate, operation_replacements in replacements.items():
+        operation = operations[coordinate]
+        ordered = sorted(operation_replacements, key=lambda row: row[0])
+        for start, length, compiled, _site_identity in reversed(ordered):
+            operation["body"][start : start + length] = compiled
+        provenance = operation["extensions"].setdefault(
+            "standard.instruction-provenance",
+            {
+                "kind": "instruction-evaluation-sites",
+                "sites": [],
+            },
+        )
+        shift = 0
+        for start, length, compiled, site_identity in ordered:
+            final_start = start + shift
+            provenance["sites"].extend(
+                {
+                    "instruction_index": final_start + index,
+                    "evaluation_site_identity": site_identity,
+                }
+                for index in range(len(compiled))
+            )
+            shift += len(compiled) - length
 
     specialized_operations = {
         (row["package"], row["definition"]["id"]): row["definition"]
@@ -2192,12 +2229,24 @@ def _reference_initialization_programs(
                         site_identity,
                     )
                 locals_[node_id] = {"kind": "local", "name": target}
-            return source(
+            result = source(
                 formula["body"]["result"],
                 parameters,
                 locals_,
                 prefix,
             )
+            if formula["body"]["result"]["kind"] == "local":
+                return result
+            result_target = f"{prefix}.$result"
+            emit(
+                {
+                    "node": "copy",
+                    "target": result_target,
+                    "value": reference(result),
+                },
+                instruction_site(formula, "$result", prefix),
+            )
+            return {"kind": "local", "name": result_target}
 
         formula = formulas_by_identity[binding["formula"]["identity"]]
         result = compile_formula(

@@ -1092,6 +1092,58 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     )
 
 
+def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    derived_binding = next(
+        row
+        for row in source_value["formula_bindings"]
+        if row["site"]["kind"] == "derived-symbol"
+    )
+    derived_binding["arguments"][0]["operand"]["symbol"] = "target_health"
+    source = tmp_path / "snapshot-derived-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "snapshot-derived-model"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification["scenarios"][0]["assignments"] = [
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] != "accuracy"
+    ]
+    spec_path = tmp_path / "snapshot-derived-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(spec_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    event = artifacts.members["event-trace"].value["events"][0]
+    facts = {row["name"]: row["integer"] for row in event["facts"]}
+    assert facts["target_health"] == 82
+    assert facts["effective_accuracy"] == facts["target_health"]
+
+
 def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
     tmp_path, run_cli
 ):
@@ -2754,6 +2806,75 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
     }
+
+
+def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    target_defense = next(
+        row
+        for row in source_value["modules"][0]["symbols"]
+        if row["symbol"] == "target_defense"
+    )
+    target_defense["domain"]["minimum"] = -(1 << 63)
+    source = tmp_path / "formula-overflow-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "formula-overflow-model"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    rir = _member(build_receipt, "rir-semantic-payload")
+    formula_site = next(
+        row["site"]["identity"]
+        for row in rir["formula_bindings"]
+        if row["site"]["kind"] == "operation-slot"
+    )
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    mitigation = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "target_defense"
+    )
+    mitigation["value"] = -(1 << 63)
+    spec_path = tmp_path / "formula-overflow-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(tmp_path / "formula-overflow-terminal-audit.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
+    assert audit["refusing_event"]["evaluation_site_identity"] == formula_site
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
 
 
 def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
