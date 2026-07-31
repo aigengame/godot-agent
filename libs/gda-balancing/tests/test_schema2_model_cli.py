@@ -582,6 +582,47 @@ def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, r
     assert json.loads(inspect_stdout)["artifact_kind"] == "model-explanation"
 
 
+@pytest.mark.parametrize("anchor_key", [None, "A5" * 32, "a5" * 31, "not-hex"])
+def test_model_inspect_preserves_invalid_anchor_configuration_as_usage(
+    tmp_path, run_cli, monkeypatch, anchor_key
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt = tmp_path / "public-build-receipt.json"
+    receipt.write_text(build_stdout, encoding="utf-8")
+    if anchor_key is None:
+        monkeypatch.delenv("GDA_BALANCING_ANCHOR_KEY", raising=False)
+    else:
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", anchor_key)
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt)]
+    )
+
+    assert (inspect_exit, inspect_stdout) == (3, "")
+    assert json.loads(inspect_stderr)["error"] == {
+        "category": "usage",
+        "code": "invalid_argument",
+        "message": (
+            "GDA_BALANCING_ANCHOR_KEY must contain exactly 64 lowercase "
+            "hexadecimal digits"
+        ),
+    }
+    assert "invalid_argument" in model_command_module.MODEL_INSPECT.usage_codes
+
+
 def test_model_inspect_refuses_a_coherently_relocated_publication(
     tmp_path, run_cli
 ):

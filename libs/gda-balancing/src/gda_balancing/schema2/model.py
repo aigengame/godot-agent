@@ -7660,6 +7660,7 @@ def read_model_explanation(
             "Model build receipt does not locate its committed publication",
         )
     anchor_path = _store_anchor_path(expected_descriptor_identity, invocation_key)
+    authentication_key = publication_authentication_key()
     try:
         _assert_ancestor_chain_without_symlink(invocation_path)
         _assert_ancestor_chain_without_symlink(anchor_path)
@@ -7669,7 +7670,7 @@ def read_model_explanation(
             or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
         ):
             raise RuntimeError("committed publication anchor is not immutable")
-        index = _verified_anchor(anchor_path, publication_authentication_key())
+        index = _verified_anchor(anchor_path, authentication_key)
         committed_index = _read_canonical_artifact(
             invocation_path / "publication-index.json"
         )
