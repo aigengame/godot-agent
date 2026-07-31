@@ -1570,6 +1570,21 @@ def evaluate_experiment(
             nonlocal event_steps, total_steps
             operation_before: dict[bytes, int] = dict(state)
             variables: dict[str, Any] = dict(arguments)
+            extensions = selected_operation.get("extensions", {})
+            snapshot_operands = (
+                extensions.get("standard.snapshot-operands")
+                if isinstance(extensions, dict)
+                else None
+            )
+            if isinstance(snapshot_operands, dict):
+                for row in cast(
+                    list[dict[str, Any]],
+                    snapshot_operands.get("operands", []),
+                ):
+                    identity = canonical_bytes(
+                        cast(JsonValue, row["resolved_symbol"])
+                    )
+                    variables[cast(str, row["name"])] = actual_values[identity]
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0

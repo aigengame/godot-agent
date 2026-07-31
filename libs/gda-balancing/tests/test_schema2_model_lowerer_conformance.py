@@ -1738,11 +1738,16 @@ def _reference_specialize_formula_slots(
         value: dict[str, Any],
         parameter_sources: dict[str, dict[str, Any]],
         local_sources: dict[str, dict[str, Any]],
+        snapshot_sources: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         if value["kind"] == "parameter":
             return parameter_sources[value["parameter"]]
         if value["kind"] == "local":
             return local_sources[value["local"]]
+        if value["kind"] == "symbol":
+            alias = f"formula.snapshot.{value['identity']}"
+            snapshot_sources[alias] = value["resolved_symbol"]
+            return {"kind": "local", "local": alias}
         return {"kind": "literal", "literal": value["value"]}
 
     def reference(value: dict[str, Any]) -> str:
@@ -1753,6 +1758,7 @@ def _reference_specialize_formula_slots(
         parameter_sources: dict[str, dict[str, Any]],
         result_target: str,
         prefix: str,
+        snapshot_sources: dict[str, dict[str, Any]],
     ) -> list[dict[str, Any]]:
         instructions = []
         local_sources: dict[str, dict[str, Any]] = {}
@@ -1778,6 +1784,7 @@ def _reference_specialize_formula_slots(
                         argument["operand"],
                         parameter_sources,
                         local_sources,
+                        snapshot_sources,
                     )
                     for argument in node["arguments"]
                 }
@@ -1847,6 +1854,7 @@ def _reference_specialize_formula_slots(
                                 node["condition"],
                                 parameter_sources,
                                 local_sources,
+                                snapshot_sources,
                             )
                         ),
                         "when_true": reference(
@@ -1854,6 +1862,7 @@ def _reference_specialize_formula_slots(
                                 node["when_true"],
                                 parameter_sources,
                                 local_sources,
+                                snapshot_sources,
                             )
                         ),
                         "when_false": reference(
@@ -1861,6 +1870,7 @@ def _reference_specialize_formula_slots(
                                 node["when_false"],
                                 parameter_sources,
                                 local_sources,
+                                snapshot_sources,
                             )
                         ),
                     }
@@ -1872,6 +1882,7 @@ def _reference_specialize_formula_slots(
                         argument["operand"],
                         parameter_sources,
                         local_sources,
+                        snapshot_sources,
                     )
                     for argument in node["arguments"]
                 }
@@ -1881,6 +1892,7 @@ def _reference_specialize_formula_slots(
                         called_sources,
                         target,
                         f"{prefix}.{node_id}",
+                        snapshot_sources,
                     )
                 )
                 instructions.append({"node": "copy", "target": target, "value": target})
@@ -1889,6 +1901,7 @@ def _reference_specialize_formula_slots(
             formula["body"]["result"],
             parameter_sources,
             local_sources,
+            snapshot_sources,
         )
         if result != {"kind": "local", "local": result_target}:
             instructions.append(
@@ -1911,6 +1924,10 @@ def _reference_specialize_formula_slots(
     replacements: dict[
         tuple[str, str, str],
         list[tuple[int, int, list[dict[str, Any]], str]],
+    ] = {}
+    snapshot_sources_by_operation: dict[
+        tuple[str, str, str],
+        dict[str, dict[str, Any]],
     ] = {}
     for binding in bindings:
         site = binding["site"]
@@ -1938,11 +1955,13 @@ def _reference_specialize_formula_slots(
                 "port" if source["kind"] == "port" else "local": source["name"],
             }
         formula = formulas_by_identity[binding["formula"]["identity"]]
+        snapshot_sources = snapshot_sources_by_operation.setdefault(coordinate, {})
         compiled = compile_formula(
             formula,
             parameter_sources,
             slot["target"],
             f"formula.{site['slot']}",
+            snapshot_sources,
         )
         start = slot["placeholder_index"]
         replacements.setdefault(coordinate, []).append(
@@ -1959,6 +1978,18 @@ def _reference_specialize_formula_slots(
         ordered = sorted(operation_replacements, key=lambda row: row[0])
         for start, length, compiled, _site_identity in reversed(ordered):
             operation["body"][start : start + length] = compiled
+        snapshot_sources = snapshot_sources_by_operation.get(coordinate, {})
+        if snapshot_sources:
+            operation["extensions"]["standard.snapshot-operands"] = {
+                "kind": "pre-event-snapshot-symbols",
+                "operands": [
+                    {
+                        "name": name,
+                        "resolved_symbol": resolved_symbol,
+                    }
+                    for name, resolved_symbol in sorted(snapshot_sources.items())
+                ],
+            }
         provenance = operation["extensions"].setdefault(
             "standard.instruction-provenance",
             {

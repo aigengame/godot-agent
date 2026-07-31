@@ -1169,6 +1169,28 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
     )
 
 
+def test_model_check_points_a_non_first_formula_error_at_its_declaration(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    second_formula = source_document["modules"][0]["formulas"][1]
+    second_formula["result"]["domain"]["maximum"] = 999
+    source = tmp_path / "second-formula-error.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+
+
 def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contract(
     tmp_path, run_cli
 ):

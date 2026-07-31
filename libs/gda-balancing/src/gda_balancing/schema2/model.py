@@ -1966,10 +1966,11 @@ def _reachable_derived_formula_sites(
     return reachable_sites
 
 
-def _resolved_formula_programs_and_bindings(
+def _resolved_formula_programs_and_bindings_impl(
     checked: CheckedModel,
     declarations: list[dict[str, Any]],
     policy: dict[str, Any],
+    failure_context: list[str],
 ) -> tuple[
     list[dict[str, JsonValue]],
     list[dict[str, JsonValue]],
@@ -2016,6 +2017,9 @@ def _resolved_formula_programs_and_bindings(
         for formula_index, source_formula in enumerate(
             cast(list[dict[str, Any]], module.get("formulas", []))
         ):
+            failure_context[:] = [
+                f"/modules/{module_index}/formulas/{formula_index}"
+            ]
             formula_id = source_formula.get("id")
             key = (module_id, cast(str, formula_id))
             if not isinstance(formula_id, str) or not formula_id or key in prototypes:
@@ -2064,6 +2068,7 @@ def _resolved_formula_programs_and_bindings(
 
     dependencies: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for key, prototype in prototypes.items():
+        failure_context[:] = [formula_pointers[key]]
         node_ids: set[str] = set()
         calls: list[tuple[str, str]] = []
         for node in cast(list[dict[str, Any]], prototype["source_body"]["nodes"]):
@@ -2122,6 +2127,7 @@ def _resolved_formula_programs_and_bindings(
     }
     charge_per_node = cast(int, policy["resource_charge_per_node"])
     for key in order:
+        failure_context[:] = [formula_pointers[key]]
         prototype = prototypes[key]
         parameters_by_id = {
             cast(str, item["id"]): item
@@ -2453,6 +2459,7 @@ def _resolved_formula_programs_and_bindings(
             "identity": content_identity(domains["declaration"], formula_body),
         }
 
+    failure_context.clear()
     selected_formula_keys: set[tuple[str, str]] = set()
     source_bindings = cast(
         list[dict[str, Any]], checked.source.get("formula_bindings", [])
@@ -2709,6 +2716,34 @@ def _resolved_formula_programs_and_bindings(
             for key in sorted(selected_formula_keys)
         ],
     )
+
+
+def _resolved_formula_programs_and_bindings(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> tuple[
+    list[dict[str, JsonValue]],
+    list[dict[str, JsonValue]],
+    list[tuple[str, str]],
+]:
+    failure_context: list[str] = []
+    try:
+        return _resolved_formula_programs_and_bindings_impl(
+            checked,
+            declarations,
+            policy,
+            failure_context,
+        )
+    except _FormulaResolutionError:
+        raise
+    except (KeyError, TypeError, ValueError) as error:
+        if failure_context:
+            raise _FormulaResolutionError(
+                failure_context[0],
+                str(error),
+            ) from error
+        raise
 
 
 def _resolved_formulas_and_bindings(
@@ -3276,6 +3311,7 @@ def _specialize_operation_formula_slots(
         operand: dict[str, Any],
         parameter_sources: dict[str, dict[str, JsonValue]],
         local_sources: dict[str, dict[str, JsonValue]],
+        snapshot_sources: dict[str, dict[str, JsonValue]],
     ) -> dict[str, JsonValue]:
         kind = operand["kind"]
         if kind == "parameter":
@@ -3284,8 +3320,19 @@ def _specialize_operation_formula_slots(
             return local_sources[cast(str, operand["local"])]
         if kind == "literal":
             return {"kind": "literal", "literal": cast(int, operand["value"])}
+        if kind == "symbol":
+            alias = f"formula.snapshot.{operand['identity']}"
+            resolved_symbol = cast(
+                dict[str, JsonValue],
+                operand["resolved_symbol"],
+            )
+            existing = snapshot_sources.get(alias)
+            if existing is not None and existing != resolved_symbol:
+                raise ValueError("Formula snapshot operand alias is ambiguous")
+            snapshot_sources[alias] = resolved_symbol
+            return {"kind": "local", "local": alias}
         raise ValueError(
-            "event Formula slots admit only slot parameters, locals, and literals"
+            "event Formula slot operand has no admitted runtime lowering"
         )
 
     def runtime_reference(operand: dict[str, JsonValue]) -> str:
@@ -3302,6 +3349,7 @@ def _specialize_operation_formula_slots(
         parameter_sources: dict[str, dict[str, JsonValue]],
         result_target: str,
         prefix: str,
+        snapshot_sources: dict[str, dict[str, JsonValue]],
     ) -> list[dict[str, JsonValue]]:
         instructions: list[dict[str, JsonValue]] = []
         local_sources: dict[str, dict[str, JsonValue]] = {}
@@ -3328,6 +3376,7 @@ def _specialize_operation_formula_slots(
                         cast(dict[str, Any], argument["operand"]),
                         parameter_sources,
                         local_sources,
+                        snapshot_sources,
                     )
                     for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
@@ -3415,16 +3464,19 @@ def _specialize_operation_formula_slots(
                     cast(dict[str, Any], node["condition"]),
                     parameter_sources,
                     local_sources,
+                    snapshot_sources,
                 )
                 when_true = runtime_operand(
                     cast(dict[str, Any], node["when_true"]),
                     parameter_sources,
                     local_sources,
+                    snapshot_sources,
                 )
                 when_false = runtime_operand(
                     cast(dict[str, Any], node["when_false"]),
                     parameter_sources,
                     local_sources,
+                    snapshot_sources,
                 )
                 instructions.append(
                     {
@@ -3443,6 +3495,7 @@ def _specialize_operation_formula_slots(
                         cast(dict[str, Any], argument["operand"]),
                         parameter_sources,
                         local_sources,
+                        snapshot_sources,
                     )
                     for argument in cast(list[dict[str, Any]], node["arguments"])
                 }
@@ -3452,6 +3505,7 @@ def _specialize_operation_formula_slots(
                         called_sources,
                         target,
                         f"{prefix}.{node_id}",
+                        snapshot_sources,
                     )
                 )
                 instructions.append({"node": "copy", "target": target, "value": target})
@@ -3462,6 +3516,7 @@ def _specialize_operation_formula_slots(
             result_operand,
             parameter_sources,
             local_sources,
+            snapshot_sources,
         )
         if resolved_result == {"kind": "local", "local": result_target}:
             return instructions
@@ -3486,6 +3541,10 @@ def _specialize_operation_formula_slots(
     replacements: dict[
         tuple[str, str, str],
         list[tuple[int, int, list[dict[str, JsonValue]], str]],
+    ] = {}
+    snapshot_sources_by_operation: dict[
+        tuple[str, str, str],
+        dict[str, dict[str, JsonValue]],
     ] = {}
     for binding in bindings:
         site = cast(dict[str, Any], binding["site"])
@@ -3520,11 +3579,13 @@ def _specialize_operation_formula_slots(
             )
         formula_ref = cast(dict[str, Any], binding["formula"])
         formula = formulas_by_identity[cast(str, formula_ref["identity"])]
+        snapshot_sources = snapshot_sources_by_operation.setdefault(coordinate, {})
         compiled = compile_formula(
             formula,
             parameter_sources,
             cast(str, slot["target"]),
             f"formula.{site['slot']}",
+            snapshot_sources,
         )
         expected_steps = cast(
             int,
@@ -3556,6 +3617,18 @@ def _specialize_operation_formula_slots(
         for start, length, compiled, _site_identity in reversed(ordered):
             operation["body"][start : start + length] = compiled
         extensions = cast(dict[str, Any], operation.setdefault("extensions", {}))
+        snapshot_sources = snapshot_sources_by_operation.get(coordinate, {})
+        if snapshot_sources:
+            extensions["standard.snapshot-operands"] = {
+                "kind": "pre-event-snapshot-symbols",
+                "operands": [
+                    {
+                        "name": name,
+                        "resolved_symbol": resolved_symbol,
+                    }
+                    for name, resolved_symbol in sorted(snapshot_sources.items())
+                ],
+            }
         provenance = cast(
             dict[str, Any],
             extensions.setdefault(
