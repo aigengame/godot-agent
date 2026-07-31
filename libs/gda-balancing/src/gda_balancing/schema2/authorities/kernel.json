@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:85bfe20f1992d88369c88b3d686a57c5aa2f5d113e46f54d8828e3f0844e168d",
+  "content_identity": "sha256:96416f9c759d340a12a251a5af8087d1e3309556ee73113625f9629c7baf0d97",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3760,6 +3760,44 @@
           "state_value_members": [
             "name",
             "value"
+          ]
+        },
+        {
+          "expect_members": [
+            "cache_entries",
+            "charge",
+            "outcome",
+            "result",
+            "result_artifact",
+            "signal",
+            "site"
+          ],
+          "id": "value-program",
+          "input_members": [
+            "cache",
+            "evaluations",
+            "instructions",
+            "numeric",
+            "operands",
+            "resource_limit",
+            "result",
+            "site"
+          ],
+          "instruction_nodes": [
+            "add",
+            "constant",
+            "copy",
+            "if",
+            "maximum",
+            "multiply",
+            "subtract"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind"
           ]
         }
       ],

@@ -1189,6 +1189,76 @@ def _execute_value_instruction(
     variables[cast(str, instruction["target"])] = _admit_numeric(value, numeric)
 
 
+def _evaluate_value_program_vector(
+    vector: dict[str, Any],
+) -> dict[str, JsonValue]:
+    """Execute one package-owned generic value-program conformance vector."""
+    inp = cast(dict[str, Any], vector["input"])
+    numeric = cast(dict[str, Any], inp["numeric"])
+    instructions = cast(list[dict[str, Any]], inp["instructions"])
+    operands = {
+        cast(str, row["name"]): cast(int, row["value"])
+        for row in cast(list[dict[str, Any]], inp["operands"])
+    }
+    cache: dict[bytes, int] = {}
+    charge = 0
+    result_value: int | None = None
+    signal: str | None = None
+    refusing_site = cast(str, inp["site"])
+    for _evaluation in range(cast(int, inp["evaluations"])):
+        charge += len(instructions)
+        if charge > cast(int, inp["resource_limit"]):
+            signal = "step-limit"
+            result_value = None
+            break
+        cache_key = canonical_bytes(
+            cast(
+                JsonValue,
+                {
+                    "instructions": instructions,
+                    "numeric": numeric,
+                    "operands": [
+                        {"name": name, "value": value}
+                        for name, value in sorted(operands.items())
+                    ],
+                    "result": inp["result"],
+                    "site": inp["site"],
+                },
+            )
+        )
+        if cast(bool, inp["cache"]) and cache_key in cache:
+            result_value = cache[cache_key]
+            continue
+        values = dict(operands)
+        for row in instructions:
+            try:
+                _execute_value_instruction(
+                    cast(dict[str, Any], row["instruction"]),
+                    values,
+                    numeric,
+                )
+            except OverflowError:
+                signal = "numeric-overflow"
+                refusing_site = cast(str, row["evaluation_site_identity"])
+                result_value = None
+                break
+        if signal is not None:
+            break
+        result_value = values[cast(str, inp["result"])]
+        if cast(bool, inp["cache"]):
+            cache[cache_key] = result_value
+    admitted = signal is None
+    return {
+        "cache_entries": len(cache),
+        "charge": charge,
+        "outcome": "admitted" if admitted else "refused",
+        "result": result_value,
+        "result_artifact": admitted,
+        "signal": signal,
+        "site": cast(str, inp["site"]) if admitted else refusing_site,
+    }
+
+
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],

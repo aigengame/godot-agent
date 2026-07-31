@@ -737,8 +737,13 @@ def _reference_check_source(
                 error.pointer,
             ),
         )
-    except ValueError:
-        return ((reasons[profile["structural_reason"]]["diagnostic"], "/entrypoints"),)
+    except (KeyError, ValueError) as error:
+        pointer = (
+            "/formula_bindings"
+            if "formula" in str(error).lower() or "binding" in str(error).lower()
+            else "/entrypoints"
+        )
+        return ((reasons[profile["structural_reason"]]["diagnostic"], pointer),)
     return checked
 
 
@@ -1554,13 +1559,15 @@ def _reference_formulas_and_bindings(
             slots[(*coordinate, slot["id"])] = (slot, identity)
 
     bindings = []
+    bound_slots: set[tuple[str, str, str, str]] = set()
     for source_binding in checked.source.get("formula_bindings", []):
-        formula = resolved[
-            (
-                source_binding["formula"]["module"],
-                source_binding["formula"]["id"],
-            )
-        ]
+        formula_key = (
+            source_binding["formula"]["module"],
+            source_binding["formula"]["id"],
+        )
+        if formula_key not in resolved:
+            raise ValueError("Formula binding names no declaration")
+        formula = resolved[formula_key]
         if source_binding["site"]["kind"] == "operation-slot":
             source_operation = source_binding["site"]["operation"]
             key = (
@@ -1569,7 +1576,12 @@ def _reference_formulas_and_bindings(
                 source_operation["id"],
                 source_binding["site"]["slot"],
             )
+            if key not in slots or key in bound_slots:
+                raise ValueError(
+                    "Formula binding site is not one unique selected Operation slot"
+                )
             slot, operation_identity_value = slots[key]
+            bound_slots.add(key)
             arguments = []
             for argument in source_binding["arguments"]:
                 operand_body = {
@@ -1648,6 +1660,10 @@ def _reference_formulas_and_bindings(
             }
         )
     bindings.sort(key=lambda item: item["identity"])
+    if bound_slots != set(slots):
+        raise ValueError(
+            "every selected Operation Formula slot requires exactly one binding"
+        )
     return formulas, bindings
 
 
@@ -3342,6 +3358,13 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
     assert {
+        "formula.schema.accept.named-typed-pure-graph",
+        "formula.schema.refuse.dynamic-or-effectful-graph",
+        "formula.compiler.accept.closed-static-graph",
+        "formula.compiler.refuse.invalid-closure",
+        "formula.quantity.accept.pure-operation-closure",
+        "formula.combat.accept.damage-slot-binding",
+        "formula.combat.refuse.missing-or-duplicate-slot-binding",
         "quantity.literal.integer-admitted",
         "game.combat.model-binding.contract-stale-package",
         "game.combat.model-binding.contract-stale-version",
@@ -3405,8 +3428,8 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         )
         expected = vector["expect"]
         if expected["outcome"] == "refused":
-            assert isinstance(production_checked, Schema2RefusalReport)
-            assert isinstance(reference_checked, tuple)
+            assert isinstance(production_checked, Schema2RefusalReport), vector["id"]
+            assert isinstance(reference_checked, tuple), vector["id"]
             production_diagnostics = [
                 {
                     "code": item.code,

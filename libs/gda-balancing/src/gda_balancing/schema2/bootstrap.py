@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:85bfe20f1992d88369c88b3d686a57c5aa2f5d113e46f54d8828e3f0844e168d"
+    "sha256:96416f9c759d340a12a251a5af8087d1e3309556ee73113625f9629c7baf0d97"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -404,6 +404,13 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "rng_draw_members",
         "state_value_members",
     },
+    "value-program": {
+        "expect_members",
+        "id",
+        "input_members",
+        "instruction_nodes",
+        "required_members",
+    },
 }
 
 
@@ -464,6 +471,13 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "kind",
             "operation",
         },
+        "value-program": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -480,6 +494,37 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         and kinds["runtime-scenario"].get("rng_draw_members")
         == ["candidate_hex", "index", "stream", "value"]
         and kinds["runtime-scenario"].get("state_value_members") == ["name", "value"]
+        and kinds["value-program"].get("input_members")
+        == [
+            "cache",
+            "evaluations",
+            "instructions",
+            "numeric",
+            "operands",
+            "resource_limit",
+            "result",
+            "site",
+        ]
+        and kinds["value-program"].get("expect_members")
+        == [
+            "cache_entries",
+            "charge",
+            "outcome",
+            "result",
+            "result_artifact",
+            "signal",
+            "site",
+        ]
+        and kinds["value-program"].get("instruction_nodes")
+        == [
+            "add",
+            "constant",
+            "copy",
+            "if",
+            "maximum",
+            "multiply",
+            "subtract",
+        ]
     )
 
 
@@ -497,6 +542,53 @@ def _signed_int64(value: Any) -> bool:
         isinstance(value, int)
         and not isinstance(value, bool)
         and -(2**63) <= value <= 2**63 - 1
+    )
+
+
+def _value_program_instruction_is_closed(
+    row: Any,
+    allowed_nodes: set[str],
+) -> bool:
+    if (
+        not isinstance(row, dict)
+        or set(row) != {"evaluation_site_identity", "instruction"}
+        or not isinstance(row.get("evaluation_site_identity"), str)
+        or not row["evaluation_site_identity"]
+        or not isinstance(row.get("instruction"), dict)
+    ):
+        return False
+    instruction = row["instruction"]
+    node = instruction.get("node")
+    members = {
+        "constant": {"node", "target", "literal"},
+        "copy": {"node", "target", "value"},
+        "add": {"node", "target", "left", "right"},
+        "maximum": {"node", "target", "left", "right"},
+        "multiply": {"node", "target", "left", "right"},
+        "subtract": {"node", "target", "left", "right"},
+        "if": {
+            "node",
+            "target",
+            "condition",
+            "when_true",
+            "when_false",
+        },
+    }
+    required = members.get(node) if isinstance(node, str) else None
+    return (
+        isinstance(required, set)
+        and node in allowed_nodes
+        and set(instruction) == required
+        and isinstance(instruction.get("target"), str)
+        and bool(instruction["target"])
+        and (
+            _signed_int64(instruction.get("literal"))
+            if node == "constant"
+            else all(
+                isinstance(instruction.get(member), str) and bool(instruction[member])
+                for member in required - {"node", "target"}
+            )
+        )
     )
 
 
@@ -635,6 +727,75 @@ def _package_evidence_vectors_are_closed(
                 return False
             declared, observed = _exact_path_value(package, probe["path"])
             if not declared or not _canonical_equal(observed, vector.get("expect")):
+                return False
+            continue
+        if kind_id == "value-program":
+            inp = vector.get("input")
+            expect = vector.get("expect")
+            allowed_nodes = set(cast(list[str], kind["instruction_nodes"]))
+            if (
+                not isinstance(inp, dict)
+                or set(inp) != set(kind["input_members"])
+                or not isinstance(inp.get("cache"), bool)
+                or not isinstance(inp.get("evaluations"), int)
+                or isinstance(inp["evaluations"], bool)
+                or inp["evaluations"] < 1
+                or not isinstance(inp.get("instructions"), list)
+                or not inp["instructions"]
+                or not all(
+                    _value_program_instruction_is_closed(row, allowed_nodes)
+                    for row in inp["instructions"]
+                )
+                or not isinstance(inp.get("numeric"), dict)
+                or set(inp["numeric"]) != {"maximum", "minimum"}
+                or not _signed_int64(inp["numeric"].get("minimum"))
+                or not _signed_int64(inp["numeric"].get("maximum"))
+                or inp["numeric"]["minimum"] > inp["numeric"]["maximum"]
+                or not isinstance(inp.get("operands"), list)
+                or not all(
+                    isinstance(row, dict)
+                    and set(row) == {"name", "value"}
+                    and isinstance(row.get("name"), str)
+                    and bool(row["name"])
+                    and _signed_int64(row.get("value"))
+                    for row in inp["operands"]
+                )
+                or [row["name"] for row in inp["operands"]]
+                != sorted({row["name"] for row in inp["operands"]})
+                or not isinstance(inp.get("resource_limit"), int)
+                or isinstance(inp["resource_limit"], bool)
+                or inp["resource_limit"] < 0
+                or not isinstance(inp.get("result"), str)
+                or not inp["result"]
+                or not isinstance(inp.get("site"), str)
+                or not inp["site"]
+                or not isinstance(expect, dict)
+                or set(expect) != set(kind["expect_members"])
+                or expect.get("outcome") not in {"admitted", "refused"}
+                or not isinstance(expect.get("cache_entries"), int)
+                or isinstance(expect["cache_entries"], bool)
+                or expect["cache_entries"] < 0
+                or not isinstance(expect.get("charge"), int)
+                or isinstance(expect["charge"], bool)
+                or expect["charge"] < 0
+                or not isinstance(expect.get("result_artifact"), bool)
+                or not isinstance(expect.get("site"), str)
+                or not expect["site"]
+                or not (
+                    (
+                        expect["outcome"] == "admitted"
+                        and _signed_int64(expect.get("result"))
+                        and expect.get("signal") is None
+                        and expect["result_artifact"] is True
+                    )
+                    or (
+                        expect["outcome"] == "refused"
+                        and expect.get("result") is None
+                        and expect.get("signal") in {"numeric-overflow", "step-limit"}
+                        and expect["result_artifact"] is False
+                    )
+                )
+            ):
                 return False
             continue
         operation = operations.get(vector.get("operation"))

@@ -638,6 +638,90 @@ def _reference_execute_event(
     return event
 
 
+def _reference_evaluate_value_program_vector(
+    vector: dict[str, Any],
+) -> dict[str, Any]:
+    inp = vector["input"]
+    instructions = inp["instructions"]
+    numeric = inp["numeric"]
+    operands = {row["name"]: row["value"] for row in inp["operands"]}
+    cache: dict[bytes, int] = {}
+    charge = 0
+    result = None
+    signal = None
+    site = inp["site"]
+    for _ in range(inp["evaluations"]):
+        charge += len(instructions)
+        if charge > inp["resource_limit"]:
+            signal = "step-limit"
+            result = None
+            break
+        key = canonical_bytes(
+            {
+                "instructions": instructions,
+                "numeric": numeric,
+                "operands": [
+                    {"name": name, "value": value}
+                    for name, value in sorted(operands.items())
+                ],
+                "result": inp["result"],
+                "site": inp["site"],
+            }
+        )
+        if inp["cache"] and key in cache:
+            result = cache[key]
+            continue
+        values = dict(operands)
+        for row in instructions:
+            instruction = row["instruction"]
+            node = instruction["node"]
+            if node == "constant":
+                value = instruction["literal"]
+            elif node == "copy":
+                value = values[instruction["value"]]
+            elif node == "add":
+                value = values[instruction["left"]] + values[instruction["right"]]
+            elif node == "subtract":
+                value = values[instruction["left"]] - values[instruction["right"]]
+            elif node == "multiply":
+                value = values[instruction["left"]] * values[instruction["right"]]
+            elif node == "maximum":
+                value = max(
+                    values[instruction["left"]],
+                    values[instruction["right"]],
+                )
+            else:
+                assert node == "if"
+                value = values[
+                    instruction[
+                        "when_true"
+                        if values[instruction["condition"]]
+                        else "when_false"
+                    ]
+                ]
+            if not numeric["minimum"] <= value <= numeric["maximum"]:
+                signal = "numeric-overflow"
+                site = row["evaluation_site_identity"]
+                result = None
+                break
+            values[instruction["target"]] = value
+        if signal is not None:
+            break
+        result = values[inp["result"]]
+        if inp["cache"]:
+            cache[key] = result
+    admitted = signal is None
+    return {
+        "cache_entries": len(cache),
+        "charge": charge,
+        "outcome": "admitted" if admitted else "refused",
+        "result": result,
+        "result_artifact": admitted,
+        "signal": signal,
+        "site": inp["site"] if admitted else site,
+    }
+
+
 def _experiment(
     *,
     kernel_identity: str,
@@ -2127,6 +2211,29 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def test_package_value_program_vectors_execute_in_two_consumers():
+    _kernel, ldb = authority_module.load_authorities()
+    vectors = [
+        vector
+        for vector in next(
+            vector_set["vector_definitions"]
+            for vector_set in ldb.package_conformance_vector_sets
+            if vector_set["package_id"] == "standard.runtime"
+            and vector_set["package_version"] == "1.1.0"
+        )
+        if vector.get("kind") == "value-program"
+    ]
+    assert {vector["id"] for vector in vectors} == {
+        "formula.runtime.accept.initialization-and-event-frames",
+        "formula.runtime.refuse.initialization-atomically",
+        "formula.runtime.boundary.cache-charge-invariant",
+    }
+    for vector in vectors:
+        production = experiment_runtime_module._evaluate_value_program_vector(vector)
+        reference = _reference_evaluate_value_program_vector(vector)
+        assert production == reference == vector["expect"]
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(
