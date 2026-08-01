@@ -26,10 +26,12 @@ an explicit boundary for lowering equivalence.
 > companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
 
 > **Amendment (2026-08-02, bADR-0024):** RIR Formula declarations now carry their canonical,
-> reversibly validated expressions. The canonical RIR JSON therefore has a `content_identity` for
-> exact wire integrity and a distinct `semantic_identity` over the executable projection that
-> excludes expression text. Resolved Model binds and validates both; semantic equivalence uses the
-> latter. The paired representation does not make expression text a peer semantic authority.
+> reversibly validated expressions for the selected reachable Formula projection. The canonical RIR
+> JSON therefore has a `content_identity` for exact wire integrity and a distinct
+> `semantic_identity` over the executable projection that excludes expression text. Resolved Model
+> binds and validates both; semantic equivalence uses the latter. Unselected package notation enters
+> neither identity. The paired representation does not make expression text a peer semantic
+> authority.
 
 ## Decision
 
@@ -64,9 +66,10 @@ an explicit boundary for lowering equivalence.
   immutable semantic normal form. Its `semantic_identity` is
   `H(canonical reachable executable semantic projection)` and contains only facts that can affect
   specified observable behavior. Its separately checked `content_identity` covers the complete
-  canonical RIR JSON, including bADR-0024's validated Formula expressions. Source spans, module
-  ordering, aliases, comments, AST/HIR identities, lowering traces, diagnostic provenance, and
-  unselected bundle inventory are excluded from the semantic projection.
+  canonical RIR JSON, including bADR-0024's validated expressions for reachable Formula
+  declarations. Source spans, module ordering, aliases, comments, AST/HIR identities, lowering
+  traces, diagnostic provenance, unselected notation, and unselected bundle inventory are excluded
+  from the semantic projection; unselected notation is also absent from the canonical RIR JSON.
 
 - **Resolved Model is the exact-build execution-authority wrapper.** Its identity is
   `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR semantic

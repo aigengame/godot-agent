@@ -294,9 +294,11 @@ Model Source owns module-level named **Formula declarations** with typed paramet
 structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
 are neither first-class values nor dynamic callbacks. Every Formula body carries one canonical,
 reversible human-readable expression using package-owned conventional notation and explicit `let`
-bindings. The body remains the sole semantic authority: admission reparses the expression under the
-exact Formula context and LDB and refuses drift before HIR. Notation is Authoring-AST sugar and a
-validated projection, never a peer semantic authority or a host-owned operation table (bADR-0024).
+bindings. Within that paired declaration, the body is the sole authoritative source member:
+admission reparses the expression under the exact Formula context and LDB and refuses drift before
+HIR. Kernel/LDB retain language authority and typed RIR remains the public semantic boundary.
+Notation is Authoring-AST sugar and a validated projection, never a peer semantic authority or a
+host-owned operation table (bADR-0024).
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
@@ -394,8 +396,9 @@ The public compilation pipeline is:
   enough structure for useful diagnostics.
 - The **RIR semantic payload** is the canonical, public semantic normal form. Its
   `semantic_identity` excludes validated Formula expression text, while the enclosing canonical
-  RIR JSON `content_identity` covers it for wire integrity. Equivalent admitted source must lower
-  to the same semantic projection under the same selected semantic dependencies.
+  RIR JSON `content_identity` covers every expression in that reachable projection for wire
+  integrity. Unselected package notation is absent from both RIR identities. Equivalent admitted
+  source must lower to the same semantic projection under the same selected semantic dependencies.
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
   selected Package Lock, and all other required build identities.
 - **EIR** is an evaluator-private execution representation. It may contain schedules, bytecode,

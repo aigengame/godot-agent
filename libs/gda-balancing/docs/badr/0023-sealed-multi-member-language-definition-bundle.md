@@ -22,7 +22,9 @@ admission boundary.
 > **Amendment (2026-08-02, bADR-0024):** Formula notation grammar, pure-Operation notation
 > declarations, diagnostics, rules, and vectors are ordinary sealed package content. Changing any
 > of them reidentifies its vector/release/root graph according to the same content-versus-semantic
-> identity split; no host notation registry or peer grammar authority is introduced.
+> identity split. Only selected reachable notation and its canonical Formula expressions may enter
+> RIR content; unselected notation changes no RIR identity. No host notation registry or peer grammar
+> authority is introduced.
 
 ## Decision
 

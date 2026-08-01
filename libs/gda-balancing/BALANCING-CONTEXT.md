@@ -357,13 +357,15 @@ _Avoid_: formula script, anonymous callback, first-class function, Event program
 
 **Formula notation**:
 The conventional human-readable mathematical syntax for a Formula, such as
-`max(damage_before_defense - mitigation, 0)`. Each Domain package declares the notation of its
-pure Operations, including tokens, call names, precedence, and associativity; the selected LDB
-closes those declarations and their ambiguity rules. A conforming parser or renderer consumes that
-authority instead of hard-coding a host operation catalog, and resolves the notation back to the
-exact package/version/Operation coordinates in the structured Formula body. The structured body
-remains the sole semantic authority; its notation is a canonical, reversible projection with fixed
-spacing and only the parentheses required by the selected precedence rules. A canonical sequence of
+`max(damage_before_defense - mitigation, 0)`. Each Package Release that exports a pure Operation
+owns that Operation's notation, including tokens, call names, precedence, and associativity; the
+selected LDB closes those declarations and their ambiguity rules. A conforming parser or renderer
+consumes that authority instead of hard-coding a host operation catalog, and resolves the notation
+back to the exact package/version/Operation coordinates in the structured Formula body. Within the
+paired Formula declaration, that body is the sole authoritative source member; Kernel/LDB still own
+language semantics, and typed RIR remains the public semantic boundary. Notation is a canonical,
+reversible body projection with fixed spacing and only the parentheses required by the selected
+precedence rules. A canonical sequence of
 `let <local> = <expression>;` bindings followed by one result expression preserves the structured
 body's node order, local identities, sharing, evaluation count, and final result. Whenever both
 appear, admission reparses the notation and requires structural equivalence with the body rather
@@ -383,12 +385,14 @@ _Avoid_: host expression dialect, display-only operation table, fully qualified 
 The public, non-executing transformation exposed by `formula parse` and `formula render`. `parse`
 binds one notation string to its exact Formula declaration context and Kernel/LDB, then returns the
 complete structured body plus canonical notation; `render` validates a structured body under the
-same inputs and returns that same paired result. Both commands and Model admission share one parser,
-renderer, and equivalence implementation. Conversion publishes no Resolved Model or other semantic
-artifact and cannot infer language meaning from ambient host code. The unreleased Standard Schema
-2.0 baseline adopts the paired representation clean-forward: Formula-bearing 2.0 data without the
-canonical notation is refused, repository-owned data is rewritten atomically, and no optional-field
-fallback, legacy reader, or dual authority is retained.
+same inputs and returns that same paired result. Production commands, Model admission, RIR emission,
+and Model explanation share one parser, renderer, and equivalence implementation. An independent
+conformance consumer derives the same behavior separately from sealed Kernel/LDB authority and
+mutually consumes the production artifacts. Conversion publishes no Resolved Model or other
+semantic artifact and cannot infer language meaning from ambient host code. The unreleased Standard
+Schema 2.0 baseline adopts the paired representation clean-forward: Formula-bearing 2.0 data without
+the canonical notation is refused, repository-owned data is rewritten atomically, and no
+optional-field fallback, legacy reader, or dual authority is retained.
 _Avoid_: formula evaluation, context-free expression conversion, model inspection alias
 
 **Formula binding**:

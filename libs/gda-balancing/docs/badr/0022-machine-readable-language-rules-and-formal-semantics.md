@@ -62,11 +62,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   inference, body/notation equivalence, total parameter-to-operand binding, mixed
   Formula/pure-Operation closure, refusal/resource/termination judgments, HIR/RIR lowering, and
   their applicable semantic `static` and `resolution` Diagnostics. Each release's normative Formula
-  vectors live only in its bound package-owned conformance-vector child. A mechanic release owns its
-  concrete Formula-slot signature, context, refusal/budget contract, Operation integration, and
-  pure-Operation notation declarations; bADR-0017 owns the mechanic-to-package assignment. No flat
-  peer registry, reconstructed RPG umbrella, compiler table, host notation table, or callback may
-  duplicate those authorities.
+  vectors live only in its bound package-owned conformance-vector child. Every Package Release that
+  exports a pure Operation owns that Operation's notation declaration. A mechanic release
+  additionally owns its concrete Formula-slot signature, context, refusal/budget contract, and
+  Operation integration; bADR-0017 owns the mechanic-to-package assignment. No flat peer registry,
+  reconstructed RPG umbrella, compiler table, host notation table, or callback may duplicate those
+  authorities.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list

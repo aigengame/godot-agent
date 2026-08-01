@@ -17,21 +17,30 @@ let-bound program into an expression tree would lose local identities, sharing, 
 and deterministic resource charges. RIR also needs to carry the paired representation without
 making presentation wording part of semantic equivalence.
 
+> **Independent-review refinement (2026-08-02, `1c01b74`):** An audit of the fixed draft and live
+> #606 found four authority/verification ambiguities: source authority was conflated with public
+> semantics, pure-Operation notation ownership excluded non-mechanic packages, the proposed
+> conformance consumer reused the production implementation, and notation-identity mutation lacked
+> a reachability boundary. The human decision owner accepted all four as `refined-adopted`; the
+> decision and validation below close them. This review is design evidence, not conformance proof.
+
 ## Decision
 
-- **The structured Formula body remains the sole semantic authority.** Every notation string is a
-  canonical, reversible projection of one body under one exact Kernel/LDB. When a Formula data
-  instance carries both, admission reparses the notation and requires structural equivalence with
-  the body. A missing or mismatched notation is a typed refusal; implementations never silently
-  choose, repair, or regenerate one side during admission.
+- **The structured Formula body is the pair's sole authoritative source member.** Every notation
+  string is a canonical, reversible projection of one body under one exact Kernel/LDB. When a
+  Formula data instance carries both, admission reparses the notation and requires structural
+  equivalence with the body. A missing or mismatched notation is a typed refusal; implementations
+  never silently choose, repair, or regenerate one side during admission. This source-level
+  ownership does not replace Kernel/LDB language semantics, Typed HIR static semantics, or RIR as
+  the public semantic boundary.
 
-- **Formula notation uses conventional package-owned mathematics.** Each Domain package declares
-  notation for its pure Operations, including tokens or call names, ordered port mapping,
+- **Formula notation uses conventional package-owned mathematics.** Each Package Release that
+  exports a pure Operation owns its notation, including tokens or call names, ordered port mapping,
   precedence, and associativity. The selected LDB closes collision and ambiguity rules. The
-  `standard.schema` release owns the generic notation wire grammar and structural/parse
-  Diagnostics; `standard.compiler` owns contextual resolution, local result inference,
-  AST-equivalence, and HIR normalization. A host parser or renderer consumes those authorities and
-  cannot hard-code an operation catalog.
+  `standard.schema` release owns the generic notation wire grammar and structural/parse Diagnostics;
+  `standard.compiler` owns contextual resolution, local result inference, AST-equivalence, and HIR
+  normalization. A host parser or renderer consumes those authorities and cannot hard-code an
+  operation catalog.
 
 - **The canonical surface preserves the Formula program.** A sequence of
   `let <local> = <expression>;` bindings followed by one result expression preserves node order,
@@ -50,8 +59,10 @@ making presentation wording part of semantic equivalence.
   descriptor-owned transformations. `parse` accepts notation plus its Formula context and returns a
   complete body plus canonical notation. `render` accepts a body plus the same context, validates
   it, and returns the same paired result. They publish no Resolved Model or other semantic artifact.
-  The commands, Model Source admission, RIR emission, and Model explanation share one parser,
-  renderer, and equivalence implementation.
+  Production commands, Model Source admission, RIR emission, and Model explanation share one parser,
+  renderer, and equivalence implementation. A conformance consumer independently implements the
+  same contracts from sealed Kernel/LDB authority and mutually consumes the production artifacts;
+  it cannot import or reuse the production parser, renderer, or equivalence implementation.
 
 - **Every Formula data instance carries the pair.** Model Source, RIR, and Model explanation require
   an adjacent `expression` for every Formula declaration body. Embedded Model Sources, templates,
@@ -60,10 +71,11 @@ making presentation wording part of semantic equivalence.
   not Formula data instances, and do not synthesize an expression.
 
 - **RIR separates wire integrity from semantic equivalence.** `content_identity` covers the complete
-  canonical RIR JSON, including each validated expression. `semantic_identity` covers only the
-  executable semantic projection and excludes expression text. Resolved Model records and validates
-  both. A notation-only change therefore changes the exact wire artifact without claiming a model
-  behavior change.
+  canonical RIR JSON, including each validated expression in the selected reachable Formula
+  projection. `semantic_identity` covers only the executable semantic projection and excludes
+  expression text. Resolved Model records and validates both. A reachable notation change that
+  changes a canonical expression therefore changes the exact wire artifact without claiming a model
+  behavior change; an unselected notation change enters neither RIR identity.
 
 - **The unreleased 2.0 baseline changes clean-forward.** Formula-bearing 2.0 data without the
   canonical expression is refused. Repository-owned authorities, identities, schemas, vectors,
@@ -91,8 +103,8 @@ making presentation wording part of semantic equivalence.
 
 - Notation declarations become sealed LDB package content and must participate in package/vector/root
   reidentification and compatibility checks.
-- Model Source, RIR, Model explanation, their schemas, independent consumers, and every embedded
-  Formula fixture must enforce the same pair and equivalence rule.
+- Model Source, RIR, Model explanation, their schemas, a separately implemented conformance
+  consumer, and every embedded Formula fixture must enforce the same pair and equivalence rule.
 - RIR gains distinct content and semantic identities; callers must use the correct one for exact
   retrieval versus semantic comparison.
 - The command taxonomy, descriptor registry, manifest, `--schema`, help, diagnostics, and
@@ -103,7 +115,8 @@ making presentation wording part of semantic equivalence.
 ## Validation
 
 - Render every admitted Formula node/operand kind, parse the result under the same exact context,
-  and require byte-identical canonical body and notation. Repeat through an independent consumer.
+  and require byte-identical canonical body and notation. Repeat through a separately implemented
+  conformance consumer, then mutually consume each implementation's paired artifacts.
 - Cover precedence, associativity, required parentheses, quoted identifiers, named Formula-call
   arguments, module-qualified Symbols, conditionals, local reuse, and zero-node parameter bodies.
 - Refuse missing notation, non-canonical notation, AST/notation drift, ambiguous package notation,
@@ -111,9 +124,11 @@ making presentation wording part of semantic equivalence.
   exact stages, Diagnostics, and source locations.
 - Prove `formula parse` and `formula render` project from their live Command descriptors and agree
   for argv/structured input, success, refusal, usage, and internal outcomes.
-- Mutate only canonical notation metadata. Require new LDB/package and RIR content identities while
-  the RIR semantic identity and execution observations remain unchanged. Mutate the Formula body and
-  require both identities plus downstream exact bindings to change.
+- Mutate reachable canonical notation so at least one Formula expression changes. Require new
+  Package/LDB, RIR content, and downstream exact-wrapper identities while RIR semantic identity and
+  execution observations remain unchanged. Mutate only unselected notation and require new
+  Package/LDB plus downstream exact-wrapper identities while preserving both RIR identities. Mutate
+  Formula semantics and require both RIR identities plus downstream exact bindings to change.
 - Build and run the committed RPG combat example after round-tripping its Formulas. Require paired
   Formula data in Model Source, RIR, and Model explanation and the same deterministic trace, state,
   Metrics, and refusal behavior as the corresponding structured bodies.
