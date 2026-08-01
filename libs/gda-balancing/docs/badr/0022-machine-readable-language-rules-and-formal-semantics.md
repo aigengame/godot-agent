@@ -17,6 +17,13 @@ and requiring a full theorem prover would block a practical reference implementa
 therefore chooses a small non-self-hosted Kernel Specification, a closed bootstrapped meta-format,
 structured formal judgments, and an honest proof/conformance boundary.
 
+> **Amendment (2026-08-02, bADR-0024):** Formula language content includes a closed canonical
+> notation grammar and package-owned pure-Operation notation declarations. `standard.schema` owns
+> their wire/parse contracts; `standard.compiler` owns contextual resolution, local result
+> inference, body equivalence, and normalization. Formula-bearing Model Source, RIR, and Model
+> explanation data carry both the structured body and its validated expression without making
+> expression text an alternative typing, evaluation, or semantic authority.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -49,16 +56,17 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **Formula language content follows sealed Package responsibility.** The `standard.schema`
   Package Release owns generic module-level Formula declaration/binding wire grammar, Model Source
-  schema and Authoring-AST definitions, typed evaluation-context and result-contract shapes, and
-  their applicable `parse` and structural `static` Diagnostics. The `standard.compiler` release
-  owns generic Formula name/call
-  resolution, total parameter-to-operand binding, mixed Formula/pure-Operation closure,
-  refusal/resource/termination judgments, HIR/RIR lowering, and their applicable semantic `static`
-  and `resolution` Diagnostics. Each release's normative Formula vectors live only in its bound
-  package-owned conformance-vector child. A mechanic release owns its concrete Formula-slot
-  signature, context, refusal/budget contract, and Operation integration; bADR-0017 owns the
-  mechanic-to-package assignment. No flat peer registry, reconstructed RPG umbrella, compiler
-  table, or host callback may duplicate those authorities.
+  schema and Authoring-AST definitions, canonical notation grammar, typed evaluation-context and
+  result-contract shapes, and their applicable `parse` and structural `static` Diagnostics. The
+  `standard.compiler` release owns generic Formula name/call and notation resolution, local result
+  inference, body/notation equivalence, total parameter-to-operand binding, mixed
+  Formula/pure-Operation closure, refusal/resource/termination judgments, HIR/RIR lowering, and
+  their applicable semantic `static` and `resolution` Diagnostics. Each release's normative Formula
+  vectors live only in its bound package-owned conformance-vector child. A mechanic release owns its
+  concrete Formula-slot signature, context, refusal/budget contract, Operation integration, and
+  pure-Operation notation declarations; bADR-0017 owns the mechanic-to-package assignment. No flat
+  peer registry, reconstructed RPG umbrella, compiler table, host notation table, or callback may
+  duplicate those authorities.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
@@ -127,12 +135,12 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **Formula declarations are module-level named language declarations, not first-class values.**
   Each declaration has a stable source name, explicit typed parameters, one result contract, and a
-  structured pure-expression body. A `derived` Symbol or Operation formula call site selects it
-  through ordinary static name resolution. Formula-to-Formula calls form one statically resolved
-  acyclic dependency graph; recursion and dynamic selection are refused before HIR. Anonymous or
-  inline expressions may exist only as Authoring-AST sugar that resolution expands into the same
-  named Formula/binding model before Typed HIR. They create no alternative typing, identity,
-  evaluation, or explanation rules.
+  structured pure-expression body plus bADR-0024's canonical reversible expression. A `derived`
+  Symbol or Operation formula call site selects it through ordinary static name resolution.
+  Formula-to-Formula calls form one statically resolved acyclic dependency graph; recursion and
+  dynamic selection are refused before HIR. Expression syntax is Authoring-AST sugar and a validated
+  projection that resolution expands into the same named Formula/binding model before Typed HIR. It
+  creates no alternative typing, identity, evaluation, or explanation rules.
 
 - **Every declared Operation Formula slot has exactly-one binding.** An Operation may declare zero
   or more named slots, each with one explicit Formula signature and evaluation context. Selecting
@@ -184,8 +192,8 @@ structured formal judgments, and an honest proof/conformance boundary.
 - **Model explanation preserves the expression/control/effect boundary.** Its closed
   `formula_explanations` section projects each selected, reachable Formula declaration, evaluation
   site/binding identity, context, total parameter-to-operand mapping, mixed call-graph dependency,
-  transitive refusal/resource contract, type, kind, unit, Numeric profile, expression node, and
-  result contract/type. Its
+  transitive refusal/resource contract, type, kind, unit, Numeric profile, structured expression
+  nodes, canonical human-readable expression, and result contract/type. Its
   closed `operation_explanations` section projects selected, reachable control and
   effect nodes, RNG streams/draws, guards, exhaustive outcomes, and commit/rollback policy, and
   refers to Formula binding identities when an Operation calls one. The projection rules and schema

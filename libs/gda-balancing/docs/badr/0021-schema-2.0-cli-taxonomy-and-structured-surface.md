@@ -24,6 +24,12 @@ structured-params adapter part of the first vertical tracer.
 > and never regenerates, edits, or executes it. bADR-0022 owns the explanation's Formula and
 > Operation contents.
 
+> **Amendment (2026-08-02, bADR-0024):** The delivered noun taxonomy adds the non-executing
+> `formula parse` and `formula render` transformations. Both bind their structured inputs to one
+> exact Kernel/LDB and Formula declaration context, return a complete structured body plus canonical
+> expression, and publish no semantic artifact. Their live Command descriptors remain the only CLI,
+> structured-input, outcome, schema, manifest, and help authority.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use
@@ -36,6 +42,7 @@ structured-params adapter part of the first vertical tracer.
   |---|---|---|
   | `schema` | `get language-bundle`, `get wire-schema`, `get diagnostic-catalog` | emit the Language Definition Bundle or a named generated projection |
   | `package` | `list`, `get` | enumerate root-declared packages or retrieve an exact Package Release manifest/conformance-vector member from one exact language bundle |
+  | `formula` | `parse`, `render` | contextually convert canonical Formula notation and structured bodies without model execution or artifact publication |
   | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | validate/resolve source, build or compare RIR artifacts, or attempt limited 1.x source conversion |
   | `template` | `list`, `get`, `instantiate` | enumerate template releases or create a new Model Source Package identity |
   | `experiment` | `check`, `run`, `replay`, `compare` | validate Experiment Specifications or produce/compare deterministic Evaluation runs and Metric datasets |
@@ -155,8 +162,10 @@ structured-params adapter part of the first vertical tracer.
   may later collect an unclaimed set, but cannot pretend it never committed.
 
 - **Verb meanings are closed.** `get` retrieves one definition/artifact, `list` enumerates,
-  `instantiate` creates a new model authority from a template, `check` performs gated analysis,
-  `build` emits a resolved artifact, `run` executes a new experiment, `replay` repeats exact
+  `parse` contextually resolves Formula notation into its complete structured body, `render`
+  validates a Formula body and emits canonical notation, `instantiate` creates a new model authority
+  from a template, `check` performs gated analysis, `build` emits a resolved artifact, `run`
+  executes a new experiment, `replay` repeats exact
   reproduction identities, `compare` evaluates declared comparable artifacts, `inspect` returns
   structured internal facts, `diff` returns semantic model differences, `verify` validates evidence
   claims, and `migrate` attempts bADR-0019's limited conversion. `read`, `show`, `validate`, `format`,

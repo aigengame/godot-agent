@@ -25,6 +25,12 @@ an explicit boundary for lowering equivalence.
 > from committing, while post-commit recovery returns the same bytes without regeneration. Neither
 > companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
 
+> **Amendment (2026-08-02, bADR-0024):** RIR Formula declarations now carry their canonical,
+> reversibly validated expressions. The canonical RIR JSON therefore has a `content_identity` for
+> exact wire integrity and a distinct `semantic_identity` over the executable projection that
+> excludes expression text. Resolved Model binds and validates both; semantic equivalence uses the
+> latter. The paired representation does not make expression text a peer semantic authority.
+
 ## Decision
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**
@@ -55,18 +61,20 @@ an explicit boundary for lowering equivalence.
 
 - **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
   sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an
-  immutable semantic normal form. Its identity is
-  `H(canonical reachable semantic payload)` and contains only facts that can affect specified
-  observable behavior. Source spans, module ordering, aliases, comments, AST/HIR identities,
-  lowering traces, diagnostic provenance, and unselected bundle inventory are excluded.
+  immutable semantic normal form. Its `semantic_identity` is
+  `H(canonical reachable executable semantic projection)` and contains only facts that can affect
+  specified observable behavior. Its separately checked `content_identity` covers the complete
+  canonical RIR JSON, including bADR-0024's validated Formula expressions. Source spans, module
+  ordering, aliases, comments, AST/HIR identities, lowering traces, diagnostic provenance, and
+  unselected bundle inventory are excluded from the semantic projection.
 
 - **Resolved Model is the exact-build execution-authority wrapper.** Its identity is
   `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR semantic
-  payload identity)`. Compiler/tool identity remains non-semantic provenance in a separate Build
-  receipt. Independent conforming evaluators consume the Resolved Model and its RIR payload rather
-  than reinterpreting authored source. Two wrappers may therefore carry byte-identical semantic
-  payloads without being the same exact build, runtime profile, Experiment binding, or Replay
-  subject.
+  identity, exact RIR content identity)`. Compiler/tool identity remains non-semantic provenance in
+  a separate Build receipt. Independent conforming evaluators consume the Resolved Model and its RIR
+  payload rather than reinterpreting authored source. Two wrappers may therefore carry
+  semantically identical payloads without being the same exact build, runtime profile, Experiment
+  binding, or Replay subject.
 
 - **Runtime-required selected LDB semantics are embedded as one canonical RIR projection.** RIR
   carries the normalized operation bodies, signatures, effects, variants, and other admitted

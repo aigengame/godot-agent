@@ -19,6 +19,11 @@ monolith retains the size limit, while treating fragments as independent peer au
 bADR-0012's single LDB authority. The LDB therefore needs one closed multi-member identity and
 admission boundary.
 
+> **Amendment (2026-08-02, bADR-0024):** Formula notation grammar, pure-Operation notation
+> declarations, diagnostics, rules, and vectors are ordinary sealed package content. Changing any
+> of them reidentifies its vector/release/root graph according to the same content-versus-semantic
+> identity split; no host notation registry or peer grammar authority is introduced.
+
 ## Decision
 
 - **The LDB is one sealed multi-member artifact graph.** One canonical root manifest binds the
@@ -103,7 +108,7 @@ admission boundary.
 
 - **The change is clean-forward.** The unpublished single-file Schema 2.0 form has no compatibility
   reader, fallback, dual authority, or migration path. Formula authoring remains owned by #590 and
-  is not introduced by this decision.
+  canonical Formula notation by bADR-0024; neither is introduced by this decision.
 
 ## Considered options
 
