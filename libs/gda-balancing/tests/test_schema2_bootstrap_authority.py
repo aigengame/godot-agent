@@ -21,6 +21,175 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
+def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    packages = {package["id"]: package for package in ldb["language"]["packages"]}
+    vector_sets = {
+        vector_set["package_id"]: vector_set
+        for vector_set in ldb.package_conformance_vector_sets
+    }
+    runtime_package = packages["standard.runtime"]
+    runtime_profile = next(
+        definition
+        for entry in runtime_package["semantic_closure"]
+        if entry["authority_path"] == "language.runtime_profiles"
+        for definition in entry["definitions"]
+        if definition["id"] == "standard.exact-int64-event-v1"
+    )
+
+    runtime_profile_contract = kernel["meta_format"]["language_definitions"][
+        "collections"
+    ]["runtime_profiles"]
+    assert "formula_evaluation" not in runtime_profile_contract["field_types"]
+    assert "formula_evaluation" not in runtime_profile_contract["optional_members"]
+    assert runtime_profile["extensions"]["standard.formula"] == {
+        "cache": {
+            "admission": "optional-non-semantic",
+            "charge_policy": "same-as-uncached-evaluation",
+            "key_members": [
+                "evaluation-site-identity",
+                "frame-or-snapshot-identity",
+                "canonical-operands",
+                "numeric-profile-identity",
+            ],
+            "snapshot_change": "requires-reevaluation",
+        },
+        "contexts": [
+            {
+                "frame": "pre-snapshot",
+                "phase": "initialization",
+                "publication": "atomic-before-snapshot-0",
+                "reads": "immutable-initialization-frame",
+            },
+            {
+                "frame": "pre-event-snapshot",
+                "phase": "event",
+                "publication": "inside-atomic-event",
+                "reads": "committed-pre-event-state",
+            },
+            {
+                "frame": "post-transition-snapshot",
+                "phase": "observation",
+                "publication": "after-atomic-event",
+                "reads": "committed-post-transition-state",
+            },
+        ],
+        "initialization_refusal": {
+            "published_artifacts": [],
+            "published_audit": False,
+            "published_events": False,
+            "published_snapshots": False,
+        },
+        "resource_charge": {
+            "basis": "specialized-operation-instruction-closure",
+            "cache_hit": "same-as-evaluation",
+        },
+        "snapshot_identity_domain": "runtime-snapshot-v2",
+    }
+    expected_vector_ids = {
+        "standard.schema": {
+            "formula.schema.accept.named-typed-pure-graph",
+            "formula.schema.refuse.dynamic-or-effectful-graph",
+        },
+        "standard.compiler": {
+            "formula.compiler.accept.closed-static-graph",
+            "formula.compiler.refuse.invalid-closure",
+        },
+        "standard.runtime": {
+            "formula.runtime.accept.initialization-and-event-frames",
+            "formula.runtime.refuse.initialization-atomically",
+            "formula.runtime.boundary.cache-charge-invariant",
+            "formula.runtime.observation.positive.post-transition-snapshot",
+            "formula.runtime.observation.boundary.snapshot-cache-key",
+            "formula.runtime.observation.refusal.atomic-prefix",
+        },
+        "core.quantity": {
+            "formula.quantity.accept.pure-operation-closure",
+            "formula.quantity.accept.boolean-comparison",
+        },
+        "game.combat": {
+            "formula.combat.accept.damage-slot-binding",
+            "formula.combat.refuse.missing-or-duplicate-slot-binding",
+        },
+    }
+    for package_id, expected in expected_vector_ids.items():
+        assert expected <= {
+            vector["id"] for vector in vector_sets[package_id]["vector_definitions"]
+        }
+    runtime_vectors = {
+        vector["id"]: vector
+        for vector in vector_sets["standard.runtime"]["vector_definitions"]
+    }
+    kernel_vector_kinds = {
+        kind["id"] for kind in kernel["meta_format"]["package_vector"]["kinds"]
+    }
+    assert "artifact-evidence" not in kernel_vector_kinds
+    assert {
+        runtime_vectors[vector_id]["kind"]
+        for vector_id in expected_vector_ids["standard.runtime"]
+        if ".observation." in vector_id
+    } == {"value-program"}
+    assert runtime_package["exports"]["artifact_wire_schemas"] == []
+    assert (
+        next(
+            entry["definitions"]
+            for entry in runtime_package["semantic_closure"]
+            if entry["authority_path"] == "language.artifact_wire_schemas"
+        )
+        == []
+    )
+    assert not any(
+        entry["artifact_kind"].startswith("formula-observation-")
+        for entry in ldb["language"]["artifact_wire_schemas"]
+    )
+    expected_sites = {
+        "runtime.lifecycle-observation.boundary",
+        "runtime.lifecycle-observation.positive",
+        "runtime.lifecycle-observation.refusal",
+    }
+    for vector_id in expected_vector_ids["standard.runtime"]:
+        if ".observation." not in vector_id:
+            continue
+        vector = runtime_vectors[vector_id]
+        assert vector["input"]["site"] in expected_sites
+        assert vector["expect"]["site"] == vector["input"]["site"]
+    compiler_package = packages["standard.compiler"]
+    resolution_profile = next(
+        definition
+        for entry in compiler_package["semantic_closure"]
+        if entry["authority_path"] == "language.resolution_profiles"
+        for definition in entry["definitions"]
+        if definition["id"] == "exact-import-resolution-v1"
+    )
+    assert resolution_profile["extensions"]["standard.formula"][
+        "fixed_value_type_aliases"
+    ] == [{"alias": "Boolean", "contract": "kernel-boolean"}]
+    quantity_operations = {
+        definition["id"]: definition
+        for entry in packages["core.quantity"]["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+        for definition in entry["definitions"]
+    }
+    less_than = quantity_operations["quantity.less-than"]
+    assert less_than["body"] == [
+        {"left": "left", "node": "less-than", "right": "right", "target": "result"}
+    ]
+    assert less_than["result"] == {
+        "access": "read",
+        "discardable": False,
+        "domain": {"kind": "boolean"},
+        "id": "result",
+        "kind": "boolean",
+        "numeric_policy": "exact-bool",
+        "representation": "Bool",
+        "source": {"kind": "local", "name": "result"},
+        "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
+        "unit": "1",
+    }
+
+
 @pytest.mark.parametrize(
     "mutation",
     (
@@ -430,7 +599,11 @@ def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch)
 
 @pytest.mark.parametrize(
     "mutation",
-    ("contract-expectation", "runtime-operation", "unknown-kind"),
+    (
+        "contract-expectation",
+        "runtime-operation",
+        "unknown-kind",
+    ),
 )
 def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers(
     mutation,
@@ -445,7 +618,7 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         )
         vector = _owned_vector(ldb, "game.resource.spend.effects")
         vector["expect"] = ["event.commit"]
-    else:
+    elif mutation in {"runtime-operation", "unknown-kind"}:
         package = next(
             item for item in ldb["language"]["packages"] if item["id"] == "game.combat"
         )
@@ -507,14 +680,26 @@ def test_reidentified_package_vector_contract_mutations_refuse_in_both_consumers
 def test_package_identity_binds_the_complete_exported_definition_closure():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
-    package = ldb["language"]["packages"][0]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "quantity.identity"
+    )
+    operation["resource_bounds"]["max_steps"] = 2
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "core.quantity"
+    )
     operation_entry = next(
         entry
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    embedded = next(
+        item
+        for item in operation_entry["definitions"]
+        if item["id"] == "quantity.identity"
+    )
+    embedded["resource_bounds"]["max_steps"] = 2
     _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -532,13 +717,20 @@ def test_package_identity_binds_the_complete_exported_definition_closure():
 def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    package = ldb["language"]["packages"][0]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "core.quantity"
+    )
     operation_entry = next(
         entry
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    embedded = next(
+        item
+        for item in operation_entry["definitions"]
+        if item["id"] == "quantity.identity"
+    )
+    embedded["resource_bounds"]["max_steps"] = 2
     package["content_identity"] = _identity("domain-package-release-v2", package)
     _reidentify_graph_root(ldb)
 
@@ -552,6 +744,25 @@ def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
         and subject == "language-bundle.language.packages.0.semantic_identity"
         for _, code, subject in first["diagnostics"]
     )
+
+
+def test_kernel_treats_package_extensions_as_canonical_opaque_values():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "game.combat.damage-v1"
+    )
+    slots = operation["extensions"]["standard.formula-slots"]
+    slots[0]["parameters"][1]["source"]["name"] = "package-owned-port"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
 
 
 @pytest.mark.parametrize(
@@ -758,7 +969,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -797,7 +1008,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

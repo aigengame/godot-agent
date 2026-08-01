@@ -243,12 +243,18 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {
         "optional": [],
-        "required": [{"id": "standard.compiler", "version": "1.0.0"}],
+        "required": [{"id": "standard.compiler", "version": "1.1.0"}],
     }
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]
     assert package["exports"]["conversions"] == ["quantity.identity"]
-    assert package["exports"]["operations"] == ["quantity.identity"]
+    assert package["exports"]["operations"] == [
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.less-than",
+        "quantity.maximum",
+        "quantity.subtract",
+    ]
     assert package["profiles"]["runtime"] == []
     assert package["exports"]["types"]
     vector_set = _package_vector_set(ldb, package)
@@ -270,15 +276,27 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
 def test_coherent_package_semantic_change_changes_the_release_identity():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
-    package = ldb["language"]["packages"][0]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "core.quantity"
+    )
     old_release_identity = package["content_identity"]
-    ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "quantity.identity"
+    )
+    operation["resource_bounds"]["max_steps"] = 2
     operation_entry = next(
         entry
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    embedded = next(
+        item
+        for item in operation_entry["definitions"]
+        if item["id"] == "quantity.identity"
+    )
+    embedded["resource_bounds"]["max_steps"] = 2
     _reidentify_package_release(package)
     _reidentify_graph_root(ldb)
 

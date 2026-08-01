@@ -1,9 +1,10 @@
 """Schema 2.0 Model Source checking and build commands."""
 
 from collections.abc import Callable
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from gda_balancing.descriptors import (
     ArtifactSetMemberSpec,
@@ -16,6 +17,7 @@ from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
+    ingress_refusal,
 )
 from gda_balancing.schema2.migration import (
     MigrationFailure,
@@ -26,7 +28,9 @@ from gda_balancing.schema2.migration import (
 )
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
+    MODEL_INSPECT_REFUSAL_CATALOG,
     CheckedModel,
+    ModelInspectAdmissionError,
     PublicationMember,
     admit_resolved_model,
     artifact_wire_schema,
@@ -37,6 +41,7 @@ from gda_balancing.schema2.model import (
     publication_authentication_key,
     publish_artifact_set,
     publish_model_artifacts,
+    read_model_explanation,
     refusal_catalog_for_stages,
     verify_artifact,
     wire_schema_identity,
@@ -115,6 +120,38 @@ class ModelBuildResult(BaseModel):
     content_identity: str
 
 
+class ModelInspectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    receipt: str
+    format: Literal["canonical", "indented"] = "canonical"
+
+
+class ModelInspectResult(RootModel[dict[str, Any]]):
+    model_config = ConfigDict(frozen=True)
+
+
+def run_model_inspect(
+    inp: ModelInspectInput,
+) -> ModelInspectResult | Schema2RefusalReport:
+    try:
+        explanation = read_model_explanation(
+            inp.receipt,
+            descriptor_identity(MODEL_BUILD),
+            MODEL_BUILD.artifact_set,
+        )
+    except ModelInspectAdmissionError as err:
+        return ingress_refusal(err.code, err.subject, err.message)
+    return ModelInspectResult.model_validate(explanation)
+
+
+def _model_explanation_schema() -> dict[str, object]:
+    return artifact_wire_schema(
+        packaged_authority_context().language_bundle,
+        "model-explanation",
+    )
+
+
 class ModelMigrateInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -172,6 +209,25 @@ def model_build_handler(
 
 
 run_model_build = model_build_handler()
+
+
+def _prepare_model_inspect(root: Path, token: int) -> str:
+    source = root / f"inspect-model-{token}.json"
+    source.write_text(_VALID_SOURCE, encoding="utf-8")
+    result = run_model_build(
+        ModelBuildInput(
+            source=str(source),
+            out=str(root / f"inspect-model-{token}-out.json"),
+            invocation_key=f"{token:064x}",
+        )
+    )
+    if not isinstance(result, ModelBuildResult):
+        raise RuntimeError("Model inspect prerequisite build was refused")
+    receipt = result.model_dump(mode="json")
+    receipt_path = Path(cast(str, receipt["manifest_locator"])).with_name(
+        "artifact-set-receipt.json"
+    )
+    return receipt_path.read_text(encoding="utf-8")
 
 
 _MODEL_MIGRATE_ARTIFACT_SET = (
@@ -331,10 +387,10 @@ def run_model_migrate(
 _VALID_SOURCE = """{
   "schema_version": "2.0.0",
   "manifest": {"id": "example.quantity-model", "version": "1.0.0", "entry_module": "main"},
-  "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
   "modules": [{
     "id": "main",
-    "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.0.0", "symbol": "Quantity"}],
+    "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.1.0", "symbol": "Quantity"}],
     "symbols": [
       {"symbol":"constant_value","type":"quantity","role":"constant","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"model-fixed","value":1}},
       {"symbol":"parameter_value","type":"quantity","role":"parameter","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
@@ -383,6 +439,7 @@ MODEL_BUILD = CommandDescriptor(
         ArtifactSetMemberSpec("build-receipt", "build-receipt"),
         ArtifactSetMemberSpec("capability-manifest", "capability-manifest"),
         ArtifactSetMemberSpec("debug-map", "debug-map"),
+        ArtifactSetMemberSpec("model-explanation", "model-explanation"),
         ArtifactSetMemberSpec("package-lock", "package-lock"),
         ArtifactSetMemberSpec("resolution-receipt", "resolution-receipt"),
         ArtifactSetMemberSpec("resolved-model", "resolved-model", role="primary"),
@@ -398,6 +455,31 @@ MODEL_BUILD = CommandDescriptor(
         "unknown_argument",
         "unreadable_input",
         "unwritable_output",
+    ),
+)
+
+
+MODEL_INSPECT = CommandDescriptor(
+    group="model",
+    command="inspect",
+    description="Retrieve and render one stored immutable Model explanation.",
+    input_model=ModelInspectInput,
+    output_model=ModelInspectResult,
+    handler=run_model_inspect,
+    fixtures=ConformanceFixtures(
+        prepare_valid_document=_prepare_model_inspect,
+        refusing_document="{}",
+    ),
+    positional_field="receipt",
+    json_presentation_field="format",
+    schema_major=2,
+    structured_params=True,
+    success_schema=_model_explanation_schema,
+    refusal_catalog=MODEL_INSPECT_REFUSAL_CATALOG,
+    usage_codes=(
+        "invalid_argument",
+        "unknown_argument",
+        "unreadable_input",
     ),
 )
 

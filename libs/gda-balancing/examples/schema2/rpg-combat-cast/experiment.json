@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2",
-  "language_bundle_identity": "sha256:19e2331f41f848f603dc18fa9c983f57bc33e8a9ccc1a420bbfa2474d3350224",
+  "kernel_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
+  "language_bundle_identity": "sha256:5fd9005d8d6cd488a3803dfd3e07a6e56d8bad93767ac2247eb653af492466b7",
   "model": {
-    "source_identity": "sha256:30912df260463ddd5a1e191606b4ae85112662cde387cb6d4c14d7936bbe9994",
-    "build_receipt_identity": "sha256:5d0c0bdb668197ed571f1bf1069227cc66b909147132f1dfd58efcee5f762e4d",
-    "resolved_model_identity": "sha256:a4905e27d848e33bb07b4862365999abe5e6c5709ac5743575a63fa2ebb949dc",
-    "package_lock_identity": "sha256:11574ee28805af04977c1e11780c034d35c76a3d9981966c895790df1ed9eaba",
-    "rir_identity": "sha256:161fd4075e930b85f79f1061dabcc333d7f677b32a3ade1208aec2cabf4f9c39"
+    "source_identity": "sha256:0c051e08bc074ca26ffdf462aabbcb5cac57c245916c3c2e6e82955d101e1dd3",
+    "build_receipt_identity": "sha256:fe07a4b6b1ef2c4eb2d7e3d7d7ec1ad252443416452bf33ba471af898b4c23e3",
+    "resolved_model_identity": "sha256:91b4e3693b329c63872d20793fe2d08d8f880a903ed9bfb8851f75bccf0595d0",
+    "package_lock_identity": "sha256:4cfe397262f668f543c0ee507d3ba08fbe6ef517894420154ab81c20a90bd23e",
+    "rir_identity": "sha256:80c8e7f1aebbda1f563204c3e6c08c974967db87acf208ca9c3f139ce517f0fd"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -21,6 +21,7 @@
       "instruction_nodes": [
         "add",
         "constant",
+        "copy",
         "draw",
         "if",
         "invoke",

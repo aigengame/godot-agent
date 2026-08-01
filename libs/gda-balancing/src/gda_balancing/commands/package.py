@@ -422,11 +422,192 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
             }
         input_members = kind.get("input_members")
         if "input" in required:
-            if not isinstance(input_members, list) or set(input_members) != {
-                "seed",
-                "state_names",
-                "values",
-            }:
+            if not isinstance(input_members, list):
+                raise ValueError("Kernel package-vector input contract is incomplete")
+            if kind_id == "value-program":
+                expect_members = kind.get("expect_members")
+                instruction_nodes = kind.get("instruction_nodes")
+                runtime_nodes = (
+                    runtime.get("nodes") if isinstance(runtime, dict) else None
+                )
+                if (
+                    set(input_members)
+                    != {
+                        "cache",
+                        "evaluations",
+                        "instructions",
+                        "numeric",
+                        "operands",
+                        "resource_limit",
+                        "result",
+                        "site",
+                    }
+                    or not isinstance(expect_members, list)
+                    or not isinstance(instruction_nodes, list)
+                    or not instruction_nodes
+                    or not isinstance(runtime_nodes, list)
+                ):
+                    raise ValueError(
+                        "Kernel value-program vector contract is incomplete"
+                    )
+                runtime_nodes_by_id = {
+                    row["id"]: row
+                    for row in runtime_nodes
+                    if isinstance(row, dict) and isinstance(row.get("id"), str)
+                }
+                instruction_variants = []
+                for node_id in instruction_nodes:
+                    node_contract = runtime_nodes_by_id.get(node_id)
+                    node_members = (
+                        node_contract.get("required_members")
+                        if isinstance(node_contract, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(node_id, str)
+                        or not isinstance(node_members, list)
+                        or not all(isinstance(member, str) for member in node_members)
+                    ):
+                        raise ValueError(
+                            "Kernel value-program instruction contract is incomplete"
+                        )
+                    instruction_variants.append(
+                        {
+                            "type": "object",
+                            "properties": {
+                                member: (
+                                    {"const": node_id}
+                                    if member == "node"
+                                    else (
+                                        _signed_int64_schema()
+                                        if member == "literal"
+                                        else _non_empty_string_schema()
+                                    )
+                                )
+                                for member in node_members
+                            },
+                            "required": node_members,
+                            "unevaluatedProperties": False,
+                        }
+                    )
+                properties["input"] = {
+                    "type": "object",
+                    "properties": {
+                        "cache": {"type": "boolean"},
+                        "evaluations": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 2**63 - 1,
+                        },
+                        "instructions": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "evaluation_site_identity": (
+                                        _non_empty_string_schema()
+                                    ),
+                                    "instruction": {"oneOf": instruction_variants},
+                                },
+                                "required": [
+                                    "evaluation_site_identity",
+                                    "instruction",
+                                ],
+                                "unevaluatedProperties": False,
+                            },
+                        },
+                        "numeric": {
+                            "type": "object",
+                            "properties": {
+                                "maximum": _signed_int64_schema(),
+                                "minimum": _signed_int64_schema(),
+                            },
+                            "required": ["maximum", "minimum"],
+                            "unevaluatedProperties": False,
+                        },
+                        "operands": {
+                            "type": "array",
+                            "items": _closed_named_value_schema(["name", "value"]),
+                        },
+                        "resource_limit": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 2**63 - 1,
+                        },
+                        "result": _non_empty_string_schema(),
+                        "site": _non_empty_string_schema(),
+                    },
+                    "required": input_members,
+                    "unevaluatedProperties": False,
+                }
+                if set(expect_members) != {
+                    "cache_entries",
+                    "charge",
+                    "outcome",
+                    "result",
+                    "result_artifact",
+                    "signal",
+                    "site",
+                }:
+                    raise ValueError(
+                        "Kernel value-program expectation contract is incomplete"
+                    )
+                expectation_base: dict[str, object] = {
+                    "cache_entries": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 2**63 - 1,
+                    },
+                    "charge": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 2**63 - 1,
+                    },
+                    "site": _non_empty_string_schema(),
+                }
+                properties["expect"] = {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                **expectation_base,
+                                "outcome": {"const": "admitted"},
+                                "result": _signed_int64_schema(),
+                                "result_artifact": {"const": True},
+                                "signal": {"type": "null"},
+                            },
+                            "required": expect_members,
+                            "unevaluatedProperties": False,
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                **expectation_base,
+                                "outcome": {"const": "refused"},
+                                "result": {"type": "null"},
+                                "result_artifact": {"const": False},
+                                "signal": {"enum": ["numeric-overflow", "step-limit"]},
+                            },
+                            "required": expect_members,
+                            "unevaluatedProperties": False,
+                        },
+                    ]
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
+            if set(input_members) != {"seed", "state_names", "values"}:
                 raise ValueError("Kernel runtime-vector input contract is incomplete")
             state_members = kind.get("state_value_members")
             if not isinstance(state_members, list):
@@ -896,7 +1077,7 @@ PACKAGE_GET = CommandDescriptor(
     output_model=PackageArtifact,
     handler=package_get_handler(packaged_authority_context),
     fixtures=ConformanceFixtures(
-        valid_args=("--id", "core.quantity", "--version", "2.0.0"),
+        valid_args=("--id", "core.quantity", "--version", "2.1.0"),
         refusing_args=("--id", "missing.package", "--version", "1.0.0"),
     ),
     schema_major=2,

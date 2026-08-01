@@ -29,6 +29,20 @@ def canonical_json(payload: Any) -> str:
     )
 
 
+def indented_json(payload: Any) -> str:
+    """Render deterministic human-readable JSON without changing its value."""
+    return (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+            indent=2,
+        )
+        + "\n"
+    )
+
+
 def model_payload(model: BaseModel) -> dict[str, Any]:
     """Dump a typed model as its canonical payload, rendering each field under
     its serialization alias (``by_alias=True``) so an aliased field like

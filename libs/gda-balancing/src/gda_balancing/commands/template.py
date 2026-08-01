@@ -1369,7 +1369,7 @@ def _minimal_release(
     package_matches = [
         package
         for package in packages
-        if (package.get("id"), package.get("version")) == ("core.quantity", "2.0.0")
+        if (package.get("id"), package.get("version")) == ("core.quantity", "2.1.0")
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
@@ -1379,8 +1379,8 @@ def _minimal_release(
         if isinstance(package.get("id"), str)
         and isinstance(package.get("version"), str)
     }
-    selected_coordinates = {("core.quantity", "2.0.0")}
-    pending = [("core.quantity", "2.0.0")]
+    selected_coordinates = {("core.quantity", "2.1.0")}
+    pending = [("core.quantity", "2.1.0")]
     while pending:
         coordinate = pending.pop()
         package = packages_by_coordinate[coordinate]
@@ -1394,14 +1394,23 @@ def _minimal_release(
         packages_by_coordinate[coordinate]
         for coordinate in sorted(selected_coordinates)
     ]
+    quantity_contract: dict[str, JsonValue] = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
         "manifest": {
             "id": "standard.quantity-minimal.starter",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
         "modules": [
             {
                 "id": "main",
@@ -1409,27 +1418,108 @@ def _minimal_release(
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.0.0",
+                        "version": "2.1.0",
                         "symbol": "Quantity",
                     }
                 ],
                 "symbols": [
                     {
                         "symbol": "value",
-                        "type": "quantity",
+                        **deepcopy(quantity_contract),
                         "role": "parameter",
-                        "representation": "Int",
-                        "kind": "scalar",
-                        "unit": "1",
-                        "domain_kind": "closed-interval",
-                        "domain": {"minimum": 0, "maximum": 100},
-                        "numeric_policy": "exact-int64",
                         "value_policy": {"mode": "experiment-required"},
+                    },
+                    {
+                        "symbol": "derived_value",
+                        **deepcopy(quantity_contract),
+                        "role": "derived",
+                        "value_policy": {"mode": "none"},
+                    },
+                    {
+                        "symbol": "output_value",
+                        **deepcopy(quantity_contract),
+                        "role": "output",
+                        "value_policy": {"mode": "none"},
+                    },
+                ],
+                "formulas": [
+                    {
+                        "id": "derive-value",
+                        "parameters": [{"id": "base", **deepcopy(quantity_contract)}],
+                        "result": deepcopy(quantity_contract),
+                        "body": {
+                            "nodes": [
+                                {
+                                    "id": "value",
+                                    "node": "operation-call",
+                                    "operation": {
+                                        "package": "core.quantity",
+                                        "version": "2.1.0",
+                                        "id": "quantity.identity",
+                                    },
+                                    "arguments": [
+                                        {
+                                            "port": "value",
+                                            "operand": {
+                                                "kind": "parameter",
+                                                "parameter": "base",
+                                            },
+                                        }
+                                    ],
+                                    "result": deepcopy(quantity_contract),
+                                }
+                            ],
+                            "result": {"kind": "local", "local": "value"},
+                        },
                     }
                 ],
             }
         ],
-        "entrypoints": [],
+        "formula_bindings": [
+            {
+                "site": {
+                    "kind": "derived-symbol",
+                    "module": "main",
+                    "symbol": "derived_value",
+                },
+                "formula": {"module": "main", "id": "derive-value"},
+                "arguments": [
+                    {
+                        "parameter": "base",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "value",
+                        },
+                    }
+                ],
+            }
+        ],
+        "entrypoints": [
+            {
+                "id": "quantity.identity",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "main",
+                            "symbol": "derived_value",
+                        },
+                    }
+                ],
+                "result": {
+                    "kind": "symbol",
+                    "module": "main",
+                    "symbol": "output_value",
+                },
+            }
+        ],
     }
     profile = _template_admission_profile(language_bundle)
     member_identity_domain = cast(str, profile["member_identity_domain"])
@@ -1472,7 +1562,7 @@ def _minimal_release(
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
                 "model_source_identity": starter_identity,
@@ -1520,7 +1610,7 @@ def _minimal_release(
                 "schema_version": "2.0.0",
                 "kernel_identity": kernel_identity,
                 "language_bundle_identity": language_bundle_identity,
-                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.1.0"}],
             },
         ),
         build_member(
@@ -1611,7 +1701,7 @@ def _minimal_release(
         "artifact_version": "2.0.0",
         "wire_schema_identity": schema_identities["template-release"],
         "id": "standard.quantity-minimal",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle_identity,
         "manifest": cast(JsonValue, manifest),
@@ -1957,13 +2047,13 @@ TEMPLATE_GET = CommandDescriptor(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ),
         refusing_args=(
             "--id",
             "missing.template",
             "--version",
-            "2.0.0",
+            "2.1.0",
         ),
     ),
     schema_major=2,
@@ -1988,7 +2078,7 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
             "--id",
             "standard.quantity-minimal",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.instantiated",
         ),
@@ -1996,7 +2086,7 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
             "--id",
             "missing.template",
             "--version",
-            "2.0.0",
+            "2.1.0",
             "--package-id",
             "example.instantiated",
         ),

@@ -14,6 +14,7 @@ from gda_balancing.descriptors import (
     ConformanceFixtures,
     RefusalArtifactSetSpec,
     RefusalDetailSpec,
+    RefusalVariantSpec,
 )
 from gda_balancing.commands.model import (
     ModelBuildInput,
@@ -225,6 +226,7 @@ def experiment_run_handler(
             diagnostic = audit["diagnostic"]
             return Schema2RefusalReport(
                 stage="runtime",
+                variant="post-dispatch",
                 diagnostics=(
                     Schema2Diagnostic.model_validate(
                         {
@@ -304,7 +306,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
     vector_set = next(
         row
         for row in language_bundle.package_conformance_vector_sets
-        if row["package_id"] == "game.combat" and row["package_version"] == "1.0.0"
+        if row["package_id"] == "game.combat" and row["package_version"] == "2.0.0"
     )
     vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
     source_fixture = vectors["game.combat.model-binding.positive"]["source_fixture"]
@@ -484,6 +486,7 @@ EXPERIMENT_RUN = CommandDescriptor(
         RefusalArtifactSetSpec(
             stage="runtime",
             members=_EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+            variant="post-dispatch",
         ),
     ),
     schema_major=2,
@@ -495,6 +498,19 @@ EXPERIMENT_RUN = CommandDescriptor(
             stage="runtime",
             field_name="terminal_audit",
             schema=_terminal_audit_receipt_schema,
+            required=False,
+        ),
+    ),
+    refusal_variants=(
+        RefusalVariantSpec(
+            stage="runtime",
+            id="pre-event",
+            forbidden_details=("terminal_audit",),
+        ),
+        RefusalVariantSpec(
+            stage="runtime",
+            id="post-dispatch",
+            required_details=("terminal_audit",),
         ),
     ),
     usage_codes=(

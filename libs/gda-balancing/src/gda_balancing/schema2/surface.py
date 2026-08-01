@@ -64,7 +64,7 @@ def command_schema_profile() -> dict[str, JsonValue]:
 
 def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, Any]:
     """Return the descriptor's exact closed 2.x Error contract."""
-    location = {
+    artifact_location = {
         "type": "object",
         "properties": {
             "kind": {"const": "artifact"},
@@ -74,6 +74,25 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "required": ["kind", "content_identity", "pointer"],
         "unevaluatedProperties": False,
     }
+    runtime_location = {
+        "type": "object",
+        "properties": {
+            "kind": {"const": "runtime"},
+            "subject": {
+                "enum": [
+                    "run",
+                    "initialization-frame",
+                    "formula-evaluation-site",
+                    "event",
+                    "snapshot-boundary",
+                ]
+            },
+            "identity": {"type": "string"},
+        },
+        "required": ["kind", "subject", "identity"],
+        "unevaluatedProperties": False,
+    }
+    location = {"oneOf": [artifact_location, runtime_location]}
     diagnostic = {
         "type": "object",
         "properties": {
@@ -95,37 +114,53 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
             for code, declared_stage in descriptor.refusal_catalog
             if declared_stage == stage
         )
-        details = {
-            detail.field_name: deepcopy(detail.schema())
-            for detail in descriptor.refusal_details
-            if detail.stage == stage
-        }
         stage_diagnostic = deepcopy(diagnostic)
         stage_diagnostic["properties"]["code"] = {"enum": codes}
-        variants.append(
-            {
-                "type": "object",
-                "properties": {
-                    "category": {"const": "refusal"},
-                    "stage": {"const": stage},
-                    "diagnostics": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": stage_diagnostic,
-                    },
-                    "truncated": {"type": "boolean"},
-                    **details,
-                },
-                "required": [
-                    "category",
-                    "stage",
-                    "diagnostics",
-                    "truncated",
-                    *sorted(details),
-                ],
-                "unevaluatedProperties": False,
+        declared_variants = [
+            variant for variant in descriptor.refusal_variants if variant.stage == stage
+        ]
+        for declared_variant in declared_variants or [None]:
+            forbidden = (
+                set(declared_variant.forbidden_details)
+                if declared_variant is not None
+                else set()
+            )
+            details = {
+                detail.field_name: deepcopy(detail.schema())
+                for detail in descriptor.refusal_details
+                if detail.stage == stage and detail.field_name not in forbidden
             }
-        )
+            required_details = {
+                detail.field_name
+                for detail in descriptor.refusal_details
+                if detail.stage == stage and detail.required
+            }
+            if declared_variant is not None:
+                required_details.update(declared_variant.required_details)
+            variants.append(
+                {
+                    "type": "object",
+                    "properties": {
+                        "category": {"const": "refusal"},
+                        "stage": {"const": stage},
+                        "diagnostics": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": stage_diagnostic,
+                        },
+                        "truncated": {"type": "boolean"},
+                        **details,
+                    },
+                    "required": [
+                        "category",
+                        "stage",
+                        "diagnostics",
+                        "truncated",
+                        *sorted(required_details),
+                    ],
+                    "unevaluatedProperties": False,
+                }
+            )
     if descriptor.usage_codes:
         variants.append(usage)
     internal_properties: dict[str, Any] = {
@@ -239,6 +274,7 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             "refusal_artifact_sets": [
                 {
                     "stage": item.stage,
+                    **({"variant": item.variant} if item.variant is not None else {}),
                     "members": members(item.members),
                 }
                 for item in descriptor.refusal_artifact_sets
@@ -267,6 +303,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         {
             "stage": detail.stage,
             "field_name": detail.field_name,
+            "required": detail.required,
             "schema": _schema_document(
                 (
                     f"{descriptor.group or 'meta'}.{descriptor.command}.error."
@@ -307,11 +344,27 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         "execution": {
             "stochastic": descriptor.stochastic,
             "structured_params": descriptor.structured_params,
+            "json_presentation_field": descriptor.json_presentation_field,
             "refusal_stages": list(descriptor.refusal_stages),
             "refusal_catalog": [
                 {"code": code, "stage": stage}
                 for code, stage in descriptor.refusal_catalog
             ],
+            **(
+                {
+                    "refusal_variants": [
+                        {
+                            "id": variant.id,
+                            "stage": variant.stage,
+                            "required_details": list(variant.required_details),
+                            "forbidden_details": list(variant.forbidden_details),
+                        }
+                        for variant in descriptor.refusal_variants
+                    ]
+                }
+                if descriptor.refusal_variants
+                else {}
+            ),
             "usage_codes": list(descriptor.usage_codes),
         },
         **({"refusal_details": refusal_details} if refusal_details else {}),
@@ -395,6 +448,33 @@ def surface_manifest_success_schema() -> dict[str, object]:
                     "unevaluatedProperties": False,
                 },
             },
+            "refusal_variants": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "stage": {"type": "string"},
+                        "required_details": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "uniqueItems": True,
+                        },
+                        "forbidden_details": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "uniqueItems": True,
+                        },
+                    },
+                    "required": [
+                        "id",
+                        "stage",
+                        "required_details",
+                        "forbidden_details",
+                    ],
+                    "unevaluatedProperties": False,
+                },
+            },
             "usage_codes": {"type": "array", "items": {"type": "string"}},
         },
         "required": [
@@ -402,6 +482,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "structured_params",
             "refusal_stages",
             "refusal_catalog",
+            "refusal_variants",
             "usage_codes",
         ],
         "unevaluatedProperties": False,
@@ -448,6 +529,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
                     "type": "object",
                     "properties": {
                         "stage": {"type": "string"},
+                        "variant": {"type": "string", "minLength": 1},
                         "members": {
                             "type": "array",
                             "items": {
@@ -533,6 +615,15 @@ def surface_manifest(
                     "refusal_catalog": [
                         {"code": code, "stage": stage}
                         for code, stage in descriptor.refusal_catalog
+                    ],
+                    "refusal_variants": [
+                        {
+                            "id": variant.id,
+                            "stage": variant.stage,
+                            "required_details": list(variant.required_details),
+                            "forbidden_details": list(variant.forbidden_details),
+                        }
+                        for variant in descriptor.refusal_variants
                     ],
                     "usage_codes": list(descriptor.usage_codes),
                 },

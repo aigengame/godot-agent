@@ -1021,7 +1021,22 @@ live in complete root-declared package releases, and any Formula edit that chang
 reidentify that child, the sealed root, and every downstream exact binding. Formula behavior remains
 out of scope for #592.
 
-### 12.7 Architecture consequence
+### 12.7 Formula-authoring dogfooding
+
+Issue #590 rebuilt the committed RPG cast around Model Source-owned Formulas and classified the
+result before handing the public artifact contract downstream:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | One game-owned derived Symbol Formula initializes before Snapshot 0, and one existing damage Formula fills the exact `game.combat.damage-v1` slot. Both compile and execute through the same Kernel primitives, compiler/evaluator dispatch, and Runtime phases as the scalar baseline. | Model Source, `standard.schema`/`standard.compiler`, `core.quantity`, `game.combat`, and `standard.runtime`; retained |
+| Confirmed—narrowly | Editing only `mitigated-damage` changes Formula/RIR/Resolved-Model/Experiment identities, trace, health, and Metrics while Kernel, LDB, Package Lock, compiler build, evaluator build, and unrelated source declarations stay fixed. The stale exact Experiment refuses; a newly bound Experiment executes. | Public Model/Experiment identity boundary and RPG tutorial; retained |
+| Refined—adopted | An Operation Formula slot cannot remain an evaluator callback without creating Formula-specific host dispatch. The compiler now specializes the selected reachable pure Formula graph into the Operation's existing Runtime instruction vocabulary while RIR retains the exact Formula declaration, binding, evaluation site, and transitive contract. | `standard.compiler` lowering plus `game.combat` slot contract; machine authority and independent-lowerer coverage updated |
+| Refined—adopted | A successful build's Debug Map was insufficient for direct Formula inspection, while regenerating an explanation would make inspection depend on current code. Every build now atomically stores one separately identified Model explanation; `model inspect` authenticates that exact stored artifact and renders its value without regenerating it. Its Formula section owns expression/binding detail, and its Operation section summarizes control nodes, RNG streams, effects, outcomes/commit policy, refusals, resources, and Formula-site identities without duplicating Formula semantics. | Model-explanation schema, build publication set, and CLI taxonomy; machine authority and recovery tests updated |
+| Refined—adopted | Formula timing and caching could not remain an implementation convention. The selected Runtime profile now declares Initialization/Event frames, atomic pre-Snapshot refusal, the cache key, Snapshot invalidation, and the rule that cache hits replay the same charge against the current ledger. | `standard.runtime@1.1.0` Runtime profile and package-owned vectors; authority and dual-consumer tests updated |
+| Refined—adopted | Adding Formula grammar, lowering, Runtime policy, pure Quantity Operations, and the combat slot changed several sealed package contracts. Each affected Package Release was versioned once, exact dependency coordinates were closed, vector children were reidentified, and the root plus downstream exact bindings were rebuilt; no flat registry or peer Formula authority was introduced. | Sealed LDB graph under bADR-0023; package releases and root rebuilt |
+| Authored-example only | The `effective-accuracy` minimum, mitigation policy, fixed seeds, and the `60 → 90` damage comparison are useful Formula-authoring witnesses, not a complete RPG stat library, arbitrary scripting claim, or general Formula catalog. | RPG example; retain without generalizing |
+
+### 12.8 Architecture consequence
 
 The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
 mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the

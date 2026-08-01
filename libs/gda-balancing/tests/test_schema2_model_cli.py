@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import stat
 import threading
 import time
@@ -79,7 +80,7 @@ def _model_source() -> dict[str, Any]:
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
         "entrypoints": [],
         "modules": [
             {
@@ -88,7 +89,7 @@ def _model_source() -> dict[str, Any]:
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.0.0",
+                        "version": "2.1.0",
                         "symbol": "Quantity",
                     }
                 ],
@@ -96,6 +97,34 @@ def _model_source() -> dict[str, Any]:
             }
         ],
     }
+
+
+def _use_derived_value(source: dict[str, Any]) -> None:
+    source["entrypoints"] = [
+        {
+            "id": "formula.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "derived_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
 
 
 def _symbols(source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -145,12 +174,1650 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert set(tmp_path.iterdir()) == before
 
 
-def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
+def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     tmp_path, run_cli
 ):
     source_document = _model_source()
-    source_document["package_requirements"].append(
-        {"id": "game.combat", "version": "1.0.0"}
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [
+                {
+                    "id": "base",
+                    "type": "quantity",
+                    "representation": "Int",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": 0, "maximum": 100},
+                    "numeric_policy": "exact-int64",
+                }
+            ],
+            "result": {
+                "type": "quantity",
+                "representation": "Int",
+                "kind": "scalar",
+                "unit": "1",
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": 0, "maximum": 100},
+                "numeric_policy": "exact-int64",
+            },
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source_document["entrypoints"] = [
+        {
+            "id": "formula.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "derived_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "formula-model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "1" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    assert [formula["id"] for formula in rir["formulas"]] == ["derive-value"]
+    bindings_by_phase = {
+        binding["site"]["context"]["phase"]: binding
+        for binding in rir["formula_bindings"]
+    }
+    assert set(bindings_by_phase) == {"initialization", "observation"}
+    assert bindings_by_phase["initialization"]["site"]["context"] == {
+        "frame": "pre-snapshot",
+        "phase": "initialization",
+    }
+    assert bindings_by_phase["observation"]["site"]["context"] == {
+        "frame": "post-transition-snapshot",
+        "phase": "observation",
+    }
+    assert (
+        bindings_by_phase["initialization"]["site"]["identity"]
+        != bindings_by_phase["observation"]["site"]["identity"]
+    )
+    assert len(rir["initialization_programs"]) == 2
+    for program in rir["initialization_programs"]:
+        phase = program["site"]["context"]["phase"]
+        binding = bindings_by_phase[phase]
+        assert program["site"] == binding["site"]
+        assert program["target"] == {
+            "model": "example.quantity-model",
+            "module": "main",
+            "name": "derived_value",
+        }
+        assert program["inputs"] == [
+            {"name": "base", "operand": binding["arguments"][0]["operand"]}
+        ]
+        result_name = f"init.{program['site']['identity']}.$result"
+        assert program["body"] == [
+            {
+                "evaluation_site_identity": program["body"][0][
+                    "evaluation_site_identity"
+                ],
+                "instruction": {
+                    "node": "copy",
+                    "target": result_name,
+                    "value": "base",
+                },
+            }
+        ]
+        assert program["body"][0]["evaluation_site_identity"].startswith("sha256:")
+        assert program["result"] == {"kind": "local", "name": result_name}
+        assert program["numeric_policy"] == "exact-int64"
+        assert program["resource_bounds"] == {"max_steps": 1}
+        assert program["refusals"] == []
+
+
+def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
+    program_source = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    program_source["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    program_source["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(program_source)
+    sugar_source = deepcopy(program_source)
+    sugar_source["modules"][0]["formulas"][0]["body"] = {
+        "node": "parameter",
+        "parameter": "base",
+    }
+
+    checked_program = model_module.check_model_source_value(program_source)
+    checked_sugar = model_module.check_model_source_value(sugar_source)
+    assert isinstance(checked_program, model_module.CheckedModel)
+    assert isinstance(checked_sugar, model_module.CheckedModel)
+    program_artifacts = model_module.lower_checked_model(checked_program)
+    sugar_artifacts = model_module.lower_checked_model(checked_sugar)
+    program_rir = cast(dict[str, Any], program_artifacts["rir-semantic-payload"])
+    sugar_rir = cast(dict[str, Any], sugar_artifacts["rir-semantic-payload"])
+
+    assert program_rir == sugar_rir
+    assert (
+        program_rir["formulas"][0]["identity"] == sugar_rir["formulas"][0]["identity"]
+    )
+    policy = model_module._formula_policy(checked_sugar.language_bundle)
+    assert policy["inline_body_normalizations"] == [
+        {
+            "node": "parameter",
+            "parameter_member": "parameter",
+            "result_kind": "parameter",
+        }
+    ]
+
+
+def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
+    _kernel, language_bundle = authority_module.load_authorities()
+    candidate = deepcopy(language_bundle)
+    profile = next(
+        row
+        for row in candidate["language"]["resolution_profiles"]
+        if row["id"] == "exact-import-resolution-v1"
+    )
+    policy = profile["extensions"]["standard.formula"]
+    policy["body_nodes_member"] = "authority-owned-expressions"
+    policy["allowed_body_nodes"] = ["authority-owned-node"]
+    policy["max_nodes_per_formula"] = 37
+    policy["resource_charge_per_node"] = 41
+    policy["identity_domains"]["formula"] = "authority-formula-domain"
+
+    resolved = model_module._formula_policy(candidate)
+
+    assert resolved["body_nodes_member"] == "authority-owned-expressions"
+    assert resolved["allowed_body_nodes"] == ["authority-owned-node"]
+    assert resolved["max_nodes_per_formula"] == 37
+    assert resolved["resource_charge_per_node"] == 41
+    assert resolved["identity_domains"]["formula"] == "authority-formula-domain"
+
+
+def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "formula-explanation-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    artifact_dir = _artifact_directory(json.loads(stdout))
+    explanation = json.loads((artifact_dir / "model-explanation.json").read_text())
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    debug_map = json.loads((artifact_dir / "debug-map.json").read_text())
+    build_receipt = json.loads((artifact_dir / "build-receipt.json").read_text())
+    assert explanation["artifact_kind"] == "model-explanation"
+    assert explanation["rir_identity"] == rir["content_identity"]
+    assert explanation["debug_map_identity"] == debug_map["content_identity"]
+    assert [row["id"] for row in explanation["formula_explanations"]] == [
+        "derive-value"
+    ]
+    explanation_sites = {
+        row["context"]["phase"]: row
+        for row in explanation["formula_explanations"][0]["evaluation_sites"]
+    }
+    bindings_by_phase = {
+        row["site"]["context"]["phase"]: row for row in rir["formula_bindings"]
+    }
+    assert set(explanation_sites) == {"initialization", "observation"}
+    for phase, binding in bindings_by_phase.items():
+        assert explanation_sites[phase] == {
+            "binding_identity": binding["identity"],
+            "context": binding["site"]["context"],
+            "identity": binding["site"]["identity"],
+            "operands": binding["arguments"],
+            "result": rir["formulas"][0]["result"],
+        }
+    identity_operation = next(
+        row
+        for row in explanation["operation_explanations"]
+        if row["id"] == "quantity.identity"
+    )
+    assert identity_operation["control_nodes"] == ["copy"]
+    assert identity_operation["rng_streams"] == []
+    assert identity_operation["outcomes"] == []
+    assert identity_operation["default_outcome"] is None
+    assert (
+        build_receipt["model_explanation_identity"] == explanation["content_identity"]
+    )
+    manifest = json.loads((artifact_dir / "artifact-set-manifest.json").read_text())
+    assert "model-explanation" in {
+        member["logical_name"] for member in manifest["members"]
+    }
+
+
+def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+    assert (exit_code, stderr) == (0, "")
+    artifact_dir = _artifact_directory(json.loads(stdout))
+    receipt_path = artifact_dir / "artifact-set-receipt.json"
+    explanation_path = artifact_dir / "model-explanation.json"
+    expected_bytes = explanation_path.read_bytes()
+
+    def fail_if_regenerated(*_args, **_kwargs):
+        raise AssertionError("model inspect must not regenerate an explanation")
+
+    monkeypatch.setattr(model_module, "_model_explanation", fail_if_regenerated)
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        [
+            "model",
+            "inspect",
+            str(receipt_path),
+            "--format",
+            "indented",
+        ]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (0, "")
+    assert inspect_stdout.startswith("{\n  ")
+    assert json.loads(inspect_stdout) == json.loads(expected_bytes)
+    assert explanation_path.read_bytes() == expected_bytes
+
+
+def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, run_cli):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt = tmp_path / "public-build-receipt.json"
+    receipt.write_text(build_stdout, encoding="utf-8")
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (0, "")
+    assert json.loads(inspect_stdout)["artifact_kind"] == "model-explanation"
+
+
+@pytest.mark.parametrize("anchor_key", [None, "A5" * 32, "a5" * 31, "not-hex"])
+def test_model_inspect_preserves_invalid_anchor_configuration_as_usage(
+    tmp_path, run_cli, monkeypatch, anchor_key
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt = tmp_path / "public-build-receipt.json"
+    receipt.write_text(build_stdout, encoding="utf-8")
+    if anchor_key is None:
+        monkeypatch.delenv("GDA_BALANCING_ANCHOR_KEY", raising=False)
+    else:
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", anchor_key)
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt)]
+    )
+
+    assert (inspect_exit, inspect_stdout) == (3, "")
+    assert json.loads(inspect_stderr)["error"] == {
+        "category": "usage",
+        "code": "invalid_argument",
+        "message": (
+            "GDA_BALANCING_ANCHOR_KEY must contain exactly 64 lowercase "
+            "hexadecimal digits"
+        ),
+    }
+    assert "invalid_argument" in model_command_module.MODEL_INSPECT.usage_codes
+
+
+def test_model_inspect_refuses_a_coherently_relocated_publication(tmp_path, run_cli):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    committed_dir = _artifact_directory(json.loads(build_stdout))
+    relocated_dir = tmp_path / "relocated-publication"
+    shutil.copytree(committed_dir, relocated_dir)
+    relocated_receipt = json.loads(
+        (relocated_dir / "artifact-set-receipt.json").read_text()
+    )
+    relocated_receipt["manifest_locator"] = str(
+        relocated_dir / "artifact-set-manifest.json"
+    )
+    for locator in relocated_receipt["member_locators"]:
+        locator["locator"] = str(relocated_dir / f"{locator['logical_name']}.json")
+    receipt_path = relocated_dir / "artifact-set-receipt.json"
+    receipt_path.write_bytes(canonical_bytes(relocated_receipt))
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt_path)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (2, "")
+    error = json.loads(inspect_stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "kernel.binding_mismatch"
+    ]
+
+
+def test_model_inspect_refuses_a_malformed_receipt_without_internal_error(
+    tmp_path, run_cli
+):
+    receipt = tmp_path / "invalid-receipt.json"
+    receipt.write_text("{}\n", encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "inspect", str(receipt)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "kernel.identity_mismatch"
+    ]
+
+
+def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "inner",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "value"},
+            },
+        },
+        {
+            "id": "outer",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "inner-call",
+                        "node": "formula-call",
+                        "formula": {"module": "main", "id": "inner"},
+                        "arguments": [
+                            {
+                                "parameter": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "result": {"kind": "local", "local": "inner-call"},
+            },
+        },
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "outer"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "formula-call-model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    formulas = {formula["id"]: formula for formula in rir["formulas"]}
+    assert set(formulas) == {"inner", "outer"}
+    assert formulas["outer"]["body"]["nodes"][0]["formula"] == {
+        "module": "main",
+        "id": "inner",
+        "identity": formulas["inner"]["identity"],
+    }
+    assert formulas["inner"]["closure"]["resource_charge"] == {"max_steps": 1}
+    assert formulas["outer"]["closure"] == {
+        "formula_dependencies": [formulas["inner"]["identity"]],
+        "operation_dependencies": [],
+        "refusals": [],
+        "resource_charge": {"max_steps": 2},
+        "termination_measure": 2,
+    }
+
+
+def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+
+    def formula(formula_id: str, target: str) -> dict[str, Any]:
+        return {
+            "id": formula_id,
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "recursive-call",
+                        "node": "formula-call",
+                        "formula": {"module": "main", "id": target},
+                        "arguments": [
+                            {
+                                "parameter": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "result": {"kind": "local", "local": "recursive-call"},
+            },
+        }
+
+    first = formula("alpha", "beta")
+    first["body"] = {
+        "nodes": [],
+        "result": {"kind": "parameter", "parameter": "value"},
+    }
+    source_document["modules"][0]["formulas"] = [
+        first,
+        formula("beta", "beta"),
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "beta"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    source = tmp_path / "cyclic-formulas.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_cycle"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1/body"
+
+
+def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "through-operation",
+            "parameters": [{"id": "value", **quantity_contract}],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "identity-call",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "id": "quantity.identity",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "value",
+                                },
+                            }
+                        ],
+                        "result": quantity_contract,
+                    }
+                ],
+                "result": {"kind": "local", "local": "identity-call"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "through-operation"},
+            "arguments": [
+                {
+                    "parameter": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "formula-operation-call.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    rir = json.loads((published / "rir-semantic-payload.json").read_text())
+    formula = rir["formulas"][0]
+    operation = formula["body"]["nodes"][0]["operation"]
+    assert {
+        "package": operation["package"],
+        "version": operation["version"],
+        "id": operation["id"],
+    } == {
+        "package": "core.quantity",
+        "version": "2.1.0",
+        "id": "quantity.identity",
+    }
+    assert formula["closure"] == {
+        "formula_dependencies": [],
+        "operation_dependencies": [operation["identity"]],
+        "refusals": [],
+        "resource_charge": {"max_steps": 2},
+        "termination_measure": 1,
+    }
+
+
+def test_model_check_refuses_scalar_formula_conditionals(tmp_path, run_cli):
+    source_document = _model_source()
+    contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "choose-value",
+            "parameters": [
+                {"id": "condition", **contract},
+                {"id": "when-false", **contract},
+                {"id": "when-true", **contract},
+            ],
+            "result": contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "choice",
+                        "node": "conditional",
+                        "condition": {
+                            "kind": "parameter",
+                            "parameter": "condition",
+                        },
+                        "when_true": {
+                            "kind": "parameter",
+                            "parameter": "when-true",
+                        },
+                        "when_false": {
+                            "kind": "parameter",
+                            "parameter": "when-false",
+                        },
+                    }
+                ],
+                "result": {"kind": "local", "local": "choice"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "choose-value"},
+            "arguments": [
+                {
+                    "parameter": "condition",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "constant_value",
+                    },
+                },
+                {
+                    "parameter": "when-false",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                },
+                {
+                    "parameter": "when-true",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                },
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "conditional-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/0"
+
+
+def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 200},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] != "mitigated-damage"
+    ] + [
+        {
+            "id": "mitigated-damage",
+            "parameters": [
+                {"id": "damage_before_defense", **quantity_contract},
+                {"id": "mitigation", **quantity_contract},
+            ],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [
+                    {
+                        "id": "raw_damage",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "id": "quantity.subtract",
+                        },
+                        "arguments": [
+                            {
+                                "port": "left",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "damage_before_defense",
+                                },
+                            },
+                            {
+                                "port": "right",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "mitigation",
+                                },
+                            },
+                        ],
+                        "result": {
+                            **quantity_contract,
+                            "domain": {"minimum": -200, "maximum": 200},
+                        },
+                    },
+                    {
+                        "id": "damage",
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "id": "quantity.floor-zero",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "local",
+                                    "local": "raw_damage",
+                                },
+                            },
+                        ],
+                        "result": quantity_contract,
+                    },
+                ],
+                "result": {"kind": "local", "local": "damage"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"]["kind"] != "operation-slot"
+    ] + [
+        {
+            "site": {
+                "kind": "operation-slot",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "2.0.0",
+                    "id": "game.combat.damage-v1",
+                },
+                "slot": "damage-policy",
+            },
+            "formula": {"module": "combat", "id": "mitigated-damage"},
+            "arguments": [
+                {
+                    "parameter": "damage_before_defense",
+                    "operand": {
+                        "kind": "slot-parameter",
+                        "parameter": "damage_before_defense",
+                    },
+                },
+                {
+                    "parameter": "mitigation",
+                    "operand": {
+                        "kind": "slot-parameter",
+                        "parameter": "mitigation",
+                    },
+                },
+            ],
+        }
+    ]
+    source = tmp_path / "operation-slot-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+    out = tmp_path / "resolved-model.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    receipt = json.loads(stdout)
+    rir = json.loads(
+        (_artifact_directory(receipt) / "rir-semantic-payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    binding = next(
+        row
+        for row in rir["formula_bindings"]
+        if row["site"]["kind"] == "operation-slot"
+    )
+    assert binding["site"]["kind"] == "operation-slot"
+    assert binding["site"]["operation"] == {
+        "package": "game.combat",
+        "version": "2.0.0",
+        "id": "game.combat.damage-v1",
+        "identity": binding["site"]["operation"]["identity"],
+    }
+    assert binding["site"]["slot"] == "damage-policy"
+    assert binding["site"]["context"] == {
+        "phase": "event",
+        "frame": "pre-event-snapshot",
+    }
+    assert [row["operand"]["parameter"] for row in binding["arguments"]] == [
+        "damage_before_defense",
+        "mitigation",
+    ]
+
+
+def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "nodes": [],
+        "result": {
+            "kind": "parameter",
+            "parameter": "damage_before_defense",
+        },
+    }
+    source = tmp_path / "direct-result-slot-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "direct-result-slot-model"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    rir = json.loads(
+        (
+            _artifact_directory(json.loads(stdout)) / "rir-semantic-payload.json"
+        ).read_text(encoding="utf-8")
+    )
+    resolved_formula = next(
+        row for row in rir["formulas"] if row["id"] == "mitigated-damage"
+    )
+    damage = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.damage-v1"
+    )
+    slot = damage["extensions"]["standard.formula-slots"][0]
+    lowered = damage["body"][slot["placeholder_index"] : slot["placeholder_index"] + 1]
+
+    assert resolved_formula["closure"]["resource_charge"] == {"max_steps": 1}
+    assert lowered == [
+        {
+            "node": "copy",
+            "target": slot["target"],
+            "value": "damage_before_defense",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code", "expected_pointer"),
+    (
+        (
+            "missing-binding",
+            "language.formula_binding_missing",
+            "/entrypoints/0/operation",
+        ),
+        (
+            "missing-declaration",
+            "language.formula_binding_missing",
+            "/entrypoints/0/operation",
+        ),
+        (
+            "duplicate-binding",
+            "language.formula_binding_duplicate",
+            "/formula_bindings/2/site",
+        ),
+        (
+            "duplicate-operation-slot-binding",
+            "language.formula_binding_duplicate",
+            "/formula_bindings/2/site",
+        ),
+        (
+            "resource-budget",
+            "language.formula_resource_exhausted",
+            "/formula_bindings/1/formula",
+        ),
+    ),
+)
+def test_model_check_refuses_operation_formula_slot_contract_violations(
+    mutation, expected_code, expected_pointer, tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    if mutation == "missing-binding":
+        source_document["formula_bindings"] = []
+    elif mutation == "missing-declaration":
+        source_document["modules"][0]["formulas"] = []
+        source_document["formula_bindings"] = []
+    elif mutation == "duplicate-binding":
+        source_document["formula_bindings"].append(
+            deepcopy(source_document["formula_bindings"][0])
+        )
+    elif mutation == "duplicate-operation-slot-binding":
+        source_document["formula_bindings"].append(
+            deepcopy(source_document["formula_bindings"][1])
+        )
+    else:
+        formula = source_document["modules"][0]["formulas"][0]
+        result_contract = deepcopy(formula["result"])
+        formula["body"]["nodes"].append(
+            {
+                "id": "over-budget-copy",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {"kind": "local", "local": "damage"},
+                    }
+                ],
+                "result": result_contract,
+            }
+        )
+        formula["body"]["result"] = {
+            "kind": "local",
+            "local": "over-budget-copy",
+        }
+    source = tmp_path / f"{mutation}.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == expected_code
+    assert diagnostic["primary"]["pointer"] == expected_pointer
+
+
+def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "effective-accuracy"
+    )
+    formula["body"] = {
+        "nodes": [
+            {
+                "id": "effectful-call",
+                "node": "operation-call",
+                "operation": {
+                    "package": "game.combat",
+                    "version": "2.0.0",
+                    "id": "game.combat.cast-v1",
+                },
+                "arguments": [],
+                "result": deepcopy(formula["result"]),
+            }
+        ],
+        "result": {"kind": "local", "local": "effectful-call"},
+    }
+    source = tmp_path / "effectful-formula.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_purity_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+
+
+@pytest.mark.parametrize(
+    ("member", "value", "reason_id", "diagnostic"),
+    (
+        (
+            "kind",
+            "boolean",
+            "model.reason.formula-kind-mismatch",
+            "language.formula_kind_mismatch",
+        ),
+        (
+            "unit",
+            "turn",
+            "model.reason.formula-unit-mismatch",
+            "language.formula_unit_mismatch",
+        ),
+        (
+            "numeric_policy",
+            "exact-bool",
+            "model.reason.formula-numeric-profile-mismatch",
+            "language.formula_numeric_profile_mismatch",
+        ),
+    ),
+)
+def test_formula_slot_value_axes_have_stable_authority_diagnostics(
+    member,
+    value,
+    reason_id,
+    diagnostic,
+    tmp_path,
+    run_cli,
+):
+    source_document = _model_source()
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [
+                {
+                    "id": "base",
+                    "type": "quantity",
+                    "representation": "Int",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "domain_kind": "closed-interval",
+                    "domain": {"minimum": 0, "maximum": 100},
+                    "numeric_policy": "exact-int64",
+                }
+            ],
+            "result": {
+                "type": "quantity",
+                "representation": "Int",
+                "kind": "scalar",
+                "unit": "1",
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": 0, "maximum": 100},
+                "numeric_policy": "exact-int64",
+            },
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "base"},
+            },
+        }
+    ]
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source_document)
+    formula = source_document["modules"][0]["formulas"][0]
+    formula["parameters"][0][member] = value
+    formula["result"][member] = value
+    source = tmp_path / f"formula-{member}-mismatch.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic_row = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic_row["code"] == diagnostic
+    assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
+    _, language_bundle = authority_module.load_authorities()
+    assert (
+        model_module.reason_by_id(language_bundle, reason_id)["diagnostic"]
+        == diagnostic
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "vector_id", "reason_id", "diagnostic", "pointer"),
+    (
+        (
+            "context",
+            "formula.refuse.context-mismatch",
+            "model.reason.formula-context-mismatch",
+            "language.formula_context_mismatch",
+            "/formula_bindings/1/site",
+        ),
+        (
+            "refusals",
+            "formula.refuse.refusal-widening",
+            "model.reason.formula-refusal-widening",
+            "language.formula_refusal_widening",
+            "/formula_bindings/1/formula",
+        ),
+    ),
+)
+def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
+    mutation,
+    vector_id,
+    reason_id,
+    diagnostic,
+    pointer,
+    run_cli,
+    monkeypatch,
+):
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    context = authority_module.packaged_authority_context()
+    kernel, language_bundle = context.mutable_pair()
+    vector = next(
+        item
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.compiler"
+        for item in vector_set["vector_definitions"]
+        if item["id"] == vector_id
+    )
+    damage = next(
+        operation
+        for operation in language_bundle["language"]["operations"]
+        if operation["id"] == "game.combat.damage-v1"
+    )
+    slot = damage["extensions"]["standard.formula-slots"][0]
+    if mutation == "context":
+        slot["context"] = {"phase": "event", "frame": "host-owned-frame"}
+    else:
+        slot["permitted_refusals"] = []
+    assert vector == {
+        "diagnostic": diagnostic,
+        "id": vector_id,
+        "input": {"actual": "incompatible", "expected": "compatible"},
+        "matched": True,
+        "reason": reason_id,
+        "stage": "static",
+    }
+    _reidentify_language_bundle(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        model_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    row = json.loads(stdout)["error"]["diagnostics"][0]
+    assert row["code"] == diagnostic
+    assert row["primary"]["pointer"] == pointer
+
+
+def test_model_check_points_a_non_first_formula_error_at_its_declaration(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    second_formula = source_document["modules"][0]["formulas"][1]
+    second_formula["result"]["domain"]["maximum"] = 999
+    source = tmp_path / "second-formula-error.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/formulas/1"
+
+
+def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formulas = source_document["modules"][0]["formulas"]
+    formulas.reverse()
+    formula = next(row for row in formulas if row["id"] == "mitigated-damage")
+    result_contract = deepcopy(formula["result"])
+    formula["body"]["nodes"].append(
+        {
+            "id": "over-budget-copy",
+            "node": "operation-call",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {"kind": "local", "local": "damage"},
+                }
+            ],
+            "result": result_contract,
+        }
+    )
+    formula["body"]["result"] = {
+        "kind": "local",
+        "local": "over-budget-copy",
+    }
+    source = tmp_path / "second-formula-binding-budget.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_resource_exhausted"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/1/formula"
+
+
+def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    formula = next(
+        row
+        for row in source_document["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "nodes": [],
+        "result": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "damage_dealt",
+        },
+    }
+    source = tmp_path / "event-formula-output-symbol.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/entrypoints/0/operation"
+
+
+def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contract(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    derived = next(
+        symbol
+        for symbol in source_document["modules"][0]["symbols"]
+        if symbol["symbol"] == "effective_accuracy"
+    )
+    derived["domain"]["maximum"] = 10
+    source = tmp_path / "incompatible-derived-result.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_type_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/formula"
+
+
+def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    module = source_document["modules"][0]
+    unused_symbol = deepcopy(
+        next(
+            symbol
+            for symbol in module["symbols"]
+            if symbol["symbol"] == "effective_accuracy"
+        )
+    )
+    unused_symbol["symbol"] = "unused_derived"
+    module["symbols"].append(unused_symbol)
+    unused_formula = deepcopy(
+        next(
+            formula
+            for formula in module["formulas"]
+            if formula["id"] == "effective-accuracy"
+        )
+    )
+    unused_formula["id"] = "unused-formula"
+    module["formulas"].append(unused_formula)
+    unused_binding = deepcopy(source_document["formula_bindings"][0])
+    unused_binding["site"]["symbol"] = "unused_derived"
+    unused_binding["formula"]["id"] = "unused-formula"
+    source_document["formula_bindings"].append(unused_binding)
+    source = tmp_path / "unreachable-derived-binding.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_unreachable"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/site"
+
+
+def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run_cli):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["entrypoints"] = [
+        {
+            "id": "resource.spend",
+            "operation": {
+                "package": "game.resource",
+                "version": "1.0.1",
+                "id": "game.resource.spend-v1",
+            },
+            "arguments": [
+                {
+                    "port": "resource",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "actor_mana",
+                    },
+                },
+                {
+                    "port": "cost",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "action_cost",
+                    },
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+    ]
+    source = tmp_path / "unreachable-operation-slot-binding.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_unreachable"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/site"
+
+
+def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
     )
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
@@ -651,6 +2318,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
             "build-receipt",
             "capability-manifest",
             "debug-map",
+            "model-explanation",
             "package-lock",
             "resolution-receipt",
             "resolved-model",
@@ -679,6 +2347,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         "build-receipt",
         "capability-manifest",
         "debug-map",
+        "model-explanation",
         "package-lock",
         "resolution-receipt",
         "resolved-model",
@@ -702,6 +2371,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         "build-receipt.json",
         "capability-manifest.json",
         "debug-map.json",
+        "model-explanation.json",
         "package-lock.json",
         "publication-index.json",
         "resolution-receipt.json",
@@ -1258,6 +2928,84 @@ def test_model_build_precommit_fault_leaves_no_visible_or_partial_set(
     assert not (store / "anchors").exists()
 
 
+def test_model_build_explanation_generation_fault_publishes_nothing(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+
+    def fail_explanation(*_args, **_kwargs):
+        raise RuntimeError("injected Model explanation generation fault")
+
+    monkeypatch.setattr(model_module, "_model_explanation", fail_explanation)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    assert not (store / "invocations").exists()
+    assert not (store / "anchors").exists()
+
+
+def test_model_build_explanation_schema_fault_publishes_nothing(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+    explanation = model_module._model_explanation
+
+    def generate_invalid_explanation(language_bundle, rir, debug_map):
+        valid = explanation(language_bundle, rir, debug_map)
+        return model_module._identified_artifact(
+            language_bundle,
+            "model-explanation",
+            {
+                "rir_identity": valid["rir_identity"],
+                "debug_map_identity": valid["debug_map_identity"],
+                "formula_explanations": valid["formula_explanations"],
+            },
+        )
+
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation",
+        generate_invalid_explanation,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    assert not (store / "invocations").exists()
+    assert not (store / "anchors").exists()
+
+
 def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
     tmp_path, run_cli
 ):
@@ -1645,8 +3393,8 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
 
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
     assert [(package["id"], package["version"]) for package in lock["packages"]] == [
-        ("core.quantity", "2.0.0"),
-        ("standard.compiler", "1.0.0"),
+        ("core.quantity", "2.1.0"),
+        ("standard.compiler", "1.1.0"),
     ]
     assert all(
         set(package)
@@ -1681,6 +3429,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         "build-receipt",
         "capability-manifest",
         "debug-map",
+        "model-explanation",
         "package-lock",
         "resolution-receipt",
         "resolved-model",
@@ -1691,7 +3440,7 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         declaration["type_identity"]
         == {
             "package": "core.quantity",
-            "version": "2.0.0",
+            "version": "2.1.0",
             "symbol": "Quantity",
         }
         for declaration in rir["declarations"]
@@ -2024,6 +3773,191 @@ def test_resolved_model_admission_rejects_coherently_reidentified_invalid_declar
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
+def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contract(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_value["modules"][0]["formulas"] = [
+        {
+            "id": "choose-value",
+            "parameters": [
+                {"id": "condition", **quantity_contract},
+                {"id": "when-false", **quantity_contract},
+                {"id": "when-true", **quantity_contract},
+            ],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "parameter", "parameter": "when-true"},
+            },
+        }
+    ]
+    source_value["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "choose-value"},
+            "arguments": [
+                {
+                    "parameter": "condition",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "constant_value",
+                    },
+                },
+                {
+                    "parameter": "when-false",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                },
+                {
+                    "parameter": "when-true",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                },
+            ],
+        }
+    ]
+    _use_derived_value(source_value)
+    source = tmp_path / "conditional-admission.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    built = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "published-model"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert built[0] == 0, built
+    artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
+    assert model_module.admit_resolved_model(artifacts).admitted is True
+
+    kernel, language_bundle = authority_module.load_authorities()
+    policy = model_module._formula_policy(language_bundle)
+    actual_operand_domain = kernel["meta_format"]["runtime_program"][
+        "invocation_contract"
+    ]["identity_domains"]["actual_operand"]
+    rir = artifacts["rir-semantic-payload"]
+    formula = rir["formulas"][0]
+    wrong_boolean_domain = {
+        "type_identity": {
+            "package": "kernel",
+            "version": "2.0.0",
+            "symbol": "Boolean",
+        },
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"kind": "closed-interval", "minimum": 0, "maximum": 1},
+        "numeric_policy": "exact-bool",
+    }
+    condition_parameter = next(
+        parameter
+        for parameter in formula["parameters"]
+        if parameter["id"] == "condition"
+    )
+    condition_parameter.update(wrong_boolean_domain)
+    condition_declaration = next(
+        declaration
+        for declaration in rir["declarations"]
+        if declaration["resolved_symbol"]["name"] == "constant_value"
+    )
+    condition_declaration.update(wrong_boolean_domain)
+    operands = {
+        name: {
+            **(body := {"kind": "parameter", "parameter": name}),
+            "identity": content_identity(actual_operand_domain, cast(JsonValue, body)),
+        }
+        for name in ("condition", "when-false", "when-true")
+    }
+    node_body = {
+        "id": "choice",
+        "node": "conditional",
+        "condition": operands["condition"],
+        "when_true": operands["when-true"],
+        "when_false": operands["when-false"],
+        "result": formula["result"],
+    }
+    node = {
+        **node_body,
+        "identity": content_identity(
+            policy["identity_domains"]["expression_node"], node_body
+        ),
+    }
+    result_body = {"kind": "local", "local": "choice"}
+    formula["body"] = {
+        "nodes": [node],
+        "result": {
+            **result_body,
+            "identity": content_identity(
+                actual_operand_domain, cast(JsonValue, result_body)
+            ),
+        },
+    }
+    formula["identity"] = content_identity(
+        policy["identity_domains"]["declaration"],
+        {key: value for key, value in formula.items() if key != "identity"},
+    )
+    for binding in rir["formula_bindings"]:
+        binding["formula"]["identity"] = formula["identity"]
+        binding["identity"] = content_identity(
+            policy["identity_domains"]["binding"],
+            {key: value for key, value in binding.items() if key != "identity"},
+        )
+    rir["initialization_programs"] = model_module._compile_initialization_programs(
+        rir["selected_semantics"],
+        rir["formulas"],
+        rir["formula_bindings"],
+        policy,
+    )
+
+    assert (
+        model_module._formula_program_graph_is_admitted(
+            kernel,
+            language_bundle,
+            rir["declarations"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            rir["entrypoints"],
+            rir["selected_semantics"],
+        )
+        is False
+    )
+
+    _reidentify(rir, "rir-semantic-payload-v2")
+    artifacts["resolved-model"]["rir_identity"] = rir["content_identity"]
+    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
 def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
     tmp_path, run_cli
 ):
@@ -2033,7 +3967,7 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2122,7 +4056,7 @@ def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": arguments,
@@ -2163,7 +4097,7 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2192,7 +4126,9 @@ def test_model_entrypoint_read_port_rejects_symbols_without_an_input_source(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/entrypoints/0/arguments/0/operand"
+        "/formula_bindings"
+        if role == "derived"
+        else "/entrypoints/0/arguments/0/operand"
     )
 
 
@@ -2203,7 +4139,7 @@ def test_model_entrypoint_result_reports_the_exact_binding_pointer(tmp_path, run
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2284,7 +4220,7 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2315,7 +4251,7 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
         "id": "quantity.dimensionless-int64",
         "type": {
             "package": "core.quantity",
-            "version": "2.0.0",
+            "version": "2.1.0",
             "id": "Quantity",
         },
         "representation": "Int",
@@ -2335,7 +4271,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2387,7 +4323,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2448,12 +4384,17 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source_value = json.loads(source_path.read_text(encoding="utf-8"))
+    source_value["formula_bindings"] = [
+        binding
+        for binding in source_value["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+    ]
     source_value["entrypoints"] = [
         {
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -2526,7 +4467,7 @@ def test_model_entrypoint_refuses_stale_exact_operation_coordinates(
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2576,7 +4517,7 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -2838,35 +4779,35 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "effect",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
         (
             "cycle",
             (
-                "language.operations.game.check@1.0.0."
+                "language.operations.game.check@1.0.1."
                 "game.check.hit-v1.body.cycle.operation"
             ),
         ),
         (
             "argument-contract",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
@@ -2932,7 +4873,7 @@ def test_package_admission_closes_every_operation_composition_axis(
                 "site": "self",
                 "operation": {
                     "package": "game.check",
-                    "version": "1.0.0",
+                    "version": "1.0.1",
                     "id": "game.check.hit-v1",
                 },
                 "arguments": [
@@ -2995,7 +4936,7 @@ def test_authority_admission_rejects_operation_closure_at_the_package_site():
     assert admission.admitted is False
     assert any(
         diagnostic.subject
-        == "language.operations.game.combat@1.0.0.game.combat.cast-v1.body.hit-check.effects"
+        == "language.operations.game.combat@2.0.0.game.combat.cast-v1.body.hit-check.effects"
         for diagnostic in admission.diagnostics
     )
 
@@ -3070,12 +5011,13 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source_value = json.loads(example.read_text(encoding="utf-8"))
+    source_value["formula_bindings"] = []
     source_value["entrypoints"] = [
         {
             "id": "resource.spend",
             "operation": {
                 "package": "game.resource",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.resource.spend-v1",
             },
             "arguments": [
@@ -3199,7 +5141,7 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
             "id": "quantity.identity",
             "operation": {
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "quantity.identity",
             },
             "arguments": [
@@ -3285,7 +5227,11 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
     assert [row["definition"]["id"] for row in original_selected["operations"]] == [
-        "quantity.identity"
+        "quantity.floor-zero",
+        "quantity.identity",
+        "quantity.less-than",
+        "quantity.maximum",
+        "quantity.subtract",
     ]
     assert original_selected["conversions"] == []
     original_closures = cast(
@@ -3420,8 +5366,8 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     package["dependencies"] = {
         "optional": [],
         "required": [
-            {"id": "core.quantity", "version": "2.0.0"},
-            {"id": "standard.runtime", "version": "1.0.0"},
+            {"id": "core.quantity", "version": "2.1.0"},
+            {"id": "standard.runtime", "version": "1.1.0"},
         ],
     }
     package["capabilities"] = {
@@ -3469,7 +5415,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                 },
                 "unit": "1",
             },
@@ -3483,7 +5429,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
                 "type": {
                     "id": "Quantity",
                     "package": "core.quantity",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                 },
                 "unit": "1",
             },
@@ -3517,7 +5463,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "type": {
                 "id": "Quantity",
                 "package": "core.quantity",
-                "version": "2.0.0",
+                "version": "2.1.0",
             },
             "unit": "1",
         },
@@ -3567,7 +5513,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
 
     source_document = _model_source()
     source_document["package_requirements"] = [
-        {"id": "core.quantity", "version": "2.0.0"},
+        {"id": "core.quantity", "version": "2.1.0"},
         {"id": "genre.economy", "version": "1.0.0"},
     ]
     source_document["modules"][0]["symbols"] = [

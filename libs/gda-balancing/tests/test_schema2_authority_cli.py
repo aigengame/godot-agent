@@ -25,7 +25,12 @@ import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
-from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
+from gda_balancing.commands.model import (
+    MODEL_BUILD,
+    MODEL_CHECK,
+    MODEL_INSPECT,
+    MODEL_MIGRATE,
+)
 from gda_balancing.commands.package import (
     package_get_success_schema,
     package_list_success_schema,
@@ -50,8 +55,10 @@ from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     RefusalStage,
+    RuntimeLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    bound_diagnostics,
 )
 from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
@@ -203,7 +210,7 @@ def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
     monkeypatch, transport
 ):
     logical_members = _authority_resource_bytes()
-    target = "packages/game-combat/game.combat@1.0.0.conformance-vectors.json"
+    target = "packages/standard-runtime/standard.runtime@1.1.0.conformance-vectors.json"
     decoded = json.loads(logical_members[target])
     if transport == "whitespace":
         logical_members[target] = json.dumps(
@@ -406,11 +413,11 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
     ("unreadable", "subject"),
     [
         (
-            "packages/core-quantity/core.quantity@2.0.0.json",
+            "packages/core-quantity/core.quantity@2.1.0.json",
             "language-bundle.package_descriptors.0",
         ),
         (
-            "packages/core-quantity/core.quantity@2.0.0.conformance-vectors.json",
+            "packages/core-quantity/core.quantity@2.1.0.conformance-vectors.json",
             "language-bundle.package_descriptors.0.conformance_vectors",
         ),
     ],
@@ -680,7 +687,7 @@ def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_c
 
     open_dependency = deepcopy(release)
     open_dependency["dependencies"]["required"] = [
-        {"id": "core.quantity", "version": "2.0.0", "peer": True}
+        {"id": "core.quantity", "version": "2.1.0", "peer": True}
     ]
     invalid_releases.append(open_dependency)
 
@@ -1027,7 +1034,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.resource",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.resource.spend-v1",
             },
         ),
@@ -1035,7 +1042,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.check.hit-v1",
             },
         ),
@@ -1043,7 +1050,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.check",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "id": "game.check.critical-v1",
             },
         ),
@@ -1051,7 +1058,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.combat",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "id": "game.combat.damage-v1",
             },
         ),
@@ -1061,6 +1068,17 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
     assert "game.rpg" not in serialized
     assert "RpgValue" not in serialized
     assert "rpg." not in serialized
+
+
+def test_unchanged_migration_package_keeps_its_existing_release_coordinate(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    migration = next(
+        release
+        for release in authority["package_releases"]
+        if release["id"] == "tooling.migration"
+    )
+
+    assert migration["version"] == "1.0.0"
 
 
 def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
@@ -1104,7 +1122,7 @@ def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     assert compiler["exports"]["model_checks"] == []
     assert compiler["exports"]["model_lowerings"] == []
     assert quantity["dependencies"]["required"] == [
-        {"id": "standard.compiler", "version": "1.0.0"}
+        {"id": "standard.compiler", "version": "1.1.0"}
     ]
     assert quantity["exports"]["model_checks"]
     assert quantity["exports"]["model_lowerings"] == ["quantity.model-lowering"]
@@ -1182,7 +1200,8 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     admitted_oracles = [
         vector["expect"]["lock_oracle"]
         for vector in vector_sets[quantity["id"]]["vector_definitions"]
-        if vector.get("expect", {}).get("outcome") == "admitted"
+        if isinstance(vector.get("expect"), dict)
+        and vector["expect"].get("outcome") == "admitted"
     ]
     assert admitted_oracles
     assert all(
@@ -1214,6 +1233,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "package-contract",
         "operation-contract",
         "runtime-scenario",
+        "value-program",
     }
 
     releases = {release["id"]: release for release in authority["package_releases"]}
@@ -1299,6 +1319,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "migration-refusal-report",
         "migration-report",
         "model-build-command-input",
+        "model-explanation",
         "model-migrate-command-input",
         "package-lock",
         "publication-index",
@@ -1418,6 +1439,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "experiment run",
         "model check",
         "model build",
+        "model inspect",
         "model migrate",
         "template list",
         "template get",
@@ -1453,6 +1475,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             argv = invocation(EXPERIMENT_CHECK)
         elif path == "experiment run":
             argv = invocation(EXPERIMENT_RUN)
+        elif path == "model inspect":
+            argv = invocation(MODEL_INSPECT)
         elif path == "template list":
             argv = ["template", "list"]
         elif path == "template get":
@@ -1462,7 +1486,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         elif path == "template instantiate":
             argv = [
@@ -1471,7 +1495,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--id",
                 "standard.quantity-minimal",
                 "--version",
-                "2.0.0",
+                "2.1.0",
                 "--package-id",
                 "example.manifest-projection",
                 "--out",
@@ -1488,12 +1512,13 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--id",
                 "core.quantity",
                 "--version",
-                "2.0.0",
+                "2.1.0",
             ]
         else:
             descriptor = {
                 "model build": MODEL_BUILD,
                 "model check": MODEL_CHECK,
+                "model inspect": MODEL_INSPECT,
                 "model migrate": MODEL_MIGRATE,
             }[path]
             source = tmp_path / f"{path.replace(' ', '-')}.json"
@@ -1532,6 +1557,18 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.resource_exhausted", "static"),
         ("language.unresolved_name", "static"),
         ("language.name_ambiguity", "static"),
+        ("language.formula_binding_missing", "static"),
+        ("language.formula_binding_duplicate", "static"),
+        ("language.formula_type_mismatch", "static"),
+        ("language.formula_kind_mismatch", "static"),
+        ("language.formula_unit_mismatch", "static"),
+        ("language.formula_numeric_profile_mismatch", "static"),
+        ("language.formula_purity_mismatch", "static"),
+        ("language.formula_context_mismatch", "static"),
+        ("language.formula_unreachable", "static"),
+        ("language.formula_refusal_widening", "static"),
+        ("language.formula_resource_exhausted", "static"),
+        ("language.formula_cycle", "static"),
         ("language.package_version_unavailable", "resolution"),
         ("language.resolution_ambiguity", "resolution"),
     }
@@ -1670,6 +1707,108 @@ def test_dispatch_rejects_a_refusal_absent_from_the_descriptor_catalog(run_cli):
     assert json.loads(stderr)["error"]["code"] == "internal_error"
 
 
+def test_experiment_run_descriptor_closes_runtime_refusal_variants():
+    assert [
+        (
+            variant.id,
+            variant.stage,
+            variant.required_details,
+            variant.forbidden_details,
+        )
+        for variant in EXPERIMENT_RUN.refusal_variants
+    ] == [
+        ("pre-event", "runtime", (), ("terminal_audit",)),
+        ("post-dispatch", "runtime", ("terminal_audit",), ()),
+    ]
+    runtime_sets = [
+        item for item in EXPERIMENT_RUN.refusal_artifact_sets if item.stage == "runtime"
+    ]
+    assert [item.variant for item in runtime_sets] == ["post-dispatch"]
+
+    schema = schema2_error_envelope_schema(EXPERIMENT_RUN)
+    runtime_variants = [
+        variant
+        for variant in schema["properties"]["error"]["oneOf"]
+        if variant.get("properties", {}).get("stage") == {"const": "runtime"}
+    ]
+    assert len(runtime_variants) == 2
+    assert sorted(
+        "terminal_audit" in variant["required"] for variant in runtime_variants
+    ) == [False, True]
+    pre_event = next(
+        variant
+        for variant in runtime_variants
+        if "terminal_audit" not in variant["required"]
+    )
+    assert "terminal_audit" not in pre_event["properties"]
+
+    runtime_refusal = {
+        "error": {
+            "category": "refusal",
+            "stage": "runtime",
+            "diagnostics": [
+                {
+                    "code": "runtime.numeric_overflow",
+                    "message": "initialization Formula refused",
+                    "primary": {
+                        "kind": "runtime",
+                        "subject": "formula-evaluation-site",
+                        "identity": "sha256:" + "e" * 64,
+                    },
+                    "related": [
+                        {
+                            "kind": "runtime",
+                            "subject": "initialization-frame",
+                            "identity": "sha256:" + "f" * 64,
+                        },
+                        {
+                            "kind": "artifact",
+                            "content_identity": "sha256:" + "a" * 64,
+                            "pointer": "/scenarios/0/assignments",
+                        },
+                    ],
+                }
+            ],
+            "truncated": False,
+        }
+    }
+    jsonschema.validate(runtime_refusal, schema)
+    assert (
+        Schema2Diagnostic.model_validate(
+            runtime_refusal["error"]["diagnostics"][0]
+        ).model_dump(mode="json")
+        == runtime_refusal["error"]["diagnostics"][0]
+    )
+    malformed = deepcopy(runtime_refusal)
+    malformed["error"]["diagnostics"][0]["primary"]["pointer"] = "/invented"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(malformed, schema)
+
+
+def test_dispatch_requires_the_post_dispatch_terminal_audit(run_cli, invocation):
+    report = Schema2RefusalReport(
+        stage="runtime",
+        variant="post-dispatch",
+        diagnostics=(
+            Schema2Diagnostic(
+                code="runtime.numeric_overflow",
+                message="injected post-dispatch refusal",
+                primary=ArtifactLocation(
+                    content_identity="unidentified",
+                    pointer="/scenarios/0/entrypoint",
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+    descriptor = replace(EXPERIMENT_RUN, handler=lambda _inp: report)
+
+    exit_code, stdout, stderr = run_cli(invocation(descriptor), registry=(descriptor,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+
+
 def test_structured_params_share_binding_and_conflict_with_argv_fields(run_cli):
     direct = run_cli(["schema", "get", "language-bundle"])
     inline = run_cli(["schema", "get", '--params-json={"artifact":"language-bundle"}'])
@@ -1701,6 +1840,25 @@ def test_structured_params_share_binding_and_conflict_with_argv_fields(run_cli):
 
 
 def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
+    artifact = Schema2Diagnostic(
+        code="artifact-first",
+        message="artifact location",
+        primary=ArtifactLocation(content_identity="sha256:a", pointer="/"),
+    )
+    runtime = Schema2Diagnostic(
+        code="runtime-second",
+        message="runtime location",
+        primary=RuntimeLocation(
+            subject="formula-evaluation-site",
+            identity="sha256:r",
+        ),
+    )
+    ordered, truncated = bound_diagnostics([runtime, artifact, runtime], limit=3)
+    assert ([item.primary.kind for item in ordered], truncated) == (
+        ["artifact", "runtime"],
+        False,
+    )
+
     loaded_kernel, loaded_ldb = authority_module.load_authorities()
     kernel = deepcopy(loaded_kernel)
     ldb = deepcopy(loaded_ldb)

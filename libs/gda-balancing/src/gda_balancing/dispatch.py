@@ -29,7 +29,7 @@ from gda_balancing.descriptors import (
     CommandDescriptor,
     option_bindings,
 )
-from gda_balancing.emit import canonical_json, model_payload
+from gda_balancing.emit import canonical_json, indented_json, model_payload
 from gda_balancing.envelope import (
     ERROR_ENVELOPE_SCHEMA,
     EXIT_INTERNAL,
@@ -225,12 +225,32 @@ def _invoke_descriptor(
             for name in expected_details
             if (value := getattr(outcome, name)) is not None
         }
-        if set(observed_details) != set(expected_details):
-            raise TypeError(
-                "handler returned Schema 2.x refusal details absent from its descriptor"
-            )
-        for name, detail in expected_details.items():
-            jsonschema.validate(observed_details[name], detail.schema())
+        required_details = {
+            name for name, detail in expected_details.items() if detail.required
+        }
+        variants = [
+            variant
+            for variant in descriptor.refusal_variants
+            if variant.stage == outcome.stage
+        ]
+        if variants:
+            matches = [variant for variant in variants if variant.id == outcome.variant]
+            if len(matches) != 1:
+                raise TypeError(
+                    "handler returned an undeclared Schema 2.x refusal variant"
+                )
+            variant = matches[0]
+            required_details.update(variant.required_details)
+            if set(observed_details) & set(variant.forbidden_details):
+                raise TypeError(
+                    "handler populated forbidden Schema 2.x refusal details"
+                )
+        elif outcome.variant is not None:
+            raise TypeError("handler returned an unexpected Schema 2.x refusal variant")
+        if not required_details <= set(observed_details):
+            raise TypeError("handler omitted required Schema 2.x refusal details")
+        for name, value in observed_details.items():
+            jsonschema.validate(value, expected_details[name].schema())
         envelope = schema2_refusal_envelope(outcome)
         stdout.write(canonical_json(envelope))
         return EXIT_REFUSAL
@@ -258,7 +278,18 @@ def _invoke_descriptor(
     payload = model_payload(outcome)
     if descriptor.schema_major == 2 and descriptor.success_schema is not None:
         jsonschema.validate(payload, descriptor.success_schema())
-    body = canonical_json(payload)
+    presentation = (
+        getattr(input_obj, descriptor.json_presentation_field)
+        if descriptor.json_presentation_field is not None
+        else "canonical"
+    )
+    if presentation not in {"canonical", "indented"}:
+        raise TypeError("descriptor JSON presentation field is outside its contract")
+    body = (
+        indented_json(payload)
+        if presentation == "indented"
+        else canonical_json(payload)
+    )
     if descriptor.artifact_sink and out is not None:
         # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
         # The sink is written BEFORE stdout, and an unwritable sink raises

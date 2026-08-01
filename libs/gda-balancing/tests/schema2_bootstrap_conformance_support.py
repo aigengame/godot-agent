@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2"
+    "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98"
 )
 
 
@@ -442,6 +442,13 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "rng_draw_members",
         "state_value_members",
     },
+    "value-program": {
+        "expect_members",
+        "id",
+        "input_members",
+        "instruction_nodes",
+        "required_members",
+    },
 }
 
 
@@ -502,6 +509,13 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "kind",
             "operation",
         },
+        "value-program": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -518,6 +532,37 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         and kinds["runtime-scenario"].get("rng_draw_members")
         == ["candidate_hex", "index", "stream", "value"]
         and kinds["runtime-scenario"].get("state_value_members") == ["name", "value"]
+        and kinds["value-program"].get("input_members")
+        == [
+            "cache",
+            "evaluations",
+            "instructions",
+            "numeric",
+            "operands",
+            "resource_limit",
+            "result",
+            "site",
+        ]
+        and kinds["value-program"].get("expect_members")
+        == [
+            "cache_entries",
+            "charge",
+            "outcome",
+            "result",
+            "result_artifact",
+            "signal",
+            "site",
+        ]
+        and kinds["value-program"].get("instruction_nodes")
+        == [
+            "add",
+            "constant",
+            "copy",
+            "if",
+            "maximum",
+            "multiply",
+            "subtract",
+        ]
     )
 
 
@@ -533,6 +578,42 @@ def _consumer_b_signed_int64(value: Any) -> bool:
         isinstance(value, int)
         and not isinstance(value, bool)
         and -(2**63) <= value <= 2**63 - 1
+    )
+
+
+def _consumer_b_value_program_instruction_is_closed(
+    row: Any,
+    allowed_nodes: set[str],
+) -> bool:
+    if not isinstance(row, dict) or len(row) != 2:
+        return False
+    site = row.get("evaluation_site_identity")
+    instruction = row.get("instruction")
+    if not isinstance(site, str) or not site or not isinstance(instruction, dict):
+        return False
+
+    operand_fields = {
+        "copy": ("value",),
+        "add": ("left", "right"),
+        "maximum": ("left", "right"),
+        "multiply": ("left", "right"),
+        "subtract": ("left", "right"),
+        "if": ("condition", "when_true", "when_false"),
+    }
+    node = instruction.get("node")
+    if not isinstance(node, str) or node not in allowed_nodes:
+        return False
+    fields = ("literal",) if node == "constant" else operand_fields.get(node)
+    if fields is None or set(instruction) != {"node", "target", *fields}:
+        return False
+    target = instruction.get("target")
+    if not isinstance(target, str) or not target:
+        return False
+    if node == "constant":
+        return _consumer_b_signed_int64(instruction.get("literal"))
+    return all(
+        isinstance(value, str) and bool(value)
+        for value in (instruction.get(field) for field in fields)
     )
 
 
@@ -671,6 +752,75 @@ def _consumer_b_package_evidence_vectors_are_closed(
             declared, observed = _consumer_b_exact_path(package, probe["path"])
             if not declared or not _consumer_b_canonical_equal(
                 observed, vector.get("expect")
+            ):
+                return False
+            continue
+        if kind_id == "value-program":
+            inp = vector.get("input")
+            expect = vector.get("expect")
+            allowed_nodes = set(cast(list[str], kind["instruction_nodes"]))
+            if (
+                not isinstance(inp, dict)
+                or set(inp) != set(kind["input_members"])
+                or not isinstance(inp.get("cache"), bool)
+                or not isinstance(inp.get("evaluations"), int)
+                or isinstance(inp["evaluations"], bool)
+                or inp["evaluations"] < 1
+                or not isinstance(inp.get("instructions"), list)
+                or not inp["instructions"]
+                or not all(
+                    _consumer_b_value_program_instruction_is_closed(row, allowed_nodes)
+                    for row in inp["instructions"]
+                )
+                or not isinstance(inp.get("numeric"), dict)
+                or set(inp["numeric"]) != {"maximum", "minimum"}
+                or not _consumer_b_signed_int64(inp["numeric"].get("minimum"))
+                or not _consumer_b_signed_int64(inp["numeric"].get("maximum"))
+                or inp["numeric"]["minimum"] > inp["numeric"]["maximum"]
+                or not isinstance(inp.get("operands"), list)
+                or not all(
+                    isinstance(row, dict)
+                    and set(row) == {"name", "value"}
+                    and isinstance(row.get("name"), str)
+                    and bool(row["name"])
+                    and _consumer_b_signed_int64(row.get("value"))
+                    for row in inp["operands"]
+                )
+                or [row["name"] for row in inp["operands"]]
+                != sorted({row["name"] for row in inp["operands"]})
+                or not isinstance(inp.get("resource_limit"), int)
+                or isinstance(inp["resource_limit"], bool)
+                or inp["resource_limit"] < 0
+                or not isinstance(inp.get("result"), str)
+                or not inp["result"]
+                or not isinstance(inp.get("site"), str)
+                or not inp["site"]
+                or not isinstance(expect, dict)
+                or set(expect) != set(kind["expect_members"])
+                or expect.get("outcome") not in {"admitted", "refused"}
+                or not isinstance(expect.get("cache_entries"), int)
+                or isinstance(expect["cache_entries"], bool)
+                or expect["cache_entries"] < 0
+                or not isinstance(expect.get("charge"), int)
+                or isinstance(expect["charge"], bool)
+                or expect["charge"] < 0
+                or not isinstance(expect.get("result_artifact"), bool)
+                or not isinstance(expect.get("site"), str)
+                or not expect["site"]
+                or not (
+                    (
+                        expect["outcome"] == "admitted"
+                        and _consumer_b_signed_int64(expect.get("result"))
+                        and expect.get("signal") is None
+                        and expect["result_artifact"] is True
+                    )
+                    or (
+                        expect["outcome"] == "refused"
+                        and expect.get("result") is None
+                        and expect.get("signal") in {"numeric-overflow", "step-limit"}
+                        and expect["result_artifact"] is False
+                    )
+                )
             ):
                 return False
             continue
@@ -3856,6 +4006,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         mode["experiment_cardinality"] == "forbidden"
                         and mode["initialization_source"]
                         not in {"model", "model-with-experiment-override"}
+                        and not (
+                            row.get("role") == "derived"
+                            and mode["initialization_source"] == "resolved-model"
+                        )
                         for mode in modes
                     )
                 )

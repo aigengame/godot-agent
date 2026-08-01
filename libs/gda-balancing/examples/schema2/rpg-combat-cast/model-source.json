@@ -8,11 +8,11 @@
   "package_requirements": [
     {
       "id": "core.quantity",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "id": "game.combat",
-      "version": "1.0.0"
+      "version": "2.0.0"
     }
   ],
   "modules": [
@@ -22,7 +22,7 @@
         {
           "alias": "quantity",
           "package": "core.quantity",
-          "version": "2.0.0",
+          "version": "2.1.0",
           "symbol": "Quantity"
         }
       ],
@@ -147,6 +147,23 @@
           }
         },
         {
+          "symbol": "effective_accuracy",
+          "type": "quantity",
+          "role": "derived",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "none"
+          }
+        },
+        {
           "symbol": "damage_dealt",
           "type": "quantity",
           "role": "output",
@@ -163,6 +180,255 @@
             "mode": "none"
           }
         }
+      ],
+      "formulas": [
+        {
+          "id": "mitigated-damage",
+          "parameters": [
+            {
+              "id": "damage_before_defense",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            },
+            {
+              "id": "mitigation",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "numeric_policy": "exact-int64"
+          },
+          "body": {
+            "nodes": [
+              {
+                "id": "raw_damage",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.subtract"
+                },
+                "arguments": [
+                  {
+                    "port": "left",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "damage_before_defense"
+                    }
+                  },
+                  {
+                    "port": "right",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "mitigation"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": -1000,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              },
+              {
+                "id": "damage",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.floor-zero"
+                },
+                "arguments": [
+                  {
+                    "port": "value",
+                    "operand": {
+                      "kind": "local",
+                      "local": "raw_damage"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              }
+            ],
+            "result": {
+              "kind": "local",
+              "local": "damage"
+            }
+          }
+        },
+        {
+          "id": "effective-accuracy",
+          "parameters": [
+            {
+              "id": "base",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "numeric_policy": "exact-int64"
+          },
+          "body": {
+            "nodes": [
+              {
+                "id": "minimum-accuracy",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.maximum"
+                },
+                "arguments": [
+                  {
+                    "port": "left",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "base"
+                    }
+                  },
+                  {
+                    "port": "right",
+                    "operand": {
+                      "kind": "literal",
+                      "value": 1
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              }
+            ],
+            "result": {
+              "kind": "local",
+              "local": "minimum-accuracy"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "formula_bindings": [
+    {
+      "site": {
+        "kind": "derived-symbol",
+        "module": "combat",
+        "symbol": "effective_accuracy"
+      },
+      "formula": {
+        "module": "combat",
+        "id": "effective-accuracy"
+      },
+      "arguments": [
+        {
+          "parameter": "base",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "accuracy"
+          }
+        }
+      ]
+    },
+    {
+      "site": {
+        "kind": "operation-slot",
+        "operation": {
+          "package": "game.combat",
+          "version": "2.0.0",
+          "id": "game.combat.damage-v1"
+        },
+        "slot": "damage-policy"
+      },
+      "formula": {
+        "module": "combat",
+        "id": "mitigated-damage"
+      },
+      "arguments": [
+        {
+          "parameter": "damage_before_defense",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "damage_before_defense"
+          }
+        },
+        {
+          "parameter": "mitigation",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "mitigation"
+          }
+        }
       ]
     }
   ],
@@ -171,7 +437,7 @@
       "id": "combat.cast",
       "operation": {
         "package": "game.combat",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "id": "game.combat.cast-v1"
       },
       "arguments": [
@@ -196,7 +462,7 @@
           "operand": {
             "kind": "symbol",
             "module": "combat",
-            "symbol": "accuracy"
+            "symbol": "effective_accuracy"
           }
         },
         {

@@ -118,6 +118,7 @@ class RefusalDetailSpec:
     stage: Literal["migration", "runtime"]
     field_name: Literal["migration_report", "terminal_audit"]
     schema: Callable[[], dict[str, object]]
+    required: bool = True
 
     def __post_init__(self) -> None:
         if (self.stage, self.field_name) not in {
@@ -131,11 +132,32 @@ class RefusalDetailSpec:
 
 
 @dataclass(frozen=True)
+class RefusalVariantSpec:
+    """One descriptor-owned variant within a shared refusal stage."""
+
+    stage: Literal["migration", "runtime"]
+    id: str
+    required_details: tuple[Literal["migration_report", "terminal_audit"], ...] = ()
+    forbidden_details: tuple[Literal["migration_report", "terminal_audit"], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("refusal variant id must be non-empty")
+        if len(self.required_details) != len(set(self.required_details)) or len(
+            self.forbidden_details
+        ) != len(set(self.forbidden_details)):
+            raise ValueError("refusal variant detail members must be unique")
+        if set(self.required_details) & set(self.forbidden_details):
+            raise ValueError("one refusal detail cannot be required and forbidden")
+
+
+@dataclass(frozen=True)
 class RefusalArtifactSetSpec:
     """One stage-owned artifact set published before a typed refusal."""
 
     stage: Literal["runtime"]
     members: tuple[ArtifactSetMemberSpec, ...]
+    variant: str | None = None
 
     def __post_init__(self) -> None:
         names = [member.logical_name for member in self.members]
@@ -170,6 +192,9 @@ class CommandDescriptor:
     # emitted on stdout with exit 1 and remains distinct from refusal.
     verdict_model: type[BaseModel] | None = field(default=None)
     positional_field: str | None = None
+    # Optional input field selecting canonical or indented JSON presentation.
+    # It changes whitespace only; handlers still return the same typed value.
+    json_presentation_field: str | None = field(default=None)
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
     # off them.
     stochastic: bool = field(default=False)
@@ -199,6 +224,7 @@ class CommandDescriptor:
     # schemas are shared by dispatch validation, --schema, manifest, and
     # descriptor identity; handlers cannot add an ambient details bag.
     refusal_details: tuple[RefusalDetailSpec, ...] = field(default=())
+    refusal_variants: tuple[RefusalVariantSpec, ...] = field(default=())
     refusal_artifact_sets: tuple[RefusalArtifactSetSpec, ...] = field(default=())
     usage_codes: tuple[str, ...] = field(default=())
     # A 2.x descriptor may own a closed schema that is more precise than a
@@ -246,6 +272,7 @@ class CommandDescriptor:
         if self.schema_major != 2 and (
             self.refusal_catalog
             or self.refusal_details
+            or self.refusal_variants
             or self.refusal_artifact_sets
             or self.usage_codes
         ):
@@ -267,6 +294,41 @@ class CommandDescriptor:
             for detail in self.refusal_details
         ):
             raise ValueError("refusal detail belongs to an unreachable stage")
+        refusal_variant_keys = [
+            (variant.stage, variant.id) for variant in self.refusal_variants
+        ]
+        if len(refusal_variant_keys) != len(set(refusal_variant_keys)):
+            raise ValueError("duplicate Schema 2.x refusal variant")
+        if any(
+            variant.stage not in {stage for _, stage in self.refusal_catalog}
+            for variant in self.refusal_variants
+        ):
+            raise ValueError("refusal variant belongs to an unreachable stage")
+        for variant in self.refusal_variants:
+            referenced = set(variant.required_details) | set(variant.forbidden_details)
+            if not {(variant.stage, detail) for detail in referenced} <= set(
+                refusal_detail_keys
+            ):
+                raise ValueError("refusal variant references an undeclared detail")
+            if any(
+                detail.required and detail.field_name in variant.forbidden_details
+                for detail in self.refusal_details
+                if detail.stage == variant.stage
+            ):
+                raise ValueError("refusal variant forbids a globally required detail")
+        for stage in {variant.stage for variant in self.refusal_variants}:
+            variants = [
+                variant for variant in self.refusal_variants if variant.stage == stage
+            ]
+            for index, left in enumerate(variants):
+                for right in variants[index + 1 :]:
+                    if not (
+                        set(left.required_details) & set(right.forbidden_details)
+                        or set(right.required_details) & set(left.forbidden_details)
+                    ):
+                        raise ValueError(
+                            "refusal variants in one stage must be structurally disjoint"
+                        )
         refusal_set_stages = [item.stage for item in self.refusal_artifact_sets]
         if len(refusal_set_stages) != len(set(refusal_set_stages)):
             raise ValueError("duplicate refusal artifact-set stage")
@@ -280,6 +342,32 @@ class CommandDescriptor:
             for item in self.refusal_artifact_sets
         ):
             raise ValueError("refusal artifact set requires its typed receipt detail")
+        for item in self.refusal_artifact_sets:
+            stage_variants = [
+                variant
+                for variant in self.refusal_variants
+                if variant.stage == item.stage
+            ]
+            if stage_variants and (
+                item.variant is None
+                or (item.stage, item.variant) not in set(refusal_variant_keys)
+            ):
+                raise ValueError(
+                    "refusal artifact set requires one reachable stage variant"
+                )
+        if any(
+            item.variant is not None
+            and not any(
+                variant.stage == item.stage
+                and variant.id == item.variant
+                and "terminal_audit" in variant.required_details
+                for variant in self.refusal_variants
+            )
+            for item in self.refusal_artifact_sets
+        ):
+            raise ValueError(
+                "refusal artifact set variant must require its terminal audit"
+            )
         if not set(self.usage_codes) <= USAGE_CODES:
             raise ValueError("unknown Schema 2.x usage code")
         if (
@@ -288,6 +376,14 @@ class CommandDescriptor:
         ):
             raise ValueError(
                 f"positional designation {self.positional_field!r} names no "
+                f"{self.input_model.__name__} field"
+            )
+        if (
+            self.json_presentation_field is not None
+            and self.json_presentation_field not in self.input_model.model_fields
+        ):
+            raise ValueError(
+                f"JSON presentation field {self.json_presentation_field!r} names no "
                 f"{self.input_model.__name__} field"
             )
 

@@ -254,42 +254,42 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         (
             "effect",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
         (
             "cycle",
             (
-                "language.operations.game.check@1.0.0."
+                "language.operations.game.check@1.0.1."
                 "game.check.hit-v1.body.cycle.operation"
             ),
         ),
         (
             "argument-contract",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
         (
             "literal-contract",
             (
-                "language.operations.game.combat@1.0.0."
+                "language.operations.game.combat@2.0.0."
                 "game.combat.cast-v1.body.apply-damage.arguments"
             ),
         ),
@@ -344,7 +344,7 @@ def test_two_consumers_refuse_every_reidentified_operation_composition_violation
                 "operation": {
                     "id": "game.check.hit-v1",
                     "package": "game.check",
-                    "version": "1.0.0",
+                    "version": "1.0.1",
                 },
                 "outcomes": [
                     {
@@ -714,7 +714,15 @@ def test_two_consumers_refuse_incomplete_identity_or_pointer_meta_contracts(
         _refresh_package_closure_and_reidentify(ldb)
         subject = "language.wire-schema-identity-domains"
     else:
-        artifact_schema = ldb["language"]["artifact_wire_schemas"][0]
+        contract_schema_kinds = {
+            contract["schema_kind"]
+            for contract in ldb["language"]["artifact_contracts"]
+        }
+        artifact_schema = next(
+            schema
+            for schema in ldb["language"]["artifact_wire_schemas"]
+            if schema["artifact_kind"] in contract_schema_kinds
+        )
         artifact_schema["wire_schema_identity_domain"] = "competing-domain"
         _refresh_package_closure_and_reidentify(ldb)
         subject = "language.wire-schema-identity-domains"
@@ -996,7 +1004,7 @@ def test_reidentified_operation_result_source_cannot_invent_host_semantics():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1028,7 +1036,7 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1145,7 +1153,7 @@ def test_operation_result_source_refuses_a_non_successful_producer_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@1.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 

@@ -131,7 +131,7 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
             "version": "1.0.0",
             "entry_module": "main",
         },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
         "modules": [
             {
                 "id": "main",
@@ -139,7 +139,7 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
                     {
                         "alias": "quantity",
                         "package": "core.quantity",
-                        "version": "2.0.0",
+                        "version": "2.1.0",
                         "symbol": "Quantity",
                     }
                 ],

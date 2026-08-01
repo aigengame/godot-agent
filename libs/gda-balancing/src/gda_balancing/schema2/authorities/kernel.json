@@ -379,10 +379,10 @@
               "left": "language_bundle.language.quantity.kinds",
               "mode": "set",
               "profile": {
-                "owners": "language_bundle.language.model_lowerings",
                 "owner_profile_member": "resolution_profile",
-                "profiles": "language_bundle.language.resolution_profiles",
-                "profile_key_member": "id"
+                "owners": "language_bundle.language.model_lowerings",
+                "profile_key_member": "id",
+                "profiles": "language_bundle.language.resolution_profiles"
               },
               "right_template": [
                 "language_bundle",
@@ -408,10 +408,10 @@
               "left": "language_bundle.language.quantity.numeric_policies.id",
               "mode": "set",
               "profile": {
-                "owners": "language_bundle.language.model_lowerings",
                 "owner_profile_member": "resolution_profile",
-                "profiles": "language_bundle.language.resolution_profiles",
-                "profile_key_member": "id"
+                "owners": "language_bundle.language.model_lowerings",
+                "profile_key_member": "id",
+                "profiles": "language_bundle.language.resolution_profiles"
               },
               "right_template": [
                 "language_bundle",
@@ -437,10 +437,10 @@
               "left": "language_bundle.language.quantity.representations",
               "mode": "set",
               "profile": {
-                "owners": "language_bundle.language.model_lowerings",
                 "owner_profile_member": "resolution_profile",
-                "profiles": "language_bundle.language.resolution_profiles",
-                "profile_key_member": "id"
+                "owners": "language_bundle.language.model_lowerings",
+                "profile_key_member": "id",
+                "profiles": "language_bundle.language.resolution_profiles"
               },
               "right_template": [
                 "language_bundle",
@@ -466,10 +466,10 @@
               "left": "language_bundle.language.quantity.symbol_roles",
               "mode": "set",
               "profile": {
-                "owners": "language_bundle.language.model_lowerings",
                 "owner_profile_member": "resolution_profile",
-                "profiles": "language_bundle.language.resolution_profiles",
-                "profile_key_member": "id"
+                "owners": "language_bundle.language.model_lowerings",
+                "profile_key_member": "id",
+                "profiles": "language_bundle.language.resolution_profiles"
               },
               "right_template": [
                 "language_bundle",
@@ -495,10 +495,10 @@
               "left": "language_bundle.language.quantity.units.id",
               "mode": "set",
               "profile": {
-                "owners": "language_bundle.language.model_lowerings",
                 "owner_profile_member": "resolution_profile",
-                "profiles": "language_bundle.language.resolution_profiles",
-                "profile_key_member": "id"
+                "owners": "language_bundle.language.model_lowerings",
+                "profile_key_member": "id",
+                "profiles": "language_bundle.language.resolution_profiles"
               },
               "right_template": [
                 "language_bundle",
@@ -613,6 +613,7 @@
                 "exports.domains": "language_bundle.language.quantity.domains",
                 "exports.kinds": "language_bundle.language.quantity.kinds",
                 "exports.language_rules": "language_bundle.language.rules.id",
+                "exports.literal_typing_profiles": "language_bundle.language.literal_typing_profiles.id",
                 "exports.model_checks": "language_bundle.language.model_checks.id",
                 "exports.model_lowerings": "language_bundle.language.model_lowerings.id",
                 "exports.operations": "language_bundle.language.operations.id",
@@ -623,8 +624,7 @@
                 "exports.units": "language_bundle.language.quantity.units.id",
                 "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id",
                 "profiles.resolution": "language_bundle.language.resolution_profiles.id",
-                "profiles.runtime": "language_bundle.language.runtime_profiles.id",
-                "exports.literal_typing_profiles": "language_bundle.language.literal_typing_profiles.id"
+                "profiles.runtime": "language_bundle.language.runtime_profiles.id"
               }
             },
             {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:e8ab4754dbd123d508dfe4d602bab428bac19326ecbf65de95272eb784c777e2",
+  "content_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -1426,24 +1426,24 @@
         "counter_scope": "per-template-release-admission",
         "charge_rules": [
           {
-            "event": "member-role",
-            "amount": "one-per-member"
+            "amount": "one-per-member",
+            "event": "member-role"
           },
           {
-            "event": "judgment",
-            "amount": "one-per-judgment"
+            "amount": "one-per-judgment",
+            "event": "judgment"
           },
           {
-            "event": "selected-value",
-            "amount": "one-per-projected-value"
+            "amount": "one-per-projected-value",
+            "event": "selected-value"
           },
           {
-            "event": "scoped-row",
-            "amount": "one-per-input-row"
+            "amount": "one-per-input-row",
+            "event": "scoped-row"
           },
           {
-            "event": "vector-execution",
-            "amount": "one-per-vector"
+            "amount": "one-per-vector",
+            "event": "vector-execution"
           }
         ],
         "exhaustion_diagnostic": "language.resource_exhausted"
@@ -2783,6 +2783,9 @@
             },
             "outcomes": {
               "type": "canonical-value"
+            },
+            "extensions": {
+              "type": "canonical-value"
             }
           },
           "required_members": [
@@ -2807,7 +2810,8 @@
           ],
           "optional_members": [
             "default_outcome",
-            "outcomes"
+            "outcomes",
+            "extensions"
           ]
         },
         "resolution_profiles": {
@@ -2923,6 +2927,9 @@
             },
             "relation_recipes": {
               "type": "list"
+            },
+            "extensions": {
+              "type": "canonical-value"
             }
           },
           "required_members": [
@@ -2952,7 +2959,8 @@
             "default",
             "model_lowering",
             "relation_recipes",
-            "judgment_chain"
+            "judgment_chain",
+            "extensions"
           ]
         },
         "template_admission_profiles": {
@@ -3092,6 +3100,9 @@
             },
             "runtime_program_version": {
               "type": "non-empty-string"
+            },
+            "extensions": {
+              "type": "canonical-value"
             }
           },
           "required_members": [
@@ -3106,7 +3117,8 @@
             "runtime_program_version",
             "numeric_law",
             "rng",
-            "budget_scopes"
+            "budget_scopes",
+            "extensions"
           ]
         },
         "wire_schemas": {
@@ -3748,6 +3760,44 @@
           "state_value_members": [
             "name",
             "value"
+          ]
+        },
+        {
+          "expect_members": [
+            "cache_entries",
+            "charge",
+            "outcome",
+            "result",
+            "result_artifact",
+            "signal",
+            "site"
+          ],
+          "id": "value-program",
+          "input_members": [
+            "cache",
+            "evaluations",
+            "instructions",
+            "numeric",
+            "operands",
+            "resource_limit",
+            "result",
+            "site"
+          ],
+          "instruction_nodes": [
+            "add",
+            "constant",
+            "copy",
+            "if",
+            "maximum",
+            "multiply",
+            "subtract"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind"
           ]
         }
       ],
@@ -4398,108 +4448,108 @@
       "routing_equivalences": [
         {
           "profile_member": "manifest_id_path",
+          "projection": "dot-path",
           "recipe": "symbols",
-          "subject_kind": "field-term",
           "subject": "model",
-          "projection": "dot-path"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "manifest_entry_module_path",
+          "projection": "dot-path",
           "recipe": "manifest_entry",
-          "subject_kind": "field-term",
           "subject": "module",
-          "projection": "dot-path"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "requirements_member",
+          "projection": "last-segment",
           "recipe": "requirements",
-          "subject_kind": "binding-source",
           "subject": "requirement",
-          "projection": "last-segment"
+          "subject_kind": "binding-source"
         },
         {
           "profile_member": "requirement_package_member",
+          "projection": "last-segment",
           "recipe": "requirements",
-          "subject_kind": "field-term",
           "subject": "package",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "requirement_version_member",
+          "projection": "last-segment",
           "recipe": "requirements",
-          "subject_kind": "field-term",
           "subject": "version",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "modules_member",
+          "projection": "last-segment",
           "recipe": "modules",
-          "subject_kind": "binding-source",
           "subject": "module",
-          "projection": "last-segment"
+          "subject_kind": "binding-source"
         },
         {
           "profile_member": "module_id_member",
+          "projection": "last-segment",
           "recipe": "modules",
-          "subject_kind": "field-term",
           "subject": "module",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "imports_member",
+          "projection": "last-segment",
           "recipe": "imports",
-          "subject_kind": "binding-source",
           "subject": "import",
-          "projection": "last-segment"
+          "subject_kind": "binding-source"
         },
         {
           "profile_member": "import_alias_member",
+          "projection": "last-segment",
           "recipe": "imports",
-          "subject_kind": "field-term",
           "subject": "alias",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "import_package_member",
+          "projection": "last-segment",
           "recipe": "imports",
-          "subject_kind": "field-term",
           "subject": "package",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "import_version_member",
+          "projection": "last-segment",
           "recipe": "imports",
-          "subject_kind": "field-term",
           "subject": "version",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "import_symbol_member",
+          "projection": "last-segment",
           "recipe": "imports",
-          "subject_kind": "field-term",
           "subject": "import_symbol",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "symbols_member",
+          "projection": "last-segment",
           "recipe": "symbols",
-          "subject_kind": "binding-source",
           "subject": "symbol",
-          "projection": "last-segment"
+          "subject_kind": "binding-source"
         },
         {
           "profile_member": "symbol_name_member",
+          "projection": "last-segment",
           "recipe": "symbols",
-          "subject_kind": "field-term",
           "subject": "symbol",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         },
         {
           "profile_member": "symbol_type_member",
+          "projection": "last-segment",
           "recipe": "symbols",
-          "subject_kind": "field-term",
           "subject": "type_alias",
-          "projection": "last-segment"
+          "subject_kind": "field-term"
         }
       ],
       "resource_accounting": {
@@ -6023,33 +6073,33 @@
           "literal",
           "expression"
         ],
-      "result_binding_kinds": [
-        "local",
-        "operation-result",
-        "discard"
-      ],
-      "result_source_shapes": {
-        "local": [
-          "kind",
-          "name"
+        "result_binding_kinds": [
+          "local",
+          "operation-result",
+          "discard"
         ],
-        "operation-result": [
-          "kind",
-          "site"
+        "result_source_shapes": {
+          "local": [
+            "kind",
+            "name"
+          ],
+          "operation-result": [
+            "kind",
+            "site"
+          ],
+          "port": [
+            "kind",
+            "name"
+          ],
+          "unit": [
+            "kind"
+          ]
+        },
+        "result_producer_cardinality": "exactly-one-compatible-producer-on-every-success-path",
+        "outcome_actions": [
+          "continue",
+          "propagate"
         ],
-        "port": [
-          "kind",
-          "name"
-        ],
-        "unit": [
-          "kind"
-        ]
-      },
-      "result_producer_cardinality": "exactly-one-compatible-producer-on-every-success-path",
-      "outcome_actions": [
-        "continue",
-        "propagate"
-      ],
         "outcome_mapping": "exactly-once-and-exhaustive",
         "scope": "lexical-call-frame",
         "ambient_capture": "forbidden",

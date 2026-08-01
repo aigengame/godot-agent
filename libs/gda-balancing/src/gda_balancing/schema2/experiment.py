@@ -25,6 +25,8 @@ from gda_balancing.schema2.canonical import (
 )
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
+    DiagnosticLocation,
+    RuntimeLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
@@ -92,6 +94,7 @@ class RuntimeRefusalOutcome:
     refusing_operation: str
     refusing_call_path: str
     refusing_call_site_identity: str | None
+    refusing_evaluation_site_identity: str | None
     state_before: dict[str, int]
     state_after: dict[str, int]
 
@@ -104,12 +107,30 @@ class _RuntimeExecutionFault(Exception):
         operation: str,
         call_path: tuple[str, ...],
         call_site_identity: str | None,
+        evaluation_site_identity: str | None,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
         self.operation = operation
         self.call_path = call_path
         self.call_site_identity = call_site_identity
+        self.evaluation_site_identity = evaluation_site_identity
+
+
+class _InitializationProgramFault(Exception):
+    def __init__(
+        self,
+        *,
+        signal: str,
+        program: str,
+        evaluation_site_identity: str,
+        frame_identity: str,
+    ) -> None:
+        super().__init__(signal)
+        self.signal = signal
+        self.program = program
+        self.evaluation_site_identity = evaluation_site_identity
+        self.frame_identity = frame_identity
 
 
 def _raw_identity(data: bytes) -> str:
@@ -123,17 +144,26 @@ def _refusal(
     identity: str,
     pointer: str,
     message: str,
+    variant: str | None = None,
+    primary: DiagnosticLocation | None = None,
+    related: tuple[DiagnosticLocation, ...] = (),
 ) -> Schema2RefusalReport:
     return Schema2RefusalReport(
         stage=cast(Any, stage),
+        variant=variant,
         diagnostics=(
             Schema2Diagnostic(
                 code=code,
                 message=message,
-                primary=ArtifactLocation(
-                    content_identity=identity,
-                    pointer=pointer,
+                primary=(
+                    primary
+                    if primary is not None
+                    else ArtifactLocation(
+                        content_identity=identity,
+                        pointer=pointer,
+                    )
                 ),
+                related=related,
             ),
         ),
         truncated=False,
@@ -1017,6 +1047,25 @@ def _resolved_runtime_profile(
     )
 
 
+def _formula_snapshot_identity_domain(checked: CheckedExperiment) -> str:
+    profile_id = checked.value["runtime"]["profile"]
+    definition = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == profile_id
+    )
+    extensions = definition.get("extensions")
+    formula = (
+        extensions.get("standard.formula") if isinstance(extensions, dict) else None
+    )
+    domain = (
+        formula.get("snapshot_identity_domain") if isinstance(formula, dict) else None
+    )
+    if not isinstance(domain, str) or not domain:
+        raise ValueError("Runtime profile declares no Formula Snapshot identity domain")
+    return domain
+
+
 def _check_evaluator_requirements(
     checked: CheckedExperiment, evaluator: PublicationMember
 ) -> Schema2RefusalReport | None:
@@ -1100,6 +1149,9 @@ def runtime_terminal_audit_members(
                     "operation": outcome.refusing_operation,
                     "call_path": outcome.refusing_call_path,
                     "call_site_identity": outcome.refusing_call_site_identity,
+                    "evaluation_site_identity": (
+                        outcome.refusing_evaluation_site_identity
+                    ),
                     "reason": diagnostic.code,
                 },
                 "rollback": {
@@ -1134,6 +1186,275 @@ def _scenario_state(
     }
 
 
+def _execute_value_instruction(
+    instruction: dict[str, Any],
+    variables: dict[str, Any],
+    numeric: dict[str, Any],
+    node_contract: dict[str, Any],
+) -> None:
+    """Execute one value instruction through its Kernel-owned operator law."""
+    semantics = cast(dict[str, Any], node_contract["semantics"])
+    operator = cast(str, semantics["operator"])
+    if operator == "integer-literal":
+        value = cast(int, instruction["literal"])
+    elif operator == "copy-value":
+        value = variables[cast(str, instruction["value"])]
+    elif operator in {
+        "integer-add",
+        "integer-subtract",
+        "integer-multiply",
+        "integer-maximum",
+    }:
+        left = variables[cast(str, instruction["left"])]
+        right = variables[cast(str, instruction["right"])]
+        value = (
+            left + right
+            if operator == "integer-add"
+            else left - right
+            if operator == "integer-subtract"
+            else left * right
+            if operator == "integer-multiply"
+            else max(left, right)
+        )
+    elif operator == "integer-compare":
+        variables[cast(str, instruction["target"])] = _integer_compare(
+            cast(str, semantics["comparison"]),
+            variables[cast(str, instruction["left"])],
+            variables[cast(str, instruction["right"])],
+        )
+        return
+    elif operator == "select-value":
+        value = variables[
+            cast(
+                str,
+                instruction[
+                    "when_true"
+                    if variables[cast(str, instruction["condition"])]
+                    else "when_false"
+                ],
+            )
+        ]
+    else:
+        raise ValueError(f"Kernel operator is not a value instruction: {operator}")
+    variables[cast(str, instruction["target"])] = _admit_numeric(value, numeric)
+
+
+def _evaluate_value_program_vector(
+    vector: dict[str, Any],
+) -> dict[str, JsonValue]:
+    """Execute one package-owned generic value-program conformance vector."""
+    inp = cast(dict[str, Any], vector["input"])
+    numeric = cast(dict[str, Any], inp["numeric"])
+    instructions = cast(list[dict[str, Any]], inp["instructions"])
+    operands = {
+        cast(str, row["name"]): cast(int, row["value"])
+        for row in cast(list[dict[str, Any]], inp["operands"])
+    }
+    cache: dict[bytes, int] = {}
+    runtime_nodes = {
+        cast(str, row["id"]): row
+        for row in cast(
+            list[dict[str, Any]],
+            packaged_authority_context().kernel["meta_format"]["runtime_program"][
+                "nodes"
+            ],
+        )
+    }
+    charge = 0
+    result_value: int | None = None
+    signal: str | None = None
+    refusing_site = cast(str, inp["site"])
+    for _evaluation in range(cast(int, inp["evaluations"])):
+        charge += len(instructions)
+        if charge > cast(int, inp["resource_limit"]):
+            signal = "step-limit"
+            result_value = None
+            break
+        cache_key = canonical_bytes(
+            cast(
+                JsonValue,
+                {
+                    "instructions": instructions,
+                    "numeric": numeric,
+                    "operands": [
+                        {"name": name, "value": value}
+                        for name, value in sorted(operands.items())
+                    ],
+                    "result": inp["result"],
+                    "site": inp["site"],
+                },
+            )
+        )
+        if cast(bool, inp["cache"]) and cache_key in cache:
+            result_value = cache[cache_key]
+            continue
+        values = dict(operands)
+        for row in instructions:
+            try:
+                _execute_value_instruction(
+                    cast(dict[str, Any], row["instruction"]),
+                    values,
+                    numeric,
+                    runtime_nodes[cast(str, row["instruction"]["node"])],
+                )
+            except OverflowError:
+                signal = "numeric-overflow"
+                refusing_site = cast(str, row["evaluation_site_identity"])
+                result_value = None
+                break
+        if signal is not None:
+            break
+        result_value = values[cast(str, inp["result"])]
+        if cast(bool, inp["cache"]):
+            cache[cache_key] = result_value
+    admitted = signal is None
+    return {
+        "cache_entries": len(cache),
+        "charge": charge,
+        "outcome": "admitted" if admitted else "refused",
+        "result": result_value,
+        "result_artifact": admitted,
+        "signal": signal,
+        "site": cast(str, inp["site"]) if admitted else refusing_site,
+    }
+
+
+def _evaluate_initialization_programs(
+    checked: CheckedExperiment,
+    actual_values: dict[bytes, int],
+    *,
+    consumed_steps: int,
+    runtime_limit: int,
+    cache: dict[bytes, int] | None,
+    frame_token: JsonValue | None = None,
+    frame_identity: str | None = None,
+    phase: str = "initialization",
+) -> int:
+    """Evaluate closed generic programs in one authority-owned lifecycle frame."""
+    programs = [
+        program
+        for program in cast(
+            list[dict[str, Any]],
+            checked.rir["initialization_programs"],
+        )
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
+    if not programs:
+        return consumed_steps
+    program_targets = {
+        canonical_bytes(cast(JsonValue, program["target"])) for program in programs
+    }
+    numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
+    runtime_nodes = _runtime_nodes(checked)
+    if frame_identity is None:
+        if phase != "initialization":
+            raise ValueError(
+                "observation requires an exact committed Snapshot identity"
+            )
+        frame_identity = content_identity(
+            "initialization-frame-v2",
+            cast(
+                JsonValue,
+                {
+                    "token": frame_token,
+                    "values": [
+                        {
+                            "symbol": identity.decode("utf-8").rstrip("\n"),
+                            "value": value,
+                        }
+                        for identity, value in sorted(actual_values.items())
+                        if identity not in program_targets
+                    ],
+                },
+            ),
+        )
+    pending = list(programs)
+    while pending:
+        progressed = False
+        for program in list(pending):
+            input_values: dict[str, int] = {}
+            ready = True
+            for row in cast(list[dict[str, Any]], program["inputs"]):
+                operand = cast(dict[str, Any], row["operand"])
+                if operand["kind"] == "literal":
+                    value = cast(int, operand["value"])
+                else:
+                    identity = canonical_bytes(
+                        cast(JsonValue, operand["resolved_symbol"])
+                    )
+                    if identity not in actual_values:
+                        ready = False
+                        break
+                    value = actual_values[identity]
+                input_values[cast(str, row["name"])] = value
+            if not ready:
+                continue
+            charge = cast(
+                int,
+                cast(dict[str, Any], program["resource_bounds"])["max_steps"],
+            )
+            consumed_steps += charge
+            if consumed_steps > runtime_limit:
+                raise _InitializationProgramFault(
+                    signal="step-limit",
+                    program=cast(str, program["identity"]),
+                    evaluation_site_identity=cast(
+                        str, cast(dict[str, Any], program["site"])["identity"]
+                    ),
+                    frame_identity=frame_identity,
+                )
+            cache_key = canonical_bytes(
+                cast(
+                    JsonValue,
+                    {
+                        "program": program["identity"],
+                        "site": cast(dict[str, Any], program["site"])["identity"],
+                        "frame": frame_identity,
+                        "operands": [
+                            {"name": name, "value": value}
+                            for name, value in sorted(input_values.items())
+                        ],
+                        "numeric": numeric,
+                    },
+                )
+            )
+            if cache is not None and cache_key in cache:
+                result_value = cache[cache_key]
+            else:
+                variables = dict(input_values)
+                for row in cast(list[dict[str, Any]], program["body"]):
+                    try:
+                        _execute_value_instruction(
+                            cast(dict[str, Any], row["instruction"]),
+                            variables,
+                            numeric,
+                            runtime_nodes[cast(str, row["instruction"]["node"])],
+                        )
+                    except OverflowError as error:
+                        raise _InitializationProgramFault(
+                            signal="numeric-overflow",
+                            program=cast(str, program["identity"]),
+                            evaluation_site_identity=cast(
+                                str, row["evaluation_site_identity"]
+                            ),
+                            frame_identity=frame_identity,
+                        ) from error
+                result = cast(dict[str, Any], program["result"])
+                result_value = _admit_numeric(
+                    variables[cast(str, result["name"])],
+                    numeric,
+                )
+                if cache is not None:
+                    cache[cache_key] = result_value
+            target = canonical_bytes(cast(JsonValue, program["target"]))
+            actual_values[target] = result_value
+            pending.remove(program)
+            progressed = True
+        if not progressed:
+            raise ValueError("admitted initialization program graph is cyclic")
+    return consumed_steps
+
+
 def _runtime_refusal_outcome(
     checked: CheckedExperiment,
     *,
@@ -1147,10 +1468,12 @@ def _runtime_refusal_outcome(
     operation: str,
     call_path: tuple[str, ...],
     call_site_identity: str | None,
+    evaluation_site_identity: str | None,
     state_before: dict[str, int],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
         stage="runtime",
+        variant="post-dispatch",
         code=code,
         identity=checked.content_identity,
         pointer=f"/scenarios/{scenario_index}/entrypoint",
@@ -1175,6 +1498,7 @@ def _runtime_refusal_outcome(
         refusing_operation=operation,
         refusing_call_path="/".join(call_path),
         refusing_call_site_identity=call_site_identity,
+        refusing_evaluation_site_identity=evaluation_site_identity,
         state_before=dict(state_before),
         state_after=dict(state_before),
     )
@@ -1189,6 +1513,7 @@ def evaluate_experiment(
     if capability_refusal is not None:
         return capability_refusal
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+    snapshot_identity_domain = _formula_snapshot_identity_domain(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
@@ -1218,6 +1543,7 @@ def evaluate_experiment(
     scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
+    initialization_cache: dict[bytes, int] = {}
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         entrypoint = entrypoints[scenario["entrypoint"]]
         scenario_input_contract = cast(
@@ -1234,6 +1560,48 @@ def evaluate_experiment(
         for assignment in scenario["assignments"]:
             identity = canonical_bytes(cast(JsonValue, assignment["target"]))
             actual_values[identity] = assignment["value"]
+        try:
+            total_steps = _evaluate_initialization_programs(
+                checked,
+                actual_values,
+                consumed_steps=total_steps,
+                runtime_limit=runtime_limit,
+                cache=initialization_cache,
+                frame_token={
+                    "scenario": scenario["id"],
+                    "snapshot_index": len(snapshots),
+                },
+                phase="initialization",
+            )
+        except _InitializationProgramFault as fault:
+            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            return _refusal(
+                stage="runtime",
+                variant="pre-event",
+                code=code,
+                identity=checked.content_identity,
+                pointer=f"/scenarios/{scenario_index}/assignments",
+                message=(
+                    f"Initialization program {fault.program} refused before "
+                    f"Snapshot 0 at evaluation site "
+                    f"{fault.evaluation_site_identity} in immutable frame "
+                    f"{fault.frame_identity}"
+                ),
+                primary=RuntimeLocation(
+                    subject="formula-evaluation-site",
+                    identity=fault.evaluation_site_identity,
+                ),
+                related=(
+                    RuntimeLocation(
+                        subject="initialization-frame",
+                        identity=fault.frame_identity,
+                    ),
+                    ArtifactLocation(
+                        content_identity=checked.content_identity,
+                        pointer=f"/scenarios/{scenario_index}/assignments",
+                    ),
+                ),
+            )
         state: dict[bytes, int] = {
             identity: cast(int, actual_values[identity])
             for identity, declaration in declarations.items()
@@ -1257,6 +1625,26 @@ def evaluate_experiment(
         event_steps = 0
         root_step_limit = operation["resource_bounds"]["max_steps"]
 
+        def instruction_evaluation_sites(
+            selected_operation: dict[str, Any],
+        ) -> dict[int, str]:
+            extensions = selected_operation.get("extensions")
+            if not isinstance(extensions, dict):
+                return {}
+            provenance = extensions.get("standard.instruction-provenance")
+            if (
+                not isinstance(provenance, dict)
+                or provenance.get("kind") != "instruction-evaluation-sites"
+                or not isinstance(provenance.get("sites"), list)
+            ):
+                return {}
+            return {
+                cast(int, row["instruction_index"]): cast(
+                    str, row["evaluation_site_identity"]
+                )
+                for row in cast(list[dict[str, Any]], provenance["sites"])
+            }
+
         def execute_operation(
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
@@ -1267,10 +1655,25 @@ def evaluate_experiment(
             nonlocal event_steps, total_steps
             operation_before: dict[bytes, int] = dict(state)
             variables: dict[str, Any] = dict(arguments)
+            extensions = selected_operation.get("extensions", {})
+            snapshot_operands = (
+                extensions.get("standard.snapshot-operands")
+                if isinstance(extensions, dict)
+                else None
+            )
+            if isinstance(snapshot_operands, dict):
+                for row in cast(
+                    list[dict[str, Any]],
+                    snapshot_operands.get("operands", []),
+                ):
+                    identity = canonical_bytes(cast(JsonValue, row["resolved_symbol"]))
+                    variables[cast(str, row["name"])] = actual_values[identity]
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
-            for instruction in selected_operation["body"]:
+            evaluation_sites = instruction_evaluation_sites(selected_operation)
+            for instruction_index, instruction in enumerate(selected_operation["body"]):
+                evaluation_site_identity = evaluation_sites.get(instruction_index)
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
                 total_steps += charge
@@ -1287,6 +1690,7 @@ def evaluate_experiment(
                         operation=selected_operation["id"],
                         call_path=call_path,
                         call_site_identity=call_site_identity,
+                        evaluation_site_identity=evaluation_site_identity,
                     )
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
@@ -1386,30 +1790,13 @@ def evaluate_experiment(
                             "value": value,
                         }
                     )
-                elif operator == "integer-literal":
-                    variables[instruction["target"]] = instruction["literal"]
-                elif operator == "copy-value":
-                    variables[instruction["target"]] = variables[instruction["value"]]
-                elif operator in {
-                    "integer-add",
-                    "integer-subtract",
-                    "integer-multiply",
-                    "integer-maximum",
-                }:
-                    left = variables[instruction["left"]]
-                    right = variables[instruction["right"]]
-                    result = (
-                        left + right
-                        if operator == "integer-add"
-                        else left - right
-                        if operator == "integer-subtract"
-                        else left * right
-                        if operator == "integer-multiply"
-                        else max(left, right)
-                    )
+                elif node_contract["family"] == "expression":
                     try:
-                        variables[instruction["target"]] = _admit_numeric(
-                            result, numeric
+                        _execute_value_instruction(
+                            instruction,
+                            variables,
+                            numeric,
+                            node_contract,
                         )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
@@ -1417,21 +1804,8 @@ def evaluate_experiment(
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
                         ) from error
-                elif operator == "integer-compare":
-                    variables[instruction["target"]] = _integer_compare(
-                        semantics["comparison"],
-                        variables[instruction["left"]],
-                        variables[instruction["right"]],
-                    )
-                elif operator == "select-value":
-                    variables[instruction["target"]] = variables[
-                        instruction[
-                            "when_true"
-                            if variables[instruction["condition"]]
-                            else "when_false"
-                        ]
-                    ]
                 elif operator in {"state-integer-subtract", "state-write"}:
                     formal = instruction["symbol"]
                     actual = state_references[formal]
@@ -1448,6 +1822,7 @@ def evaluate_experiment(
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
                         ) from error
                     for alias, alias_actual in state_references.items():
                         if alias_actual == actual:
@@ -1512,6 +1887,7 @@ def evaluate_experiment(
                 operation=fault.operation,
                 call_path=fault.call_path,
                 call_site_identity=fault.call_site_identity,
+                evaluation_site_identity=fault.evaluation_site_identity,
                 state_before={
                     display_names[identity]: value for identity, value in before.items()
                 },
@@ -1548,16 +1924,54 @@ def evaluate_experiment(
                 "rng_draws": draws,
             },
         )
+        snapshot = cast(
+            dict[str, JsonValue],
+            {
+                "index": len(snapshots),
+                "name": f"{scenario['id']}:terminal",
+                "values": _resolved_int_rows(state, display_names),
+            },
+        )
         events.append(event)
-        snapshots.append(
-            cast(
-                dict[str, JsonValue],
-                {
-                    "index": len(snapshots),
-                    "name": f"{scenario['id']}:terminal",
-                    "values": _resolved_int_rows(state, display_names),
+        snapshots.append(snapshot)
+        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
+        try:
+            total_steps = _evaluate_initialization_programs(
+                checked,
+                actual_values,
+                consumed_steps=total_steps,
+                runtime_limit=runtime_limit,
+                cache=initialization_cache,
+                frame_identity=snapshot_identity,
+                phase="observation",
+            )
+        except _InitializationProgramFault as fault:
+            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            message = (
+                "Runtime program exhausted its exact step bound"
+                if fault.signal == "step-limit"
+                else "Exact-int64 operation overflowed its numeric domain"
+            )
+            return _runtime_refusal_outcome(
+                checked,
+                scenario_id=scenario["id"],
+                scenario_index=scenario_index,
+                code=code,
+                message=message,
+                events=events,
+                entrypoint_id=entrypoint["id"],
+                entrypoint_identity=entrypoint["identity"],
+                operation=operation["id"],
+                call_path=(cast(str, entrypoint["id"]),),
+                call_site_identity=None,
+                evaluation_site_identity=fault.evaluation_site_identity,
+                state_before={
+                    display_names[identity]: value for identity, value in state.items()
                 },
             )
+        event["facts"] = cast(
+            JsonValue,
+            _resolved_value_rows(actual_values, display_names),
         )
         scenario_outputs[scenario["id"]] = (
             event,

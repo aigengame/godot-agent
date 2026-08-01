@@ -56,12 +56,13 @@ live separately in `schema2_bootstrap_production_support.py`.
 
 ## Inventory closure
 
-`schema2-test-inventory-v1.json` records the 1,030 logical tests, 92 packaged
-conformance vectors, and 90 accepted skip outcomes present before the final
-#597 root-CI cutover. Logical identifiers preserve classes and parameter/vector
-cases. `schema2-bootstrap-migration-map.json` maps every bootstrap test moved
-to one of the four semantic files; normalization applies only to those
-declared moves.
+`schema2-test-inventory-v1.json` records the 1,030 logical tests and 92 packaged
+conformance vectors present before the final #597 root-CI cutover. Its current
+allowlist contains 96 structurally inapplicable skip outcomes; implementing a
+formerly missing conformance row removes that row from the allowlist. Logical
+identifiers preserve classes and parameter/vector cases.
+`schema2-bootstrap-migration-map.json` maps every bootstrap test moved to one
+of the four semantic files; normalization applies only to those declared moves.
 
 Run the closure check from the repository root:
 
