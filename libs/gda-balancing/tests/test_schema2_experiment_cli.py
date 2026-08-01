@@ -723,20 +723,9 @@ def _reference_evaluate_value_program_vector(
     }
 
 
-def _observation_evidence_schema(
-    language_bundle: Any,
-    artifact_kind: str,
-) -> dict[str, Any]:
-    return next(
-        row["schema"]
-        for row in language_bundle["language"]["artifact_wire_schemas"]
-        if row["artifact_kind"] == artifact_kind
-    )
-
-
 def _observation_evidence(
     *,
-    artifact_kind: str,
+    site: str,
     cache_entries: int,
     events: list[dict[str, Any]] | tuple[dict[str, Any], ...],
     outcome: str,
@@ -745,7 +734,7 @@ def _observation_evidence(
     snapshot_indices: list[int],
 ) -> dict[str, Any]:
     return {
-        "artifact_kind": artifact_kind,
+        "site": site,
         "cache_entries": cache_entries,
         "committed_event_indices": [event["index"] for event in events],
         "outcome": outcome,
@@ -766,7 +755,7 @@ def _assert_observation_evidence_matches_package_vector(
         and vector_set["package_version"] == "1.1.0"
         for row in vector_set["vector_definitions"]
         if row.get("kind") == "value-program"
-        and row.get("input", {}).get("site") == evidence["artifact_kind"]
+        and row.get("input", {}).get("site") == evidence["site"]
     )
     snapshot_identities = evidence["snapshot_identities"]
     assert all(
@@ -1520,7 +1509,7 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         assert facts["target_health"] == 82
         assert facts["effective_accuracy"] == facts["target_health"]
     positive_evidence = _observation_evidence(
-        artifact_kind="formula-observation-positive-evidence",
+        site="runtime.lifecycle-observation.positive",
         cache_entries=observation_cache_growth[0],
         events=events[:1],
         outcome="admitted",
@@ -1531,7 +1520,7 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         snapshot_indices=[terminal_snapshots[0]["index"]],
     )
     boundary_evidence = _observation_evidence(
-        artifact_kind="formula-observation-boundary-evidence",
+        site="runtime.lifecycle-observation.boundary",
         cache_entries=sum(observation_cache_growth),
         events=events,
         outcome="admitted",
@@ -1540,20 +1529,6 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
         ),
         snapshot_identities=cast(list[str], observation_frames),
         snapshot_indices=[snapshot["index"] for snapshot in terminal_snapshots],
-    )
-    jsonschema.validate(
-        positive_evidence,
-        _observation_evidence_schema(
-            checked.language_bundle,
-            "formula-observation-positive-evidence",
-        ),
-    )
-    jsonschema.validate(
-        boundary_evidence,
-        _observation_evidence_schema(
-            checked.language_bundle,
-            "formula-observation-boundary-evidence",
-        ),
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -1627,7 +1602,7 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     assert outcome.last_state["target_health"] == 82
     assert outcome.state_before == outcome.state_after == outcome.last_state
     evidence = _observation_evidence(
-        artifact_kind="formula-observation-refusal-evidence",
+        site="runtime.lifecycle-observation.refusal",
         cache_entries=sum(observation_cache_growth),
         events=outcome.committed_trace_prefix,
         outcome="refused",
@@ -1636,13 +1611,6 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
         ),
         snapshot_identities=observation_frames,
         snapshot_indices=[1, 3],
-    )
-    jsonschema.validate(
-        evidence,
-        _observation_evidence_schema(
-            checked.language_bundle,
-            "formula-observation-refusal-evidence",
-        ),
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -2904,9 +2872,6 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
         "formula.runtime.observation.refusal.atomic-prefix",
     }
     expected_exports = {
-        "formula-observation-boundary-evidence",
-        "formula-observation-positive-evidence",
-        "formula-observation-refusal-evidence",
     }
     assert {
         row["artifact_kind"]

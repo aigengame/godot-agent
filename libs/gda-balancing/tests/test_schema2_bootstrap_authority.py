@@ -131,56 +131,27 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         for vector_id in expected_vector_ids["standard.runtime"]
         if ".observation." in vector_id
     } == {"value-program"}
-    evidence_schema_ids = {
-        "formula-observation-boundary-evidence",
-        "formula-observation-positive-evidence",
-        "formula-observation-refusal-evidence",
-    }
-    assert set(runtime_package["exports"]["artifact_wire_schemas"]) == (
-        evidence_schema_ids
-    )
-    evidence_schemas = {
-        entry["artifact_kind"]: entry["schema"]
+    assert runtime_package["exports"]["artifact_wire_schemas"] == []
+    assert next(
+        entry["definitions"]
+        for entry in runtime_package["semantic_closure"]
+        if entry["authority_path"] == "language.artifact_wire_schemas"
+    ) == []
+    assert not any(
+        entry["artifact_kind"].startswith("formula-observation-")
         for entry in ldb["language"]["artifact_wire_schemas"]
-        if entry["artifact_kind"] in evidence_schema_ids
+    )
+    expected_sites = {
+        "runtime.lifecycle-observation.boundary",
+        "runtime.lifecycle-observation.positive",
+        "runtime.lifecycle-observation.refusal",
     }
-    assert set(evidence_schemas) == evidence_schema_ids
-    assert evidence_schemas["formula-observation-positive-evidence"]["properties"][
-        "snapshot_indices"
-    ]["const"] == [1]
-    assert evidence_schemas["formula-observation-boundary-evidence"]["properties"][
-        "snapshot_indices"
-    ]["const"] == [1, 3]
-    assert evidence_schemas["formula-observation-refusal-evidence"]["properties"][
-        "snapshot_indices"
-    ]["const"] == [1, 3]
     for vector_id in expected_vector_ids["standard.runtime"]:
         if ".observation." not in vector_id:
             continue
         vector = runtime_vectors[vector_id]
-        schema = evidence_schemas[vector["input"]["site"]]
-        operands = {row["name"]: row["value"] for row in vector["input"]["operands"]}
-        assert (
-            operands["lifecycle_cache_entries"]
-            == schema["properties"]["cache_entries"]["const"]
-        )
-        committed = schema["properties"]["committed_event_indices"]["const"]
-        snapshots = schema["properties"]["snapshot_indices"]["const"]
-        assert operands["lifecycle_committed_event_signature"] == (
-            len(committed) * 100 + committed[0] * 10 + committed[-1]
-        )
-        assert operands["lifecycle_snapshot_identity_signature"] == (
-            len(snapshots) * 111
-        )
-        assert operands["lifecycle_snapshot_index_signature"] == (
-            len(snapshots) * 100 + snapshots[0] * 10 + snapshots[-1]
-        )
-        assert operands["lifecycle_post_state_committed"] == 1
-    serialized_evidence = repr(evidence_schemas)
-    assert all(
-        game_term not in serialized_evidence
-        for game_term in ("game.combat", "actor_mana", "target_health")
-    )
+        assert vector["input"]["site"] in expected_sites
+        assert vector["expect"]["site"] == vector["input"]["site"]
     compiler_package = packages["standard.compiler"]
     resolution_profile = next(
         definition
@@ -665,35 +636,6 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         code == "kernel.vector_mismatch" and subject.endswith(".vectors")
         for _, code, subject in first["diagnostics"]
     ), first["diagnostics"]
-
-
-def test_two_consumers_refuse_a_missing_formula_evidence_wire_schema_domain():
-    authority = _authority_candidate()
-    ldb = authority["language_bundle"]
-    package = next(
-        item for item in ldb["language"]["packages"] if item["id"] == "standard.runtime"
-    )
-    evidence_schema = next(
-        definition
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] == "language.artifact_wire_schemas"
-        for definition in entry["definitions"]
-        if definition["artifact_kind"] == "formula-observation-refusal-evidence"
-    )
-    evidence_schema.pop("wire_schema_identity_domain")
-    _bind_package_vector_set(package, _package_vector_set(ldb, package))
-    _reidentify_graph_root(ldb)
-
-    first = _consumer_a(authority["kernel"], ldb)
-    second = _consumer_b(authority["kernel"], ldb)
-
-    assert first == second
-    assert first["admitted"] is False
-    assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.wire-schema-identity-domains",
-    ) in first["diagnostics"]
 
 
 @pytest.mark.parametrize(

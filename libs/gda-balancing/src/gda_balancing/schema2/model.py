@@ -402,6 +402,11 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     identity_domains = (
         policy.get("identity_domains") if isinstance(policy, dict) else None
     )
+    inline_body_normalizations = (
+        policy.get("inline_body_normalizations")
+        if isinstance(policy, dict)
+        else None
+    )
     if (
         not isinstance(policy, dict)
         or any(
@@ -420,6 +425,26 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
         or cast(int, policy["max_nodes_per_formula"]) <= 0
         or not isinstance(policy.get("resource_charge_per_node"), int)
         or cast(int, policy["resource_charge_per_node"]) <= 0
+        or not isinstance(inline_body_normalizations, list)
+        or not inline_body_normalizations
+        or not all(
+            isinstance(normalization, dict)
+            and set(normalization)
+            == {"node", "parameter_member", "result_kind"}
+            and all(
+                isinstance(normalization.get(member), str)
+                and normalization[member]
+                for member in ("node", "parameter_member", "result_kind")
+            )
+            for normalization in inline_body_normalizations
+        )
+        or len(
+            {
+                cast(str, normalization["node"])
+                for normalization in inline_body_normalizations
+            }
+        )
+        != len(inline_body_normalizations)
         or not isinstance(identity_domains, dict)
         or any(
             not isinstance(domain, str) or not domain
@@ -3105,6 +3130,9 @@ def _resolved_formulas_and_bindings(
     )
     normalized_source = deepcopy(checked.source)
     changed = False
+    normalizations = cast(
+        list[dict[str, str]], policy["inline_body_normalizations"]
+    )
     for module in cast(
         list[dict[str, Any]],
         normalized_source[cast(str, profile["modules_member"])],
@@ -3114,19 +3142,23 @@ def _resolved_formulas_and_bindings(
             module.get(cast(str, policy["module_formulas_member"]), []),
         ):
             body = formula.get(cast(str, policy["formula_body_member"]))
-            if (
-                isinstance(body, dict)
-                and set(body) == {"node", "parameter"}
-                and body.get("node") == "parameter"
-            ):
+            if not isinstance(body, dict):
+                continue
+            for normalization in normalizations:
+                parameter_member = normalization["parameter_member"]
+                if set(body) != {"node", parameter_member} or body.get("node") != (
+                    normalization["node"]
+                ):
+                    continue
                 formula[cast(str, policy["formula_body_member"])] = {
-                    "nodes": [],
-                    "result": {
-                        "kind": "parameter",
-                        "parameter": body["parameter"],
+                    cast(str, policy["body_nodes_member"]): [],
+                    cast(str, policy["body_result_member"]): {
+                        "kind": normalization["result_kind"],
+                        parameter_member: body[parameter_member],
                     },
                 }
                 changed = True
+                break
     normalized = (
         CheckedModel(
             source=normalized_source,

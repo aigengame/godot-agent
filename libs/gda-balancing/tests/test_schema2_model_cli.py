@@ -384,6 +384,14 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
     assert (
         program_rir["formulas"][0]["identity"] == sugar_rir["formulas"][0]["identity"]
     )
+    policy = model_module._formula_policy(checked_sugar.language_bundle)
+    assert policy["inline_body_normalizations"] == [
+        {
+            "node": "parameter",
+            "parameter_member": "parameter",
+            "result_kind": "parameter",
+        }
+    ]
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
@@ -1297,6 +1305,11 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
             "/formula_bindings/2/site",
         ),
         (
+            "duplicate-operation-slot-binding",
+            "language.formula_binding_duplicate",
+            "/formula_bindings/2/site",
+        ),
+        (
             "resource-budget",
             "language.formula_resource_exhausted",
             "/formula_bindings/1/formula",
@@ -1320,6 +1333,10 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
     elif mutation == "duplicate-binding":
         source_document["formula_bindings"].append(
             deepcopy(source_document["formula_bindings"][0])
+        )
+    elif mutation == "duplicate-operation-slot-binding":
+        source_document["formula_bindings"].append(
+            deepcopy(source_document["formula_bindings"][1])
         )
     else:
         formula = source_document["modules"][0]["formulas"][0]
