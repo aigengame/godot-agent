@@ -9,13 +9,17 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import jsonschema
 
 import gda_balancing.commands.experiment as experiment_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.schema2.surface import (
+    descriptor_identity,
+    schema2_error_envelope_schema,
+)
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 _AUTHORITY_DIR = (
@@ -1423,6 +1427,15 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
+    rir = _member(build_receipt, "rir-semantic-payload")
+    expected_evaluation_site = next(
+        row["evaluation_site_identity"]
+        for program in rir["initialization_programs"]
+        if program["target"]["name"] == "effective_accuracy"
+        and program["site"]["context"]["phase"] == "initialization"
+        for row in program["body"]
+        if row["instruction"]["node"] == "subtract"
+    )
     specification = _experiment(
         kernel_identity=build_record["kernel_identity"],
         language_bundle_identity=build_record["language_bundle_identity"],
@@ -1453,14 +1466,42 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     )
 
     assert (exit_code, stderr) == (2, "")
-    error = json.loads(stdout)["error"]
+    payload = json.loads(stdout)
+    jsonschema.validate(
+        payload,
+        schema2_error_envelope_schema(experiment_command_module.EXPERIMENT_RUN),
+    )
+    error = payload["error"]
     assert error["stage"] == "runtime"
     assert error["diagnostics"][0]["code"] == "runtime.numeric_overflow"
-    assert error["diagnostics"][0]["primary"]["pointer"] == ("/scenarios/0/assignments")
-    message = error["diagnostics"][0]["message"]
+    diagnostic = error["diagnostics"][0]
+    assert diagnostic["primary"] == {
+        "kind": "runtime",
+        "subject": "formula-evaluation-site",
+        "identity": expected_evaluation_site,
+    }
+    assert diagnostic["primary"]["identity"].startswith("sha256:")
+    assert diagnostic["related"] == [
+        {
+            "kind": "runtime",
+            "subject": "initialization-frame",
+            "identity": diagnostic["related"][0]["identity"],
+        },
+        {
+            "kind": "artifact",
+            "content_identity": content_identity(
+                "experiment-specification-v2", specification
+            ),
+            "pointer": "/scenarios/0/assignments",
+        },
+    ]
+    assert diagnostic["related"][0]["identity"].startswith("sha256:")
+    message = diagnostic["message"]
     assert "refused before Snapshot 0" in message
     assert "evaluation site sha256:" in message
     assert "immutable frame sha256:" in message
+    assert f"evaluation site {expected_evaluation_site}" in message
+    assert f"immutable frame {diagnostic['related'][0]['identity']}" in message
     assert "terminal_audit" not in error
     assert not out.exists()
 
@@ -1469,6 +1510,7 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.Schema2RefusalReport)
     assert evaluation.variant == "pre-event"
+    assert evaluation.diagnostics[0].model_dump(mode="json") == diagnostic
 
 
 def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(

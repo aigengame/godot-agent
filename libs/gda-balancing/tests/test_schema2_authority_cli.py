@@ -55,8 +55,10 @@ from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     RefusalStage,
+    RuntimeLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    bound_diagnostics,
 )
 from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
@@ -1740,6 +1742,48 @@ def test_experiment_run_descriptor_closes_runtime_refusal_variants():
     )
     assert "terminal_audit" not in pre_event["properties"]
 
+    runtime_refusal = {
+        "error": {
+            "category": "refusal",
+            "stage": "runtime",
+            "diagnostics": [
+                {
+                    "code": "runtime.numeric_overflow",
+                    "message": "initialization Formula refused",
+                    "primary": {
+                        "kind": "runtime",
+                        "subject": "formula-evaluation-site",
+                        "identity": "sha256:" + "e" * 64,
+                    },
+                    "related": [
+                        {
+                            "kind": "runtime",
+                            "subject": "initialization-frame",
+                            "identity": "sha256:" + "f" * 64,
+                        },
+                        {
+                            "kind": "artifact",
+                            "content_identity": "sha256:" + "a" * 64,
+                            "pointer": "/scenarios/0/assignments",
+                        },
+                    ],
+                }
+            ],
+            "truncated": False,
+        }
+    }
+    jsonschema.validate(runtime_refusal, schema)
+    assert (
+        Schema2Diagnostic.model_validate(
+            runtime_refusal["error"]["diagnostics"][0]
+        ).model_dump(mode="json")
+        == runtime_refusal["error"]["diagnostics"][0]
+    )
+    malformed = deepcopy(runtime_refusal)
+    malformed["error"]["diagnostics"][0]["primary"]["pointer"] = "/invented"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(malformed, schema)
+
 
 def test_dispatch_requires_the_post_dispatch_terminal_audit(run_cli, invocation):
     report = Schema2RefusalReport(
@@ -1796,6 +1840,25 @@ def test_structured_params_share_binding_and_conflict_with_argv_fields(run_cli):
 
 
 def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
+    artifact = Schema2Diagnostic(
+        code="artifact-first",
+        message="artifact location",
+        primary=ArtifactLocation(content_identity="sha256:a", pointer="/"),
+    )
+    runtime = Schema2Diagnostic(
+        code="runtime-second",
+        message="runtime location",
+        primary=RuntimeLocation(
+            subject="formula-evaluation-site",
+            identity="sha256:r",
+        ),
+    )
+    ordered, truncated = bound_diagnostics([runtime, artifact, runtime], limit=3)
+    assert ([item.primary.kind for item in ordered], truncated) == (
+        ["artifact", "runtime"],
+        False,
+    )
+
     loaded_kernel, loaded_ldb = authority_module.load_authorities()
     kernel = deepcopy(loaded_kernel)
     ldb = deepcopy(loaded_ldb)

@@ -64,7 +64,7 @@ def command_schema_profile() -> dict[str, JsonValue]:
 
 def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, Any]:
     """Return the descriptor's exact closed 2.x Error contract."""
-    location = {
+    artifact_location = {
         "type": "object",
         "properties": {
             "kind": {"const": "artifact"},
@@ -74,6 +74,25 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "required": ["kind", "content_identity", "pointer"],
         "unevaluatedProperties": False,
     }
+    runtime_location = {
+        "type": "object",
+        "properties": {
+            "kind": {"const": "runtime"},
+            "subject": {
+                "enum": [
+                    "run",
+                    "initialization-frame",
+                    "formula-evaluation-site",
+                    "event",
+                    "snapshot-boundary",
+                ]
+            },
+            "identity": {"type": "string"},
+        },
+        "required": ["kind", "subject", "identity"],
+        "unevaluatedProperties": False,
+    }
+    location = {"oneOf": [artifact_location, runtime_location]}
     diagnostic = {
         "type": "object",
         "properties": {

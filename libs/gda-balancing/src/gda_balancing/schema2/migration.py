@@ -544,25 +544,31 @@ def _migration_failure(
     warnings: tuple[dict[str, JsonValue], ...],
     refusal: Schema2RefusalReport,
 ) -> MigrationFailure:
-    deprecated_constructs = tuple(
-        cast(
-            dict[str, JsonValue],
-            {
-                "source_pointer": diagnostic.primary.pointer,
-                "diagnostic_code": diagnostic.code,
-                "remediation": "Re-author or remove this construct before migration",
-            },
+    deprecated_constructs: list[dict[str, JsonValue]] = []
+    for diagnostic in refusal.diagnostics:
+        if diagnostic.code != "migration.deprecated_construct":
+            continue
+        if not isinstance(diagnostic.primary, ArtifactLocation):
+            raise ValueError(
+                "a deprecated migration construct requires an artifact location"
+            )
+        deprecated_constructs.append(
+            cast(
+                dict[str, JsonValue],
+                {
+                    "source_pointer": diagnostic.primary.pointer,
+                    "diagnostic_code": diagnostic.code,
+                    "remediation": "Re-author or remove this construct before migration",
+                },
+            )
         )
-        for diagnostic in refusal.diagnostics
-        if diagnostic.code == "migration.deprecated_construct"
-    )
     return MigrationFailure(
         input_identity=input_identity,
         source_schema_version=source_schema_version,
         mappings=mappings,
         defaults=defaults,
         warnings=warnings,
-        deprecated_constructs=deprecated_constructs,
+        deprecated_constructs=tuple(deprecated_constructs),
         refusal=refusal,
     )
 

@@ -19,7 +19,11 @@ from gda_balancing.schema2.authority_graph import (
     derive_language_index,
 )
 from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.schema2.diagnostics import (
+    ArtifactLocation,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+)
 from gda_balancing.schema2.model import (
     CheckedModel,
     admit_resolved_model,
@@ -3609,11 +3613,16 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         if expected["outcome"] == "refused":
             assert isinstance(production_checked, Schema2RefusalReport), vector["id"]
             assert isinstance(reference_checked, tuple), vector["id"]
+
+            def artifact_pointer(item: Schema2Diagnostic) -> str:
+                assert isinstance(item.primary, ArtifactLocation)
+                return item.primary.pointer
+
             production_diagnostics = [
                 {
                     "code": item.code,
                     "stage": production_checked.stage,
-                    "pointer": item.primary.pointer,
+                    "pointer": artifact_pointer(item),
                 }
                 for item in production_checked.diagnostics
             ]

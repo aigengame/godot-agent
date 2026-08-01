@@ -1,7 +1,7 @@
 """Stage-aware Schema 2.0 diagnostics and refusal envelopes."""
 
 from collections.abc import Iterable
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,13 +27,36 @@ class ArtifactLocation(BaseModel):
     pointer: str
 
 
+RuntimeLocationSubject = Literal[
+    "run",
+    "initialization-frame",
+    "formula-evaluation-site",
+    "event",
+    "snapshot-boundary",
+]
+
+
+class RuntimeLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["runtime"] = "runtime"
+    subject: RuntimeLocationSubject
+    identity: str
+
+
+type DiagnosticLocation = Annotated[
+    ArtifactLocation | RuntimeLocation,
+    Field(discriminator="kind"),
+]
+
+
 class Schema2Diagnostic(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
     message: str
-    primary: ArtifactLocation
-    related: tuple[ArtifactLocation, ...] = ()
+    primary: DiagnosticLocation
+    related: tuple[DiagnosticLocation, ...] = ()
 
 
 class Schema2RefusalReport(BaseModel):
@@ -56,7 +79,8 @@ def bound_diagnostics(
 ) -> tuple[tuple[Schema2Diagnostic, ...], bool]:
     """Deduplicate first-wins, order, and bound one diagnostic collection."""
     unique: dict[
-        tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
+        tuple[str, DiagnosticLocation, tuple[DiagnosticLocation, ...]],
+        Schema2Diagnostic,
     ] = {}
     for diagnostic in diagnostics:
         key = (diagnostic.code, diagnostic.primary, diagnostic.related)
@@ -64,15 +88,19 @@ def bound_diagnostics(
     ordered = sorted(
         unique.values(),
         key=lambda item: (
-            item.primary.pointer,
+            _location_sort_key(item.primary),
             item.code,
-            item.primary.content_identity,
-            tuple(
-                (related.pointer, related.content_identity) for related in item.related
-            ),
+            tuple(_location_sort_key(related) for related in item.related),
         ),
     )
     return tuple(ordered[:limit]), len(ordered) > limit
+
+
+def _location_sort_key(location: DiagnosticLocation) -> tuple[int, str, str]:
+    """Return the bADR-0015 location-kind order and canonical location key."""
+    if isinstance(location, ArtifactLocation):
+        return (2, location.content_identity, location.pointer)
+    return (4, location.subject, location.identity)
 
 
 def reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, Any]:
@@ -111,9 +139,9 @@ def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:
         )
     diagnostics.sort(
         key=lambda item: (
-            item.primary.pointer,
+            _location_sort_key(item.primary),
             item.code,
-            item.primary.content_identity,
+            tuple(_location_sort_key(related) for related in item.related),
         )
     )
     return Schema2RefusalReport(

@@ -25,6 +25,8 @@ from gda_balancing.schema2.canonical import (
 )
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
+    DiagnosticLocation,
+    RuntimeLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
@@ -143,6 +145,8 @@ def _refusal(
     pointer: str,
     message: str,
     variant: str | None = None,
+    primary: DiagnosticLocation | None = None,
+    related: tuple[DiagnosticLocation, ...] = (),
 ) -> Schema2RefusalReport:
     return Schema2RefusalReport(
         stage=cast(Any, stage),
@@ -151,10 +155,15 @@ def _refusal(
             Schema2Diagnostic(
                 code=code,
                 message=message,
-                primary=ArtifactLocation(
-                    content_identity=identity,
-                    pointer=pointer,
+                primary=(
+                    primary
+                    if primary is not None
+                    else ArtifactLocation(
+                        content_identity=identity,
+                        pointer=pointer,
+                    )
                 ),
+                related=related,
             ),
         ),
         truncated=False,
@@ -1577,6 +1586,20 @@ def evaluate_experiment(
                     f"Snapshot 0 at evaluation site "
                     f"{fault.evaluation_site_identity} in immutable frame "
                     f"{fault.frame_identity}"
+                ),
+                primary=RuntimeLocation(
+                    subject="formula-evaluation-site",
+                    identity=fault.evaluation_site_identity,
+                ),
+                related=(
+                    RuntimeLocation(
+                        subject="initialization-frame",
+                        identity=fault.frame_identity,
+                    ),
+                    ArtifactLocation(
+                        content_identity=checked.content_identity,
+                        pointer=f"/scenarios/{scenario_index}/assignments",
+                    ),
                 ),
             )
         state: dict[bytes, int] = {
