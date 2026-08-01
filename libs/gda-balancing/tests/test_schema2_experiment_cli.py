@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
-import jsonschema
 import pytest
 
 import gda_balancing.commands.experiment as experiment_command_module
@@ -1406,6 +1405,12 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     assert "terminal_audit" not in error
     assert not out.exists()
 
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.Schema2RefusalReport)
+    assert evaluation.variant == "pre-event"
+
 
 def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     tmp_path, run_cli, monkeypatch
@@ -1584,6 +1589,7 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert outcome.report.variant == "post-dispatch"
     assert len(observation_frames) == 2
     assert all(frame.startswith("sha256:") for frame in observation_frames)
     assert outcome.committed_trace_prefix == (
@@ -2871,16 +2877,18 @@ def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
         "formula.runtime.observation.boundary.snapshot-cache-key",
         "formula.runtime.observation.refusal.atomic-prefix",
     }
-    expected_exports = {
+    expected_sites = {
+        "runtime.lifecycle-observation.boundary",
+        "runtime.lifecycle-observation.positive",
+        "runtime.lifecycle-observation.refusal",
     }
-    assert {
-        row["artifact_kind"]
+    assert not any(
+        row["artifact_kind"].startswith("formula-observation-")
         for row in ldb["language"]["artifact_wire_schemas"]
-        if row["artifact_kind"] in expected_exports
-    } == expected_exports
+    )
     for vector in vectors:
         assert vector["kind"] == "value-program"
-        assert vector["input"]["site"] in expected_exports
+        assert vector["input"]["site"] in expected_sites
         production = experiment_runtime_module._evaluate_value_program_vector(vector)
         reference = _reference_evaluate_value_program_vector(vector)
         assert production == reference == vector["expect"]
@@ -3058,6 +3066,33 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
     ]
     assert "terminal_audit" not in error
     assert not out.exists()
+
+
+def test_runtime_classifies_value_nodes_by_the_kernel_family(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    assert not hasattr(experiment_runtime_module, "_VALUE_RUNTIME_OPERATORS")
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_VALUE_RUNTIME_OPERATORS",
+        frozenset(),
+        raising=False,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "kernel-family-run"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
 
 
 def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):

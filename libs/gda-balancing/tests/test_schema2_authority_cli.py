@@ -1705,6 +1705,66 @@ def test_dispatch_rejects_a_refusal_absent_from_the_descriptor_catalog(run_cli):
     assert json.loads(stderr)["error"]["code"] == "internal_error"
 
 
+def test_experiment_run_descriptor_closes_runtime_refusal_variants():
+    assert [
+        (
+            variant.id,
+            variant.stage,
+            variant.required_details,
+            variant.forbidden_details,
+        )
+        for variant in EXPERIMENT_RUN.refusal_variants
+    ] == [
+        ("pre-event", "runtime", (), ("terminal_audit",)),
+        ("post-dispatch", "runtime", ("terminal_audit",), ()),
+    ]
+    runtime_sets = [
+        item for item in EXPERIMENT_RUN.refusal_artifact_sets if item.stage == "runtime"
+    ]
+    assert [item.variant for item in runtime_sets] == ["post-dispatch"]
+
+    schema = schema2_error_envelope_schema(EXPERIMENT_RUN)
+    runtime_variants = [
+        variant
+        for variant in schema["properties"]["error"]["oneOf"]
+        if variant.get("properties", {}).get("stage") == {"const": "runtime"}
+    ]
+    assert len(runtime_variants) == 2
+    assert sorted(
+        "terminal_audit" in variant["required"] for variant in runtime_variants
+    ) == [False, True]
+    pre_event = next(
+        variant
+        for variant in runtime_variants
+        if "terminal_audit" not in variant["required"]
+    )
+    assert "terminal_audit" not in pre_event["properties"]
+
+
+def test_dispatch_requires_the_post_dispatch_terminal_audit(run_cli, invocation):
+    report = Schema2RefusalReport(
+        stage="runtime",
+        variant="post-dispatch",
+        diagnostics=(
+            Schema2Diagnostic(
+                code="runtime.numeric_overflow",
+                message="injected post-dispatch refusal",
+                primary=ArtifactLocation(
+                    content_identity="unidentified",
+                    pointer="/scenarios/0/entrypoint",
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+    descriptor = replace(EXPERIMENT_RUN, handler=lambda _inp: report)
+
+    exit_code, stdout, stderr = run_cli(invocation(descriptor), registry=(descriptor,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+
+
 def test_structured_params_share_binding_and_conflict_with_argv_fields(run_cli):
     direct = run_cli(["schema", "get", "language-bundle"])
     inline = run_cli(["schema", "get", '--params-json={"artifact":"language-bundle"}'])

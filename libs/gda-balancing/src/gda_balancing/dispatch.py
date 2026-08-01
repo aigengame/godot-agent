@@ -228,6 +228,25 @@ def _invoke_descriptor(
         required_details = {
             name for name, detail in expected_details.items() if detail.required
         }
+        variants = [
+            variant
+            for variant in descriptor.refusal_variants
+            if variant.stage == outcome.stage
+        ]
+        if variants:
+            matches = [variant for variant in variants if variant.id == outcome.variant]
+            if len(matches) != 1:
+                raise TypeError(
+                    "handler returned an undeclared Schema 2.x refusal variant"
+                )
+            variant = matches[0]
+            required_details.update(variant.required_details)
+            if set(observed_details) & set(variant.forbidden_details):
+                raise TypeError(
+                    "handler populated forbidden Schema 2.x refusal details"
+                )
+        elif outcome.variant is not None:
+            raise TypeError("handler returned an unexpected Schema 2.x refusal variant")
         if not required_details <= set(observed_details):
             raise TypeError("handler omitted required Schema 2.x refusal details")
         for name, value in observed_details.items():

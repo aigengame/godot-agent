@@ -40,6 +40,10 @@ class Schema2RefusalReport(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     stage: RefusalStage
+    # Descriptor-owned discriminator used to validate multiple reachable
+    # variants of one refusal stage. It is intentionally not serialized into
+    # the closed public Error envelope.
+    variant: str | None = None
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
     migration_report: dict[str, Any] | None = None

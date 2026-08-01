@@ -132,11 +132,14 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         if ".observation." in vector_id
     } == {"value-program"}
     assert runtime_package["exports"]["artifact_wire_schemas"] == []
-    assert next(
-        entry["definitions"]
-        for entry in runtime_package["semantic_closure"]
-        if entry["authority_path"] == "language.artifact_wire_schemas"
-    ) == []
+    assert (
+        next(
+            entry["definitions"]
+            for entry in runtime_package["semantic_closure"]
+            if entry["authority_path"] == "language.artifact_wire_schemas"
+        )
+        == []
+    )
     assert not any(
         entry["artifact_kind"].startswith("formula-observation-")
         for entry in ldb["language"]["artifact_wire_schemas"]

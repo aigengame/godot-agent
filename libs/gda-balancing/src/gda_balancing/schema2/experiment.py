@@ -57,18 +57,6 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "state-write",
     }
 )
-_VALUE_RUNTIME_OPERATORS = frozenset(
-    {
-        "copy-value",
-        "integer-add",
-        "integer-compare",
-        "integer-literal",
-        "integer-maximum",
-        "integer-multiply",
-        "integer-subtract",
-        "select-value",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -154,9 +142,11 @@ def _refusal(
     identity: str,
     pointer: str,
     message: str,
+    variant: str | None = None,
 ) -> Schema2RefusalReport:
     return Schema2RefusalReport(
         stage=cast(Any, stage),
+        variant=variant,
         diagnostics=(
             Schema2Diagnostic(
                 code=code,
@@ -1474,6 +1464,7 @@ def _runtime_refusal_outcome(
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
         stage="runtime",
+        variant="post-dispatch",
         code=code,
         identity=checked.content_identity,
         pointer=f"/scenarios/{scenario_index}/entrypoint",
@@ -1577,6 +1568,7 @@ def evaluate_experiment(
             code = _diagnostic_for_signal(checked, fault.signal, "runtime")
             return _refusal(
                 stage="runtime",
+                variant="pre-event",
                 code=code,
                 identity=checked.content_identity,
                 pointer=f"/scenarios/{scenario_index}/assignments",
@@ -1775,7 +1767,7 @@ def evaluate_experiment(
                             "value": value,
                         }
                     )
-                elif operator in _VALUE_RUNTIME_OPERATORS:
+                elif node_contract["family"] == "expression":
                     try:
                         _execute_value_instruction(
                             instruction,
