@@ -378,8 +378,13 @@ Formula data instances and do not synthesize notation. Converting notation to a 
 contextual: it binds the Formula's module/import scope, parameter and result contracts, and exact
 Kernel/LDB, then resolves notation and infers only local-binding results under the existing typing
 rules. Rendering binds the same exact authority. A bare string may receive lexical or syntax
-diagnostics, but cannot produce or claim a resolved Formula body without that context.
-_Avoid_: host expression dialect, display-only operation table, fully qualified call dump
+diagnostics, but cannot produce or claim a resolved Formula body without that context. Package
+Release selection and Formula-notation projection effect are separate: a notation-content mutation
+affects RIR content only when it changes at least one canonical expression byte sequence in the
+selected reachable Formula projection. A selected release may therefore contain notation with no
+projection effect, and RIR never embeds a notation catalog merely because its release is selected.
+_Avoid_: selected notation, unselected notation, host expression dialect, display-only operation
+table, fully qualified call dump
 
 **Formula conversion**:
 The public, non-executing transformation exposed by `formula parse` and `formula render`. `parse`

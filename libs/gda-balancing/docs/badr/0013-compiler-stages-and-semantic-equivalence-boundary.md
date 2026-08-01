@@ -29,9 +29,10 @@ an explicit boundary for lowering equivalence.
 > reversibly validated expressions for the selected reachable Formula projection. The canonical RIR
 > JSON therefore has a `content_identity` for exact wire integrity and a distinct
 > `semantic_identity` over the executable projection that excludes expression text. Resolved Model
-> binds and validates both; semantic equivalence uses the latter. Unselected package notation enters
-> neither identity. The paired representation does not make expression text a peer semantic
-> authority.
+> binds and validates both; semantic equivalence uses the latter. Package selection alone does not
+> place notation declarations in RIR: a notation-only mutation changes RIR content identity exactly
+> when canonical reachable expression bytes change, and never changes RIR semantic identity. The
+> paired representation does not make expression text a peer semantic authority.
 
 ## Decision
 
@@ -68,8 +69,11 @@ an explicit boundary for lowering equivalence.
   specified observable behavior. Its separately checked `content_identity` covers the complete
   canonical RIR JSON, including bADR-0024's validated expressions for reachable Formula
   declarations. Source spans, module ordering, aliases, comments, AST/HIR identities, lowering
-  traces, diagnostic provenance, unselected notation, and unselected bundle inventory are excluded
-  from the semantic projection; unselected notation is also absent from the canonical RIR JSON.
+  traces, diagnostic provenance, LDB notation declarations, notation catalogs, and unselected bundle
+  inventory are excluded from the semantic projection. Only the validated Formula expressions, not
+  their declaration catalog, appear in canonical RIR JSON. A notation-only mutation that leaves
+  those expression bytes unchanged therefore leaves RIR content identity unchanged regardless of
+  whether its owning Package Release is selected.
 
 - **Resolved Model is the exact-build execution-authority wrapper.** Its identity is
   `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR semantic

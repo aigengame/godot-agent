@@ -397,10 +397,13 @@ The public compilation pipeline is:
 - The **RIR semantic payload** is the canonical, public semantic normal form. Its
   `semantic_identity` excludes validated Formula expression text, while the enclosing canonical
   RIR JSON `content_identity` covers every expression in that reachable projection for wire
-  integrity. Unselected package notation is absent from both RIR identities. Equivalent admitted
-  source must lower to the same semantic projection under the same selected semantic dependencies.
+  integrity. Package selection alone never imports notation declarations or a notation catalog into
+  RIR: a notation-only mutation changes RIR content identity exactly when canonical RIR expression
+  bytes change, and never changes RIR semantic identity. Equivalent admitted source must lower to
+  the same semantic projection under the same selected semantic dependencies.
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
-  selected Package Lock, and all other required build identities.
+  selected Package Lock, and all other required build identities. A whole-LDB change therefore
+  reidentifies the wrapper even when Package Lock and both RIR identities remain unchanged.
 - **EIR** is an evaluator-private execution representation. It may contain schedules, bytecode,
   layouts, or optimized kernels, but it is neither portable Standard Schema bytecode nor an
   interchange authority.

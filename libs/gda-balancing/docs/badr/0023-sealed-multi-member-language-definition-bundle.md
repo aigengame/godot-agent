@@ -22,9 +22,11 @@ admission boundary.
 > **Amendment (2026-08-02, bADR-0024):** Formula notation grammar, pure-Operation notation
 > declarations, diagnostics, rules, and vectors are ordinary sealed package content. Changing any
 > of them reidentifies its vector/release/root graph according to the same content-versus-semantic
-> identity split. Only selected reachable notation and its canonical Formula expressions may enter
-> RIR content; unselected notation changes no RIR identity. No host notation registry or peer grammar
-> authority is introduced.
+> identity split and reidentifies exact wrappers that bind the whole LDB. Package Lock changes if and
+> only if the owning Package Release is selected. RIR contains canonical Formula expressions, never
+> the notation catalog: a notation-only mutation changes RIR content identity if and only if those
+> expression bytes change, and never changes RIR semantic identity. No host notation registry or
+> peer grammar authority is introduced.
 
 ## Decision
 

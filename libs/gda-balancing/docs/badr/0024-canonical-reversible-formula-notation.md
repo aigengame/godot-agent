@@ -22,7 +22,11 @@ making presentation wording part of semantic equivalence.
 > semantics, pure-Operation notation ownership excluded non-mechanic packages, the proposed
 > conformance consumer reused the production implementation, and notation-identity mutation lacked
 > a reachability boundary. The human decision owner accepted all four as `refined-adopted`; the
-> decision and validation below close them. This review is design evidence, not conformance proof.
+> decision and validation below incorporate them. An exact-head re-audit of `6ba2fc1` then found that
+> the reachability wording still conflated Package Release selection with canonical-expression
+> projection effect. The human decision owner accepted the orthogonal projection-derived identity
+> matrix below as a further `refined-adopted` correction. Both reviews are design evidence, not
+> conformance proof.
 
 ## Decision
 
@@ -70,12 +74,27 @@ making presentation wording part of semantic equivalence.
   records carrying only a Formula identity, binding, or source pointer are meta/reference records,
   not Formula data instances, and do not synthesize an expression.
 
-- **RIR separates wire integrity from semantic equivalence.** `content_identity` covers the complete
-  canonical RIR JSON, including each validated expression in the selected reachable Formula
-  projection. `semantic_identity` covers only the executable semantic projection and excludes
-  expression text. Resolved Model records and validates both. A reachable notation change that
-  changes a canonical expression therefore changes the exact wire artifact without claiming a model
-  behavior change; an unselected notation change enters neither RIR identity.
+- **Formula-notation identities derive from orthogonal projections.** Every notation-content
+  mutation reidentifies its owning Package Release and whole LDB; Resolved Model consequently
+  changes because it binds the exact whole LDB. Package Lock changes if and only if the owning
+  Package Release is selected. RIR `content_identity` covers the complete canonical RIR JSON and
+  changes if and only if at least one canonical expression byte sequence in the selected reachable
+  Formula projection changes. RIR `semantic_identity` covers only the executable semantic
+  projection, excludes expression text, and never changes for a notation-only mutation. Package
+  selection and expression projection effect are therefore separate; RIR never embeds a notation
+  catalog merely because a release is selected.
+
+  | Owning Package Release selected | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | yes | yes | change | change | change | unchanged | change |
+  | yes | no | change | change | unchanged | unchanged | change |
+  | no | no | change | unchanged | unchanged | unchanged | change |
+
+  Under unchanged candidate and ambiguity closure, an unselected release cannot change the current
+  model's canonical RIR expression bytes; observing the excluded `no`/`yes` combination exposes an
+  invalid selection, ambiguity, or projection closure. A Formula semantic-body mutation within a
+  fixed dependency closure is the control case: it changes both RIR identities and downstream exact
+  bindings while Package/LDB/Lock identities remain unchanged.
 
 - **The unreleased 2.0 baseline changes clean-forward.** Formula-bearing 2.0 data without the
   canonical expression is refused. Repository-owned authorities, identities, schemas, vectors,
@@ -124,11 +143,21 @@ making presentation wording part of semantic equivalence.
   exact stages, Diagnostics, and source locations.
 - Prove `formula parse` and `formula render` project from their live Command descriptors and agree
   for argv/structured input, success, refusal, usage, and internal outcomes.
-- Mutate reachable canonical notation so at least one Formula expression changes. Require new
-  Package/LDB, RIR content, and downstream exact-wrapper identities while RIR semantic identity and
-  execution observations remain unchanged. Mutate only unselected notation and require new
-  Package/LDB plus downstream exact-wrapper identities while preserving both RIR identities. Mutate
-  Formula semantics and require both RIR identities plus downstream exact bindings to change.
+- Mutate notation in a selected Package Release so at least one canonical RIR Formula expression
+  changes. Require new Package Release, whole-LDB, Package Lock, RIR content, Resolved Model, and
+  downstream exact-wrapper identities while preserving RIR semantic identity.
+- Mutate notation in a selected Package Release without changing canonical RIR expression bytes;
+  use an Operation outside the selected reachable Formula projection as the required witness.
+  Require new Package Release, whole-LDB, Package Lock, Resolved Model, and downstream exact-wrapper
+  identities while preserving both RIR identities.
+- Mutate notation in an unselected Package Release without changing candidate or ambiguity closure.
+  Require new Package Release, whole-LDB, Resolved Model, and downstream exact-wrapper identities
+  while preserving Package Lock and both RIR identities.
+- For all three notation-only vectors, require the same executable semantic projection and the same
+  controlled observations without claiming Replay or Evidence across different exact wrappers.
+  Mutate Formula semantics within a fixed dependency closure as a control and require both RIR
+  identities plus downstream exact bindings to change while Package/LDB/Lock identities remain
+  fixed.
 - Build and run the committed RPG combat example after round-tripping its Formulas. Require paired
   Formula data in Model Source, RIR, and Model explanation and the same deterministic trace, state,
   Metrics, and refusal behavior as the corresponding structured bodies.
