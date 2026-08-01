@@ -1178,6 +1178,65 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     )
 
 
+def test_example_effective_accuracy_formula_exercises_its_minimum_clamp(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    accuracy = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "accuracy"
+    )
+    accuracy["value"] = 0
+    defense = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "target_defense"
+    )
+    defense["value"] = 2
+    runtime = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))[
+        "meta_format"
+    ]["runtime_program"]
+    seed = next(
+        candidate
+        for candidate in range(10_000)
+        if _reference_rng_draw(
+            runtime["named_rng"],
+            candidate,
+            "hit",
+            1,
+            100,
+            {},
+            {},
+        )["value"]
+        == 1
+    )
+    specification["seed"]["value"] = seed
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "minimum-clamp-run"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    event = _member(json.loads(stdout), "event-trace")["events"][0]
+    facts = {row["name"]: row["integer"] for row in event["facts"]}
+    assert facts["effective_accuracy"] == 1
+    assert (
+        next(draw for draw in event["rng_draws"] if draw["stream"] == "hit")["value"]
+        == 1
+    )
+
+
 def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, run_cli):
     source_value = _rpg_model_source()
     formula = next(

@@ -2928,6 +2928,84 @@ def test_model_build_precommit_fault_leaves_no_visible_or_partial_set(
     assert not (store / "anchors").exists()
 
 
+def test_model_build_explanation_generation_fault_publishes_nothing(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+
+    def fail_explanation(*_args, **_kwargs):
+        raise RuntimeError("injected Model explanation generation fault")
+
+    monkeypatch.setattr(model_module, "_model_explanation", fail_explanation)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    assert not (store / "invocations").exists()
+    assert not (store / "anchors").exists()
+
+
+def test_model_build_explanation_schema_fault_publishes_nothing(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+    explanation = model_module._model_explanation
+
+    def generate_invalid_explanation(language_bundle, rir, debug_map):
+        valid = explanation(language_bundle, rir, debug_map)
+        return model_module._identified_artifact(
+            language_bundle,
+            "model-explanation",
+            {
+                "rir_identity": valid["rir_identity"],
+                "debug_map_identity": valid["debug_map_identity"],
+                "formula_explanations": valid["formula_explanations"],
+            },
+        )
+
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation",
+        generate_invalid_explanation,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    assert not (store / "invocations").exists()
+    assert not (store / "anchors").exists()
+
+
 def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
     tmp_path, run_cli
 ):

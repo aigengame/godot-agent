@@ -36,6 +36,11 @@ still owns Event control, RNG, state changes, outcomes, and commit/rollback. The
 This is a beginner-oriented product-feedback slice, not proof of general RPG or Roguelike
 coverage.
 
+The `standard.quantity-minimal` template supplies the editable, engine-agnostic derived-Formula
+starter. This tutorial then selects `game.combat` and adds the game-owned combat-slot Formula and
+binding shown above. The generic starter intentionally does not bind an Operation slot from a
+mechanic package it has not selected.
+
 ## 1. Prepare the workspace and keys
 
 Prerequisites:
