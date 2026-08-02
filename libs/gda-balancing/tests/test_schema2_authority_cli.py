@@ -320,7 +320,7 @@ def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
     scheduler_vector = next(
         row
         for row in standard_runtime["vector_definitions"]
-        if row["kind"] == "scheduler-scenario"
+        if row.get("kind") == "scheduler-scenario"
     )
     del scheduler_vector["input"]["events"][0]["phase"]
     with pytest.raises(jsonschema.ValidationError):

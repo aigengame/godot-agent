@@ -607,6 +607,169 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     }
                 )
                 continue
+            if kind_id == "scheduler-scenario":
+                expect_members = kind.get("expect_members")
+                event_members = kind.get("event_members")
+                observation_members = kind.get("observation_members")
+                state_members = kind.get("state_value_members")
+                target_states = kind.get("target_states")
+                scheduler = (
+                    runtime.get("scheduler") if isinstance(runtime, dict) else None
+                )
+                ordering = (
+                    scheduler.get("ordering") if isinstance(scheduler, dict) else None
+                )
+                phase_order = (
+                    next(
+                        (
+                            row.get("rank")
+                            for row in ordering
+                            if isinstance(row, dict) and row.get("member") == "phase"
+                        ),
+                        None,
+                    )
+                    if isinstance(ordering, list)
+                    else None
+                )
+                if (
+                    set(input_members)
+                    != {"events", "initial_states", "terminal_condition"}
+                    or not isinstance(expect_members, list)
+                    or set(expect_members)
+                    != {
+                        "event_order",
+                        "observations",
+                        "outcome",
+                        "signal",
+                        "terminal_reason",
+                        "terminal_states",
+                    }
+                    or not isinstance(event_members, list)
+                    or set(event_members)
+                    != {
+                        "cancel_requested",
+                        "enqueue_sequence",
+                        "id",
+                        "logical_time",
+                        "parent_id",
+                        "phase",
+                        "priority",
+                        "scenario",
+                        "state_delta",
+                        "status",
+                    }
+                    or not isinstance(observation_members, list)
+                    or set(observation_members)
+                    != {"event_id", "scenario", "state_after", "state_before"}
+                    or not isinstance(state_members, list)
+                    or set(state_members) != {"scenario", "value"}
+                    or not isinstance(target_states, list)
+                    or not target_states
+                    or not all(isinstance(state, str) for state in target_states)
+                    or not isinstance(phase_order, list)
+                    or not phase_order
+                    or not all(isinstance(phase, str) for phase in phase_order)
+                ):
+                    raise ValueError("Kernel scheduler-vector contract is incomplete")
+                state_schema = {
+                    "type": "object",
+                    "properties": {
+                        "scenario": _non_empty_string_schema(),
+                        "value": _signed_int64_schema(),
+                    },
+                    "required": state_members,
+                    "unevaluatedProperties": False,
+                }
+                properties["input"] = {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "cancel_requested": {"type": "boolean"},
+                                    "enqueue_sequence": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 2**63 - 1,
+                                    },
+                                    "id": _non_empty_string_schema(),
+                                    "logical_time": _signed_int64_schema(),
+                                    "parent_id": {
+                                        "oneOf": [
+                                            _non_empty_string_schema(),
+                                            {"type": "null"},
+                                        ]
+                                    },
+                                    "phase": {"enum": phase_order},
+                                    "priority": _signed_int64_schema(),
+                                    "scenario": _non_empty_string_schema(),
+                                    "state_delta": _signed_int64_schema(),
+                                    "status": {"enum": target_states},
+                                },
+                                "required": event_members,
+                                "unevaluatedProperties": False,
+                            },
+                        },
+                        "initial_states": {
+                            "type": "array",
+                            "items": state_schema,
+                        },
+                        "terminal_condition": _non_empty_string_schema(),
+                    },
+                    "required": input_members,
+                    "unevaluatedProperties": False,
+                }
+                properties["expect"] = {
+                    "type": "object",
+                    "properties": {
+                        "event_order": {
+                            "type": "array",
+                            "items": _non_empty_string_schema(),
+                        },
+                        "observations": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "event_id": _non_empty_string_schema(),
+                                    "scenario": _non_empty_string_schema(),
+                                    "state_after": _signed_int64_schema(),
+                                    "state_before": _signed_int64_schema(),
+                                },
+                                "required": observation_members,
+                                "unevaluatedProperties": False,
+                            },
+                        },
+                        "outcome": _non_empty_string_schema(),
+                        "signal": {
+                            "oneOf": [_non_empty_string_schema(), {"type": "null"}]
+                        },
+                        "terminal_reason": {
+                            "oneOf": [_non_empty_string_schema(), {"type": "null"}]
+                        },
+                        "terminal_states": {
+                            "type": "array",
+                            "items": state_schema,
+                        },
+                    },
+                    "required": expect_members,
+                    "unevaluatedProperties": False,
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
             if set(input_members) != {"seed", "state_names", "values"}:
                 raise ValueError("Kernel runtime-vector input contract is incomplete")
             state_members = kind.get("state_value_members")
