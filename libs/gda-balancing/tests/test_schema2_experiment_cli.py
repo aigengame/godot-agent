@@ -632,6 +632,8 @@ def _reference_execute_event(
             for name in sorted(state_cells)
         ],
         "rng_draws": draws,
+        "schedules": [],
+        "cancellations": [],
     }
     if resolved_entrypoint is not None:
         event["entrypoint"] = {
@@ -1153,6 +1155,95 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         }
     ]
     assert schedules[1]["event_id"] not in {event["event_id"] for event in events}
+
+
+def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    specification.pop("external_inputs")
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "raise-defense",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "target_defense",
+                    },
+                    "value": 200,
+                }
+            ],
+        },
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "cast-after-input",
+            "logical_time": 1,
+            "priority": 0,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 100, "maximum": 100},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "external-input-run"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    events = _member(receipt, "event-trace")["events"]
+    assert [
+        (event["root_event_ref"], event["ordering_key"]["phase"])
+        for event in events
+    ] == [
+        ("raise-defense", "input"),
+        ("cast-after-input", "transition"),
+    ]
+    assert events[0]["operation"] is None
+    assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
+    assert next(
+        fact["integer"]
+        for fact in events[1]["facts"]
+        if fact["name"] == "target_defense"
+    ) == 200
+    assert events[1]["state_after"] == [
+        {"name": "actor_mana", "value": 30},
+        {"name": "target_health", "value": 100},
+    ]
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
 
 
 def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
