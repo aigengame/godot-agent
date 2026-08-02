@@ -10,6 +10,7 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.schema2.authority import AdmittedAuthorityContext
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,14 @@ class FormulaNotationRefusal(ValueError):
         super().__init__(message)
         self.reason_id = reason_id
         self.message = message
+
+
+class FormulaPairRefusal(FormulaNotationRefusal):
+    """One exact body/expression-pair refusal with its owning member."""
+
+    def __init__(self, reason_id: str, member: str, message: str) -> None:
+        super().__init__(reason_id, message)
+        self.member = member
 
 
 class _FormulaNotationSyntaxError(ValueError):
@@ -633,6 +642,42 @@ def parse_formula_expression(
         raise FormulaNotationRefusal(
             "formula.reason.notation-parse-failure", str(err)
         ) from err
+
+
+def admit_formula_pair(
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> None:
+    """Require one Formula body/expression pair to be exact and reversible."""
+    formula = request.get("formula")
+    if not isinstance(formula, dict):
+        raise ValueError("Formula pair request has no declaration")
+    body = formula.get("body")
+    expression = formula.get("expression")
+    if not isinstance(body, dict) or not isinstance(expression, str):
+        raise ValueError("Formula pair request is structurally incomplete")
+    try:
+        rendered = render_formula_body(body, authority_context)
+    except FormulaNotationRefusal as err:
+        raise FormulaPairRefusal(err.reason_id, "body", err.message) from err
+    if expression != rendered:
+        raise FormulaPairRefusal(
+            "model.reason.formula-notation-mismatch",
+            "expression",
+            "Formula expression is not the canonical projection of its body",
+        )
+    try:
+        parsed = parse_formula_expression(request, authority_context)
+    except FormulaNotationRefusal as err:
+        raise FormulaPairRefusal(err.reason_id, "expression", err.message) from err
+    if canonical_bytes(cast(JsonValue, parsed)) != canonical_bytes(
+        cast(JsonValue, body)
+    ):
+        raise FormulaPairRefusal(
+            "model.reason.formula-notation-mismatch",
+            "expression",
+            "Formula expression does not reconstruct its canonical body",
+        )
 
 
 def _render_operand(operand: object, grammar: dict[str, Any]) -> str:

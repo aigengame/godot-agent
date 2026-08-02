@@ -843,7 +843,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          ""
+          "\u007f"
         ]
       },
       {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:3b83d227dc3503e3cd9853e72f29026f95fb3fd3c7b7f112b06bcf82cdd8b98c",
+  "content_identity": "sha256:26f75f10ee01a9ea5063ec87cdc24f0b05d21cd36a4cd40bb527cf9a6a929f07",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2234,6 +2234,9 @@
             },
             "identity_excluded_members": {
               "type": "string-list"
+            },
+            "semantic_identity_domain": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
@@ -2242,6 +2245,9 @@
             "identity_excluded_members",
             "schema_kind",
             "wire_schema_identity_domain"
+          ],
+          "optional_members": [
+            "semantic_identity_domain"
           ]
         },
         "artifact_wire_schemas": {

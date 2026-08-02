@@ -908,3 +908,129 @@ def test_formula_render_reports_an_unresolved_operation_at_the_body(
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.unresolved_name"
     assert diagnostic["primary"]["pointer"] == "/formula/body"
+
+
+def test_model_check_requires_an_expression_beside_every_formula_body(
+    tmp_path: Path, run_cli
+) -> None:
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    for formula in source_value["modules"][0]["formulas"]:
+        formula.pop("expression", None)
+    source = tmp_path / "missing-formula-expressions.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostics = json.loads(stdout)["error"]["diagnostics"]
+    assert [item["primary"]["pointer"] for item in diagnostics] == [
+        "/modules/0/formulas/0/expression",
+        "/modules/0/formulas/1/expression",
+    ]
+
+
+def test_model_check_refuses_noncanonical_formula_expression_bytes(
+    tmp_path: Path, run_cli
+) -> None:
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_value["modules"][0]["formulas"][0]["expression"] = (
+        " let raw_damage = ((damage_before_defense - mitigation)); "
+        "let damage = floor_zero(raw_damage); damage "
+    )
+    source = tmp_path / "noncanonical-formula-expression.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/modules/0/formulas/0/expression"
+    )
+
+
+def test_model_check_refuses_a_canonical_expression_for_a_different_body(
+    tmp_path: Path, run_cli
+) -> None:
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_value["modules"][0]["formulas"][0]["expression"] = (
+        source_value["modules"][0]["formulas"][1]["expression"]
+    )
+    source = tmp_path / "divergent-formula-expression.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.formula_notation_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/modules/0/formulas/0/expression"
+    )
+
+
+def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
+    tmp_path: Path, run_cli
+) -> None:
+    source = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    receipt = json.loads(stdout)
+    locators = {
+        row["logical_name"]: Path(row["locator"])
+        for row in receipt["member_locators"]
+    }
+    rir = json.loads(locators["rir-semantic-payload"].read_text(encoding="utf-8"))
+    explanation = json.loads(
+        locators["model-explanation"].read_text(encoding="utf-8")
+    )
+    resolved = json.loads(locators["resolved-model"].read_text(encoding="utf-8"))
+
+    source_formulas = {
+        row["id"]: row for row in json.loads(source.read_text())["modules"][0]["formulas"]
+    }
+    assert {
+        row["id"]: row["expression"] for row in rir["formulas"]
+    } == {identifier: row["expression"] for identifier, row in source_formulas.items()}
+    assert {
+        row["id"]: row["expression"] for row in explanation["formula_explanations"]
+    } == {identifier: row["expression"] for identifier, row in source_formulas.items()}
+    assert rir["content_identity"].startswith("sha256:")
+    assert rir["semantic_identity"].startswith("sha256:")
+    assert rir["semantic_identity"] != rir["content_identity"]
+    assert resolved["rir_content_identity"] == rir["content_identity"]
+    assert resolved["rir_semantic_identity"] == rir["semantic_identity"]
+    assert "rir_identity" not in resolved

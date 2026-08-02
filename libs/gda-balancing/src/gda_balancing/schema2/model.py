@@ -44,6 +44,10 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
     reason_by_id,
 )
+from gda_balancing.schema2.formula_notation import (
+    FormulaPairRefusal,
+    admit_formula_pair,
+)
 from gda_balancing.schema2.wire_schema import (
     wire_schema_identity_for_kind,
 )
@@ -168,6 +172,7 @@ _FORMULA_REASON = {
     "refusal-widening": "model.reason.formula-refusal-widening",
     "resource-exhausted": "model.reason.formula-resource-exhausted",
     "cycle": "model.reason.formula-cycle",
+    "notation-mismatch": "model.reason.formula-notation-mismatch",
 }
 
 
@@ -768,6 +773,60 @@ def _model_check_diagnostics(
     return diagnostics
 
 
+def _formula_pair_diagnostics(
+    source: dict[str, Any],
+    source_identity: str,
+    authority_context: AdmittedAuthorityContext,
+) -> list[Schema2Diagnostic]:
+    diagnostics: list[Schema2Diagnostic] = []
+    requirements = source.get("package_requirements")
+    modules = source.get("modules")
+    if not isinstance(requirements, list) or not isinstance(modules, list):
+        return diagnostics
+    for module_index, module in enumerate(modules):
+        if not isinstance(module, dict):
+            continue
+        formulas = module.get("formulas", [])
+        if not isinstance(formulas, list):
+            continue
+        module_context = {
+            "id": module.get("id"),
+            "imports": module.get("imports"),
+            "formulas": formulas,
+        }
+        for formula_index, formula in enumerate(formulas):
+            if not isinstance(formula, dict):
+                continue
+            try:
+                admit_formula_pair(
+                    {
+                        "schema_version": source.get("schema_version"),
+                        "package_requirements": requirements,
+                        "module": module_context,
+                        "formula": formula,
+                    },
+                    authority_context,
+                )
+            except FormulaPairRefusal as err:
+                reason = reason_by_id(
+                    authority_context.language_bundle, err.reason_id
+                )
+                diagnostics.append(
+                    Schema2Diagnostic(
+                        code=cast(str, reason["diagnostic"]),
+                        message=err.message,
+                        primary=_location(
+                            source_identity,
+                            (
+                                f"/modules/{module_index}/formulas/"
+                                f"{formula_index}/{err.member}"
+                            ),
+                        ),
+                    )
+                )
+    return diagnostics
+
+
 def _schema_error_code(
     error: jsonschema.ValidationError, language_bundle: dict[str, Any]
 ) -> str:
@@ -1231,8 +1290,14 @@ def _check_model_source_bytes(
         for error in errors
         for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
+    formula_pair_diagnostics = (
+        []
+        if structural_diagnostics
+        else _formula_pair_diagnostics(source, source_identity, authority_context)
+    )
     static_diagnostics = [
         *structural_diagnostics,
+        *formula_pair_diagnostics,
         *_model_check_diagnostics(source, source_identity, ldb),
     ]
     resolution_contract = cast(
@@ -1492,6 +1557,59 @@ def _identified_artifact(
         _artifact_schema(language_bundle, artifact_kind)
     ).validate(artifact)
     return artifact
+
+
+def _rir_semantic_projection(
+    rir: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Project an RIR artifact or payload to executable semantics only."""
+    envelope_members = {
+        "artifact_kind",
+        "artifact_version",
+        "wire_schema_identity",
+        "content_identity",
+        "semantic_identity",
+    }
+    projection = {
+        key: value for key, value in rir.items() if key not in envelope_members
+    }
+    formulas = projection.get("formulas")
+    if isinstance(formulas, list):
+        projection["formulas"] = cast(
+            JsonValue,
+            [
+                {
+                    key: value
+                    for key, value in cast(dict[str, JsonValue], formula).items()
+                    if key != "expression"
+                }
+                for formula in formulas
+            ],
+        )
+    return projection
+
+
+def _rir_semantic_identity(
+    language_bundle: dict[str, Any], rir: dict[str, JsonValue]
+) -> str:
+    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    domain = contract.get("semantic_identity_domain")
+    if not isinstance(domain, str) or not domain:
+        raise ValueError("RIR artifact contract has no semantic identity domain")
+    return content_identity(domain, cast(JsonValue, _rir_semantic_projection(rir)))
+
+
+def _identified_rir_artifact(
+    language_bundle: dict[str, Any], payload: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    return _identified_artifact(
+        language_bundle,
+        "rir-semantic-payload",
+        {
+            **payload,
+            "semantic_identity": _rir_semantic_identity(language_bundle, payload),
+        },
+    )
 
 
 def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
@@ -2263,6 +2381,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 ),
                 "imports": imports,
                 "source_body": body,
+                "source_expression": source_formula["expression"],
             }
             formula_pointers[key] = (
                 f"/modules/{module_index}/{formulas_member}/{formula_index}"
@@ -2686,6 +2805,7 @@ def _resolved_formula_programs_and_bindings_impl(
         )
         resolved_by_key[key] = {
             **formula_body,
+            "expression": cast(str, prototype["source_expression"]),
             "identity": content_identity(domains["declaration"], formula_body),
         }
 
@@ -6264,6 +6384,7 @@ def _formula_program_graph_is_admitted(
                 "parameters",
                 "result",
                 "body",
+                "expression",
                 "closure",
                 "identity",
             }
@@ -6272,11 +6393,14 @@ def _formula_program_graph_is_admitted(
             or not isinstance(formula.get("parameters"), list)
             or not isinstance(formula.get("result"), dict)
             or not isinstance(formula.get("body"), dict)
+            or not isinstance(formula.get("expression"), str)
             or not isinstance(formula.get("closure"), dict)
         ):
             return False
         formula_body = {
-            key: value for key, value in formula.items() if key != "identity"
+            key: value
+            for key, value in formula.items()
+            if key not in {"identity", "expression"}
         }
         if formula.get("identity") != content_identity(
             domains["declaration"], cast(JsonValue, formula_body)
@@ -7096,6 +7220,13 @@ def admit_resolved_model(
     resolved = artifacts["resolved-model"]
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
         return ResolvedModelAdmission(False, diagnostic)
+    try:
+        if rir.get("semantic_identity") != _rir_semantic_identity(
+            ldb, cast(dict[str, JsonValue], rir)
+        ):
+            return ResolvedModelAdmission(False, diagnostic)
+    except (KeyError, TypeError, ValueError):
+        return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
     output_member = cast(str, lowering["output_member"])
     declarations = rir.get(output_member)
@@ -7231,7 +7362,8 @@ def admit_resolved_model(
             "kernel_identity": cast(str, kernel["content_identity"]),
             "language_bundle_identity": cast(str, ldb["content_identity"]),
             "package_lock_identity": cast(str, lock["content_identity"]),
-            "rir_identity": cast(str, rir["content_identity"]),
+            "rir_content_identity": cast(str, rir["content_identity"]),
+            "rir_semantic_identity": cast(str, rir["semantic_identity"]),
         },
     )
     if resolved != expected_resolved:
@@ -7302,6 +7434,7 @@ def _model_explanation(
                     "parameters": formula["parameters"],
                     "result": formula["result"],
                     "body": formula["body"],
+                    "expression": formula["expression"],
                     "closure": formula["closure"],
                     "evaluation_sites": evaluation_sites,
                 },
@@ -7453,9 +7586,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         selected_semantics,
         _composition_policy(lowering),
     )
-    rir = _identified_artifact(
+    rir = _identified_rir_artifact(
         checked.language_bundle,
-        "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
             "formulas": cast(JsonValue, formulas),
@@ -7473,7 +7605,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
             "package_lock_identity": lock["content_identity"],
-            "rir_identity": rir["content_identity"],
+            "rir_content_identity": rir["content_identity"],
+            "rir_semantic_identity": rir["semantic_identity"],
         },
     )
     debug_map = _identified_artifact(
