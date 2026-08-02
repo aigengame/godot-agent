@@ -3902,7 +3902,10 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
 
     assert production["rir-semantic-payload"] == reference["rir-semantic-payload"]
     rir = reference["rir-semantic-payload"]
-    assert len(cast(list[Any], rir["entrypoints"])) == 1
+    assert [
+        entrypoint["id"]
+        for entrypoint in cast(list[dict[str, Any]], rir["entrypoints"])
+    ] == ["combat.cast", "combat.plan-casts"]
     assert len(cast(list[Any], rir["call_sites"])) == 4
     assert admit_resolved_model(
         {

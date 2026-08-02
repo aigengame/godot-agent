@@ -6229,11 +6229,19 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": "purchase",
-                "entrypoint": "economy.purchase",
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "purchase",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": "economy.purchase",
+                        "payload": [],
+                    }
+                ],
                 "assignments": [
                     {
                         "target": {

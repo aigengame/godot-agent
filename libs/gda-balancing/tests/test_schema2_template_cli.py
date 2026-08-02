@@ -907,7 +907,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:f9335fa07ac0d6af0d9cbd046607e6d685c234aeab9e75b0fa0669e1d3c875cb"
+                    "sha256:06e60f5d40dc17be47641d043a09cad0e71f4de7c8d66782ea1c05320543fd2d"
                 ),
             }
         ]
@@ -2478,14 +2478,18 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         "main",
     )
     extended["formula_bindings"].extend([game_binding, slot_binding])
-    entrypoint = _replace_json_value(
-        deepcopy(game_source["entrypoints"][0]), "combat", "main"
-    )
-    next(row for row in entrypoint["arguments"] if row["port"] == "accuracy")[
-        "operand"
-    ]["symbol"] = "game_effective_accuracy"
-    entrypoint["result"]["symbol"] = "output_value"
-    extended["entrypoints"] = [entrypoint]
+    entrypoints = [
+        _replace_json_value(deepcopy(entrypoint), "combat", "main")
+        for entrypoint in game_source["entrypoints"]
+    ]
+    for entrypoint in entrypoints:
+        next(row for row in entrypoint["arguments"] if row["port"] == "accuracy")[
+            "operand"
+        ]["symbol"] = "game_effective_accuracy"
+    next(entrypoint for entrypoint in entrypoints if entrypoint["id"] == "combat.cast")[
+        "result"
+    ]["symbol"] = "output_value"
+    extended["entrypoints"] = entrypoints
     extended["package_requirements"] = deepcopy(game_source["package_requirements"])
     source_path.write_text(json.dumps(extended), encoding="utf-8")
 
@@ -2542,6 +2546,10 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         assignment["target"]["module"] = "main"
         if assignment["target"]["name"] == "accuracy":
             assignment["target"]["name"] = "value"
+    for event in scenario["event_plan"]:
+        for fact in event.get("facts", []):
+            fact["target"]["model"] = "example.template-game"
+            fact["target"]["module"] = "main"
     for metric in experiment["metrics"]:
         if metric["observation"]["member"] == "damage_dealt":
             metric["observation"]["member"] = "output_value"
