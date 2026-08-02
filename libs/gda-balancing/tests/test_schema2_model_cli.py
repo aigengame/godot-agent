@@ -4897,6 +4897,7 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
         for row in entrypoint["event_local_payload_contract"]["targets"]
     } == {
         "action_cost": ("optional", "event-payload"),
+        "accuracy": ("optional", "event-payload"),
         "base_damage": ("optional", "event-payload"),
         "critical_threshold": ("optional", "event-payload"),
         "target_defense": ("optional", "event-payload"),

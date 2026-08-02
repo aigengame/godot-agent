@@ -4579,6 +4579,26 @@ def _resolved_entrypoints(
                         "contracts",
                     )
                 scenario_targets[dependency_identity] = dependency_target
+            event_payload_target = _symbol_event_payload_contract(
+                dependency,
+                assignment_policy,
+                dependency_symbol,
+                dependency_identity,
+            )
+            if event_payload_target is not None:
+                previous_payload_target = event_payload_targets.get(
+                    dependency_identity
+                )
+                if (
+                    previous_payload_target is not None
+                    and previous_payload_target != event_payload_target
+                ):
+                    raise _EntrypointBindingError(
+                        f"{pointer}/operation",
+                        "one Formula dependency derived conflicting Event-local "
+                        "payload contracts",
+                    )
+                event_payload_targets[dependency_identity] = event_payload_target
             if dependency_initializer is not None:
                 previous_initializer = initializers.get(dependency_identity)
                 if (
@@ -6038,6 +6058,22 @@ def _resolved_entrypoint_graph_is_admitted(
                 if previous_target is not None and previous_target != dependency_target:
                     return False
                 scenario_targets[dependency_identity] = dependency_target
+            event_payload_target = _symbol_event_payload_contract(
+                dependency,
+                assignment_policy,
+                dependency_symbol,
+                dependency_identity,
+            )
+            if event_payload_target is not None:
+                previous_payload_target = event_payload_targets.get(
+                    dependency_identity
+                )
+                if (
+                    previous_payload_target is not None
+                    and previous_payload_target != event_payload_target
+                ):
+                    return False
+                event_payload_targets[dependency_identity] = event_payload_target
             if dependency_initializer is not None:
                 previous_initializer = initializers.get(dependency_identity)
                 if (

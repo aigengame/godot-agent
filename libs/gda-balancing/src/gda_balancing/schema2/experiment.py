@@ -3074,6 +3074,18 @@ def evaluate_experiment(
             next_enqueue_sequence_before = next_enqueue_sequence
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
+            event_actual_values = (
+                actual_values if external_input else dict(actual_values)
+            )
+            payload_values = (
+                {
+                    canonical_bytes(cast(JsonValue, row["target"])): row["value"]
+                    for row in event_spec["payload"]
+                }
+                if entrypoint is not None
+                else {}
+            )
+            event_actual_values.update(payload_values)
             dispatch_path = (
                 (f"input:{event_spec['root_event_ref']}",)
                 if external_input
@@ -3089,7 +3101,7 @@ def evaluate_experiment(
                 try:
                     total_steps = _evaluate_initialization_programs(
                         checked,
-                        actual_values,
+                        event_actual_values,
                         consumed_steps=total_steps,
                         runtime_limit=runtime_limit,
                         cache=initialization_cache,
@@ -3111,11 +3123,9 @@ def evaluate_experiment(
             elif entrypoint is None:
                 root_arguments.update(event_spec["arguments"])
                 root_state_references.update(event_spec["state_references"])
+                for port, identity in root_state_references.items():
+                    root_arguments[port] = actual_values[identity]
             else:
-                payload_values = {
-                    canonical_bytes(cast(JsonValue, row["target"])): row["value"]
-                    for row in event_spec["payload"]
-                }
                 for binding in entrypoint["arguments"]:
                     resolved_operand = binding["operand"]
                     if resolved_operand["kind"] == "symbol":
@@ -3123,9 +3133,9 @@ def evaluate_experiment(
                             cast(JsonValue, resolved_operand["symbol"])
                         )
                         declaration = declarations[identity]
-                        root_arguments[binding["port"]["name"]] = payload_values.get(
-                            identity, actual_values[identity]
-                        )
+                        root_arguments[binding["port"]["name"]] = event_actual_values[
+                            identity
+                        ]
                         if declaration["role"] == "state":
                             root_state_references[binding["port"]["name"]] = identity
                     else:
@@ -3214,6 +3224,7 @@ def evaluate_experiment(
                 )
             for identity, value in state.items():
                 actual_values[identity] = value
+                event_actual_values[identity] = value
             if external_input:
                 typed_outcome = {"id": outcome, "kind": "success"}
             else:
@@ -3227,6 +3238,7 @@ def evaluate_experiment(
                         cast(JsonValue, entrypoint["result"]["symbol"])
                     )
                     actual_values[result_identity] = root_result
+                    event_actual_values[result_identity] = root_result
                 typed_outcome = {
                     "id": outcome,
                     "kind": outcome_definition["kind"],
@@ -3263,7 +3275,7 @@ def evaluate_experiment(
                     "schedules": schedule_trace,
                     "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
-                    "facts": _resolved_value_rows(actual_values, display_names),
+                    "facts": _resolved_value_rows(event_actual_values, display_names),
                     "state_before": _resolved_int_rows(before, display_names),
                     "state_after": _resolved_int_rows(state, display_names),
                     "rng_draws": draws,
@@ -3420,11 +3432,6 @@ def evaluate_experiment(
                         for identity, value in state.items()
                     },
                 )
-            event["facts"] = cast(
-                JsonValue,
-                _resolved_value_rows(actual_values, display_names),
-            )
-
         scenario_terminal_states[scenario["id"]] = {
             display_names[identity]: value for identity, value in state.items()
         }

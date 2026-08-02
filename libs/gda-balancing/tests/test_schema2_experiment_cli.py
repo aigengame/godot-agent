@@ -1395,7 +1395,7 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     ]
     assert runtime_events[-1]["state_before"] == runtime_events[-1]["state_after"]
     assert next(
-        row["integer"]
+        row["value"]
         for row in runtime_events[-1]["state_after"]
         if row["name"] == "actor_mana"
     ) == 0
@@ -2840,7 +2840,13 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     assert len(set(observation_frames)) == 2
     assert observation_cache_growth == [1, 1]
     runtime_events = [event for event in events if event["operation"] is not None]
+    for event in runtime_events:
+        facts = {row["name"]: row["integer"] for row in event["facts"]}
+        assert facts["target_health"] == 82
+        assert facts["effective_accuracy"] == 100
     for event in events:
+        if event["operation"] is not None:
+            continue
         facts = {row["name"]: row["integer"] for row in event["facts"]}
         assert facts["target_health"] == 82
         assert facts["effective_accuracy"] == facts["target_health"]
