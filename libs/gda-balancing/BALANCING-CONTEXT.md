@@ -151,9 +151,13 @@ _Avoid_: Experiment Specification (after build), executable experiment, experime
 **Experiment Specification**:
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
-and drift policy. Each scenario selects one exact `Model entrypoint` and assigns every member of
-that entrypoint's generated `Scenario Input Contract` exactly once; it cannot select a raw LDB
-Operation, invent an input name, or redefine a formal port or model symbol. It references an exact
+and drift policy. Each scenario authors one bounded `Executable Event plan` and assigns the
+canonical union of every selected entrypoint's generated `Scenario Input Contract` exactly once.
+Each transition-invocation member selects one exact `Model entrypoint` and carries a separately
+derived Event-local payload; external-input members carry typed source-sequenced facts and select no
+entrypoint; observation members are derived from exact Observation/Metric contracts. It cannot
+select a raw LDB Operation, invent an input name, author another Runtime phase, or redefine a formal
+port or model symbol. It references an exact
 `Resolved Model` identity or a declared compatibility contract. Exact Resolved-Model binding is
 immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
 Resolved Model before execution and produce an identified
@@ -162,6 +166,15 @@ identity or an explicit, reviewable compatibility-resolution result, never a sil
 specification is versioned and hashed independently so evidence identifies both model and
 experiment (bADR-0012/0018).
 _Avoid_: experiment config, model overrides, scenario package
+
+**Executable Event plan**:
+The closed, bounded Experiment-owned plan for one scenario. Its authored root members are exactly
+`external-input` or `transition-invocation`; its `observation` members are derived from the exact
+Observation/Metric contracts. Every authored root has a unique `Root Event reference`, logical
+time, fixed phase, priority, and typed payload/facts contract. Runtime admission resolves the plan,
+assigns Event identities and enqueue sequence, and cannot add a scenario timeline or host callback
+(bADR-0012/0014/0018/0022).
+_Avoid_: scenario loop, tick list, evaluator callback plan
 
 **Approval Record**:
 The immutable governance authority for an approval decision. It identifies the exact model,
@@ -523,6 +536,10 @@ duplicate symbol declarations or Operation formal ports. Each policy role is mac
 an Operation operand, Operation result, or internal generated value; authority admission rejects an
 operand mode that has neither an Experiment assignment nor a Model initializer, and rejects a
 result mode not produced by execution (bADR-0012/0013/0022).
+When one scenario selects several entrypoints, initialization is the canonical union of their
+targets: equal targets with equal contracts collapse, while conflicting contracts or assignments
+refuse. This union is a derived projection, not a second Scenario Input Contract. Event-local
+payloads and external facts never become initialization members.
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:
@@ -927,6 +944,13 @@ Standard Schema artifacts and the atomic-event runtime without adopting FMU, C A
 co-simulation compatibility (bADR-0014/0020).
 _Avoid_: FMI runtime, process lifecycle, implicit evaluator state
 
+**Runtime step**:
+The public boundary-directed advance that dispatches as many totally ordered atomic Events as
+needed to reach the next declared observation or logical boundary. An internal scheduler transition
+dispatches one Event; `event-steps` counts Operation work and is neither a Runtime step nor logical
+time. There is no universal tick (bADR-0014/0020/0022).
+_Avoid_: tick, one Event dispatch, scenario step
+
 **Runtime profile definition**:
 The Language Definition Bundle-owned, immutable contract for one admitted execution policy:
 scheduler/phase semantics, budget vocabulary and accounting units, Named-stream derivation,
@@ -1018,6 +1042,14 @@ fixed `input → transition → observation` phase order, priority descending, t
 ascending. Input admits ordered external facts, transition owns model mutation, and observation is
 read-only evidence collection (bADR-0014).
 _Avoid_: callback, message (unqualified), async task
+
+**Root Event reference**:
+The unique stable authored identity of one external-input or transition-invocation root member in
+an Executable Event plan. Runtime admission maps canonical root order to Runtime-owned `event_id`
+and enqueue sequence before dispatch and exposes the complete reference map. Scheduled children
+have Runtime Event identities and parent/call-site provenance but no invented root reference
+(bADR-0014/0018/0022).
+_Avoid_: Event id, array index, host object identity
 
 **Signal**:
 An ephemeral typed fact emitted during one Event transaction to subscribers declared statically in

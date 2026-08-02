@@ -17,6 +17,13 @@ false. A scenario author, an evaluator, and a governance approver own facts that
 definitions. Reproducibility needs those facts independently identifiable without allowing any of
 them to redefine another domain. PRD #534 makes closing this chain the first human decision gate.
 
+> **Amendment (2026-08-03, #594):** An Experiment scenario owns one bounded executable Event plan,
+> not one entrypoint invocation. The authored plan contains external-input and
+> transition-invocation root members; observation members are derived from the exact Observation
+> and Metric contracts. Initialization is the canonical union of assignment targets exported by
+> every selected Model entrypoint. Event-local payload contracts and external facts remain separate
+> from that one-time initialization authority.
+
 ## Decision
 
 - **Standard Schema 2.x has one layered machine-authority chain.** The non-self-hosted
@@ -51,11 +58,15 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
      declared dependency requirements. It contains an authored manifest, model modules, symbols
      with value policies, and Model entrypoints that bind those symbols to exact LDB Operation
      interfaces.
-  2. The **Experiment Specification** is the authority for scenarios, model inputs, metrics,
-     targets, observation/calibration policy, and other evaluation intent. Each scenario selects a
-     Model entrypoint and totally assigns its generated Scenario Input Contract. It references an
-     exact resolved-model identity or an explicit compatibility contract and cannot redefine the
-     model, select a raw LDB Operation, or invent a model input.
+  2. The **Experiment Specification** is the authority for scenarios, model inputs, bounded root
+     Event plans, metrics, targets, observation/calibration policy, and other evaluation intent.
+     Each scenario totally assigns the canonical union of the selected Model entrypoints' generated
+     Scenario Input Contracts. Each transition-invocation root member selects one exact Model
+     entrypoint and supplies only its separately derived Event-local payload; each external-input
+     root member supplies typed source-sequenced facts and selects no entrypoint; observation
+     members are derived rather than authored. It references an exact resolved-model identity or an
+     explicit compatibility contract and cannot redefine the model, select a raw LDB Operation,
+     invent a model input, or add a Runtime phase.
   3. The **Approval Record** is the immutable governance authority for one approval decision. It
      binds the exact model, experiment, evidence, evaluator, policy, and attestation identities and
      cannot mutate or copy their owned facts.
@@ -163,8 +174,11 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 - **Invocation authority is a one-way chain.** The LDB Operation is the sole authority for formal
   ports and reusable behavior. Model Source symbols are game-owned actual operands, and a Model
   entrypoint owns their explicit binding to one exact Operation interface. RIR derives the resolved
-  call graph and Scenario Input Contract. Experiment assigns only those derived symbol identities.
-  No layer copies a peer input declaration or infers a binding from equal names.
+  call graph, each entrypoint's Scenario Input Contract, and its distinct Event-local payload
+  contract. Experiment initialization assigns only the canonical union of those derived symbol
+  identities; transition-invocation payloads assign only the selected entrypoint's derived
+  Event-local members. External facts are owned by external-input members. No layer copies a peer
+  declaration or infers a binding from equal names.
 
 - **Schema and product versions remain independent.** “Standard Schema 2.0” identifies the
   language/specification major. It does not imply a `gda-balancing` 2.0.0 release; product version

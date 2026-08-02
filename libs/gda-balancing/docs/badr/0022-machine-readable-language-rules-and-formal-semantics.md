@@ -26,6 +26,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 > The anonymous/inline Authoring-AST sugar retained below is unchanged. Model Source, RIR, and Model
 > explanation carry the pair without making expression text an alternative semantic authority.
 
+> **Amendment (2026-08-03, #594):** The Experiment judgment admits one closed discriminated Event
+> plan, derives one-time initialization and observation members, and resolves Runtime-owned Event
+> identities/order before dispatch. The small-step Runtime judgment dispatches one Event, while the
+> public `step` judgment advances to the next observation or logical boundary.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -231,7 +236,8 @@ structured formal judgments, and an honest proof/conformance boundary.
   `internal`; admission rejects an operand mode without either an Experiment value or Model
   initializer, and rejects a result mode not produced by execution. Successful lowering gives every
   actual operand and call site a stable identity and emits Model initializers and Experiment targets
-  in the Scenario Input Contract. Literal typing is a separate package-owned LDB authority: a root
+  in each entrypoint's Scenario Input Contract plus a separately derived Event-local payload
+  contract. Literal typing is a separate package-owned LDB authority: a root
   or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
   type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The
   exporting package owns the exact Type release, referenced value inventories and an Operation
@@ -242,11 +248,14 @@ structured formal judgments, and an honest proof/conformance boundary.
   later sibling alias and operation rollback restores the entry snapshot.
 
 - **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
-  typing/evaluation laws for exact Model-entrypoint selection, total assignment of the generated
-  Scenario Input Contract, event-sequence references, Metric selectors, empty/missing behavior, and
-  acceptance expressions. An Experiment cannot select a raw LDB Operation or assign an undeclared
-  symbol. Implementations may optimize those judgments but cannot replace them with name matching,
-  scenario conditionals, or post-hoc host decisions.
+  typing/evaluation laws for a discriminated `external-input | transition-invocation | observation`
+  Event plan; unique stable root references; exact Model-entrypoint selection; total assignment of
+  the canonical union of generated Scenario Input Contracts; separate Event-local payload and
+  external-fact admission; derived observation members; Metric selectors; empty/missing behavior;
+  terminal conditions; and acceptance expressions. An Experiment cannot select a raw LDB Operation,
+  assign an undeclared symbol, author an observation phase, or add a scheduler phase.
+  Implementations may optimize those judgments but cannot replace them with name matching,
+  scenario conditionals, host-container iteration, or post-hoc host decisions.
 
 - **Name resolution is explicit and deterministic.** Packages contain named modules. Imports are
   selective or explicitly aliased; wildcard imports are forbidden. A declaration or local binding
@@ -277,9 +286,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **Runtime behavior uses small-step transition semantics.** The runtime configuration contains the
   committed snapshot, ordered event queue, named RNG-stream states, Resolved Runtime profile,
-  budgets, and trace. One step dispatches exactly one atomic Event transaction under bADR-0014,
-  then commits a uniquely determined next configuration or terminal refusal. Lifecycle transitions
-  in bADR-0020 gate when initialization, event, step, termination, and reset judgments are legal.
+  independent budgets, admitted root-reference map, and trace. One internal scheduler transition
+  dispatches exactly one atomic Event transaction under bADR-0014, then commits a uniquely
+  determined next configuration or terminal refusal. The public `step` judgment applies internal
+  transitions until the next declared observation or logical boundary. Lifecycle transitions in
+  bADR-0020 gate when initialization, event, step, termination, and reset judgments are legal.
 
 - **HIR-to-RIR lowering is a terminating rule relation to a canonical normal form.** Rules declare
   legal source operation/type patterns, required capabilities, replacement RIR patterns, and

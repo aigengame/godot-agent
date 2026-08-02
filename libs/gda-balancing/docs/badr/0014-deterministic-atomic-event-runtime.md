@@ -24,6 +24,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > wording retained below therefore apply only after successful initialization and Event dispatch.
 > bADR-0022 separately owns Formula-result caching semantics and its conformance vector.
 
+> **Amendment (2026-08-03, #594):** Runtime admission resolves one closed Experiment Event plan,
+> assigns every authored root Event a stable Runtime identity before dispatch, and exposes the
+> complete `root_event_ref → event_id` map. An internal scheduler transition dispatches one Event;
+> public `step` advances to the next declared observation or logical boundary. These are not a
+> universal tick or a second Experiment timeline.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
@@ -39,6 +45,14 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   The enqueue sequence is assigned monotonically by the runtime when an event is admitted. Models
   and packages cannot supply it or reorder/extend the phase table.
 
+- **Root Event admission is deterministic and identity-bearing.** Every authored root member has a
+  unique stable `root_event_ref`. The Runtime admits root members in their canonical authored-array
+  order, allocates each Runtime-owned `event_id`, and assigns initial enqueue sequence in that order
+  before dispatch. Equal logical time is legal; Event identity, object-map iteration, wall clock,
+  threads, and evaluator parallelism never break ties. The admission result exposes the exact root
+  reference map, while later schedule operations return and trace their Runtime-owned child
+  `event_id`.
+
 - **The three phases have non-overlapping ownership.** `input` admits the externally supplied,
   source-sequenced facts for that logical time and cannot be scheduled by model operations.
   `transition` executes model actions, effects, resource changes, combat, generation, and other
@@ -47,6 +61,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   that time is drained and emits metrics/evidence only; it cannot mutate model state, consume model
   resources, or schedule another event at the same logical time. A later Domain package therefore
   cannot acquire a hidden scheduler slot.
+
+- **Public `step` is boundary-directed.** One internal scheduler transition dispatches exactly one
+  atomic Event. A public `step` repeatedly applies those transitions until the next declared
+  observation or logical boundary, then returns the newly committed boundary. Queue drain and the
+  Experiment's declared multi-step terminal condition end a run. `event-steps` is an Operation
+  resource counter, not logical time; there is no fixed tick.
 
 - **Each event is one atomic transaction over the latest committed state.** Dispatch reads the
   snapshot produced by the previous successful event, including events at the same logical time.
@@ -96,12 +116,20 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   read-only and cannot schedule. A transaction may never enqueue into an already completed time,
   phase, or queue position. Illegal scheduling is a Runtime refusal. Deterministic caps on zero-time
   derivation depth, total events, and queue size bound cycles and denial-of-service behavior.
+  A successful schedule provisionally admits a stable child `event_id` immediately and buffers its
+  queue visibility; later operations in the same transaction may address that pending identity.
+  Commit makes each uncanceled child visible under the same queue law, while refusal discards the
+  provisional admission with the other Event buffers. The trace binds the scheduling call site,
+  parent Event, child Event, complete ordering key, and commit outcome.
 
 - **Cancellation is prospective and identity-based.** Every admitted event has a stable `event_id`.
   Cancellation may target only an event that has not begun dispatch; canceling an absent, completed,
   or active event follows the operation's declared typed outcome and never rewinds committed state.
   Undo is represented by an explicit compensating event or a higher-level rollback model, not by
   scheduler time travel.
+  Cancellation is buffered with the active transaction and traces the canceling Event/call site,
+  target identity, and typed result. A successful commit removes only an admitted pending target;
+  refusal restores both the queue and cancellation state.
 
 - **Reaction and priority windows are bounded Domain protocols, not hidden scheduler phases.** A
   package may represent a proposed action, eligible responders, pass state, nested responses, and a
@@ -138,6 +166,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic
   zero-time and total-event budgets prevent an unbounded chain from silently starving the queue;
   exhaustion is a Runtime refusal with the last committed snapshot preserved.
+
+- **Budgets are independent and observable.** Runtime node-step, per-Event operation-step, queue,
+  zero-time-depth, total-Event, and logical-time limits have distinct authority paths and counters.
+  Exhausting one cannot be reported as another or reset by a scenario boundary. The Resolved
+  Runtime profile and terminal audit expose the selected limits and consumed boundary.
 
 - **Randomness is stream-scoped and normatively mapped.** Stochastic operations read only a Named
   random stream derived from the effective root seed and stable stream identity under the selected

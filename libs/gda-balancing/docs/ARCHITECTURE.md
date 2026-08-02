@@ -336,9 +336,11 @@ Operation composition is explicit and directional. An LDB Operation is the sole 
 named formal ports. Every nested call binds the callee's complete formal-port set to caller ports,
 caller locals, literals, or another Kernel-admitted expression; equality of display names has no
 semantic force. A Model Source entrypoint then binds one exact Operation's ports to resolved Model
-symbols and binds or explicitly discards its result. Experiment scenarios may select only those
-entrypoints and assign the generated Scenario Input Contract; they cannot select an LDB Operation
-or repeat its port schema. The selected LDB lowering owns the total Symbol assignment table
+symbols and binds or explicitly discards its result. Experiment transition-invocation members may
+select only those entrypoints. Scenario initialization assigns the canonical union of their
+generated Scenario Input Contracts; each Event-local payload is admitted by a separately derived
+contract. Experiments cannot select an LDB Operation or repeat its port schema. The selected LDB
+lowering owns the total Symbol assignment table
 (value ownership, legal port access and result roles, required/optional Experiment modes, and
 actual-target deduplication) and the nested-call composition policy (callee effect/refusal closure
 and transitive resource bounds). The host interprets those admitted tables; it does not maintain a
@@ -668,8 +670,8 @@ One execution instance follows a closed lifecycle:
    creating mutable state;
 2. `initializing` evaluates against an immutable pre-Snapshot Initialization frame and atomically
    creates and validates Snapshot 0;
-3. `event` dispatches the atomic events at the current logical time;
-4. `step` advances to the next declared observation or logical boundary;
+3. `event` applies one internal scheduler transition and dispatches one atomic Event;
+4. public `step` applies those transitions until the next declared observation or logical boundary;
 5. `terminated` seals terminal trace, Snapshot, Metrics, and evidence identities; and
 6. reset discards the instance and initializes a new one from the same immutable artifacts rather
    than mutating RIR.
@@ -680,6 +682,13 @@ Runtime execution is a sequential, total-order stream of atomic Event transactio
 one phase in its stable ordering key. At each logical time the fixed order is `input`, `transition`,
 then `observation`; signed priority descending and runtime-assigned FIFO enqueue sequence complete
 the total order. Models and packages cannot add or reorder phases.
+
+Runtime admission first resolves the Experiment's closed Executable Event plan. Every authored
+external-input or transition-invocation root member has a unique stable `root_event_ref`; canonical
+array order assigns initial enqueue sequence and Runtime-owned `event_id`, producing an explicit
+root-reference map before dispatch. Equal logical times are legal. Event identity, host-container
+iteration, wall clock, threads, and evaluator parallelism never break ties. Observation members are
+derived from exact Observation/Metric contracts and cannot choose a phase or Model entrypoint.
 
 - An `input` event admits externally supplied, source-sequenced facts and cannot be scheduled by
   model operations.
@@ -692,6 +701,16 @@ the total order. Models and packages cannot add or reorder phases.
 Dispatching **each queued event** is one atomic transaction over the latest committed Snapshot.
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
 commits; refusal discards that event's buffers.
+
+A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
+commit makes each uncanceled child queue-visible under the same law and traces its
+parent/call-site provenance. Cancellation targets only a stable admitted pending identity,
+including one provisionally admitted in the same transaction, and is buffered atomically. Backward scheduling,
+hidden input admission, active/completed cancellation, illegal same-time priority, queue overflow,
+zero-time derivation overflow, total-Event exhaustion, and logical-time exhaustion follow their
+distinct LDB-owned typed outcomes or Runtime refusals. Runtime node-step, per-Event operation-step,
+queue, zero-time-depth, total-Event, and logical-time budgets remain separately identified and
+observable in the Resolved Runtime profile and audit artifacts.
 
 Initialization is a distinct atomic pre-Event boundary. A refusal while deriving or validating
 Snapshot 0 discards the whole Initialization frame and returns a `runtime`-stage refusal with exact
@@ -743,8 +762,11 @@ fault-injected and verified independently.
 
 An Experiment Specification owns everything that turns a model into a testable question:
 
-- scenarios and external inputs;
-- exact Model-entrypoint selection and total assignments to its generated Scenario Input Contract;
+- scenarios and their bounded external-input/transition-invocation root Event plans;
+- canonical one-time initialization over the union of selected entrypoints' Scenario Input
+  Contracts;
+- exact per-Event Model-entrypoint selection and separately derived Event-local payload admission;
+- derived observation Events from exact Observation/Metric contracts;
 - exact model/runtime compatibility binding;
 - metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;

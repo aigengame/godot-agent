@@ -16,6 +16,11 @@ different results “calibrated.” Finally, a mutable lifecycle status cannot p
 data, runtime, and policy passed each gate. PRD #534 therefore fixes one metric contract and an
 append-only evidence graph.
 
+> **Amendment (2026-08-03, #594):** Experiment scenarios own bounded executable Event plans. Their
+> observation Events are derived from exact Observation/Metric contracts, and run/evidence
+> artifacts bind the admitted root-reference map, complete Event ordering keys, logical windows,
+> terminal condition, and Runtime profile rather than treating an authored scenario as one step.
+
 ## Decision
 
 - **One Metrics schema represents both simulated and observed samples.** Every Metric definition
@@ -32,13 +37,19 @@ append-only evidence graph.
   censoring, refusal, or infinity.
 
 - **The Experiment Specification owns evaluation and statistical intent.** It declares scenarios,
-  model inputs, Metric definitions, sampling plan, replication unit, correlation clusters,
+  one-time model initialization, bounded external-input/transition-invocation root Event plans,
+  Metric definitions, sampling plan, replication unit, correlation clusters,
   Observation model, model-discrepancy treatment, parameter space and constraints, objectives,
   acceptance rule, estimator policy, train/holdout partition, and drift policy. The Resolved Model
   exports typed state/events/outputs; it does not own targets or post-hoc acceptance criteria.
 
-- **Experiment inputs, selectors, event sequence, and acceptance are executable contracts.** An
-  input override is checked against the exact-bound Resolved Model symbol's representation,
+- **Experiment inputs, selectors, Event plan, and acceptance are executable contracts.** A
+  one-time assignment is checked against the canonical union of the selected entrypoints' exact
+  Resolved Model-symbol targets. A transition-invocation payload is checked against its separately
+  derived Event-local contract, while external facts are checked against their typed source
+  contract. Every authored root member has a unique `root_event_ref`; observation members are
+  derived from the exact Metric/Observation contracts and cannot choose another Runtime phase. An
+  assigned value is checked against the exact-bound Resolved Model symbol's representation,
   nominal kind, unit, support/domain, and Numeric profile before dispatch. Metric selectors and
   acceptance use closed LDB-governed expressions with normative typing, ordering, empty-selection,
   missing-Metric, and identity laws. An empty selector set is legal only when the Experiment permits
@@ -47,8 +58,10 @@ append-only evidence graph.
 
 - **An Evaluation run records execution facts without deciding success.** It binds the exact
   Resolved Model, Experiment Specification, Resolved Runtime profile, evaluator build, effective seed and
-  Named random streams, external-input identity, ordered trace/snapshots, terminal status, and
-  produced Metric dataset. A runtime refusal instead produces bADR-0014/0015's separately typed,
+  Named random streams, external-input identity, root-reference admission map, ordered
+  trace/snapshots with complete ordering and parent/child/cancellation provenance, declared logical
+  windows and terminal condition, terminal status, and produced Metric dataset. A runtime refusal
+  instead produces bADR-0014/0015's separately typed,
   atomically published terminal-audit artifact set; it cannot produce a completed Evaluation-run
   success artifact or Metric dataset.
 
