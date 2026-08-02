@@ -4868,9 +4868,14 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
 
-    rir = model_module.lower_checked_model(checked)["rir-semantic-payload"]
+    rir = cast(
+        dict[str, Any],
+        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+    )
     entrypoint = next(
-        row for row in rir["entrypoints"] if row["id"] == "combat.cast"
+        row
+        for row in cast(list[dict[str, Any]], rir["entrypoints"])
+        if row["id"] == "combat.cast"
     )
 
     assert {
@@ -5322,7 +5327,13 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     lowering["assignment_policy"]["roles"].append(
         {
             "role": "lowered-by-ldb",
-            "modes": [modes_by_id[mode] for mode in sorted(modes_by_id)],
+            "modes": [
+                {
+                    **modes_by_id[mode],
+                    "event_payload_cardinality": "forbidden",
+                }
+                for mode in sorted(modes_by_id)
+            ],
             "entrypoint_operand_access": [],
             "entrypoint_result": False,
             "binding_kind": "internal",

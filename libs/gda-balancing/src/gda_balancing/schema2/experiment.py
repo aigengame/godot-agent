@@ -1025,6 +1025,61 @@ def check_experiment(
             required_numeric_policies.update(requirements["numeric_policies"])
             required_rng_algorithms.update(requirements["rng_algorithms"])
             required_streams.update(named_streams)
+            payload_contract = cast(
+                dict[str, Any], entrypoint["event_local_payload_contract"]
+            )
+            payload_targets = cast(list[dict[str, Any]], payload_contract["targets"])
+            payload = cast(list[dict[str, Any]], event["payload"])
+            payload_pointer = (
+                f"/scenarios/{scenario_index}/event_plan/{event_index}/payload"
+            )
+            if not _unique_canonical_rows(payload, "target"):
+                return _refusal(
+                    stage="static",
+                    code="language.source_contract_mismatch",
+                    identity=experiment_identity,
+                    pointer=payload_pointer,
+                    message="Event-local payload repeats a target",
+                )
+            allowed_payload = {
+                canonical_bytes(cast(JsonValue, row["target"])): row
+                for row in payload_targets
+            }
+            provided_payload = {
+                canonical_bytes(cast(JsonValue, row["target"])): row for row in payload
+            }
+            required_payload = {
+                key
+                for key, row in allowed_payload.items()
+                if row["cardinality"] == "required"
+            }
+            if (
+                not required_payload <= provided_payload.keys()
+                or not provided_payload.keys() <= allowed_payload.keys()
+            ):
+                return _refusal(
+                    stage="static",
+                    code="language.source_contract_mismatch",
+                    identity=experiment_identity,
+                    pointer=payload_pointer,
+                    message=(
+                        "Transition payload does not exactly close its Event-local "
+                        "payload contract"
+                    ),
+                )
+            for payload_index, row in enumerate(payload):
+                declaration = declarations[
+                    canonical_bytes(cast(JsonValue, row["target"]))
+                ]
+                domain = declaration["domain"]
+                if not domain["minimum"] <= row["value"] <= domain["maximum"]:
+                    return _refusal(
+                        stage="static",
+                        code="language.invalid_domain",
+                        identity=experiment_identity,
+                        pointer=f"{payload_pointer}/{payload_index}/value",
+                        message="Event-local payload is outside its declared domain",
+                    )
         contract_targets = [
             target
             for entrypoint in selected_entrypoints

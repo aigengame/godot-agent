@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.multi-event",
   "version": "1.0.0",
-  "kernel_identity": "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194",
-  "language_bundle_identity": "sha256:8477b7a3a59da3cc296e426fdfe1a1997706af940de8e3741ab1f40d7f8fe9b3",
+  "kernel_identity": "sha256:c0ec895850a0384f9dab567d3d483fc4b32e4fca535e9745ad6adb02194c9c03",
+  "language_bundle_identity": "sha256:031acc55175bc3ac3c3172addeca94169864e4b5277f7086285a5e1e216e0929",
   "model": {
     "source_identity": "sha256:567635b88135f3893530422b6956854bc15cbdfd8913be45b2130f7f2f3cb45b",
-    "build_receipt_identity": "sha256:0fd345ec1eb9a1f0156cace8674e109ed4d6f86609c6c626cd77949a45b98eaf",
-    "resolved_model_identity": "sha256:7a3b3f5cbd83f723e2da5a296f8f079b16799a413cd3cac0cd7d1b10fc65236f",
-    "package_lock_identity": "sha256:2f3888d495762e23be3f1c77eb8434fb468c4b83ae9648fbd939a2f64a15fed5",
-    "rir_identity": "sha256:6f312336ded0842901e8f6afeb3978cb92dd880323a1d3deb402133f656ea066"
+    "build_receipt_identity": "sha256:440e453da1866bef504308ef34fe240aae44812cfcacd13d08021830138eb9df",
+    "resolved_model_identity": "sha256:7de11bdb9ed901231c91ea323d536ad88d2db5f29f4747c2405d8091a117efd1",
+    "package_lock_identity": "sha256:e4bcd219ba9b510be104cc33c3d96ba74180c34347f6fee88ffec8b519e5a85e",
+    "rir_identity": "sha256:e727be87b0d2ffa5ce0fada19f111d1642e438a8d9ac7519f2f9d68015a950d1"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -83,9 +83,18 @@
           "kind": "transition-invocation",
           "root_event_ref": "plan-casts",
           "logical_time": 0,
-          "priority": 0,
-          "entrypoint": "combat.plan-casts",
-          "payload": []
+      "priority": 0,
+      "entrypoint": "combat.plan-casts",
+      "payload": [
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "base_damage"
+          },
+          "value": 45
+        }
+      ]
         }
       ],
       "assignments": [

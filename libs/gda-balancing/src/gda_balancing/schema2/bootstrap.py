@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194"
+    "sha256:c0ec895850a0384f9dab567d3d483fc4b32e4fca535e9745ad6adb02194c9c03"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4555,8 +4555,9 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
     source = mode.get("initialization_source")
     value_member = mode.get("value_member")
     cardinality = mode.get("experiment_cardinality")
+    event_cardinality = mode.get("event_payload_cardinality")
     override = mode.get("override")
-    return (
+    initialization_is_coherent = (
         (
             source == "model"
             and value_member == "required"
@@ -4582,6 +4583,11 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
             and override is False
         )
     )
+    return initialization_is_coherent and event_cardinality in {
+        "forbidden",
+        "optional",
+        "required",
+    }
 
 
 def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
@@ -4610,14 +4616,29 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
                 )
                 for mode in modes
             )
+            and all(
+                mode["event_payload_cardinality"] == "forbidden"
+                or (
+                    accesses == ["read"]
+                    and mode["initialization_source"]
+                    in {"experiment", "model-with-experiment-override"}
+                )
+                for mode in modes
+            )
         )
     if binding_kind == "result":
         return (
             not accesses
             and result is True
             and all(mode["initialization_source"] == "execution" for mode in modes)
+            and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
         )
-    return binding_kind == "internal" and not accesses and result is False
+    return (
+        binding_kind == "internal"
+        and not accesses
+        and result is False
+        and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+    )
 
 
 def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:

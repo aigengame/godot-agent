@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194"
+    "sha256:c0ec895850a0384f9dab567d3d483fc4b32e4fca535e9745ad6adb02194c9c03"
 )
 
 
@@ -4294,6 +4294,8 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                     mode.get("override"),
                 )
                 not in coherent_modes
+                or mode.get("event_payload_cardinality")
+                not in {"forbidden", "optional", "required"}
                 for mode in modes
             )
             or len({mode["id"] for mode in modes}) != len(modes)
@@ -4313,6 +4315,15 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         )
                         for mode in modes
                     )
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        and not (
+                            accesses == ["read"]
+                            and mode["initialization_source"]
+                            in {"experiment", "model-with-experiment-override"}
+                        )
+                        for mode in modes
+                    )
                 )
             )
             or (
@@ -4323,9 +4334,23 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                     or any(
                         mode["initialization_source"] != "execution" for mode in modes
                     )
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
                 )
             )
-            or (binding_kind == "internal" and (accesses or result is not False))
+            or (
+                binding_kind == "internal"
+                and (
+                    accesses
+                    or result is not False
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
+                )
+            )
             or binding_kind not in {"operand", "result", "internal"}
         ):
             return False

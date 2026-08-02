@@ -159,13 +159,17 @@ those read-only ports explicitly to the one game-owned
 LDB assignment policy marks that Symbol as a required Experiment input, so RIR exports one exact
 target even though two ports consume it; the Experiment assigns that target once. A Model-fixed
 value would instead appear as a Model initializer, and an admitted override mode would expose one
-optional Experiment target over that explicit default. This is deliberate DRY:
+optional Experiment target over that explicit default. The same LDB policy separately exports
+read-only `parameter` and `input` operands as optional Event-local targets. The example plan uses
+that contract to supply `base_damage` for its transition without making `actor_mana` state
+payload-addressable. This is deliberate DRY:
 
 ```text
 LDB Operation formal ports
     -> Model entrypoint binds game-owned symbols
         -> RIR derives exact call sites and Scenario Input Contract
-            -> Experiment assigns only those contract members
+            + Event-local payload contract
+                -> Experiment assigns only the matching members at each boundary
 ```
 
 ## 3. Round-trip Formula notation
@@ -402,6 +406,9 @@ The Event plan deliberately separates concepts that are easy to conflate:
 - `root_event_ref` is the stable authored name in `experiment.json`; Runtime maps each root to its
   own `event_id` before dispatch. Scheduled children have Runtime ids and parent/call-site
   provenance, but no authored root reference.
+- `payload` is checked against the selected entrypoint's independently derived Event-local
+  contract. Here it explicitly overrides `base_damage` with the same tutorial value for the
+  `plan-casts` Event; trying to put writable `actor_mana` state there refuses before Runtime.
 - Logical time orders modeled Events; it is not a tick count and is unrelated to node-step or
   per-Event resource budgets. Here the roots execute at time `0`, and the surviving child executes
   at time `1`.

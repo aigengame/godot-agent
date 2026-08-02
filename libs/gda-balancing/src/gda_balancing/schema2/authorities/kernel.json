@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194",
+  "content_identity": "sha256:c0ec895850a0384f9dab567d3d483fc4b32e4fca535e9745ad6adb02194c9c03",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2573,6 +2573,13 @@
                                 "forbidden",
                                 "required"
                               ]
+                            },
+                            "event_payload_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
                             }
                           },
                           "required_members": [
@@ -2580,7 +2587,8 @@
                             "initialization_source",
                             "value_member",
                             "experiment_cardinality",
-                            "override"
+                            "override",
+                            "event_payload_cardinality"
                           ],
                           "type": "closed-object"
                         },

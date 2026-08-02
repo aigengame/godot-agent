@@ -2726,6 +2726,7 @@ def _reference_entrypoints(
         aliases: dict[str, list[tuple[str, str]]] = {}
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
+        event_payload_targets: dict[str, dict[str, Any]] = {}
         for argument_index, (formal, authored) in enumerate(
             zip(formals, authored_arguments, strict=True)
         ):
@@ -2775,6 +2776,24 @@ def _reference_entrypoints(
                     if previous is not None and previous != target:
                         raise ValueError("conflicting Scenario targets")
                     targets[operand_identity] = target
+                if mode["event_payload_cardinality"] != "forbidden":
+                    payload_target = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "experiment",
+                        "value_source": "event-payload",
+                        "cardinality": mode["event_payload_cardinality"],
+                        "override": True,
+                    }
+                    previous_payload_target = event_payload_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_payload_target is not None
+                        and previous_payload_target != payload_target
+                    ):
+                        raise ValueError("conflicting Event-local payload targets")
+                    event_payload_targets[operand_identity] = payload_target
                 if mode["initialization_source"] in {
                     "model",
                     "model-with-experiment-override",
@@ -2941,6 +2960,12 @@ def _reference_entrypoints(
                     targets.values(),
                     key=lambda row: row["target_identity"],
                 ),
+            },
+            "event_local_payload_contract": {
+                "targets": sorted(
+                    event_payload_targets.values(),
+                    key=lambda row: row["target_identity"],
+                )
             },
         }
         resolved_entrypoints.append(

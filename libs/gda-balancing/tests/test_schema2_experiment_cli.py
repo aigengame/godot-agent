@@ -5216,7 +5216,7 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     )
     assert audit["budget_counters"]["logical_time"] == 0
     assert audit["budget_counters"]["queue_events"] == 0
-    assert audit["budget_counters"]["total_events"] == 1
+    assert audit["budget_counters"]["total_events"] == 4
     assert audit["budget_counters"]["zero_time_depth"] == 0
     assert audit["budget_counters"]["event_steps"] > 0
     assert audit["budget_counters"]["node_steps"] > 0

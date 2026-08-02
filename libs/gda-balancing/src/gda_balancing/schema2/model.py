@@ -3240,6 +3240,8 @@ def _assignment_policy(
                 or mode.get("value_member") not in {"forbidden", "required"}
                 or mode.get("experiment_cardinality")
                 not in {"forbidden", "optional", "required"}
+                or mode.get("event_payload_cardinality")
+                not in {"forbidden", "optional", "required"}
                 or not isinstance(mode.get("override"), bool)
                 for mode in row["modes"]
             )
@@ -3277,8 +3279,9 @@ def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
     source = mode.get("initialization_source")
     value_member = mode.get("value_member")
     cardinality = mode.get("experiment_cardinality")
+    event_cardinality = mode.get("event_payload_cardinality")
     override = mode.get("override")
-    return (
+    initialization_is_coherent = (
         (
             source == "model"
             and value_member == "required"
@@ -3304,6 +3307,11 @@ def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
             and override is False
         )
     )
+    return initialization_is_coherent and event_cardinality in {
+        "forbidden",
+        "optional",
+        "required",
+    }
 
 
 def _assignment_role_is_total(row: dict[str, Any]) -> bool:
@@ -3324,14 +3332,29 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
                 )
                 for mode in modes
             )
+            and all(
+                mode["event_payload_cardinality"] == "forbidden"
+                or (
+                    accesses == ["read"]
+                    and mode["initialization_source"]
+                    in {"experiment", "model-with-experiment-override"}
+                )
+                for mode in modes
+            )
         )
     if row["binding_kind"] == "result":
         return (
             not accesses
             and result is True
             and all(mode["initialization_source"] == "execution" for mode in modes)
+            and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
         )
-    return row["binding_kind"] == "internal" and not accesses and result is False
+    return (
+        row["binding_kind"] == "internal"
+        and not accesses
+        and result is False
+        and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+    )
 
 
 def _assignment_policy_by_role(
@@ -4182,6 +4205,28 @@ def _symbol_initialization_contract(
     return target, initializer
 
 
+def _symbol_event_payload_contract(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+    resolved_symbol: dict[str, JsonValue],
+    target_identity: str,
+) -> dict[str, JsonValue] | None:
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
+        raise ValueError("Symbol has no total assignment-policy mode")
+    cardinality = cast(str, mode["event_payload_cardinality"])
+    if cardinality == "forbidden":
+        return None
+    return {
+        "target": resolved_symbol,
+        "target_identity": target_identity,
+        "owner": "experiment",
+        "value_source": "event-payload",
+        "cardinality": cardinality,
+        "override": True,
+    }
+
+
 def _formula_symbol_dependencies(
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
@@ -4482,6 +4527,7 @@ def _resolved_entrypoints(
         resolved_arguments: list[dict[str, JsonValue]] = []
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        event_payload_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
 
         def record_formula_dependency(
@@ -4611,6 +4657,26 @@ def _resolved_entrypoints(
                             "contracts",
                         )
                     scenario_targets[operand_identity] = target
+                event_payload_target = _symbol_event_payload_contract(
+                    declaration,
+                    assignment_policy,
+                    resolved_symbol,
+                    operand_identity,
+                )
+                if event_payload_target is not None:
+                    previous_payload_target = event_payload_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_payload_target is not None
+                        and previous_payload_target != event_payload_target
+                    ):
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting Event-local "
+                            "payload contracts",
+                        )
+                    event_payload_targets[operand_identity] = event_payload_target
                 if initializer is not None:
                     previous_initializer = initializers.get(operand_identity)
                     if (
@@ -4759,6 +4825,12 @@ def _resolved_entrypoints(
                         scenario_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
                     ),
+                },
+                "event_local_payload_contract": {
+                    "targets": sorted(
+                        event_payload_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    )
                 },
             },
         )
@@ -5923,6 +5995,7 @@ def _resolved_entrypoint_graph_is_admitted(
             return False
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        event_payload_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
 
@@ -6038,6 +6111,22 @@ def _resolved_entrypoint_graph_is_admitted(
                     if previous is not None and previous != target:
                         return False
                     scenario_targets[operand_identity] = target
+                event_payload_target = _symbol_event_payload_contract(
+                    declaration,
+                    assignment_policy,
+                    cast(dict[str, JsonValue], symbol),
+                    operand_identity,
+                )
+                if event_payload_target is not None:
+                    previous_payload_target = event_payload_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_payload_target is not None
+                        and previous_payload_target != event_payload_target
+                    ):
+                        return False
+                    event_payload_targets[operand_identity] = event_payload_target
                 if initializer is not None:
                     previous_initializer = initializers.get(operand_identity)
                     if (
@@ -6174,6 +6263,12 @@ def _resolved_entrypoint_graph_is_admitted(
                         scenario_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
                     ),
+                },
+                "event_local_payload_contract": {
+                    "targets": sorted(
+                        event_payload_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    )
                 },
             },
         )

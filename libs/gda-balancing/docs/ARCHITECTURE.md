@@ -339,7 +339,10 @@ semantic force. A Model Source entrypoint then binds one exact Operation's ports
 symbols and binds or explicitly discards its result. Experiment transition-invocation members may
 select only those entrypoints. Scenario initialization assigns the canonical union of their
 generated Scenario Input Contracts; each Event-local payload is admitted by a separately derived
-contract. Experiments cannot select an LDB Operation or repeat its port schema. The selected LDB
+contract. The assignment mode owns that payload cardinality: only an admitted read-only
+Experiment-initialized parameter or input can be overridden for one Event; fixed, writable,
+derived, result, and internal values cannot. Experiments cannot select an LDB Operation or repeat
+its port schema. The selected LDB
 lowering owns the total Symbol assignment table
 (value ownership, legal port access and result roles, required/optional Experiment modes, and
 actual-target deduplication) and the nested-call composition policy (callee effect/refusal closure

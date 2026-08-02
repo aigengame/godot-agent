@@ -539,7 +539,10 @@ result mode not produced by execution (bADR-0012/0013/0022).
 When one scenario selects several entrypoints, initialization is the canonical union of their
 targets: equal targets with equal contracts collapse, while conflicting contracts or assignments
 refuse. This union is a derived projection, not a second Scenario Input Contract. Event-local
-payloads and external facts never become initialization members.
+payloads and external facts never become initialization members. The LDB assignment mode derives a
+separate payload contract for each entrypoint: an admitted read-only, Experiment-initialized
+parameter or input may be overridden for one Event, while state and every other forbidden target
+cannot appear in that payload.
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:

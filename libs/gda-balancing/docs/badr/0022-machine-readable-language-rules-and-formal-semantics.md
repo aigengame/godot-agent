@@ -237,7 +237,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   initializer, and rejects a result mode not produced by execution. Successful lowering gives every
   actual operand and call site a stable identity and emits Model initializers and Experiment targets
   in each entrypoint's Scenario Input Contract plus a separately derived Event-local payload
-  contract. Literal typing is a separate package-owned LDB authority: a root
+  contract. Each assignment mode also owns its Event-payload cardinality: this slice permits an
+  optional Event-local override only for read-only `parameter` and `input` operands initialized by
+  the Experiment, while fixed, writable, derived, result, and internal values remain forbidden.
+  Literal typing is a separate package-owned LDB authority: a root
   or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
   type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The
   exporting package owns the exact Type release, referenced value inventories and an Operation
