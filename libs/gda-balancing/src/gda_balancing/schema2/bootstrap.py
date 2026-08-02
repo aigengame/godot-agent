@@ -50,7 +50,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:26f75f10ee01a9ea5063ec87cdc24f0b05d21cd36a4cd40bb527cf9a6a929f07"
+    "sha256:1a013468b0fbbbec15cf89b20fb5bbbe16c8a3a9302ace9fac270f3b96487914"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -432,6 +432,7 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "body",
             "default_outcome",
             "effects",
+            "extensions",
             "outcomes",
             "refusals",
             "resource_bounds",
@@ -2969,6 +2970,7 @@ def _runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
+            "optional_members": ["excluded_extension_members"],
             "lock_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -3101,9 +3103,18 @@ def _runtime_projection_is_closed(
     collection_ids: list[str] = []
     authority_paths: set[str] = set()
     for collection in collections:
+        if not isinstance(collection, dict):
+            return False
+        expected_collection_members = {
+            "id",
+            "source",
+            "output_member",
+            "output_shape",
+        }
+        if "excluded_extension_members" in collection:
+            expected_collection_members.add("excluded_extension_members")
         if (
-            not isinstance(collection, dict)
-            or set(collection) != {"id", "source", "output_member", "output_shape"}
+            set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
@@ -3117,6 +3128,19 @@ def _runtime_projection_is_closed(
                 and (
                     not isinstance(collection.get("output_member"), str)
                     or not collection["output_member"]
+                )
+            )
+            or (
+                "excluded_extension_members" in collection
+                and (
+                    not isinstance(collection["excluded_extension_members"], list)
+                    or not collection["excluded_extension_members"]
+                    or not all(
+                        isinstance(member, str) and member
+                        for member in collection["excluded_extension_members"]
+                    )
+                    or len(collection["excluded_extension_members"])
+                    != len(set(collection["excluded_extension_members"]))
                 )
             )
         ):

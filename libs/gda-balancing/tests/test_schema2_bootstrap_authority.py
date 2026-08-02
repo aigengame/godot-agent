@@ -108,6 +108,11 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "core.quantity": {
             "formula.quantity.accept.pure-operation-closure",
             "formula.quantity.accept.boolean-comparison",
+            "formula.notation.quantity.floor-zero",
+            "formula.notation.quantity.identity",
+            "formula.notation.quantity.less-than",
+            "formula.notation.quantity.maximum",
+            "formula.notation.quantity.subtract",
         },
         "game.combat": {
             "formula.combat.accept.damage-slot-binding",
@@ -188,6 +193,22 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
         "unit": "1",
     }
+    quantity_vectors = {
+        vector["id"]: vector
+        for vector in vector_sets["core.quantity"]["vector_definitions"]
+    }
+    for operation_id, operation in quantity_operations.items():
+        vector_id = f"formula.notation.{operation_id}"
+        vector = quantity_vectors[vector_id]
+        assert vector == {
+            "category": "positive",
+            "expect": operation["extensions"],
+            "id": vector_id,
+            "kind": "operation-contract",
+            "operation": operation_id,
+            "probe": {"path": "extensions"},
+        }
+        assert vector_id in operation["vectors"]
 
 
 @pytest.mark.parametrize(

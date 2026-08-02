@@ -5705,12 +5705,33 @@ def _runtime_projection(
     }
     projection: dict[str, Any] = {}
     closure_values: dict[tuple[str, str], list[Any]] = {}
+
+    def projected_runtime_value(
+        collection: dict[str, Any], value: Any
+    ) -> Any:
+        excluded = collection.get("excluded_extension_members", [])
+        if not excluded:
+            return value
+        if not isinstance(value, dict) or not isinstance(value.get("extensions"), dict):
+            return value
+        projected_value = deepcopy(value)
+        extensions = cast(dict[str, Any], projected_value["extensions"])
+        for member in cast(list[str], excluded):
+            extensions.pop(member, None)
+        if not extensions:
+            projected_value.pop("extensions")
+        return projected_value
+
     for collection in cast(list[dict[str, Any]], profile["collections"]):
         collection_id = cast(str, collection["id"])
         rows = [
             row
             for index, row in enumerate(catalogs[collection_id])
             if budget.consume() is None and index in selected[collection_id]
+        ]
+        rows = [
+            {**row, "value": projected_runtime_value(collection, row["value"])}
+            for row in rows
         ]
         for row in rows:
             authority_path = row["authority_path"]

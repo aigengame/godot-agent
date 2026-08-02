@@ -5268,6 +5268,370 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert "semantic_identity" not in original_closures[0]
 
 
+def _rewrite_formula_expressions(value: Any, old: str, new: str) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "expression" and isinstance(child, str):
+                value[key] = child.replace(old, new)
+            else:
+                _rewrite_formula_expressions(child, old, new)
+    elif isinstance(value, list):
+        for child in value:
+            _rewrite_formula_expressions(child, old, new)
+
+
+def _rpg_source_value() -> dict[str, Any]:
+    return json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+
+
+def _check_with_candidate_ldb(
+    source: dict[str, Any],
+    kernel: dict[str, Any],
+    language_bundle: LanguageBundleIndex,
+) -> model_module.CheckedModel:
+    admission = admit_authorities(kernel, language_bundle)
+    assert admission.admitted is True, admission
+    checked = model_module.check_model_source_value(
+        source,
+        kernel=kernel,
+        language_bundle=language_bundle,
+        authority_admission=admission,
+    )
+    assert isinstance(checked, model_module.CheckedModel), checked
+    return checked
+
+
+def _mutate_operation_notation(
+    language_bundle: LanguageBundleIndex,
+    operation_id: str,
+    member: str,
+    value: Any,
+) -> None:
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == operation_id
+    )
+    operation["extensions"]["standard.formula-notation"][member] = value
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == f"formula.notation.{operation_id}"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+
+
+def _locked_package_ids(lowered: dict[str, Any]) -> set[str]:
+    lock = cast(dict[str, Any], lowered["package-lock"])
+    packages = cast(list[dict[str, Any]], lock["packages"])
+    return {cast(str, row["id"]) for row in packages}
+
+
+def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(
+        LanguageBundleIndex, deepcopy(baseline.language_bundle)
+    )
+    _mutate_operation_notation(
+        candidate_ldb,
+        "quantity.subtract",
+        "token",
+        "−",
+    )
+    _rewrite_formula_expressions(candidate_ldb["vectors"], " - ", " − ")
+    _rewrite_formula_expressions(source, " - ", " − ")
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_core = next(
+        row
+        for row in baseline.language_bundle["language"]["packages"]
+        if row["id"] == "core.quantity"
+    )
+    mutated_core = next(
+        row
+        for row in candidate_ldb["language"]["packages"]
+        if row["id"] == "core.quantity"
+    )
+    assert original_core["content_identity"] != mutated_core["content_identity"]
+    baseline_ldb = cast(LanguageBundleIndex, baseline.language_bundle)
+    assert baseline_ldb.root["content_identity"] != candidate_ldb.root[
+        "content_identity"
+    ]
+    assert original["package-lock"]["content_identity"] != mutated[
+        "package-lock"
+    ]["content_identity"]
+    assert original["rir-semantic-payload"]["content_identity"] != mutated[
+        "rir-semantic-payload"
+    ]["content_identity"]
+    assert original["rir-semantic-payload"]["semantic_identity"] == mutated[
+        "rir-semantic-payload"
+    ]["semantic_identity"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_selected_unreachable_notation_preserves_both_rir_identities():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(
+        LanguageBundleIndex, deepcopy(baseline.language_bundle)
+    )
+    _mutate_operation_notation(
+        candidate_ldb,
+        "quantity.identity",
+        "name",
+        "copy_value",
+    )
+    _rewrite_formula_expressions(candidate_ldb["vectors"], "identity(", "copy_value(")
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["capability-manifest"] != mutated["capability-manifest"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_unselected_resolution_profile_owner_still_reidentifies_lock():
+    source = _model_source()
+    packaged = model_module.check_model_source_value(source)
+    assert isinstance(packaged, model_module.CheckedModel)
+    baseline_ldb = cast(
+        LanguageBundleIndex, deepcopy(packaged.language_bundle)
+    )
+    compiler = next(
+        row
+        for row in baseline_ldb["language"]["packages"]
+        if row["id"] == "standard.compiler"
+    )
+    schema = next(
+        row
+        for row in baseline_ldb["language"]["packages"]
+        if row["id"] == "standard.schema"
+    )
+    compiler["profiles"]["resolution"].remove("exact-import-resolution-v1")
+    schema["profiles"]["resolution"].append("exact-import-resolution-v1")
+    _reidentify_language_bundle(baseline_ldb)
+    baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
+    original = model_module.lower_checked_model(baseline)
+    assert "standard.schema" not in _locked_package_ids(original)
+
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
+    profile = next(
+        row
+        for row in candidate_ldb["language"]["resolution_profiles"]
+        if row["id"] == "exact-import-resolution-v1"
+    )
+    profile["extensions"]["standard.formula"]["max_nodes_per_formula"] += 1
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
+    source = _model_source()
+    quantity = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    local = "escaped`local"
+    source["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity}],
+            "result": quantity,
+            "body": {
+                "nodes": [
+                    {
+                        "id": local,
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "id": "quantity.identity",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "base",
+                                },
+                            }
+                        ],
+                        "result": quantity,
+                    }
+                ],
+                "result": {"kind": "local", "local": local},
+            },
+            "expression": (
+                "let `escaped\\`local` = identity(base);\n`escaped\\`local`"
+            ),
+        }
+    ]
+    source["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source)
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel), baseline
+    original = model_module.lower_checked_model(baseline)
+
+    candidate_ldb = cast(
+        LanguageBundleIndex, deepcopy(baseline.language_bundle)
+    )
+    source_schema = next(
+        row["schema"]
+        for row in candidate_ldb["language"]["wire_schemas"]
+        if row["artifact_kind"] == "model-source-package"
+    )
+    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar["escape_character"] = "/"
+    grammar["escapable_identifier_characters"] = ["`", "/"]
+    source["modules"][0]["formulas"][0]["expression"] = (
+        "let `escaped/`local` = identity(base);\n`escaped/`local`"
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert original["package-lock"] == mutated["package-lock"]
+    assert original["rir-semantic-payload"]["content_identity"] != mutated[
+        "rir-semantic-payload"
+    ]["content_identity"]
+    assert original["rir-semantic-payload"]["semantic_identity"] == mutated[
+        "rir-semantic-payload"
+    ]["semantic_identity"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_unselected_pure_operation_notation_preserves_lock_and_rir():
+    source = _model_source()
+    packaged = model_module.check_model_source_value(source)
+    assert isinstance(packaged, model_module.CheckedModel)
+    baseline_ldb = cast(
+        LanguageBundleIndex, deepcopy(packaged.language_bundle)
+    )
+    operation = deepcopy(
+        next(
+            row
+            for row in baseline_ldb["language"]["operations"]
+            if row["id"] == "quantity.identity"
+        )
+    )
+    operation["id"] = "game.check.unused-identity"
+    operation["version"] = "1.0.1"
+    operation["vectors"] = []
+    operation["extensions"]["standard.formula-notation"][
+        "name"
+    ] = "unused_identity"
+    baseline_ldb["language"]["operations"].append(operation)
+    baseline_ldb["language"]["operations"].sort(key=lambda row: row["id"])
+    game_check = next(
+        row
+        for row in baseline_ldb["language"]["packages"]
+        if row["id"] == "game.check"
+    )
+    game_check["exports"]["operations"].append(operation["id"])
+    game_check["exports"]["operations"].sort()
+    _reidentify_language_bundle(baseline_ldb)
+    baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
+    original = model_module.lower_checked_model(baseline)
+    assert "game.check" not in _locked_package_ids(original)
+
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
+    mutated_operation = next(
+        row
+        for row in candidate_ldb["language"]["operations"]
+        if row["id"] == "game.check.unused-identity"
+    )
+    mutated_operation["extensions"]["standard.formula-notation"][
+        "name"
+    ] = "unused_copy"
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert baseline_ldb.root["content_identity"] != candidate_ldb.root[
+        "content_identity"
+    ]
+    assert original["package-lock"] == mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_formula_semantic_body_mutation_changes_both_rir_identities():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    formula = next(
+        row
+        for row in source["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "node": "parameter",
+        "parameter": "damage_before_defense",
+    }
+    formula["expression"] = "damage_before_defense"
+    candidate = model_module.check_model_source_value(source)
+    assert isinstance(candidate, model_module.CheckedModel), candidate
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert original["package-lock"] == mutated["package-lock"]
+    assert original["rir-semantic-payload"]["content_identity"] != mutated[
+        "rir-semantic-payload"
+    ]["content_identity"]
+    assert original["rir-semantic-payload"]["semantic_identity"] != mutated[
+        "rir-semantic-payload"
+    ]["semantic_identity"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
 def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")

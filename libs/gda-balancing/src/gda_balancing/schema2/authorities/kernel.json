@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:26f75f10ee01a9ea5063ec87cdc24f0b05d21cd36a4cd40bb527cf9a6a929f07",
+  "content_identity": "sha256:1a013468b0fbbbec15cf89b20fb5bbbe16c8a3a9302ace9fac270f3b96487914",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3817,6 +3817,7 @@
         "body",
         "default_outcome",
         "effects",
+        "extensions",
         "outcomes",
         "refusals",
         "resource_bounds"
@@ -4618,6 +4619,9 @@
         "closure_source_members": [
           "kind",
           "authority_path"
+        ],
+        "optional_members": [
+          "excluded_extension_members"
         ]
       },
       "seed": {
