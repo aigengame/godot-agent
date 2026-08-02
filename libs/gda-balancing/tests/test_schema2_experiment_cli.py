@@ -1240,6 +1240,7 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [
+        ("hidden-input", "runtime.schedule_hidden_input"),
         ("illegal-same-time-priority", "runtime.schedule_illegal_same_time_priority"),
         ("logical-time-limit", "runtime.logical_time_exceeded"),
         ("queue-limit", "runtime.queue_limit_exceeded"),
@@ -1270,7 +1271,9 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
         for row in rir["selected_semantics"]["runtime_profiles"]
         if row["id"] == "standard.exact-int64-event-v1"
     )
-    if mutation == "illegal-same-time-priority":
+    if mutation == "hidden-input":
+        schedules[0]["phase"] = "input"
+    elif mutation == "illegal-same-time-priority":
         schedules[0]["logical_time"] = 0
         schedules[0]["priority"] = 1
     elif mutation == "logical-time-limit":
