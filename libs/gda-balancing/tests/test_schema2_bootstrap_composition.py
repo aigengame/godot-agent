@@ -535,8 +535,56 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
     assert runtime["event_atomicity"] == {
         "state_writes": "buffered",
         "rng_draws": "buffered",
+        "child_events": "buffered",
+        "cancellations": "buffered",
         "success": "commit-entire-current-event",
         "runtime_refusal": "rollback-entire-current-event",
+    }
+    assert runtime["scheduler"]["call_site_identity"] == {
+        "schedule": {
+            "domain": "runtime-schedule-call-site-v2",
+            "projection": [
+                "parent_event_id",
+                "parent_operation",
+                "site",
+                "operation",
+            ],
+        },
+        "cancel": {
+            "domain": "runtime-cancel-call-site-v2",
+            "projection": [
+                "canceling_event_id",
+                "operation",
+                "site",
+                "target_event_id",
+            ],
+        },
+    }
+    assert runtime["scheduler"]["schedule"] == {
+        "child_phase": "transition",
+        "legal_position": "strictly-after-active-ordering-key",
+        "same_time_priority": "not-greater-than-active-priority",
+        "refusal_signals": {
+            "backward": "schedule-backward",
+            "hidden_input": "schedule-hidden-input",
+            "illegal_same_time_priority": "schedule-illegal-same-time-priority",
+        },
+    }
+    assert runtime["scheduler"]["cancel"] == {
+        "admitted_target_states": ["pending", "provisional"],
+        "refusal_signals": {
+            "active": "cancel-active",
+            "completed": "cancel-completed",
+            "unknown": "cancel-unknown",
+        },
+    }
+    assert runtime["scheduler"]["budget_members"] == {
+        "event_steps": "max_event_steps",
+        "logical_time": "max_logical_time",
+        "node_steps": "max_node_steps",
+        "queue_events": "max_queue_events",
+        "total_events": "max_total_events",
+        "zero_time_depth": "max_zero_time_depth",
     }
     assert runtime["outcome_contract"] == {
         "kinds": ["success", "gameplay-alternative"],
@@ -591,8 +639,21 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "bias_policy": runtime["named_rng"]["interval_sampling"]["bias_policy"],
     }
     assert profile["budget_scopes"] == {
-        "operation_max_steps": "per-event",
-        "runtime_max_steps": "per-run",
+        "event_steps": "per-event-transaction",
+        "logical_time": "per-event",
+        "node_steps": "per-run",
+        "operation_steps": "per-operation-invocation",
+        "queue_events": "pending-and-provisional",
+        "total_events": "per-scenario",
+        "zero_time_depth": "per-descendant-chain",
+    }
+    assert profile["resource_bounds"] == {
+        "max_event_steps": 256,
+        "max_logical_time": (1 << 63) - 1,
+        "max_node_steps": 4096,
+        "max_queue_events": 128,
+        "max_total_events": 1024,
+        "max_zero_time_depth": 32,
     }
 
 
