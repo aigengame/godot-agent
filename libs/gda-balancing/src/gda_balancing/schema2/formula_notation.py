@@ -634,12 +634,24 @@ class _FormulaParser:
                     or not isinstance(result_type, dict)
                     or result_type.get("package") != "kernel"
                     or not isinstance(result_type.get("id"), str)
+                    or not isinstance(result_type.get("version"), str)
                 ):
                     raise ValueError(
                         "Formula comparison result contract is unresolved"
                     )
+                type_member = (
+                    {
+                        "type_identity": {
+                            "package": result_type["package"],
+                            "version": result_type["version"],
+                            "symbol": result_type["id"],
+                        }
+                    }
+                    if "type_identity" in contextual
+                    else {"type": result_type["id"]}
+                )
                 values[target] = {
-                    "type": result_type["id"],
+                    **type_member,
                     "representation": result_declaration["representation"],
                     "kind": result_declaration["kind"],
                     "unit": result_declaration["unit"],

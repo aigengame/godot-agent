@@ -1258,7 +1258,23 @@ def _check_model_source_bytes(
     try:
         source = _strict_object(data)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as err:
-        parse_reason = reason_by_id(ldb, "model.reason.source-parse-failure")
+        default_profiles = [
+            profile
+            for profile in cast(
+                list[dict[str, Any]], _language(ldb)["resolution_profiles"]
+            )
+            if profile.get("default") is True
+        ]
+        if len(default_profiles) != 1:
+            raise ValueError("Model Source parsing requires one default profile")
+        source_boundary = cast(dict[str, Any], default_profiles[0]["extensions"]).get(
+            "standard.source-boundary"
+        )
+        if not isinstance(source_boundary, dict) or not isinstance(
+            source_boundary.get("parse_reason"), str
+        ):
+            raise ValueError("default profile has no Model Source parse reason")
+        parse_reason = reason_by_id(ldb, cast(str, source_boundary["parse_reason"]))
         return _refusal(
             cast(str, parse_reason["diagnostic"]),
             "unidentified",
