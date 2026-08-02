@@ -63,6 +63,13 @@ def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     infix_parser = policy.get("infix_parser") if isinstance(policy, dict) else None
     if (
         not isinstance(policy, dict)
+        or policy.get("condition_contract") != "kernel-boolean"
+        or policy.get("formula_argument_compatibility") != "exact-resolved-contract"
+        or policy.get("formula_result_compatibility") != "exact-resolved-contract"
+        or policy.get("literal_typing") != "selected-unique-formal-match"
+        or policy.get("literal_result_inference") != "contextual-anchor"
+        or policy.get("operation_argument_compatibility") != "exact-operation-formal"
+        or policy.get("symbol_resolution") != "exact-module-coordinate"
         or not isinstance(infix_parser, dict)
         or infix_parser.get("algorithm") != "shunting-yard"
         or not isinstance(infix_parser.get("generated_local_separator"), str)
