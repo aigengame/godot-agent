@@ -180,12 +180,7 @@ class TestKeyUserPath:
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
-        example = (
-            Path(__file__).parents[1]
-            / "examples"
-            / "schema2"
-            / "rpg-combat-cast"
-        )
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
         source = json.loads((example / "model-source.json").read_text())
         module = source["modules"][0]
         formula = next(
@@ -199,7 +194,9 @@ class TestKeyUserPath:
 
         render_request = {
             **request_context,
-            "formula": {key: value for key, value in formula.items() if key != "expression"},
+            "formula": {
+                key: value for key, value in formula.items() if key != "expression"
+            },
         }
         render_source = tmp_path / "formula-render.json"
         render_source.write_text(json.dumps(render_request), encoding="utf-8")
@@ -223,9 +220,7 @@ class TestKeyUserPath:
         assert (parsed.returncode, parsed.stderr) == (0, "")
         parsed_pair = json.loads(parsed.stdout)
         assert parsed_pair == rendered_pair
-        assert {
-            key: parsed_pair[key] for key in ("body", "expression")
-        } == {
+        assert {key: parsed_pair[key] for key in ("body", "expression")} == {
             "body": formula["body"],
             "expression": formula["expression"],
         }
@@ -244,9 +239,7 @@ class TestKeyUserPath:
         assert (refused.returncode, refused.stderr) == (2, "")
         diagnostic = json.loads(refused.stdout)["error"]["diagnostics"][0]
         assert diagnostic["code"] == "language.formula_notation_mismatch"
-        assert diagnostic["primary"]["pointer"] == (
-            "/modules/0/formulas/0/expression"
-        )
+        assert diagnostic["primary"]["pointer"] == ("/modules/0/formulas/0/expression")
 
         built = _run(
             "model",
@@ -266,14 +259,11 @@ class TestKeyUserPath:
             for row in build_receipt["member_locators"]
         }
 
-        inspected = _run(
-            "model", "inspect", str(receipt_path), "--format", "indented"
-        )
+        inspected = _run("model", "inspect", str(receipt_path), "--format", "indented")
         assert (inspected.returncode, inspected.stderr) == (0, "")
         explanation = json.loads(inspected.stdout)
         source_expressions = {
-            row["id"]: row["expression"]
-            for row in module["formulas"]
+            row["id"]: row["expression"] for row in module["formulas"]
         }
         explanation_pairs = {
             row["id"]: (row["body"], row["expression"])
@@ -281,8 +271,7 @@ class TestKeyUserPath:
         }
         rir = json.loads(model_members["rir-semantic-payload"].read_text())
         rir_pairs = {
-            row["id"]: (row["body"], row["expression"])
-            for row in rir["formulas"]
+            row["id"]: (row["body"], row["expression"]) for row in rir["formulas"]
         }
         assert explanation_pairs == rir_pairs
         assert {
@@ -311,11 +300,14 @@ class TestKeyUserPath:
         }
         metrics = json.loads(run_members["metric-dataset"].read_text())
         trace = json.loads(run_members["event-trace"].read_text())
-        assert next(
-            row["value"]
-            for row in metrics["samples"]
-            if row["metric"] == "damage_dealt"
-        ) == 60
+        assert (
+            next(
+                row["value"]
+                for row in metrics["samples"]
+                if row["metric"] == "damage_dealt"
+            )
+            == 60
+        )
         assert trace["events"][0]["state_after"] == [
             {"name": "actor_mana", "value": 26},
             {"name": "target_health", "value": 40},

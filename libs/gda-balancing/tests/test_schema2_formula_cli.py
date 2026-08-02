@@ -46,9 +46,7 @@ def test_formula_render_projects_a_structured_subtraction_program(
     tmp_path: Path, run_cli
 ) -> None:
     difference_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     cast(dict[str, object], difference_contract["domain"])["minimum"] = -1000
     body = {
@@ -117,9 +115,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     raw_contract = deepcopy(value_contract)
     cast(dict[str, object], raw_contract["domain"])["minimum"] = -1000
@@ -203,9 +199,7 @@ def test_formula_render_quotes_non_bare_locals_and_renders_literals(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     body = {
         "nodes": [
@@ -255,9 +249,7 @@ def test_formula_render_quotes_non_bare_locals_and_renders_literals(
 
 def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     body = {
         "nodes": [
@@ -285,9 +277,7 @@ def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "identity",
@@ -310,9 +300,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     raw_contract = json.loads(json.dumps(value_contract))
     raw_contract["domain"] = {"minimum": -1000, "maximum": 1000}
@@ -437,9 +425,7 @@ def test_formula_render_projects_conditionals_without_losing_branch_identity(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     body = {
         "nodes": [
@@ -458,9 +444,7 @@ def test_formula_render_projects_conditionals_without_losing_branch_identity(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "choose",
@@ -489,9 +473,7 @@ def test_formula_render_projects_conditionals_without_losing_branch_identity(
 
 def test_formula_parse_reconstructs_a_conditional_node(tmp_path: Path, run_cli) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     expected_body = {
         "nodes": [
@@ -510,9 +492,7 @@ def test_formula_parse_reconstructs_a_conditional_node(tmp_path: Path, run_cli) 
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "choose",
@@ -542,9 +522,7 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     body = {
         "nodes": [
@@ -567,9 +545,7 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {
                     "id": "main",
                     "imports": [],
@@ -607,11 +583,11 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
     )
 
 
-def test_formula_parse_resolves_a_qualified_formula_call(tmp_path: Path, run_cli) -> None:
+def test_formula_parse_resolves_a_qualified_formula_call(
+    tmp_path: Path, run_cli
+) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     expected_body = {
         "nodes": [
@@ -634,9 +610,7 @@ def test_formula_parse_resolves_a_qualified_formula_call(tmp_path: Path, run_cli
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {
                     "id": "main",
                     "imports": [],
@@ -729,26 +703,21 @@ def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     source = tmp_path / "unquoted-kebab-local.json"
     source.write_text(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "bad-local-reference",
                     "parameters": [_quantity_contract("base")],
                     "result": value_contract,
                     "expression": (
-                        "let `minimum-accuracy` = max(base, 1); "
-                        "minimum-accuracy"
+                        "let `minimum-accuracy` = max(base, 1); minimum-accuracy"
                     ),
                 },
             }
@@ -771,18 +740,14 @@ def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     source = tmp_path / "malformed-formula.json"
     source.write_text(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "malformed",
@@ -814,9 +779,7 @@ def test_formula_parse_reports_invalid_identifier_escape_at_the_parse_stage(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "invalid-escape",
@@ -826,9 +789,7 @@ def test_formula_parse_reports_invalid_identifier_escape_at_the_parse_stage(
                         for key, value in _quantity_contract("result").items()
                         if key != "id"
                     },
-                    "expression": (
-                        "let `invalid\\x` = identity(value); `invalid\\x`"
-                    ),
+                    "expression": ("let `invalid\\x` = identity(value); `invalid\\x`"),
                 },
             }
         ),
@@ -854,9 +815,7 @@ def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatc
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "incompatible-conditional",
@@ -870,8 +829,7 @@ def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatc
                         if key != "id"
                     },
                     "expression": (
-                        "let result = if condition then amount else condition; "
-                        "result"
+                        "let result = if condition then amount else condition; result"
                     ),
                 },
             }
@@ -964,18 +922,14 @@ def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
     tmp_path: Path, run_cli
 ) -> None:
     result_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     source = tmp_path / "invalid-port-closure.json"
     source.write_text(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "invalid-port-closure",
@@ -1067,14 +1021,14 @@ def test_formula_render_refuses_a_body_that_cannot_round_trip_after_port_reorder
         ).read_text(encoding="utf-8")
     )
     module = source_value["modules"][0]
-    formula = next(
-        row for row in module["formulas"] if row["id"] == "mitigated-damage"
-    )
+    formula = next(row for row in module["formulas"] if row["id"] == "mitigated-damage")
     request = {
         "schema_version": source_value["schema_version"],
         "package_requirements": source_value["package_requirements"],
         "module": {"id": module["id"], "imports": module["imports"]},
-        "formula": {key: value for key, value in formula.items() if key != "expression"},
+        "formula": {
+            key: value for key, value in formula.items() if key != "expression"
+        },
     }
     source = tmp_path / "reordered-ports-render.json"
     source.write_text(json.dumps(request), encoding="utf-8")
@@ -1094,18 +1048,14 @@ def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     source = tmp_path / "over-limit-formula.json"
     source.write_text(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "over-limit",
@@ -1133,18 +1083,14 @@ def test_formula_parse_refuses_tokens_above_the_admitted_limit(
     tmp_path: Path, run_cli
 ) -> None:
     value_contract = {
-        key: value
-        for key, value in _quantity_contract("result").items()
-        if key != "id"
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
     }
     source = tmp_path / "over-token-limit-formula.json"
     source.write_text(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "over-token-limit",
@@ -1176,9 +1122,7 @@ def test_formula_render_reports_an_unresolved_operation_at_the_body(
         json.dumps(
             {
                 "schema_version": "2.0.0",
-                "package_requirements": [
-                    {"id": "core.quantity", "version": "2.1.0"}
-                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {"id": "main", "imports": []},
                 "formula": {
                     "id": "unresolved",
@@ -1284,9 +1228,9 @@ def test_model_check_refuses_a_canonical_expression_for_a_different_body(
             / "examples/schema2/rpg-combat-cast/model-source.json"
         ).read_text(encoding="utf-8")
     )
-    source_value["modules"][0]["formulas"][0]["expression"] = (
-        source_value["modules"][0]["formulas"][1]["expression"]
-    )
+    source_value["modules"][0]["formulas"][0]["expression"] = source_value["modules"][
+        0
+    ]["formulas"][1]["expression"]
     source = tmp_path / "divergent-formula-expression.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
 
@@ -1295,17 +1239,14 @@ def test_model_check_refuses_a_canonical_expression_for_a_different_body(
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.formula_notation_mismatch"
-    assert diagnostic["primary"]["pointer"] == (
-        "/modules/0/formulas/0/expression"
-    )
+    assert diagnostic["primary"]["pointer"] == ("/modules/0/formulas/0/expression")
 
 
 def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
     tmp_path: Path, run_cli
 ) -> None:
     source = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     exit_code, stdout, stderr = run_cli(
         [
@@ -1322,21 +1263,19 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
     assert (exit_code, stderr) == (0, "")
     receipt = json.loads(stdout)
     locators = {
-        row["logical_name"]: Path(row["locator"])
-        for row in receipt["member_locators"]
+        row["logical_name"]: Path(row["locator"]) for row in receipt["member_locators"]
     }
     rir = json.loads(locators["rir-semantic-payload"].read_text(encoding="utf-8"))
-    explanation = json.loads(
-        locators["model-explanation"].read_text(encoding="utf-8")
-    )
+    explanation = json.loads(locators["model-explanation"].read_text(encoding="utf-8"))
     resolved = json.loads(locators["resolved-model"].read_text(encoding="utf-8"))
 
     source_formulas = {
-        row["id"]: row for row in json.loads(source.read_text())["modules"][0]["formulas"]
+        row["id"]: row
+        for row in json.loads(source.read_text())["modules"][0]["formulas"]
     }
-    assert {
-        row["id"]: row["expression"] for row in rir["formulas"]
-    } == {identifier: row["expression"] for identifier, row in source_formulas.items()}
+    assert {row["id"]: row["expression"] for row in rir["formulas"]} == {
+        identifier: row["expression"] for identifier, row in source_formulas.items()
+    }
     assert {
         row["id"]: row["expression"] for row in explanation["formula_explanations"]
     } == {identifier: row["expression"] for identifier, row in source_formulas.items()}

@@ -73,9 +73,7 @@ def run_formula_render(
                 "model.reason.source-contract-mismatch",
                 "Formula render request has no structured body",
             ),
-            identity_domain=formula_notation_request_identity_domain(
-                authority_context
-            ),
+            identity_domain=formula_notation_request_identity_domain(authority_context),
             pointer="/formula/body",
         )
     authority_context = packaged_authority_context()
@@ -134,9 +132,7 @@ def _formula_refusal_report(
     pointer: str,
 ) -> Schema2RefusalReport:
     reason = reason_by_id(language_bundle, refusal.reason_id)
-    request_identity = content_identity(
-        identity_domain, cast(JsonValue, request)
-    )
+    request_identity = content_identity(identity_domain, cast(JsonValue, request))
     return Schema2RefusalReport(
         stage=cast(RefusalStage, reason["stage"]),
         diagnostics=(

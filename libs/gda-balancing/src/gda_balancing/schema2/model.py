@@ -809,9 +809,7 @@ def _formula_pair_diagnostics(
                     authority_context,
                 )
             except FormulaPairRefusal as err:
-                reason = reason_by_id(
-                    authority_context.language_bundle, err.reason_id
-                )
+                reason = reason_by_id(authority_context.language_bundle, err.reason_id)
                 diagnostics.append(
                     Schema2Diagnostic(
                         code=cast(str, reason["diagnostic"]),
@@ -5722,9 +5720,7 @@ def _runtime_projection(
     projection: dict[str, Any] = {}
     closure_values: dict[tuple[str, str], list[Any]] = {}
 
-    def projected_runtime_value(
-        collection: dict[str, Any], value: Any
-    ) -> Any:
+    def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
         excluded = collection.get("excluded_extension_members", [])
         if not excluded:
             return value
@@ -7351,7 +7347,13 @@ def _rir_formula_pairs_are_admitted(
                         dict[str, Any], _rir_notation_body_projection(body)
                     ),
                 )
-    except (FormulaPairRefusal, FormulaNotationRefusal, KeyError, TypeError, ValueError):
+    except (
+        FormulaPairRefusal,
+        FormulaNotationRefusal,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
         return False
     return True
 

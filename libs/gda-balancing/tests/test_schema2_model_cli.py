@@ -1011,8 +1011,7 @@ def test_model_check_refuses_scalar_formula_conditionals(tmp_path, run_cli):
                 "result": {"kind": "local", "local": "choice"},
             },
             "expression": (
-                "let choice = if condition then `when-true` else `when-false`;\n"
-                "choice"
+                "let choice = if condition then `when-true` else `when-false`;\nchoice"
             ),
         }
     ]
@@ -5337,9 +5336,7 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     baseline = model_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
     original = model_module.lower_checked_model(baseline)
-    candidate_ldb = cast(
-        LanguageBundleIndex, deepcopy(baseline.language_bundle)
-    )
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     _mutate_operation_notation(
         candidate_ldb,
         "quantity.subtract",
@@ -5364,18 +5361,21 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     )
     assert original_core["content_identity"] != mutated_core["content_identity"]
     baseline_ldb = cast(LanguageBundleIndex, baseline.language_bundle)
-    assert baseline_ldb.root["content_identity"] != candidate_ldb.root[
-        "content_identity"
-    ]
-    assert original["package-lock"]["content_identity"] != mutated[
-        "package-lock"
-    ]["content_identity"]
-    assert original["rir-semantic-payload"]["content_identity"] != mutated[
-        "rir-semantic-payload"
-    ]["content_identity"]
-    assert original["rir-semantic-payload"]["semantic_identity"] == mutated[
-        "rir-semantic-payload"
-    ]["semantic_identity"]
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
+    assert (
+        original["package-lock"]["content_identity"]
+        != mutated["package-lock"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        == mutated["rir-semantic-payload"]["semantic_identity"]
+    )
     assert original["resolved-model"] != mutated["resolved-model"]
     assert original["build-receipt"] != mutated["build-receipt"]
 
@@ -5385,9 +5385,7 @@ def test_selected_unreachable_notation_preserves_both_rir_identities():
     baseline = model_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
     original = model_module.lower_checked_model(baseline)
-    candidate_ldb = cast(
-        LanguageBundleIndex, deepcopy(baseline.language_bundle)
-    )
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     _mutate_operation_notation(
         candidate_ldb,
         "quantity.identity",
@@ -5410,9 +5408,7 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
     source = _model_source()
     packaged = model_module.check_model_source_value(source)
     assert isinstance(packaged, model_module.CheckedModel)
-    baseline_ldb = cast(
-        LanguageBundleIndex, deepcopy(packaged.language_bundle)
-    )
+    baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
     compiler = next(
         row
         for row in baseline_ldb["language"]["packages"]
@@ -5518,9 +5514,7 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     assert isinstance(baseline, model_module.CheckedModel), baseline
     original = model_module.lower_checked_model(baseline)
 
-    candidate_ldb = cast(
-        LanguageBundleIndex, deepcopy(baseline.language_bundle)
-    )
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     source_schema = next(
         row["schema"]
         for row in candidate_ldb["language"]["wire_schemas"]
@@ -5537,12 +5531,14 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     mutated = model_module.lower_checked_model(candidate)
 
     assert original["package-lock"] == mutated["package-lock"]
-    assert original["rir-semantic-payload"]["content_identity"] != mutated[
-        "rir-semantic-payload"
-    ]["content_identity"]
-    assert original["rir-semantic-payload"]["semantic_identity"] == mutated[
-        "rir-semantic-payload"
-    ]["semantic_identity"]
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        == mutated["rir-semantic-payload"]["semantic_identity"]
+    )
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
@@ -5550,9 +5546,7 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
     source = _model_source()
     packaged = model_module.check_model_source_value(source)
     assert isinstance(packaged, model_module.CheckedModel)
-    baseline_ldb = cast(
-        LanguageBundleIndex, deepcopy(packaged.language_bundle)
-    )
+    baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
     operation = deepcopy(
         next(
             row
@@ -5563,15 +5557,11 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
     operation["id"] = "game.check.unused-identity"
     operation["version"] = "1.0.1"
     operation["vectors"] = []
-    operation["extensions"]["standard.formula-notation"][
-        "name"
-    ] = "unused_identity"
+    operation["extensions"]["standard.formula-notation"]["name"] = "unused_identity"
     baseline_ldb["language"]["operations"].append(operation)
     baseline_ldb["language"]["operations"].sort(key=lambda row: row["id"])
     game_check = next(
-        row
-        for row in baseline_ldb["language"]["packages"]
-        if row["id"] == "game.check"
+        row for row in baseline_ldb["language"]["packages"] if row["id"] == "game.check"
     )
     game_check["exports"]["operations"].append(operation["id"])
     game_check["exports"]["operations"].sort()
@@ -5586,16 +5576,14 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
         for row in candidate_ldb["language"]["operations"]
         if row["id"] == "game.check.unused-identity"
     )
-    mutated_operation["extensions"]["standard.formula-notation"][
-        "name"
-    ] = "unused_copy"
+    mutated_operation["extensions"]["standard.formula-notation"]["name"] = "unused_copy"
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
     mutated = model_module.lower_checked_model(candidate)
 
-    assert baseline_ldb.root["content_identity"] != candidate_ldb.root[
-        "content_identity"
-    ]
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
     assert original["package-lock"] == mutated["package-lock"]
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["resolved-model"] != mutated["resolved-model"]
@@ -5622,12 +5610,14 @@ def test_formula_semantic_body_mutation_changes_both_rir_identities():
     mutated = model_module.lower_checked_model(candidate)
 
     assert original["package-lock"] == mutated["package-lock"]
-    assert original["rir-semantic-payload"]["content_identity"] != mutated[
-        "rir-semantic-payload"
-    ]["content_identity"]
-    assert original["rir-semantic-payload"]["semantic_identity"] != mutated[
-        "rir-semantic-payload"
-    ]["semantic_identity"]
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        != mutated["rir-semantic-payload"]["semantic_identity"]
+    )
     assert original["resolved-model"] != mutated["resolved-model"]
     assert original["build-receipt"] != mutated["build-receipt"]
 

@@ -1031,8 +1031,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                     "result": {"kind": "local", "local": "inner"},
                 },
                 "expression": (
-                    "let inner = combat.`derived-damage-inner`(base = base);\n"
-                    "inner"
+                    "let inner = combat.`derived-damage-inner`(base = base);\ninner"
                 ),
             },
         ]

@@ -14,7 +14,9 @@ from typing import Any, cast
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
 
 
-def _authority(language_bundle: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _authority(
+    language_bundle: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     grammar: dict[str, Any] | None = None
     for package in cast(list[dict[str, Any]], language_bundle["language"]["packages"]):
         if package.get("id") != "standard.schema":
@@ -29,17 +31,26 @@ def _authority(language_bundle: dict[str, Any]) -> tuple[dict[str, Any], list[di
                 grammar = definitions.get("formulaNotationGrammar", {}).get("const")
     if not isinstance(grammar, dict):
         raise ValueError("independent consumer found no Formula grammar")
-    return grammar, cast(list[dict[str, Any]], language_bundle["language"]["operations"])
+    return grammar, cast(
+        list[dict[str, Any]], language_bundle["language"]["operations"]
+    )
 
 
 def _identifier(value: Any, grammar: dict[str, Any]) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("identifier is empty")
-    if re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), value) and value not in grammar["reserved_identifiers"]:
+    if (
+        re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), value)
+        and value not in grammar["reserved_identifiers"]
+    ):
         return value
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
-    return quote + value.replace(escape, escape + escape).replace(quote, escape + quote) + quote
+    return (
+        quote
+        + value.replace(escape, escape + escape).replace(quote, escape + quote)
+        + quote
+    )
 
 
 def _operand(value: Any, grammar: dict[str, Any]) -> str:
@@ -73,7 +84,10 @@ def _selected_notations(
     }
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for operation in operations:
-        coordinate = (operation.get("type", {}).get("package"), operation.get("version"))
+        coordinate = (
+            operation.get("type", {}).get("package"),
+            operation.get("version"),
+        )
         package = operation.get("package")
         if not isinstance(package, str):
             package = next(
@@ -90,7 +104,11 @@ def _selected_notations(
             )
         coordinate = (package, operation.get("version"))
         notation = operation.get("extensions", {}).get("standard.formula-notation")
-        if coordinate in selected and operation.get("purity") == "pure" and isinstance(notation, dict):
+        if (
+            coordinate in selected
+            and operation.get("purity") == "pure"
+            and isinstance(notation, dict)
+        ):
             rows.append(({**operation, "package": package}, notation))
     return rows
 
@@ -103,10 +121,16 @@ def render_body(
         return _identifier(body["parameter"], grammar)
     notations = _selected_notations(request, language_bundle)
     by_coordinate = {
-        (cast(str, operation.get("package", "")), cast(str, operation["version"]), cast(str, operation["id"])): notation
+        (
+            cast(str, operation.get("package", "")),
+            cast(str, operation["version"]),
+            cast(str, operation["id"]),
+        ): notation
         for operation, notation in notations
     }
-    if not isinstance(body.get("nodes"), list) or not isinstance(body.get("result"), dict):
+    if not isinstance(body.get("nodes"), list) or not isinstance(
+        body.get("result"), dict
+    ):
         raise ValueError("body is not a Formula program")
     lines: list[str] = []
     for node in cast(list[dict[str, Any]], body["nodes"]):
@@ -114,19 +138,30 @@ def render_body(
         if kind == "operation-call":
             coordinate = cast(dict[str, Any], node["operation"])
             notation = by_coordinate.get(
-                (cast(str, coordinate["package"]), cast(str, coordinate["version"]), cast(str, coordinate["id"]))
+                (
+                    cast(str, coordinate["package"]),
+                    cast(str, coordinate["version"]),
+                    cast(str, coordinate["id"]),
+                )
             )
             if notation is None:
                 raise ValueError("operation notation is unresolved")
             arguments = {row["port"]: row["operand"] for row in node["arguments"]}
-            values = [_operand(arguments[port], grammar) for port in notation["ordered_ports"]]
+            values = [
+                _operand(arguments[port], grammar) for port in notation["ordered_ports"]
+            ]
             if notation["kind"] == "infix":
                 rhs = f"{values[0]} {notation['token']} {values[1]}"
             else:
                 rhs = f"{notation['name']}({', '.join(values)})"
         elif kind == "formula-call":
             coordinate = cast(dict[str, Any], node["formula"])
-            name = ".".join((_identifier(coordinate["module"], grammar), _identifier(coordinate["id"], grammar)))
+            name = ".".join(
+                (
+                    _identifier(coordinate["module"], grammar),
+                    _identifier(coordinate["id"], grammar),
+                )
+            )
             arguments = sorted(
                 (
                     _identifier(row["parameter"], grammar),
@@ -193,13 +228,24 @@ def _unquote(text: str, grammar: dict[str, Any]) -> str:
     return text
 
 
-def _parse_operand(text: str, grammar: dict[str, Any], locals_: set[str], parameters: set[str]) -> dict[str, JsonValue]:
+def _parse_operand(
+    text: str, grammar: dict[str, Any], locals_: set[str], parameters: set[str]
+) -> dict[str, JsonValue]:
     text = text.strip()
     if re.fullmatch(r"-?[0-9]+", text):
         return {"kind": "literal", "value": int(text)}
-    segments = _split_outside(text, ".", cast(str, grammar["identifier_quote"]), cast(str, grammar["escape_character"]))
+    segments = _split_outside(
+        text,
+        ".",
+        cast(str, grammar["identifier_quote"]),
+        cast(str, grammar["escape_character"]),
+    )
     if len(segments) == 2:
-        return {"kind": "symbol", "module": _unquote(segments[0], grammar), "symbol": _unquote(segments[1], grammar)}
+        return {
+            "kind": "symbol",
+            "module": _unquote(segments[0], grammar),
+            "symbol": _unquote(segments[1], grammar),
+        }
     name = _unquote(text, grammar)
     if name in locals_:
         return {"kind": "local", "local": name}
@@ -219,7 +265,9 @@ def parse_canonical(
     escape = cast(str, grammar["escape_character"])
     parameters = {row["id"] for row in request["formula"]["parameters"]}
     reference_nodes = {
-        row["id"]: row for row in reference_body.get("nodes", []) if isinstance(row, dict)
+        row["id"]: row
+        for row in reference_body.get("nodes", [])
+        if isinstance(row, dict)
     }
     lines = expression.split("\n")
     if len(lines) == 1:
@@ -228,8 +276,16 @@ def parse_canonical(
             return {"node": "parameter", "parameter": operand["parameter"]}
         return {"nodes": [], "result": operand}
     notations = _selected_notations(request, language_bundle)
-    functions = {notation["name"]: (operation, notation) for operation, notation in notations if notation["kind"] == "function"}
-    infixes = {notation["token"]: (operation, notation) for operation, notation in notations if notation["kind"] == "infix"}
+    functions = {
+        notation["name"]: (operation, notation)
+        for operation, notation in notations
+        if notation["kind"] == "function"
+    }
+    infixes = {
+        notation["token"]: (operation, notation)
+        for operation, notation in notations
+        if notation["kind"] == "infix"
+    }
     locals_: set[str] = set()
     nodes: list[dict[str, Any]] = []
     for line in lines[:-1]:
@@ -245,7 +301,11 @@ def parse_canonical(
             raise ValueError("binding local is absent from the body")
         if rhs.startswith("if "):
             branches = _split_outside(rhs[3:], " then ", quote, escape)
-            tails = _split_outside(branches[1], " else ", quote, escape) if len(branches) == 2 else []
+            tails = (
+                _split_outside(branches[1], " else ", quote, escape)
+                if len(branches) == 2
+                else []
+            )
             if len(tails) != 2:
                 raise ValueError("conditional is malformed")
             node = {
@@ -257,16 +317,31 @@ def parse_canonical(
             }
         elif rhs.endswith(")") and "(" in rhs:
             head, arguments_text = rhs.split("(", 1)
-            arguments = _split_outside(arguments_text[:-1], ", ", quote, escape) if arguments_text[:-1] else []
+            arguments = (
+                _split_outside(arguments_text[:-1], ", ", quote, escape)
+                if arguments_text[:-1]
+                else []
+            )
             if head in functions:
                 operation, notation = functions[head]
                 node = {
                     "id": local,
                     "node": "operation-call",
-                    "operation": {"package": reference["operation"]["package"], "version": operation["version"], "id": operation["id"]},
+                    "operation": {
+                        "package": reference["operation"]["package"],
+                        "version": operation["version"],
+                        "id": operation["id"],
+                    },
                     "arguments": [
-                        {"port": port, "operand": _parse_operand(value, grammar, locals_, parameters)}
-                        for port, value in zip(notation["ordered_ports"], arguments, strict=True)
+                        {
+                            "port": port,
+                            "operand": _parse_operand(
+                                value, grammar, locals_, parameters
+                            ),
+                        }
+                        for port, value in zip(
+                            notation["ordered_ports"], arguments, strict=True
+                        )
                     ],
                     "result": deepcopy(reference["result"]),
                 }
@@ -274,14 +349,24 @@ def parse_canonical(
                 coordinate = _split_outside(head, ".", quote, escape)
                 if len(coordinate) != 2:
                     raise ValueError("call coordinate is malformed")
-                named = [_split_outside(value, " = ", quote, escape) for value in arguments]
+                named = [
+                    _split_outside(value, " = ", quote, escape) for value in arguments
+                ]
                 node = {
                     "id": local,
                     "node": "formula-call",
-                    "formula": {"module": _unquote(coordinate[0], grammar), "id": _unquote(coordinate[1], grammar)},
+                    "formula": {
+                        "module": _unquote(coordinate[0], grammar),
+                        "id": _unquote(coordinate[1], grammar),
+                    },
                     "arguments": sorted(
                         [
-                            {"parameter": _unquote(value[0], grammar), "operand": _parse_operand(value[1], grammar, locals_, parameters)}
+                            {
+                                "parameter": _unquote(value[0], grammar),
+                                "operand": _parse_operand(
+                                    value[1], grammar, locals_, parameters
+                                ),
+                            }
                             for value in named
                             if len(value) == 2
                         ],
@@ -289,7 +374,11 @@ def parse_canonical(
                     ),
                 }
         else:
-            matches = [token for token in infixes if len(_split_outside(rhs, f" {token} ", quote, escape)) == 2]
+            matches = [
+                token
+                for token in infixes
+                if len(_split_outside(rhs, f" {token} ", quote, escape)) == 2
+            ]
             if len(matches) != 1:
                 raise ValueError("infix call is unresolved or ambiguous")
             token = matches[0]
@@ -298,21 +387,37 @@ def parse_canonical(
             node = {
                 "id": local,
                 "node": "operation-call",
-                "operation": {"package": reference["operation"]["package"], "version": operation["version"], "id": operation["id"]},
+                "operation": {
+                    "package": reference["operation"]["package"],
+                    "version": operation["version"],
+                    "id": operation["id"],
+                },
                 "arguments": [
-                    {"port": port, "operand": _parse_operand(value, grammar, locals_, parameters)}
-                    for port, value in zip(notation["ordered_ports"], values, strict=True)
+                    {
+                        "port": port,
+                        "operand": _parse_operand(value, grammar, locals_, parameters),
+                    }
+                    for port, value in zip(
+                        notation["ordered_ports"], values, strict=True
+                    )
                 ],
                 "result": deepcopy(reference["result"]),
             }
         nodes.append(node)
         locals_.add(local)
-    return {"nodes": nodes, "result": _parse_operand(lines[-1], grammar, locals_, parameters)}
+    return {
+        "nodes": nodes,
+        "result": _parse_operand(lines[-1], grammar, locals_, parameters),
+    }
 
 
 def admit_pair(request: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
     formula = request.get("formula")
-    if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict) or not isinstance(formula.get("expression"), str):
+    if (
+        not isinstance(formula, dict)
+        or not isinstance(formula.get("body"), dict)
+        or not isinstance(formula.get("expression"), str)
+    ):
         return False
     body = cast(dict[str, Any], formula["body"])
     expression = cast(str, formula["expression"])
@@ -321,4 +426,6 @@ def admit_pair(request: dict[str, Any], language_bundle: dict[str, Any]) -> bool
         parsed = parse_canonical(expression, request, language_bundle, body)
     except (KeyError, TypeError, ValueError):
         return False
-    return expression == rendered and canonical_bytes(cast(JsonValue, parsed)) == canonical_bytes(cast(JsonValue, body))
+    return expression == rendered and canonical_bytes(
+        cast(JsonValue, parsed)
+    ) == canonical_bytes(cast(JsonValue, body))

@@ -258,7 +258,11 @@ def _lex(
             index += len(identifier_value)
             continue
         operator = next(
-            (token for token in ordered_operators if expression.startswith(token, index)),
+            (
+                token
+                for token in ordered_operators
+                if expression.startswith(token, index)
+            ),
             None,
         )
         if operator is not None:
@@ -420,7 +424,9 @@ class _FormulaParser:
             self.take("identifier", conditional_keywords[2])
             when_false, false_contract = self.parenthesized_operand()
             if true_contract is None or false_contract is None:
-                raise ValueError("Formula conditional branch contract cannot be inferred")
+                raise ValueError(
+                    "Formula conditional branch contract cannot be inferred"
+                )
             if true_contract != false_contract:
                 raise ValueError("Formula conditional branches are incompatible")
             return (
@@ -435,8 +441,7 @@ class _FormulaParser:
             )
         if (
             self.current().kind == "identifier"
-            and self.tokens[self.index + 1].kind
-            == self.grammar["coordinate_separator"]
+            and self.tokens[self.index + 1].kind == self.grammar["coordinate_separator"]
             and self.tokens[self.index + 2].kind == "identifier"
             and self.tokens[self.index + 3].kind == self.open_group
         ):
@@ -636,9 +641,7 @@ class _FormulaParser:
                     or not isinstance(result_type.get("id"), str)
                     or not isinstance(result_type.get("version"), str)
                 ):
-                    raise ValueError(
-                        "Formula comparison result contract is unresolved"
-                    )
+                    raise ValueError("Formula comparison result contract is unresolved")
                 type_member = (
                     {
                         "type_identity": {
@@ -659,7 +662,9 @@ class _FormulaParser:
                     "numeric_policy": result_declaration["numeric_policy"],
                 }
             else:
-                raise ValueError("Formula operation body has no admitted type inference")
+                raise ValueError(
+                    "Formula operation body has no admitted type inference"
+                )
         result_declaration = operation.declaration.get("result")
         source = (
             result_declaration.get("source")
@@ -680,7 +685,9 @@ class _FormulaParser:
             self.index += 1
             local = self.take("identifier").value
             if local in self.locals or local in self.contracts:
-                raise ValueError("Formula local identity is duplicate or captures a parameter")
+                raise ValueError(
+                    "Formula local identity is duplicate or captures a parameter"
+                )
             self.take(cast(str, self.grammar["named_argument_operator"]))
             node, contract = self.right_hand_side(local)
             self.take(cast(str, self.grammar["binding_terminator"]))
@@ -900,9 +907,7 @@ def _render_formula_body(
             raise ValueError("Formula local identities must be unique")
         seen_locals.add(local)
         if node.get("node") == "operation-call":
-            expression = _render_operation_call(
-                node, catalog, grammar, notation_schema
-            )
+            expression = _render_operation_call(node, catalog, grammar, notation_schema)
         elif node.get("node") == "formula-call":
             expression = _render_formula_call(node, grammar)
         elif node.get("node") == "conditional":
