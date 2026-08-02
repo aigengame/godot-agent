@@ -678,6 +678,7 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "argument_separator": ",",
         "named_argument_operator": "=",
         "coordinate_separator": ".",
+        "request_identity_domain": "formula-notation-request-v2",
         "max_expression_bytes": 65536,
         "max_tokens": 4096,
     }
@@ -853,3 +854,57 @@ def test_formula_parse_refuses_tokens_above_the_admitted_limit(
         "language.formula_notation_resource_exhausted"
     ]
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_render_reports_an_unresolved_operation_at_the_body(
+    tmp_path: Path, run_cli
+) -> None:
+    source = tmp_path / "unresolved-operation.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "unresolved",
+                    "parameters": [_quantity_contract("value")],
+                    "result": {},
+                    "body": {
+                        "nodes": [
+                            {
+                                "id": "result",
+                                "node": "operation-call",
+                                "operation": {
+                                    "package": "core.quantity",
+                                    "version": "2.1.0",
+                                    "id": "quantity.unknown",
+                                },
+                                "arguments": [
+                                    {
+                                        "port": "value",
+                                        "operand": {
+                                            "kind": "parameter",
+                                            "parameter": "value",
+                                        },
+                                    }
+                                ],
+                                "result": {},
+                            }
+                        ],
+                        "result": {"kind": "local", "local": "result"},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.unresolved_name"
+    assert diagnostic["primary"]["pointer"] == "/formula/body"

@@ -74,6 +74,17 @@ def _notation_authority(
     return grammar, notation_schema
 
 
+def formula_notation_request_identity_domain(
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    """Return the authority-owned domain for conversion-request locations."""
+    grammar, _notation_schema = _notation_authority(authority_context)
+    identity_domain = grammar.get("request_identity_domain")
+    if not isinstance(identity_domain, str) or not identity_domain:
+        raise ValueError("Formula notation request identity domain is malformed")
+    return identity_domain
+
+
 def _identifier(value: object, grammar: dict[str, Any]) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("Formula notation requires a non-empty identifier")
@@ -661,7 +672,10 @@ def _render_operation_call(
         )
     )
     if operation is None or operation.get("purity") != "pure":
-        raise ValueError("Formula operation call is unresolved or effectful")
+        raise FormulaNotationRefusal(
+            "model.reason.unresolved-name",
+            "Formula operation call is unresolved or effectful",
+        )
     extensions = operation.get("extensions")
     notation = (
         extensions.get("standard.formula-notation")
