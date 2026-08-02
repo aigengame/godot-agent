@@ -304,13 +304,19 @@ class TestKeyUserPath:
             next(
                 row["value"]
                 for row in metrics["samples"]
-                if row["metric"] == "damage_dealt"
+                if row["metric"] == "target_health_remaining"
             )
-            == 60
+            == 30
         )
-        assert trace["events"][0]["state_after"] == [
+        assert [event["ordering_key"]["phase"] for event in trace["events"]] == [
+            "input",
+            "transition",
+            "transition",
+            "observation",
+        ]
+        assert trace["events"][-1]["state_after"] == [
             {"name": "actor_mana", "value": 26},
-            {"name": "target_health", "value": 40},
+            {"name": "target_health", "value": 30},
         ]
 
     def test_schema_get_key_path(self):
