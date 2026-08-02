@@ -1330,6 +1330,130 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     assert sample["logical_time"] == events[-1]["ordering_key"]["logical_time"]
 
 
+def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "actor_mana")[
+        "value"
+    ] = 60
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "action_cost")[
+        "value"
+    ] = 30
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 1000
+    scenario["event_plan"].append(
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "intervening-cast",
+            "logical_time": 1,
+            "priority": 10,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        }
+    )
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 4}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
+    checked_value = deepcopy(checked.value)
+    requirements, _named_streams = (
+        experiment_runtime_module.derive_scenario_program_requirements(
+            rir,
+            entrypoint_id="combat.plan-casts",
+            runtime_profile=checked_value["runtime"]["profile"],
+            rng_algorithm=checked_value["seed"]["algorithm"],
+        )
+    )
+    checked_value["runtime"]["required_evaluator"] = requirements
+
+    artifacts = experiment_runtime_module.evaluate_experiment(
+        replace(checked, value=checked_value, rir=rir)
+    )
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_events = [
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    ]
+    assert [event["outcome"]["id"] for event in runtime_events] == [
+        "planned",
+        "cast-resolved",
+        "cast-resolved",
+        "insufficient-resource",
+    ]
+    assert runtime_events[-1]["state_before"] == runtime_events[-1]["state_after"]
+    assert next(
+        row["integer"]
+        for row in runtime_events[-1]["state_after"]
+        if row["name"] == "actor_mana"
+    ) == 0
+
+
+def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    entrypoint = next(
+        row for row in checked.rir["entrypoints"] if row["id"] == "combat.cast"
+    )
+    assert {
+        row["target"]["name"]
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    } >= {"accuracy"}
+
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 0
+    scenario["event_plan"][0]["payload"] = [
+        {
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "accuracy",
+            },
+            "value": 1000,
+        }
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "payload-formula-run"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    event = _member(json.loads(stdout), "event-trace")["events"][0]
+    assert event["outcome"]["id"] == "cast-resolved"
+    assert next(
+        row["integer"]
+        for row in event["facts"]
+        if row["name"] == "effective_accuracy"
+    ) == 1000
+
+
 def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
     checked = experiment_runtime_module.check_experiment(str(specification_path))
