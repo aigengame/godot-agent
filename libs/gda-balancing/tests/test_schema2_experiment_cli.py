@@ -4929,6 +4929,53 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
         assert sample["provenance"]["scenario"]
 
 
+def test_metric_dataset_emits_one_replication_for_each_scenario(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    second = deepcopy(value["scenarios"][0])
+    second["id"] = "second-cast"
+    value["scenarios"].append(second)
+    value["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "scenario-replications.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    dataset = _member(json.loads(stdout), "metric-dataset")
+    assert [sample["scenario"] for sample in dataset["samples"]] == [
+        "one-cast",
+        "second-cast",
+    ]
+    assert [sample["replication_identity"] for sample in dataset["samples"]] == [
+        "one-cast",
+        "second-cast",
+    ]
+
+
 def test_metric_dataset_canonicalizes_reversed_authored_metrics(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
