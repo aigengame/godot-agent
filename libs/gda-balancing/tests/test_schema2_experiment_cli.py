@@ -1040,6 +1040,106 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
     assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
 
 
+def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    cast_entrypoint = source_value["entrypoints"][0]
+    source_value["entrypoints"].append(
+        {
+            **deepcopy(cast_entrypoint),
+            "id": "combat.plan-casts",
+            "operation": {
+                "package": "game.combat",
+                "version": "2.0.0",
+                "id": "game.combat.plan-casts-v1",
+            },
+            "result": {"kind": "discard"},
+        }
+    )
+    source_path = tmp_path / "scheduled-combat-model.json"
+    source_path.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "scheduled-combat-model"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=12,
+    )
+    specification["scenarios"][0]["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "plan-casts",
+            "logical_time": 0,
+            "priority": 0,
+            "entrypoint": "combat.plan-casts",
+            "payload": [],
+        }
+    ]
+    specification["scenarios"][0]["terminal_condition"] = {
+        "kind": "event-count",
+        "maximum": 2,
+    }
+    requirements, _named_streams = (
+        experiment_runtime_module.derive_scenario_program_requirements(
+            _member(build_receipt, "rir-semantic-payload"),
+            entrypoint_id="combat.plan-casts",
+            runtime_profile=specification["runtime"]["profile"],
+            rng_algorithm=specification["seed"]["algorithm"],
+        )
+    )
+    specification["runtime"]["required_evaluator"] = requirements
+    specification_path = tmp_path / "scheduled-combat-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "scheduled-combat-run"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    events = _member(json.loads(stdout), "event-trace")["events"]
+    assert [event["operation"] for event in events] == [
+        "game.combat.plan-casts-v1",
+        "game.combat.cast-v1",
+    ]
+    schedules = events[0]["schedules"]
+    assert len(schedules) == 2
+    assert schedules[0]["event_id"] == events[1]["event_id"]
+    assert events[1]["parent_event_id"] == events[0]["event_id"]
+    assert events[0]["cancellations"] == [
+        {
+            "call_site_identity": events[0]["cancellations"][0][
+                "call_site_identity"
+            ],
+            "event_id": schedules[1]["event_id"],
+            "outcome": "canceled",
+        }
+    ]
+    assert schedules[1]["event_id"] not in {event["event_id"] for event in events}
+
+
 def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
     tmp_path, run_cli
 ):
