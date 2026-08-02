@@ -950,7 +950,7 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
             "1" * 64,
         ]
     )
-    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
     specification = _experiment(
@@ -1019,7 +1019,7 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
         ]
     )
 
-    assert (exit_code, stderr) == (0, ""), stdout
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
     receipt = json.loads(stdout)
     events = _member(receipt, "event-trace")["events"]
     assert [
@@ -1070,7 +1070,7 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
             "6" * 64,
         ]
     )
-    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
     specification = _experiment(
@@ -1094,6 +1094,21 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         "kind": "event-count",
         "maximum": 2,
     }
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
     requirements, _named_streams = (
         experiment_runtime_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
@@ -1118,7 +1133,7 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         ]
     )
 
-    assert (exit_code, stderr) == (0, ""), stdout
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
     events = _member(json.loads(stdout), "event-trace")["events"]
     assert [event["operation"] for event in events] == [
         "game.combat.plan-casts-v1",

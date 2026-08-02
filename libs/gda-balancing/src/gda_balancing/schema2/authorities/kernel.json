@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:73628b8a0f659b9bcac98252b62d006d79515530fac1fa5e2ebfe5ec1b1c152f",
+  "content_identity": "sha256:e92caac185986af6fae8a451a07d205745a99862c59c2323e08f28daae204adb",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4773,7 +4773,9 @@
       ],
       "effect_nodes": [
         "subtract-state",
-        "write-state"
+        "write-state",
+        "schedule",
+        "cancel"
       ],
       "control_nodes": [
         "draw",
@@ -5448,6 +5450,52 @@
           "semantics": {
             "operator": "invoke-operation"
           }
+        },
+        {
+          "family": "effect",
+          "id": "schedule",
+          "operand_constraints": [],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "site",
+            "operation",
+            "arguments",
+            "logical_time",
+            "priority",
+            "result"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "scheduled-event"
+          },
+          "semantics": {
+            "operator": "schedule-operation"
+          }
+        },
+        {
+          "family": "effect",
+          "id": "cancel",
+          "operand_constraints": [],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "site",
+            "event"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "cancellation"
+          },
+          "semantics": {
+            "operator": "cancel-event"
+          }
         }
       ],
       "numeric": {
@@ -6105,6 +6153,46 @@
             "result_contract": "kernel-unit"
           },
           "kind": "invocation-result-contract"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "schedule-operation",
+            "result_kind": "scheduled-event"
+          },
+          "id": "runtime.node.schedule",
+          "input": {
+            "contract-probe": [
+              "node",
+              "site",
+              "operation",
+              "arguments",
+              "logical_time",
+              "priority",
+              "result"
+            ]
+          },
+          "kind": "node",
+          "node": "schedule"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "cancel-event",
+            "result_kind": "cancellation"
+          },
+          "id": "runtime.node.cancel",
+          "input": {
+            "contract-probe": [
+              "node",
+              "site",
+              "event"
+            ]
+          },
+          "kind": "node",
+          "node": "cancel"
         }
       ],
       "invocation_contract": {
@@ -6161,15 +6249,28 @@
       "scheduler": {
         "event_identity": {
           "domain": "runtime-event-v2",
-          "members": [
-            "experiment_identity",
-            "scenario_id",
-            "root_event_ref",
-            "logical_time",
-            "phase",
-            "priority",
-            "enqueue_sequence"
-          ]
+          "variants": {
+            "root": [
+              "experiment_identity",
+              "scenario_id",
+              "root_event_ref",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
+            ],
+            "scheduled": [
+              "experiment_identity",
+              "scenario_id",
+              "parent_event_id",
+              "call_site_identity",
+              "schedule_sequence",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
+            ]
+          }
         },
         "ordering": [
           {
@@ -6195,6 +6296,7 @@
           }
         ],
         "root_enqueue_sequence": "authored-array-order",
+        "schedule_call_site_identity_domain": "runtime-schedule-call-site-v2",
         "step_boundary": "next-observation-or-logical-boundary"
       }
     },

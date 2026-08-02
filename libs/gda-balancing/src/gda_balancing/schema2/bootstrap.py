@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:73628b8a0f659b9bcac98252b62d006d79515530fac1fa5e2ebfe5ec1b1c152f"
+    "sha256:e92caac185986af6fae8a451a07d205745a99862c59c2323e08f28daae204adb"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7379,15 +7379,28 @@ def _runtime_authority_is_closed(
         != {
             "event_identity": {
                 "domain": "runtime-event-v2",
-                "members": [
-                    "experiment_identity",
-                    "scenario_id",
-                    "root_event_ref",
-                    "logical_time",
-                    "phase",
-                    "priority",
-                    "enqueue_sequence",
-                ],
+                "variants": {
+                    "root": [
+                        "experiment_identity",
+                        "scenario_id",
+                        "root_event_ref",
+                        "logical_time",
+                        "phase",
+                        "priority",
+                        "enqueue_sequence",
+                    ],
+                    "scheduled": [
+                        "experiment_identity",
+                        "scenario_id",
+                        "parent_event_id",
+                        "call_site_identity",
+                        "schedule_sequence",
+                        "logical_time",
+                        "phase",
+                        "priority",
+                        "enqueue_sequence",
+                    ],
+                },
             },
             "ordering": [
                 {"direction": "ascending", "member": "logical_time"},
@@ -7400,6 +7413,7 @@ def _runtime_authority_is_closed(
                 {"direction": "ascending", "member": "enqueue_sequence"},
             ],
             "root_enqueue_sequence": "authored-array-order",
+            "schedule_call_site_identity_domain": "runtime-schedule-call-site-v2",
             "step_boundary": "next-observation-or-logical-boundary",
         }
     ):

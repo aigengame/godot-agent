@@ -45,6 +45,7 @@ _EVALUATOR_IMPLEMENTATION = "gda-balancing.deterministic-event-evaluator-v1"
 _SUPPORTED_RUNTIME_OPERATORS = frozenset(
     {
         "copy-value",
+        "cancel-event",
         "gameplay-precondition",
         "integer-add",
         "integer-compare",
@@ -55,6 +56,7 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "invoke-operation",
         "named-integer-draw",
         "select-value",
+        "schedule-operation",
         "state-integer-subtract",
         "state-write",
     }
@@ -278,22 +280,37 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
         or scheduler.get("root_enqueue_sequence") != "authored-array-order"
         or scheduler.get("step_boundary")
         != "next-observation-or-logical-boundary"
+        or scheduler.get("schedule_call_site_identity_domain")
+        != "runtime-schedule-call-site-v2"
     ):
         raise ValueError("Kernel scheduler contract is unsupported or incomplete")
     event_identity = scheduler.get("event_identity")
     if (
         not isinstance(event_identity, dict)
         or event_identity.get("domain") != "runtime-event-v2"
-        or event_identity.get("members")
-        != [
-            "experiment_identity",
-            "scenario_id",
-            "root_event_ref",
-            "logical_time",
-            "phase",
-            "priority",
-            "enqueue_sequence",
-        ]
+        or event_identity.get("variants")
+        != {
+            "root": [
+                "experiment_identity",
+                "scenario_id",
+                "root_event_ref",
+                "logical_time",
+                "phase",
+                "priority",
+                "enqueue_sequence",
+            ],
+            "scheduled": [
+                "experiment_identity",
+                "scenario_id",
+                "parent_event_id",
+                "call_site_identity",
+                "schedule_sequence",
+                "logical_time",
+                "phase",
+                "priority",
+                "enqueue_sequence",
+            ],
+        }
     ):
         raise ValueError("Kernel Event identity contract is unsupported or incomplete")
     return scheduler
@@ -349,6 +366,26 @@ def _root_event_id(
     return content_identity(cast(str, identity["domain"]), cast(JsonValue, body))
 
 
+def _scheduled_event_id(
+    checked: CheckedExperiment,
+    scenario_id: str,
+    event: dict[str, Any],
+) -> str:
+    identity = cast(dict[str, Any], _scheduler_contract(checked)["event_identity"])
+    body = {
+        "experiment_identity": checked.content_identity,
+        "scenario_id": scenario_id,
+        "parent_event_id": event["parent_event_id"],
+        "call_site_identity": event["call_site_identity"],
+        "schedule_sequence": event["schedule_sequence"],
+        "logical_time": event["logical_time"],
+        "phase": event["phase"],
+        "priority": event["priority"],
+        "enqueue_sequence": event["enqueue_sequence"],
+    }
+    return content_identity(cast(str, identity["domain"]), cast(JsonValue, body))
+
+
 def _expanded_operation_body(
     operation: dict[str, Any],
     operations: dict[str, dict[str, Any]],
@@ -362,7 +399,7 @@ def _expanded_operation_body(
     expanded: list[dict[str, Any]] = []
     for instruction in cast(list[dict[str, Any]], operation["body"]):
         expanded.append(instruction)
-        if instruction["node"] != "invoke":
+        if instruction["node"] not in {"invoke", "schedule"}:
             continue
         operation_ref = cast(dict[str, Any], instruction["operation"])
         invoked = operations.get(cast(str, operation_ref["id"]))
@@ -404,7 +441,7 @@ def derive_scenario_program_requirements(
                 *(
                     operations[instruction["operation"]["id"]]["operation_kind"]
                     for instruction in expanded_body
-                    if instruction["node"] == "invoke"
+                    if instruction["node"] in {"invoke", "schedule"}
                 ),
             }
         ),
@@ -1050,7 +1087,9 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             }
             and set(row["effects"])
             <= {
+                "event.cancel",
                 "event.commit",
+                "event.schedule",
                 "metric.observe",
                 "rng.named-stream",
                 "snapshot.commit",
@@ -1067,7 +1106,9 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
+                "event.cancel",
                 "event.commit",
+                "event.schedule",
                 "metric.observe",
                 "rng.named-stream",
                 "snapshot.commit",
@@ -1088,7 +1129,9 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
+                "event.cancel",
                 "event.commit",
+                "event.schedule",
                 "metric.observe",
                 "rng.named-stream",
                 "snapshot.commit",
@@ -1727,6 +1770,12 @@ def evaluate_experiment(
         outcomes = {row["id"]: row for row in operation["outcomes"]}
         draws: list[dict[str, JsonValue]] = []
         call_trace: list[dict[str, JsonValue]] = []
+        schedule_trace: list[dict[str, JsonValue]] = []
+        cancellation_trace: list[dict[str, JsonValue]] = []
+        buffered_children: list[dict[str, Any]] = []
+        canceled_event_ids: set[str] = set()
+        event_id = ""
+        next_enqueue_sequence = len(ordered_events)
         event_steps = 0
         root_step_limit = operation["resource_bounds"]["max_steps"]
 
@@ -1757,7 +1806,7 @@ def evaluate_experiment(
             call_path: tuple[str, ...],
             call_site_identity: str | None,
         ) -> tuple[str, Any]:
-            nonlocal event_steps, total_steps
+            nonlocal event_steps, next_enqueue_sequence, total_steps
             operation_before: dict[bytes, int] = dict(state)
             variables: dict[str, Any] = dict(arguments)
             extensions = selected_operation.get("extensions", {})
@@ -1869,6 +1918,115 @@ def evaluate_experiment(
                         outcome = mapping["action"]["outcome"]
                         break
                     continue
+                if operator == "schedule-operation":
+                    child_operation = operations[instruction["operation"]["id"]]
+                    child_arguments: dict[str, Any] = {}
+                    child_state_references: dict[str, bytes] = {}
+                    for binding in instruction["arguments"]:
+                        operand = binding["operand"]
+                        if operand["kind"] == "port":
+                            child_arguments[binding["port"]] = variables[
+                                operand["port"]
+                            ]
+                            if operand["port"] in state_references:
+                                child_state_references[binding["port"]] = (
+                                    state_references[operand["port"]]
+                                )
+                        elif operand["kind"] == "local":
+                            child_arguments[binding["port"]] = variables[
+                                operand["local"]
+                            ]
+                        else:
+                            child_arguments[binding["port"]] = operand["literal"]
+                    scheduler = _scheduler_contract(checked)
+                    schedule_call_site_identity = content_identity(
+                        cast(str, scheduler["schedule_call_site_identity_domain"]),
+                        cast(
+                            JsonValue,
+                            {
+                                "parent_event_id": event_id,
+                                "parent_operation": selected_operation["id"],
+                                "site": instruction["site"],
+                                "operation": instruction["operation"],
+                            },
+                        ),
+                    )
+                    child_event: dict[str, Any] = {
+                        "arguments": child_arguments,
+                        "call_site_identity": schedule_call_site_identity,
+                        "enqueue_sequence": next_enqueue_sequence,
+                        "logical_time": instruction["logical_time"],
+                        "operation": child_operation["id"],
+                        "operation_ref": instruction["operation"],
+                        "parent_event_id": event_id,
+                        "phase": "transition",
+                        "priority": instruction["priority"],
+                        "schedule_sequence": len(schedule_trace),
+                        "state_references": child_state_references,
+                    }
+                    next_enqueue_sequence += 1
+                    child_event["event_id"] = _scheduled_event_id(
+                        checked, scenario["id"], child_event
+                    )
+                    buffered_children.append(child_event)
+                    result_binding = instruction["result"]
+                    variables[result_binding["name"]] = child_event["event_id"]
+                    schedule_trace.append(
+                        {
+                            "event_id": child_event["event_id"],
+                            "call_site_identity": schedule_call_site_identity,
+                            "operation": instruction["operation"],
+                            "ordering_key": {
+                                "logical_time": child_event["logical_time"],
+                                "phase": child_event["phase"],
+                                "priority": child_event["priority"],
+                                "enqueue_sequence": child_event[
+                                    "enqueue_sequence"
+                                ],
+                            },
+                            "outcome": "queued",
+                        }
+                    )
+                    continue
+                if operator == "cancel-event":
+                    target = instruction["event"]
+                    if target["kind"] != "local":
+                        raise ValueError("admitted cancel target is not a local Event id")
+                    target_event_id = variables[target["local"]]
+                    if not any(
+                        child["event_id"] == target_event_id
+                        for child in buffered_children
+                    ):
+                        raise ValueError("admitted cancel target is not pending")
+                    cancel_call_site_identity = content_identity(
+                        cast(
+                            str,
+                            _scheduler_contract(checked)[
+                                "schedule_call_site_identity_domain"
+                            ],
+                        ),
+                        cast(
+                            JsonValue,
+                            {
+                                "canceling_event_id": event_id,
+                                "operation": selected_operation["id"],
+                                "site": instruction["site"],
+                                "target_event_id": target_event_id,
+                            },
+                        ),
+                    )
+                    canceled_event_ids.add(cast(str, target_event_id))
+                    for scheduled in schedule_trace:
+                        if scheduled["event_id"] == target_event_id:
+                            scheduled["outcome"] = "canceled"
+                    cancellation_trace.append(
+                        {
+                            "call_site_identity": cancel_call_site_identity,
+                            "event_id": target_event_id,
+                            "outcome": "canceled",
+                        }
+                    )
+                    continue
                 if operator == "gameplay-precondition":
                     if not _integer_compare(
                         semantics["comparison"],
@@ -1953,40 +2111,73 @@ def evaluate_experiment(
                 result = None
             return cast(str, outcome), result
 
-        for event_position, event_spec in enumerate(ordered_events):
-            entrypoint = entrypoints[event_spec["entrypoint"]]
-            operation = operations[entrypoint["operation"]["id"]]
+        pending_events = list(ordered_events)
+        event_position = 0
+        terminal_maximum = scenario["terminal_condition"]["maximum"]
+        while pending_events and event_position < terminal_maximum:
+            pending_events.sort(
+                key=lambda event: (
+                    event["logical_time"],
+                    -event["priority"],
+                    event["enqueue_sequence"],
+                )
+            )
+            event_spec = pending_events.pop(0)
+            if "entrypoint" in event_spec:
+                entrypoint = entrypoints[event_spec["entrypoint"]]
+                operation = operations[entrypoint["operation"]["id"]]
+                event_id = _root_event_id(checked, scenario["id"], event_spec)
+            else:
+                entrypoint = None
+                operation = operations[event_spec["operation"]]
+                event_id = event_spec["event_id"]
             outcomes = {row["id"]: row for row in operation["outcomes"]}
             draws = []
             call_trace = []
+            schedule_trace = []
+            cancellation_trace = []
+            buffered_children = []
+            canceled_event_ids = set()
             event_steps = 0
             root_step_limit = operation["resource_bounds"]["max_steps"]
             before = dict(state)
-            event_id = _root_event_id(checked, scenario["id"], event_spec)
-            payload_values = {
-                canonical_bytes(cast(JsonValue, row["target"])): row["value"]
-                for row in event_spec["payload"]
-            }
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
-            for binding in entrypoint["arguments"]:
-                resolved_operand = binding["operand"]
-                if resolved_operand["kind"] == "symbol":
-                    identity = canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
-                    declaration = declarations[identity]
-                    root_arguments[binding["port"]["name"]] = payload_values.get(
-                        identity, actual_values[identity]
-                    )
-                    if declaration["role"] == "state":
-                        root_state_references[binding["port"]["name"]] = identity
-                else:
-                    root_arguments[binding["port"]["name"]] = resolved_operand["value"]
+            if entrypoint is None:
+                root_arguments.update(event_spec["arguments"])
+                root_state_references.update(event_spec["state_references"])
+            else:
+                payload_values = {
+                    canonical_bytes(cast(JsonValue, row["target"])): row["value"]
+                    for row in event_spec["payload"]
+                }
+                for binding in entrypoint["arguments"]:
+                    resolved_operand = binding["operand"]
+                    if resolved_operand["kind"] == "symbol":
+                        identity = canonical_bytes(
+                            cast(JsonValue, resolved_operand["symbol"])
+                        )
+                        declaration = declarations[identity]
+                        root_arguments[binding["port"]["name"]] = payload_values.get(
+                            identity, actual_values[identity]
+                        )
+                        if declaration["role"] == "state":
+                            root_state_references[binding["port"]["name"]] = identity
+                    else:
+                        root_arguments[binding["port"]["name"]] = resolved_operand[
+                            "value"
+                        ]
             try:
+                dispatch_path = (
+                    (cast(str, entrypoint["id"]),)
+                    if entrypoint is not None
+                    else (f"scheduled:{event_spec['call_site_identity']}",)
+                )
                 outcome, root_result = execute_operation(
                     operation,
                     root_arguments,
                     root_state_references,
-                    (cast(str, entrypoint["id"]),),
+                    dispatch_path,
                     None,
                 )
             except _RuntimeExecutionFault as fault:
@@ -2003,8 +2194,16 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
-                    entrypoint_id=entrypoint["id"],
-                    entrypoint_identity=entrypoint["identity"],
+                    entrypoint_id=(
+                        entrypoint["id"]
+                        if entrypoint is not None
+                        else f"scheduled:{event_spec['call_site_identity']}"
+                    ),
+                    entrypoint_identity=(
+                        entrypoint["identity"]
+                        if entrypoint is not None
+                        else event_spec["call_site_identity"]
+                    ),
                     operation=fault.operation,
                     call_path=fault.call_path,
                     call_site_identity=fault.call_site_identity,
@@ -2018,6 +2217,7 @@ def evaluate_experiment(
             outcome_definition = outcomes[outcome]
             if (
                 outcome_definition["kind"] == "success"
+                and entrypoint is not None
                 and entrypoint["result"]["kind"] == "symbol"
             ):
                 result_identity = canonical_bytes(
@@ -2028,12 +2228,14 @@ def evaluate_experiment(
                 "id": outcome,
                 "kind": outcome_definition["kind"],
             }
-            event = cast(
+            for child in buffered_children:
+                if child["event_id"] not in canceled_event_ids:
+                    pending_events.append(child)
+            event_payload = cast(
                 dict[str, JsonValue],
                 {
                     "index": len(events),
                     "event_id": event_id,
-                    "root_event_ref": event_spec["root_event_ref"],
                     "ordering_key": {
                         "logical_time": event_spec["logical_time"],
                         "phase": event_spec["phase"],
@@ -2041,11 +2243,17 @@ def evaluate_experiment(
                         "enqueue_sequence": event_spec["enqueue_sequence"],
                     },
                     "operation": operation["id"],
-                    "entrypoint": {
-                        "id": entrypoint["id"],
-                        "identity": entrypoint["identity"],
-                    },
+                    "entrypoint": (
+                        {
+                            "id": entrypoint["id"],
+                            "identity": entrypoint["identity"],
+                        }
+                        if entrypoint is not None
+                        else None
+                    ),
                     "calls": call_trace,
+                    "schedules": schedule_trace,
+                    "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
                     "facts": _resolved_value_rows(actual_values, display_names),
                     "state_before": _resolved_int_rows(before, display_names),
@@ -2053,13 +2261,24 @@ def evaluate_experiment(
                     "rng_draws": draws,
                 },
             )
+            if entrypoint is not None:
+                event_payload["root_event_ref"] = event_spec["root_event_ref"]
+            else:
+                event_payload["parent_event_id"] = event_spec["parent_event_id"]
+                event_payload["schedule_call_site_identity"] = event_spec[
+                    "call_site_identity"
+                ]
+            event = cast(dict[str, JsonValue], event_payload)
+            terminal_after_event = (
+                event_position + 1 >= terminal_maximum or not pending_events
+            )
             snapshot = cast(
                 dict[str, JsonValue],
                 {
                     "index": len(snapshots),
                     "name": (
                         f"{scenario['id']}:terminal"
-                        if event_position == len(ordered_events) - 1
+                        if terminal_after_event
                         else f"{scenario['id']}:event:{event_id}"
                     ),
                     "values": _resolved_int_rows(state, display_names),
@@ -2092,10 +2311,18 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
-                    entrypoint_id=entrypoint["id"],
-                    entrypoint_identity=entrypoint["identity"],
+                    entrypoint_id=(
+                        entrypoint["id"]
+                        if entrypoint is not None
+                        else f"scheduled:{event_spec['call_site_identity']}"
+                    ),
+                    entrypoint_identity=(
+                        entrypoint["identity"]
+                        if entrypoint is not None
+                        else event_spec["call_site_identity"]
+                    ),
                     operation=operation["id"],
-                    call_path=(cast(str, entrypoint["id"]),),
+                    call_path=dispatch_path,
                     call_site_identity=None,
                     evaluation_site_identity=fault.evaluation_site_identity,
                     state_before={
@@ -2111,6 +2338,7 @@ def evaluate_experiment(
                 {display_names[identity]: value for identity, value in state.items()},
                 outcome,
             )
+            event_position += 1
 
     samples: list[dict[str, JsonValue]] = []
     for metric in checked.value["metrics"]:
