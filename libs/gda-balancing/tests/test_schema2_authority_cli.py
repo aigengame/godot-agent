@@ -25,6 +25,7 @@ import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
+from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.commands.model import (
     MODEL_BUILD,
     MODEL_CHECK,
@@ -1437,6 +1438,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "manifest",
         "experiment check",
         "experiment run",
+        "formula parse",
+        "formula render",
         "model check",
         "model build",
         "model inspect",
@@ -1514,6 +1517,16 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "--version",
                 "2.1.0",
             ]
+        elif path in {"formula parse", "formula render"}:
+            descriptor = {
+                "formula parse": FORMULA_PARSE,
+                "formula render": FORMULA_RENDER,
+            }[path]
+            source = tmp_path / f"{path.replace(' ', '-')}.json"
+            source.write_text(
+                descriptor.fixtures.valid_document or "", encoding="utf-8"
+            )
+            argv = [*path.split(), str(source)]
         else:
             descriptor = {
                 "model build": MODEL_BUILD,
@@ -1569,6 +1582,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.formula_refusal_widening", "static"),
         ("language.formula_resource_exhausted", "static"),
         ("language.formula_cycle", "static"),
+        ("language.formula_notation_mismatch", "static"),
         ("language.package_version_unavailable", "resolution"),
         ("language.resolution_ambiguity", "resolution"),
     }
@@ -1594,6 +1608,23 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         TEMPLATE_INSTANTIATE: bootstrap | model,
         EXPERIMENT_CHECK: bootstrap | experiment_check,
         EXPERIMENT_RUN: bootstrap | experiment_check | experiment_run_only,
+        FORMULA_PARSE: bootstrap
+        | {
+            ("language.formula_notation_parse_failure", "parse"),
+            ("language.formula_notation_resource_exhausted", "parse"),
+            ("language.unresolved_name", "static"),
+            ("language.name_ambiguity", "static"),
+            ("language.formula_type_mismatch", "static"),
+            ("language.source_contract_mismatch", "static"),
+        },
+        FORMULA_RENDER: bootstrap
+        | {
+            ("language.unresolved_name", "static"),
+            ("language.name_ambiguity", "static"),
+            ("language.formula_notation_mismatch", "static"),
+            ("language.formula_type_mismatch", "static"),
+            ("language.source_contract_mismatch", "static"),
+        },
     }
     for descriptor, catalog in expected.items():
         assert set(descriptor.refusal_catalog) == catalog

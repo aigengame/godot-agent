@@ -905,7 +905,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:8583a39cbd3362e34a0a3f75b3f421ed792b20eee2a74fa4e3049c76612e9de0"
+                    "sha256:0994d9e70cb773f3506969c906d55e8f24df16488a98dd8d76458a83ef42706b"
                 ),
             }
         ]
@@ -1404,6 +1404,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
         ],
         "result": {"kind": "local", "local": "minimum"},
     }
+    formula["expression"] = "let minimum = max(base, 1);\nminimum"
     edited_path = tmp_path / "edited-template-formula.json"
     edited_path.write_text(json.dumps(edited), encoding="utf-8")
 
@@ -2376,6 +2377,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         ],
         "result": {"kind": "local", "local": "minimum"},
     }
+    inherited_formula["expression"] = "let minimum = max(base, 1);\nminimum"
     game_derived = deepcopy(
         next(row for row in baseline_symbols if row["symbol"] == "derived_value")
     )
@@ -2438,6 +2440,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
             ],
             "result": {"kind": "local", "local": "game-minimum"},
         },
+        "expression": "let `game-minimum` = max(base, 1);\n`game-minimum`",
     }
     slot_formula = deepcopy(
         next(row for row in game_module["formulas"] if row["id"] == "mitigated-damage")

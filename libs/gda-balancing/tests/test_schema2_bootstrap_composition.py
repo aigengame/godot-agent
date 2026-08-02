@@ -226,10 +226,24 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         )
     )
     currency_identity["id"] = "currency.identity"
+    currency_identity["vectors"] = [
+        vector_id
+        for vector_id in currency_identity["vectors"]
+        if vector_id != "formula.notation.quantity.identity"
+    ]
+    currency_notation_vector = deepcopy(
+        _owned_vector(ldb, "formula.notation.quantity.identity")
+    )
+    currency_notation_vector["id"] = "formula.notation.currency.identity"
+    currency_notation_vector["operation"] = currency_identity["id"]
+    currency_identity["vectors"].append(currency_notation_vector["id"])
     for contract in [*currency_identity["inputs"], currency_identity["result"]]:
         contract["type"]["id"] = "Currency"
     language["operations"].append(currency_identity)
     owner["exports"]["operations"].append(currency_identity["id"])
+    vector_set = _package_vector_set(ldb, owner)
+    vector_set["vector_definitions"].append(currency_notation_vector)
+    vector_set["vectors"].append(currency_notation_vector["id"])
     _refresh_package_closure_and_reidentify(ldb)
 
     assert production_bootstrap._literal_typing_profiles_are_closed(kernel, ldb)
@@ -245,7 +259,7 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
     first = _consumer_a(kernel, ldb)
     second = _consumer_b(kernel, ldb)
     assert first == second
-    assert first["admitted"] is True
+    assert first["admitted"] is True, first["diagnostics"]
 
 
 @pytest.mark.parametrize(
