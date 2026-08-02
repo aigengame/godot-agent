@@ -703,7 +703,10 @@ derived from exact Observation/Metric contracts and cannot choose a phase or Mod
 
 Dispatching **each queued event** is one atomic transaction over the latest committed Snapshot.
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
-commits; refusal discards that event's buffers.
+commits; refusal discards that event's buffers. Every committed Snapshot identity covers both its
+state values and the resumable Runtime continuation (lifecycle/Scenario cursor, queue and committed
+prefix, Snapshot coordinate, Named RNG state, scoped resource ledger, enqueue cursor, and root map),
+so equal state values cannot conceal different future execution.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
 commit makes each uncanceled child queue-visible under the same law and traces its

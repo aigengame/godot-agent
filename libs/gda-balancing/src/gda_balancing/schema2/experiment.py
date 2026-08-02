@@ -303,6 +303,7 @@ def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
                 "terminated",
             ],
             "members": [
+                "lifecycle_state",
                 "scenario_cursor",
                 "pending_events",
                 "completed_events",
@@ -427,7 +428,20 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
                 "logical_time",
                 "event_id",
                 "values",
+                "continuation",
             ],
+            "runtime_configuration_projection": {
+                "lifecycle_state": "continuation.lifecycle_state",
+                "scenario_cursor": "continuation.scenario_cursor",
+                "pending_events": "continuation.pending_events",
+                "completed_events": "continuation.completed_events",
+                "current_snapshot": "continuation.current_snapshot",
+                "state": "values",
+                "rng": "continuation.rng",
+                "resource_ledger": "continuation.resource_ledger",
+                "next_enqueue_sequence": "continuation.next_enqueue_sequence",
+                "root_event_map": "continuation.root_event_map",
+            },
         }
         or scheduler.get("external_input_identity")
         != {
@@ -533,6 +547,129 @@ def _scheduler_ordering_key(
         phase_rank[cast(str, event["phase"])],
         -cast(int, event["priority"]),
         cast(int, event["enqueue_sequence"]),
+    )
+
+
+def _resolved_symbol_from_identity(identity: bytes) -> dict[str, JsonValue]:
+    resolved = json.loads(identity)
+    if (
+        not isinstance(resolved, dict)
+        or set(resolved) != {"model", "module", "name"}
+        or not all(isinstance(value, str) and value for value in resolved.values())
+    ):
+        raise ValueError("Runtime state reference is not a Resolved Symbol")
+    return cast(dict[str, JsonValue], resolved)
+
+
+def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
+    ordering_key = cast(
+        dict[str, JsonValue],
+        {
+            "logical_time": event["logical_time"],
+            "phase": event["phase"],
+            "priority": event["priority"],
+            "enqueue_sequence": event["enqueue_sequence"],
+        },
+    )
+    common = {
+        "event_id": cast(str, event["event_id"]),
+        "ordering_key": ordering_key,
+        "zero_time_depth": cast(int, event.get("zero_time_depth", 0)),
+    }
+    if event.get("kind") == "external-input":
+        return {
+            **common,
+            "kind": "external-input",
+            "root_event_ref": cast(str, event["root_event_ref"]),
+            "source_identity": cast(str, event["source_identity"]),
+            "source_sequence": cast(int, event["source_sequence"]),
+            "facts": cast(JsonValue, event["facts"]),
+        }
+    if "entrypoint" in event:
+        return {
+            **common,
+            "kind": "transition-invocation",
+            "root_event_ref": cast(str, event["root_event_ref"]),
+            "entrypoint": cast(str, event["entrypoint"]),
+            "payload": cast(JsonValue, event["payload"]),
+        }
+    return {
+        **common,
+        "kind": "scheduled-transition",
+        "parent_event_id": cast(str, event["parent_event_id"]),
+        "call_site_identity": cast(str, event["call_site_identity"]),
+        "schedule_sequence": cast(int, event["schedule_sequence"]),
+        "operation": cast(JsonValue, event["operation_ref"]),
+        "arguments": cast(
+            JsonValue,
+            [
+                {"name": name, "value": value}
+                for name, value in sorted(
+                    cast(dict[str, JsonValue], event["arguments"]).items()
+                )
+            ],
+        ),
+        "state_references": cast(
+            JsonValue,
+            [
+                {
+                    "name": name,
+                    "target": _resolved_symbol_from_identity(identity),
+                }
+                for name, identity in sorted(
+                    cast(dict[str, bytes], event["state_references"]).items()
+                )
+            ],
+        ),
+    }
+
+
+def _runtime_continuation(
+    checked: CheckedExperiment,
+    *,
+    lifecycle_state: str,
+    scenario_cursor: int,
+    pending_events: list[dict[str, Any]],
+    completed_events: list[str],
+    snapshot_index: int,
+    event_id: str | None,
+    logical_time: int | None,
+    rng: _NamedRng,
+    event_steps: int,
+    node_steps: int,
+    admitted_event_count: int,
+    next_enqueue_sequence: int,
+    root_event_map: list[dict[str, JsonValue]],
+) -> dict[str, JsonValue]:
+    scheduler = _scheduler_contract(checked)
+    return cast(
+        dict[str, JsonValue],
+        {
+            "lifecycle_state": lifecycle_state,
+            "scenario_cursor": scenario_cursor,
+            "pending_events": [
+                _pending_event_projection(event)
+                for event in sorted(
+                    pending_events,
+                    key=lambda pending: _scheduler_ordering_key(scheduler, pending),
+                )
+            ],
+            "completed_events": list(completed_events),
+            "current_snapshot": {
+                "index": snapshot_index,
+                "event_id": event_id,
+                "logical_time": logical_time,
+            },
+            "rng": rng.continuation(),
+            "resource_ledger": {
+                "event_steps": event_steps,
+                "node_steps": node_steps,
+                "queue_events": len(pending_events),
+                "total_events": admitted_event_count,
+            },
+            "next_enqueue_sequence": next_enqueue_sequence,
+            "root_event_map": root_event_map,
+        },
     )
 
 
@@ -1308,6 +1445,17 @@ class _NamedRng:
         states, indices = snapshot
         self._states = dict(states)
         self._indices = dict(indices)
+
+    def continuation(self) -> list[dict[str, JsonValue]]:
+        width = self._contract["word_bits"] // 4
+        return [
+            {
+                "stream": stream,
+                "state_hex": f"{self._states[stream]:0{width}x}",
+                "next_index": self._indices[stream],
+            }
+            for stream in sorted(self._states)
+        ]
 
     def encode_candidate(self, candidate: int) -> str:
         width = self._contract["candidate_encoding"]["width_bits"] // 4
@@ -2260,10 +2408,6 @@ def evaluate_experiment(
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
-    rng = _NamedRng(
-        checked.value["seed"]["value"],
-        cast(dict[str, Any], runtime_contract["named_rng"]),
-    )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
     root_event_map: list[dict[str, JsonValue]] = []
@@ -2293,10 +2437,6 @@ def evaluate_experiment(
                 ordered_events, key=lambda event: event["enqueue_sequence"]
             )
         )
-    admitted_event_count = sum(
-        len(events_for_scenario)
-        for events_for_scenario in root_events_by_scenario.values()
-    )
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = root_events_by_scenario[scenario["id"]]
         if len(ordered_events) > runtime_bounds["max_queue_events"]:
@@ -2320,17 +2460,26 @@ def evaluate_experiment(
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message="Authored root Event exceeds the Runtime logical-time bound",
             )
-    if admitted_event_count > runtime_bounds["max_total_events"]:
-        return _refusal(
-            stage="runtime",
-            variant="pre-event",
-            code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
-            identity=checked.content_identity,
-            pointer="/scenarios",
-            message="Authored root Events exceed the Runtime total-Event bound",
-        )
+        if len(ordered_events) > runtime_bounds["max_total_events"]:
+            return _refusal(
+                stage="runtime",
+                variant="pre-event",
+                code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                identity=checked.content_identity,
+                pointer=f"/scenarios/{scenario_index}/event_plan",
+                message="Authored root Events exceed the Runtime total-Event bound",
+            )
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = root_events_by_scenario[scenario["id"]]
+        rng = _NamedRng(
+            checked.value["seed"]["value"],
+            cast(dict[str, Any], runtime_contract["named_rng"]),
+        )
+        admitted_event_count = len(ordered_events)
+        next_enqueue_sequence = len(ordered_events)
+        scenario_completed_events: list[str] = []
+        event_steps = 0
+        root_step_limit = runtime_bounds["max_event_steps"]
         scenario_entrypoints = [
             entrypoints[event["entrypoint"]]
             for event in ordered_events
@@ -2411,6 +2560,22 @@ def evaluate_experiment(
                 "event_id": None,
                 "logical_time": None,
                 "values": cast(JsonValue, initial_values),
+                "continuation": _runtime_continuation(
+                    checked,
+                    lifecycle_state="event",
+                    scenario_cursor=scenario_index,
+                    pending_events=ordered_events,
+                    completed_events=scenario_completed_events,
+                    snapshot_index=len(snapshots),
+                    event_id=None,
+                    logical_time=None,
+                    rng=rng,
+                    event_steps=0,
+                    node_steps=total_steps,
+                    admitted_event_count=admitted_event_count,
+                    next_enqueue_sequence=next_enqueue_sequence,
+                    root_event_map=root_event_map,
+                ),
             },
         )
         initial_snapshot["snapshot_identity"] = _projected_runtime_identity(
@@ -2422,6 +2587,7 @@ def evaluate_experiment(
                 "logical_time": None,
                 "event_id": None,
                 "values": cast(JsonValue, initial_values),
+                "continuation": initial_snapshot["continuation"],
             },
         )
         snapshots.append(initial_snapshot)
@@ -2439,9 +2605,6 @@ def evaluate_experiment(
         buffered_children: list[dict[str, Any]] = []
         canceled_event_ids: set[str] = set()
         event_id = ""
-        next_enqueue_sequence = len(ordered_events)
-        event_steps = 0
-        root_step_limit = runtime_bounds["max_event_steps"]
 
         def instruction_evaluation_sites(
             selected_operation: dict[str, Any],
@@ -3121,15 +3284,42 @@ def evaluate_experiment(
                     "call_site_identity"
                 ]
             event = cast(dict[str, JsonValue], event_payload)
+            event_position += 1
+            step_boundary = _runtime_step_boundary(
+                checked,
+                active_logical_time=cast(int, event_spec["logical_time"]),
+                pending_events=pending_events,
+                event_position=event_position,
+                terminal_maximum=terminal_maximum,
+            )
+            scenario_completed_events.append(event_id)
+            snapshot_index = len(snapshots)
+            continuation = _runtime_continuation(
+                checked,
+                lifecycle_state="event",
+                scenario_cursor=scenario_index,
+                pending_events=pending_events,
+                completed_events=scenario_completed_events,
+                snapshot_index=snapshot_index,
+                event_id=event_id,
+                logical_time=cast(int, event_spec["logical_time"]),
+                rng=rng,
+                event_steps=event_steps,
+                node_steps=total_steps,
+                admitted_event_count=admitted_event_count,
+                next_enqueue_sequence=next_enqueue_sequence,
+                root_event_map=root_event_map,
+            )
             snapshot = cast(
                 dict[str, JsonValue],
                 {
-                    "index": len(snapshots),
+                    "index": snapshot_index,
                     "name": f"{scenario['id']}:event:{event_id}",
                     "scenario": scenario["id"],
                     "event_id": event_id,
                     "logical_time": event_spec["logical_time"],
                     "values": _resolved_int_rows(state, display_names),
+                    "continuation": continuation,
                 },
             )
             snapshot["snapshot_identity"] = _projected_runtime_identity(
@@ -3141,6 +3331,7 @@ def evaluate_experiment(
                     "logical_time": event_spec["logical_time"],
                     "event_id": event_id,
                     "values": snapshot["values"],
+                    "continuation": continuation,
                 },
             )
             event["snapshot_after_identity"] = snapshot["snapshot_identity"]
@@ -3157,14 +3348,6 @@ def evaluate_experiment(
                     },
                     outcome,
                 )
-            )
-            event_position += 1
-            step_boundary = _runtime_step_boundary(
-                checked,
-                active_logical_time=cast(int, event_spec["logical_time"]),
-                pending_events=pending_events,
-                event_position=event_position,
-                terminal_maximum=terminal_maximum,
             )
             if step_boundary is None:
                 continue
@@ -3339,10 +3522,32 @@ def evaluate_experiment(
                     },
                 },
             )
+            scenario_completed_events.append(observation_event_id)
+            snapshot_index = len(snapshots)
+            continuation = _runtime_continuation(
+                checked,
+                lifecycle_state=(
+                    "terminated"
+                    if metric_index + 1 == len(checked.value["metrics"])
+                    else "event"
+                ),
+                scenario_cursor=scenario_index,
+                pending_events=pending_events,
+                completed_events=scenario_completed_events,
+                snapshot_index=snapshot_index,
+                event_id=observation_event_id,
+                logical_time=logical_time,
+                rng=rng,
+                event_steps=0,
+                node_steps=total_steps,
+                admitted_event_count=admitted_event_count,
+                next_enqueue_sequence=next_enqueue_sequence,
+                root_event_map=root_event_map,
+            )
             snapshot = cast(
                 dict[str, JsonValue],
                 {
-                    "index": len(snapshots),
+                    "index": snapshot_index,
                     "name": (
                         f"{scenario['id']}:terminal"
                         if metric_index + 1 == len(checked.value["metrics"])
@@ -3352,6 +3557,7 @@ def evaluate_experiment(
                     "event_id": observation_event_id,
                     "logical_time": logical_time,
                     "values": resolved_state,
+                    "continuation": continuation,
                 },
             )
             snapshot["snapshot_identity"] = _projected_runtime_identity(
@@ -3363,6 +3569,7 @@ def evaluate_experiment(
                     "logical_time": logical_time,
                     "event_id": observation_event_id,
                     "values": snapshot["values"],
+                    "continuation": continuation,
                 },
             )
             observation_event["snapshot_after_identity"] = snapshot["snapshot_identity"]

@@ -160,7 +160,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - **A Snapshot boundary exists initially and after every successful event.** The semantic snapshot
   includes all persistent state and scheduler state required to resume deterministically. Evidence
   may record a canonical hash at every boundary and materialize full snapshots only at declared
-  checkpoints; storage optimization cannot change the conceptual boundary or replay trace.
+  checkpoints; storage optimization cannot change the conceptual boundary or replay trace. The
+  Snapshot identity therefore projects both the committed state values and the complete resumable
+  Runtime continuation: lifecycle and Scenario cursor, pending and completed Events, current
+  Snapshot coordinate, Named RNG state, resource ledger, next enqueue sequence, and root-Event map.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic
@@ -169,8 +172,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 - **Budgets are independent and observable.** Runtime node-step, per-Event operation-step, queue,
   zero-time-depth, total-Event, and logical-time limits have distinct authority paths and counters.
-  Exhausting one cannot be reported as another or reset by a scenario boundary. The Resolved
-  Runtime profile and terminal audit expose the selected limits and consumed boundary.
+  Exhausting one cannot be reported as another or reset outside its declared scope: node steps are
+  per run, Event steps per Event transaction, total Events per Scenario, and queue/logical/depth
+  counters follow their declared queue or Event scope. The Resolved Runtime profile and terminal
+  audit expose the selected limits and consumed boundary.
 
 - **Randomness is stream-scoped and normatively mapped.** Stochastic operations read only a Named
   random stream derived from the effective root seed and stable stream identity under the selected

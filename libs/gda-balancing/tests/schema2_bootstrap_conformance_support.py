@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9a7c56e0d2c1c21457354936fe01e352a708cb7484657b9ebf304586e4113883"
+    "sha256:163b039079585d0374b0566618cd87cf1c1c43dd6b0838c01b3f6554b4ee72c2"
 )
 
 
@@ -5291,7 +5291,20 @@ def _consumer_b_runtime_authority_is_closed(
                     "logical_time",
                     "event_id",
                     "values",
+                    "continuation",
                 ],
+                "runtime_configuration_projection": {
+                    "lifecycle_state": "continuation.lifecycle_state",
+                    "scenario_cursor": "continuation.scenario_cursor",
+                    "pending_events": "continuation.pending_events",
+                    "completed_events": "continuation.completed_events",
+                    "current_snapshot": "continuation.current_snapshot",
+                    "state": "values",
+                    "rng": "continuation.rng",
+                    "resource_ledger": "continuation.resource_ledger",
+                    "next_enqueue_sequence": "continuation.next_enqueue_sequence",
+                    "root_event_map": "continuation.root_event_map",
+                },
             },
             "external_input_identity": {
                 "domain": "runtime-external-input-v2",
@@ -5338,6 +5351,7 @@ def _consumer_b_runtime_authority_is_closed(
                 "terminated",
             ],
             "members": [
+                "lifecycle_state",
                 "scenario_cursor",
                 "pending_events",
                 "completed_events",
