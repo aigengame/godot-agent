@@ -1368,6 +1368,7 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     assert [
         (event["root_event_ref"], event["ordering_key"]["phase"])
         for event in events
+        if "root_event_ref" in event
     ] == [
         ("raise-defense", "input"),
         ("cast-after-input", "transition"),
@@ -1409,7 +1410,17 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
         {"name": "actor_mana", "value": 30},
         {"name": "target_health", "value": 100},
     ]
-    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
+    observation = events[-1]
+    assert observation["ordering_key"]["phase"] == "observation"
+    assert observation["operation"] is None
+    assert observation["entrypoint"] is None
+    assert observation["outcome"] == {
+        "id": "observation-emitted",
+        "kind": "success",
+    }
+    assert observation["observation"]["metric"] == "terminal_health"
+    assert observation["state_before"] == observation["state_after"]
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 4
 
 
 def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
