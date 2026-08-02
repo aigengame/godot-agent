@@ -638,3 +638,59 @@ def test_formula_parse_resolves_a_qualified_formula_call(tmp_path: Path, run_cli
 
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["body"] == expected_body
+
+
+def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> None:
+    exit_code, stdout, stderr = run_cli(
+        [
+            "package",
+            "get",
+            "--id",
+            "standard.schema",
+            "--version",
+            "2.1.0",
+            "--member",
+            "release",
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    release = json.loads(stdout)
+    source_schema = next(
+        definition["schema"]
+        for closure in release["semantic_closure"]
+        if closure["authority_path"] == "language.wire_schemas"
+        for definition in closure["definitions"]
+        if definition["artifact_kind"] == "model-source-package"
+    )
+    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    assert grammar == {
+        "version": "1.0.0",
+        "bare_identifier_pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "reserved_identifiers": ["else", "if", "let", "then"],
+        "identifier_quote": "`",
+        "escape_character": "\\",
+        "escapable_identifier_characters": ["`", "\\"],
+        "group_delimiters": ["(", ")"],
+        "binding_keyword": "let",
+        "conditional_keywords": ["if", "then", "else"],
+        "binding_terminator": ";",
+        "argument_separator": ",",
+        "named_argument_operator": "=",
+        "coordinate_separator": ".",
+        "max_expression_bytes": 65536,
+        "max_tokens": 4096,
+    }
+    notation_schema = source_schema["$defs"]["formulaOperationNotation"]
+    assert notation_schema["oneOf"][0]["required"] == [
+        "kind",
+        "token",
+        "ordered_ports",
+        "precedence",
+        "associativity",
+    ]
+    assert notation_schema["oneOf"][1]["required"] == [
+        "kind",
+        "name",
+        "ordered_ports",
+    ]

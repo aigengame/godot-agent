@@ -7,10 +7,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
+import jsonschema
 
-_BARE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_RESERVED_IDENTIFIERS = frozenset({"else", "if", "let", "then"})
+from gda_balancing.schema2.authority import AdmittedAuthorityContext
 
 
 @dataclass(frozen=True)
@@ -27,12 +26,60 @@ class _OperationNotation:
     notation: dict[str, Any]
 
 
-def _identifier(value: object) -> str:
+def _notation_authority(
+    authority_context: AdmittedAuthorityContext,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    packages = cast(
+        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
+    )
+    matches: list[dict[str, Any]] = []
+    for package in packages:
+        if package.get("id") != "standard.schema":
+            continue
+        for closure in cast(list[dict[str, Any]], package["semantic_closure"]):
+            if closure.get("authority_path") != "language.wire_schemas":
+                continue
+            matches.extend(
+                cast(dict[str, Any], definition["schema"])
+                for definition in cast(list[dict[str, Any]], closure["definitions"])
+                if definition.get("artifact_kind") == "model-source-package"
+            )
+    if len(matches) != 1:
+        raise ValueError("standard.schema has no unique Formula notation authority")
+    definitions = matches[0].get("$defs")
+    if not isinstance(definitions, dict):
+        raise ValueError("standard.schema has no Formula notation definitions")
+    grammar_schema = definitions.get("formulaNotationGrammar")
+    notation_schema = definitions.get("formulaOperationNotation")
+    grammar = grammar_schema.get("const") if isinstance(grammar_schema, dict) else None
+    if not isinstance(grammar, dict) or not isinstance(notation_schema, dict):
+        raise ValueError("standard.schema Formula notation authority is incomplete")
+    return grammar, notation_schema
+
+
+def _identifier(value: object, grammar: dict[str, Any]) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("Formula notation requires a non-empty identifier")
-    if _BARE_IDENTIFIER.fullmatch(value) and value not in _RESERVED_IDENTIFIERS:
+    pattern = grammar.get("bare_identifier_pattern")
+    reserved = grammar.get("reserved_identifiers")
+    quote = grammar.get("identifier_quote")
+    escape = grammar.get("escape_character")
+    escapable = grammar.get("escapable_identifier_characters")
+    if not (
+        isinstance(pattern, str)
+        and isinstance(reserved, list)
+        and isinstance(quote, str)
+        and len(quote) == 1
+        and isinstance(escape, str)
+        and len(escape) == 1
+        and isinstance(escapable, list)
+        and set(escapable) == {quote, escape}
+    ):
+        raise ValueError("Formula notation identifier grammar is malformed")
+    if re.fullmatch(pattern, value) and value not in reserved:
         return value
-    return "`" + value.replace("\\", "\\\\").replace("`", "\\`") + "`"
+    escaped = value.replace(escape, escape + escape).replace(quote, escape + quote)
+    return quote + escaped + quote
 
 
 def _operation_catalog(
@@ -57,6 +104,7 @@ def _selected_operation_notations(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[_OperationNotation, ...]:
+    _grammar, notation_schema = _notation_authority(authority_context)
     requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
@@ -75,12 +123,28 @@ def _selected_operation_notations(
             if isinstance(extensions, dict)
             else None
         )
-        if isinstance(notation, dict):
+        if isinstance(notation, dict) and not list(
+            jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)
+        ):
             declarations.append(_OperationNotation(coordinate, operation, notation))
     return tuple(declarations)
 
 
-def _lex(expression: str, operator_tokens: tuple[str, ...]) -> list[_Token]:
+def _lex(
+    expression: str,
+    operator_tokens: tuple[str, ...],
+    grammar: dict[str, Any],
+) -> list[_Token]:
+    quote = cast(str, grammar["identifier_quote"])
+    escape = cast(str, grammar["escape_character"])
+    coordinate_separator = cast(str, grammar["coordinate_separator"])
+    punctuation = {
+        *cast(list[str], grammar["group_delimiters"]),
+        cast(str, grammar["named_argument_operator"]),
+        cast(str, grammar["binding_terminator"]),
+        cast(str, grammar["argument_separator"]),
+        coordinate_separator,
+    }
     tokens: list[_Token] = []
     index = 0
     ordered_operators = sorted(operator_tokens, key=len, reverse=True)
@@ -89,18 +153,21 @@ def _lex(expression: str, operator_tokens: tuple[str, ...]) -> list[_Token]:
         if character.isspace():
             index += 1
             continue
-        if character in "()=;,.":
+        if character in punctuation:
             tokens.append(_Token(character, character, index))
             index += 1
             continue
-        if character == "`":
+        if character == quote:
             start = index
             index += 1
             quoted_chars: list[str] = []
-            while index < len(expression) and expression[index] != "`":
-                if expression[index] == "\\":
+            while index < len(expression) and expression[index] != quote:
+                if expression[index] == escape:
                     index += 1
-                    if index >= len(expression) or expression[index] not in {"`", "\\"}:
+                    if index >= len(expression) or expression[index] not in {
+                        quote,
+                        escape,
+                    }:
                         raise ValueError(
                             f"invalid quoted identifier escape at byte {index}"
                         )
@@ -176,6 +243,11 @@ class _FormulaParser:
         for contract in self.contracts.values():
             contract.pop("id", None)
         self.locals: dict[str, dict[str, Any]] = {}
+        self.grammar, _notation_schema = _notation_authority(authority_context)
+        group_delimiters = cast(list[str], self.grammar["group_delimiters"])
+        if len(group_delimiters) != 2:
+            raise ValueError("Formula notation group delimiters are malformed")
+        self.open_group, self.close_group = group_delimiters
         self.notations = _selected_operation_notations(request, authority_context)
         operators = tuple(
             cast(str, item.notation["token"])
@@ -183,7 +255,11 @@ class _FormulaParser:
             if item.notation.get("kind") == "infix"
             and isinstance(item.notation.get("token"), str)
         )
-        self.tokens = _lex(expression, operators)
+        self.tokens = _lex(expression, operators, self.grammar)
+        if len(expression.encode("utf-8")) > cast(
+            int, self.grammar["max_expression_bytes"]
+        ) or len(self.tokens) - 1 > cast(int, self.grammar["max_tokens"]):
+            raise ValueError("Formula expression exceeds its admitted resource bound")
         self.index = 0
 
     def current(self) -> _Token:
@@ -219,7 +295,8 @@ class _FormulaParser:
             raise ValueError(f"expected Formula operand at byte {token.offset}")
         self.index += 1
         segments = [token.value]
-        while self.current().kind == ".":
+        coordinate_separator = cast(str, self.grammar["coordinate_separator"])
+        while self.current().kind == coordinate_separator:
             self.index += 1
             segments.append(self.take("identifier").value)
         if len(segments) == 1 and segments[0] in self.locals:
@@ -240,20 +317,24 @@ class _FormulaParser:
         raise ValueError(f"Formula name {'.'.join(segments)!r} is unresolved")
 
     def parenthesized_operand(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        if self.current().kind != "(":
+        if self.current().kind != self.open_group:
             return self.operand()
         self.index += 1
         parsed = self.parenthesized_operand()
-        self.take(")")
+        self.take(self.close_group)
         return parsed
 
     def right_hand_side(self, local: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        if self.current().kind == "identifier" and self.current().value == "if":
+        conditional_keywords = cast(list[str], self.grammar["conditional_keywords"])
+        if (
+            self.current().kind == "identifier"
+            and self.current().value == conditional_keywords[0]
+        ):
             self.index += 1
             condition, _condition_contract = self.parenthesized_operand()
-            self.take("identifier", "then")
+            self.take("identifier", conditional_keywords[1])
             when_true, true_contract = self.parenthesized_operand()
-            self.take("identifier", "else")
+            self.take("identifier", conditional_keywords[2])
             when_false, false_contract = self.parenthesized_operand()
             if true_contract is None or false_contract is None:
                 raise ValueError("Formula conditional branch contract cannot be inferred")
@@ -271,29 +352,30 @@ class _FormulaParser:
             )
         if (
             self.current().kind == "identifier"
-            and self.tokens[self.index + 1].kind == "."
+            and self.tokens[self.index + 1].kind
+            == self.grammar["coordinate_separator"]
             and self.tokens[self.index + 2].kind == "identifier"
-            and self.tokens[self.index + 3].kind == "("
+            and self.tokens[self.index + 3].kind == self.open_group
         ):
             module = self.take("identifier").value
-            self.take(".")
+            self.take(cast(str, self.grammar["coordinate_separator"]))
             formula_id = self.take("identifier").value
             declaration = self.formula_declarations.get((module, formula_id))
             if declaration is None:
                 raise ValueError("Formula call coordinate is unresolved")
-            self.take("(")
+            self.take(self.open_group)
             arguments: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
-            if self.current().kind != ")":
+            if self.current().kind != self.close_group:
                 while True:
                     parameter = self.take("identifier").value
-                    self.take("=")
+                    self.take(cast(str, self.grammar["named_argument_operator"]))
                     if parameter in arguments:
                         raise ValueError("Formula call repeats a named argument")
                     arguments[parameter] = self.parenthesized_operand()
-                    if self.current().kind != ",":
+                    if self.current().kind != self.grammar["argument_separator"]:
                         break
                     self.index += 1
-            self.take(")")
+            self.take(self.close_group)
             parameters = declaration.get("parameters")
             result = declaration.get("result")
             if not isinstance(parameters, list) or not isinstance(result, dict):
@@ -319,18 +401,18 @@ class _FormulaParser:
             )
         if (
             self.current().kind == "identifier"
-            and self.tokens[self.index + 1].kind == "("
+            and self.tokens[self.index + 1].kind == self.open_group
         ):
             name = self.take("identifier").value
             operation = self.operation_for(kind="function", spelling=name)
-            self.take("(")
+            self.take(self.open_group)
             operands: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
-            if self.current().kind != ")":
+            if self.current().kind != self.close_group:
                 operands.append(self.parenthesized_operand())
-                while self.current().kind == ",":
+                while self.current().kind == self.grammar["argument_separator"]:
                     self.index += 1
                     operands.append(self.parenthesized_operand())
-            self.take(")")
+            self.take(self.close_group)
             return self.operation_node(local, operation, operands)
         self.take_parentheses_before_expression()
         left = self.parenthesized_operand()
@@ -345,13 +427,13 @@ class _FormulaParser:
 
     def take_parentheses_before_expression(self) -> None:
         self.expression_parentheses = 0
-        while self.current().kind == "(":
+        while self.current().kind == self.open_group:
             self.index += 1
             self.expression_parentheses += 1
 
     def take_parentheses_after_expression(self) -> None:
         for _ in range(self.expression_parentheses):
-            self.take(")")
+            self.take(self.close_group)
 
     def operation_node(
         self,
@@ -469,14 +551,17 @@ class _FormulaParser:
 
     def parse(self) -> dict[str, Any]:
         nodes: list[dict[str, Any]] = []
-        while self.current().kind == "identifier" and self.current().value == "let":
+        while (
+            self.current().kind == "identifier"
+            and self.current().value == self.grammar["binding_keyword"]
+        ):
             self.index += 1
             local = self.take("identifier").value
             if local in self.locals or local in self.contracts:
                 raise ValueError("Formula local identity is duplicate or captures a parameter")
-            self.take("=")
+            self.take(cast(str, self.grammar["named_argument_operator"]))
             node, contract = self.right_hand_side(local)
-            self.take(";")
+            self.take(cast(str, self.grammar["binding_terminator"]))
             nodes.append(node)
             self.locals[local] = contract
         result, _contract = self.parenthesized_operand()
@@ -498,17 +583,20 @@ def parse_formula_expression(
     return _FormulaParser(expression, request, authority_context).parse()
 
 
-def _render_operand(operand: object) -> str:
+def _render_operand(operand: object, grammar: dict[str, Any]) -> str:
     if not isinstance(operand, dict):
         raise ValueError("Formula notation operand must be an object")
     kind = operand.get("kind")
     if kind == "parameter":
-        return _identifier(operand.get("parameter"))
+        return _identifier(operand.get("parameter"), grammar)
     if kind == "local":
-        return _identifier(operand.get("local"))
+        return _identifier(operand.get("local"), grammar)
     if kind == "symbol":
-        return ".".join(
-            (_identifier(operand.get("module")), _identifier(operand.get("symbol")))
+        return cast(str, grammar["coordinate_separator"]).join(
+            (
+                _identifier(operand.get("module"), grammar),
+                _identifier(operand.get("symbol"), grammar),
+            )
         )
     if kind == "literal" and isinstance(operand.get("value"), int):
         return str(operand["value"])
@@ -518,6 +606,8 @@ def _render_operand(operand: object) -> str:
 def _render_operation_call(
     node: dict[str, Any],
     catalog: dict[tuple[str, str, str], dict[str, Any]],
+    grammar: dict[str, Any],
+    notation_schema: dict[str, Any],
 ) -> str:
     coordinate = node.get("operation")
     if not isinstance(coordinate, dict):
@@ -537,7 +627,9 @@ def _render_operation_call(
         if isinstance(extensions, dict)
         else None
     )
-    if not isinstance(notation, dict):
+    if not isinstance(notation, dict) or list(
+        jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)
+    ):
         raise ValueError("Formula operation has no admitted notation declaration")
     arguments = node.get("arguments")
     ordered_ports = notation.get("ordered_ports")
@@ -550,7 +642,7 @@ def _render_operation_call(
     }
     if set(by_port) != set(ordered_ports) or len(by_port) != len(arguments):
         raise ValueError("Formula operation arguments do not match notation ports")
-    rendered = [_render_operand(by_port[port]) for port in ordered_ports]
+    rendered = [_render_operand(by_port[port], grammar) for port in ordered_ports]
     if notation.get("kind") == "infix" and len(rendered) == 2:
         token = notation.get("token")
         if not isinstance(token, str) or not token:
@@ -560,17 +652,22 @@ def _render_operation_call(
         name = notation.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("Formula function notation has no name")
-        return f"{name}({', '.join(rendered)})"
+        separator = cast(str, grammar["argument_separator"]) + " "
+        delimiters = cast(list[str], grammar["group_delimiters"])
+        return f"{name}{delimiters[0]}{separator.join(rendered)}{delimiters[1]}"
     raise ValueError("Formula notation declaration kind is not admitted")
 
 
-def _render_formula_call(node: dict[str, Any]) -> str:
+def _render_formula_call(node: dict[str, Any], grammar: dict[str, Any]) -> str:
     coordinate = node.get("formula")
     arguments = node.get("arguments")
     if not isinstance(coordinate, dict) or not isinstance(arguments, list):
         raise ValueError("Formula call has no coordinate or named arguments")
-    name = ".".join(
-        (_identifier(coordinate.get("module")), _identifier(coordinate.get("id")))
+    name = cast(str, grammar["coordinate_separator"]).join(
+        (
+            _identifier(coordinate.get("module"), grammar),
+            _identifier(coordinate.get("id"), grammar),
+        )
     )
     normalized: list[tuple[str, str]] = []
     for argument in arguments:
@@ -578,10 +675,17 @@ def _render_formula_call(node: dict[str, Any]) -> str:
             raise ValueError("Formula call argument must be an object")
         parameter = argument.get("parameter")
         normalized.append(
-            (_identifier(parameter), _render_operand(argument.get("operand")))
+            (
+                _identifier(parameter, grammar),
+                _render_operand(argument.get("operand"), grammar),
+            )
         )
     normalized.sort(key=lambda item: item[0])
-    return f"{name}({', '.join(f'{key} = {value}' for key, value in normalized)})"
+    separator = cast(str, grammar["argument_separator"]) + " "
+    assignment = f" {grammar['named_argument_operator']} "
+    delimiters = cast(list[str], grammar["group_delimiters"])
+    arguments = separator.join(key + assignment + value for key, value in normalized)
+    return f"{name}{delimiters[0]}{arguments}{delimiters[1]}"
 
 
 def render_formula_body(
@@ -589,10 +693,11 @@ def render_formula_body(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     """Render one structured Formula body from sealed operation notation."""
+    grammar, notation_schema = _notation_authority(authority_context)
     if not isinstance(body, dict):
         raise ValueError("Formula body must be an object")
     if set(body) == {"node", "parameter"} and body.get("node") == "parameter":
-        return _identifier(body.get("parameter"))
+        return _identifier(body.get("parameter"), grammar)
     nodes = body.get("nodes")
     result = body.get("result")
     if not isinstance(nodes, list) or not isinstance(result, dict):
@@ -608,17 +713,27 @@ def render_formula_body(
             raise ValueError("Formula local identities must be unique")
         seen_locals.add(local)
         if node.get("node") == "operation-call":
-            expression = _render_operation_call(node, catalog)
+            expression = _render_operation_call(
+                node, catalog, grammar, notation_schema
+            )
         elif node.get("node") == "formula-call":
-            expression = _render_formula_call(node)
+            expression = _render_formula_call(node, grammar)
         elif node.get("node") == "conditional":
+            conditional_keywords = cast(list[str], grammar["conditional_keywords"])
             expression = (
-                f"if {_render_operand(node.get('condition'))} "
-                f"then {_render_operand(node.get('when_true'))} "
-                f"else {_render_operand(node.get('when_false'))}"
+                f"{conditional_keywords[0]} "
+                f"{_render_operand(node.get('condition'), grammar)} "
+                f"{conditional_keywords[1]} "
+                f"{_render_operand(node.get('when_true'), grammar)} "
+                f"{conditional_keywords[2]} "
+                f"{_render_operand(node.get('when_false'), grammar)}"
             )
         else:
             raise ValueError("Formula node has no admitted renderer")
-        lines.append(f"let {_identifier(local)} = {expression};")
-    lines.append(_render_operand(result))
+        lines.append(
+            f"{grammar['binding_keyword']} {_identifier(local, grammar)} "
+            f"{grammar['named_argument_operator']} {expression}"
+            f"{grammar['binding_terminator']}"
+        )
+    lines.append(_render_operand(result, grammar))
     return "\n".join(lines)

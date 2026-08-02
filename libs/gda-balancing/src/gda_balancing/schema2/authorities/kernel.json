@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
+  "content_identity": "sha256:3b83d227dc3503e3cd9853e72f29026f95fb3fd3c7b7f112b06bcf82cdd8b98c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3128,16 +3128,22 @@
             },
             "schema": {
               "allowed_keywords": [
+                "$defs",
                 "$schema",
                 "const",
                 "enum",
                 "items",
+                "maxItems",
+                "maximum",
                 "minItems",
                 "minLength",
+                "minimum",
+                "pattern",
                 "properties",
                 "required",
                 "type",
                 "unevaluatedProperties",
+                "uniqueItems",
                 "oneOf"
               ],
               "dialect": "https://json-schema.org/draft/2020-12/schema",
