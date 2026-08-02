@@ -448,6 +448,11 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         *runtime["control_nodes"],
     }
     assert len(nodes) == len(runtime["nodes"])
+    assert runtime["scheduler"]["external_input_admission"] == {
+        "ordering": ["source_identity", "source_sequence"],
+        "sequence_origin": 0,
+        "continuity": "contiguous-per-source",
+    }
     for node_id, node in nodes.items():
         assert set(node) == {
             "family",

@@ -1430,6 +1430,127 @@ def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli)
     assert result.state_after == result.state_before
 
 
+@pytest.mark.parametrize(
+    ("bound", "expected_code"),
+    [
+        ("max_queue_events", "runtime.queue_limit_exceeded"),
+        ("max_total_events", "runtime.event_limit_exceeded"),
+        ("max_logical_time", "runtime.logical_time_exceeded"),
+    ],
+)
+def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
+    tmp_path, run_cli, bound, expected_code
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    second = deepcopy(scenario["event_plan"][0])
+    second["root_event_ref"] = "second-cast"
+    second["logical_time"] = 1
+    scenario["event_plan"].append(second)
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"][bound] = 0 if bound == "max_logical_time" else 1
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "runtime"
+    assert result.diagnostics[0].code == expected_code
+
+
+def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    value = deepcopy(checked.value)
+    second = deepcopy(value["scenarios"][0])
+    second["id"] = "second-scenario"
+    second["event_plan"][0]["root_event_ref"] = "second-plan"
+    value["scenarios"].append(second)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    first_schedule["logical_time"] = -1
+    checked = replace(
+        checked,
+        value=value,
+        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        rir=rir,
+    )
+
+    result = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.scenario_id == value["scenarios"][0]["id"]
+    assert [row["scenario"] for row in result.root_event_map] == [
+        value["scenarios"][0]["id"],
+        "second-scenario",
+    ]
+
+
+@pytest.mark.parametrize(
+    "external_roots",
+    [
+        [("a", 0), ("a", 0)],
+        [("a", 1), ("a", 0)],
+        [("a", 0), ("a", 2)],
+        [("f", 0), ("a", 0)],
+    ],
+    ids=["duplicate", "decreasing", "continuity-gap", "source-order"],
+)
+def test_external_input_sources_require_canonical_contiguous_sequences(
+    tmp_path, run_cli, external_roots
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    transition = deepcopy(scenario["event_plan"][0])
+    transition["logical_time"] = 1
+    target = scenario["assignments"][5]["target"]
+    scenario["event_plan"] = [
+        *[
+            {
+                "kind": "external-input",
+                "root_event_ref": f"input-{index}",
+                "logical_time": 0,
+                "priority": 0,
+                "source_identity": "sha256:" + source * 64,
+                "source_sequence": sequence,
+                "facts": [{"target": target, "value": 6 + index}],
+            }
+            for index, (source, sequence) in enumerate(external_roots)
+        ],
+        transition,
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    result = experiment_runtime_module.check_experiment(str(specification_path))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "static"
+    assert result.diagnostics[0].code == "language.source_contract_mismatch"
+
+
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
     tmp_path, run_cli
 ):

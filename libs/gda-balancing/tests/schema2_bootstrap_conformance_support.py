@@ -5276,6 +5276,11 @@ def _consumer_b_runtime_authority_is_closed(
                     "facts",
                 ],
             },
+            "external_input_admission": {
+                "ordering": ["source_identity", "source_sequence"],
+                "sequence_origin": 0,
+                "continuity": "contiguous-per-source",
+            },
             "terminal_status": {
                 "members": [
                     "scenario",
