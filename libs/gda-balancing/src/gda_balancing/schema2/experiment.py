@@ -535,6 +535,24 @@ def _projected_runtime_identity(
     return content_identity(domain, cast(JsonValue, body))
 
 
+def _external_input_identity(
+    checked: CheckedExperiment,
+    scenario_id: str,
+    event: dict[str, Any],
+) -> str:
+    return _projected_runtime_identity(
+        _scheduler_contract(checked)["external_input_identity"],
+        {
+            "experiment_identity": checked.content_identity,
+            "scenario_id": scenario_id,
+            "root_event_ref": event["root_event_ref"],
+            "source_identity": event["source_identity"],
+            "source_sequence": event["source_sequence"],
+            "facts": cast(JsonValue, event["facts"]),
+        },
+    )
+
+
 def _expanded_operation_body(
     operation: dict[str, Any],
     operations: dict[str, dict[str, Any]],
@@ -1433,6 +1451,20 @@ def _reproduction_receipt(
     evaluator: PublicationMember,
     resolved_runtime: PublicationMember,
 ) -> PublicationMember:
+    external_input_identities = [
+        {
+            "scenario": scenario["id"],
+            "root_event_ref": event["root_event_ref"],
+            "source_identity": event["source_identity"],
+            "source_sequence": event["source_sequence"],
+            "input_identity": _external_input_identity(
+                checked, scenario["id"], event
+            ),
+        }
+        for scenario in checked.value["scenarios"]
+        for event in _scenario_root_events(scenario)
+        if event["kind"] == "external-input"
+    ]
     return _artifact(
         checked,
         "reproduction-receipt",
@@ -1447,7 +1479,9 @@ def _reproduction_receipt(
             "evaluator_manifest_identity": evaluator.content_identity,
             "seed_algorithm": checked.value["seed"]["algorithm"],
             "seed_value": checked.value["seed"]["value"],
-            "external_inputs": [],
+            "external_input_identities": cast(
+                JsonValue, external_input_identities
+            ),
         },
     )
 
@@ -2609,6 +2643,11 @@ def evaluate_experiment(
                     "state_after": _resolved_int_rows(state, display_names),
                     "rng_draws": draws,
                     "snapshot_before_identity": current_snapshot_identity,
+                    "external_input_identity": (
+                        _external_input_identity(checked, scenario["id"], event_spec)
+                        if external_input
+                        else None
+                    ),
                 },
             )
             if "root_event_ref" in event_spec:

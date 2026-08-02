@@ -32,6 +32,7 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "ordering_key",
     "snapshot_before_identity",
     "snapshot_after_identity",
+    "external_input_identity",
 }
 
 
