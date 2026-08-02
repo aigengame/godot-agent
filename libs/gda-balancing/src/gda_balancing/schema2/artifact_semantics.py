@@ -46,7 +46,6 @@ def artifact_semantic_projection(
             or not collection_member
             or collection_member in seen_collections
             or not isinstance(excluded_members, list)
-            or not excluded_members
             or not all(
                 isinstance(member, str) and member for member in excluded_members
             )

@@ -3916,6 +3916,51 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     ).admitted
 
 
+def test_independent_lowerers_treat_empty_collection_exclusion_as_noop(monkeypatch):
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    contract = next(
+        row
+        for row in candidate_ldb["language"]["artifact_contracts"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
+        "excluded_members"
+    ] = []
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, candidate_ldb)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    _domain, projection = _reference_rir_semantic_projection(
+        candidate_ldb,
+        production["rir-semantic-payload"],
+    )
+    assert "expression" in projection["formulas"][0]
+
+
 def test_nested_integer_literal_is_identical_across_lowerers(
     monkeypatch,
 ):
