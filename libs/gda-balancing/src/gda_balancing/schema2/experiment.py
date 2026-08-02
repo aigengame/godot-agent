@@ -2183,20 +2183,27 @@ def evaluate_experiment(
                     continue
                 if operator == "cancel-event":
                     target = instruction["event"]
-                    if target["kind"] != "local":
-                        raise ValueError("admitted cancel target is not a local Event id")
+                    cancel_signals = _scheduler_contract(checked)["cancel"][
+                        "refusal_signals"
+                    ]
+                    if (
+                        target["kind"] != "local"
+                        or target["local"] not in variables
+                    ):
+                        raise _RuntimeExecutionFault(
+                            signal=cast(str, cancel_signals["unknown"]),
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
+                        )
                     target_event_id = variables[target["local"]]
                     if not any(
                         child["event_id"] == target_event_id
                         for child in buffered_children
                     ):
                         raise _RuntimeExecutionFault(
-                            signal=cast(
-                                str,
-                                _scheduler_contract(checked)["cancel"][
-                                    "refusal_signals"
-                                ]["unknown"],
-                            ),
+                            signal=cast(str, cancel_signals["unknown"]),
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
