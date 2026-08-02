@@ -907,7 +907,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:92fc5aa7de60df22b1e82b80aaae8c8f9efbb235fa3d08813c0268516422ec1a"
+                    "sha256:541bfc0a72442bfdbb5a591709d2cae7c8dc86342714c738aa381f6d80925d3b"
                 ),
             }
         ]
@@ -2550,6 +2550,9 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         for fact in event.get("facts", []):
             fact["target"]["model"] = "example.template-game"
             fact["target"]["module"] = "main"
+        for item in event.get("payload", []):
+            item["target"]["model"] = "example.template-game"
+            item["target"]["module"] = "main"
     for metric in experiment["metrics"]:
         if metric["observation"]["member"] == "damage_dealt":
             metric["observation"]["member"] = "output_value"

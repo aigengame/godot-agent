@@ -439,6 +439,9 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "event_atomicity",
         "outcome_contract",
         "invocation_contract",
+        "runtime_configuration",
+        "transition",
+        "step",
         "vectors",
     }
     nodes = {item["id"]: item for item in runtime["nodes"]}

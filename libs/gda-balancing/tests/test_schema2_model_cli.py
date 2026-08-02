@@ -296,7 +296,11 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         binding["site"]["context"]["phase"]: binding
         for binding in rir["formula_bindings"]
     }
-    assert set(bindings_by_phase) == {"initialization", "observation"}
+    assert set(bindings_by_phase) == {
+        "initialization",
+        "event",
+        "observation",
+    }
     assert bindings_by_phase["initialization"]["site"]["context"] == {
         "frame": "pre-snapshot",
         "phase": "initialization",
@@ -305,11 +309,17 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         "frame": "post-transition-snapshot",
         "phase": "observation",
     }
-    assert (
-        bindings_by_phase["initialization"]["site"]["identity"]
-        != bindings_by_phase["observation"]["site"]["identity"]
-    )
-    assert len(rir["initialization_programs"]) == 2
+    assert bindings_by_phase["event"]["site"]["context"] == {
+        "frame": "pre-event-snapshot",
+        "phase": "event",
+    }
+    assert len(
+        {
+            binding["site"]["identity"]
+            for binding in bindings_by_phase.values()
+        }
+    ) == 3
+    assert len(rir["initialization_programs"]) == 3
     for program in rir["initialization_programs"]:
         phase = program["site"]["context"]["phase"]
         binding = bindings_by_phase[phase]
@@ -540,7 +550,11 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     bindings_by_phase = {
         row["site"]["context"]["phase"]: row for row in rir["formula_bindings"]
     }
-    assert set(explanation_sites) == {"initialization", "observation"}
+    assert set(explanation_sites) == {
+        "initialization",
+        "event",
+        "observation",
+    }
     for phase, binding in bindings_by_phase.items():
         assert explanation_sites[phase] == {
             "binding_identity": binding["identity"],
