@@ -1191,6 +1191,69 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     assert result.state_after == result.state_before
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("illegal-same-time-priority", "runtime.schedule_illegal_same_time_priority"),
+        ("logical-time-limit", "runtime.logical_time_exceeded"),
+        ("queue-limit", "runtime.queue_limit_exceeded"),
+        ("zero-time-depth", "runtime.zero_time_depth_exceeded"),
+        ("event-limit", "runtime.event_limit_exceeded"),
+        ("cancel-unknown", "runtime.cancel_unknown"),
+    ],
+)
+def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
+    tmp_path, run_cli, mutation, expected_code
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    schedules = [
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    ]
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    if mutation == "illegal-same-time-priority":
+        schedules[0]["logical_time"] = 0
+        schedules[0]["priority"] = 1
+    elif mutation == "logical-time-limit":
+        schedules[0]["logical_time"] = 1 << 63
+    elif mutation == "queue-limit":
+        runtime_profile["resource_bounds"]["max_queue_events"] = 1
+    elif mutation == "zero-time-depth":
+        schedules[0]["logical_time"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+    elif mutation == "event-limit":
+        runtime_profile["resource_bounds"]["max_total_events"] = 1
+    else:
+        cancel = next(
+            instruction
+            for instruction in plan_operation["body"]
+            if instruction["node"] == "cancel"
+        )
+        cancel["event"]["local"] = "missing_event"
+
+    result = experiment_runtime_module.evaluate_experiment(
+        replace(checked, rir=rir)
+    )
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == expected_code
+    assert result.committed_trace_prefix == ()
+    assert result.state_after == result.state_before
+
+
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
     tmp_path, run_cli
 ):
