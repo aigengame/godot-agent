@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
+    "sha256:73628b8a0f659b9bcac98252b62d006d79515530fac1fa5e2ebfe5ec1b1c152f"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7366,6 +7366,7 @@ def _runtime_authority_is_closed(
             "nodes",
             "numeric",
             "named_rng",
+            "scheduler",
             "event_atomicity",
             "outcome_contract",
             "invocation_contract",
@@ -7374,6 +7375,33 @@ def _runtime_authority_is_closed(
         or runtime.get("closed") is not True
         or not isinstance(runtime.get("version"), str)
         or not runtime["version"]
+        or runtime.get("scheduler")
+        != {
+            "event_identity": {
+                "domain": "runtime-event-v2",
+                "members": [
+                    "experiment_identity",
+                    "scenario_id",
+                    "root_event_ref",
+                    "logical_time",
+                    "phase",
+                    "priority",
+                    "enqueue_sequence",
+                ],
+            },
+            "ordering": [
+                {"direction": "ascending", "member": "logical_time"},
+                {
+                    "direction": "ascending",
+                    "member": "phase",
+                    "rank": ["input", "transition", "observation"],
+                },
+                {"direction": "descending", "member": "priority"},
+                {"direction": "ascending", "member": "enqueue_sequence"},
+            ],
+            "root_enqueue_sequence": "authored-array-order",
+            "step_boundary": "next-observation-or-logical-boundary",
+        }
     ):
         return False
     family_members = {

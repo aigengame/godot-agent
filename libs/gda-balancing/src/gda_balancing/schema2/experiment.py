@@ -260,6 +260,95 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     }
 
 
+def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
+    scheduler = _runtime_contract(checked).get("scheduler")
+    expected_ordering = [
+        {"direction": "ascending", "member": "logical_time"},
+        {
+            "direction": "ascending",
+            "member": "phase",
+            "rank": ["input", "transition", "observation"],
+        },
+        {"direction": "descending", "member": "priority"},
+        {"direction": "ascending", "member": "enqueue_sequence"},
+    ]
+    if (
+        not isinstance(scheduler, dict)
+        or scheduler.get("ordering") != expected_ordering
+        or scheduler.get("root_enqueue_sequence") != "authored-array-order"
+        or scheduler.get("step_boundary")
+        != "next-observation-or-logical-boundary"
+    ):
+        raise ValueError("Kernel scheduler contract is unsupported or incomplete")
+    event_identity = scheduler.get("event_identity")
+    if (
+        not isinstance(event_identity, dict)
+        or event_identity.get("domain") != "runtime-event-v2"
+        or event_identity.get("members")
+        != [
+            "experiment_identity",
+            "scenario_id",
+            "root_event_ref",
+            "logical_time",
+            "phase",
+            "priority",
+            "enqueue_sequence",
+        ]
+    ):
+        raise ValueError("Kernel Event identity contract is unsupported or incomplete")
+    return scheduler
+
+
+def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
+    return cast(list[dict[str, Any]], scenario["event_plan"])
+
+
+def _ordered_root_events(
+    checked: CheckedExperiment,
+    scenario: dict[str, Any],
+) -> list[dict[str, Any]]:
+    scheduler = _scheduler_contract(checked)
+    phase_rank = {
+        phase: index
+        for index, phase in enumerate(scheduler["ordering"][1]["rank"])
+    }
+    admitted = [
+        {
+            **event,
+            "phase": "transition",
+            "enqueue_sequence": sequence,
+        }
+        for sequence, event in enumerate(_scenario_transition_events(scenario))
+    ]
+    return sorted(
+        admitted,
+        key=lambda event: (
+            event["logical_time"],
+            phase_rank[event["phase"]],
+            -event["priority"],
+            event["enqueue_sequence"],
+        ),
+    )
+
+
+def _root_event_id(
+    checked: CheckedExperiment,
+    scenario_id: str,
+    event: dict[str, Any],
+) -> str:
+    identity = cast(dict[str, Any], _scheduler_contract(checked)["event_identity"])
+    body = {
+        "experiment_identity": checked.content_identity,
+        "scenario_id": scenario_id,
+        "root_event_ref": event["root_event_ref"],
+        "logical_time": event["logical_time"],
+        "phase": event["phase"],
+        "priority": event["priority"],
+        "enqueue_sequence": event["enqueue_sequence"],
+    }
+    return content_identity(cast(str, identity["domain"]), cast(JsonValue, body))
+
+
 def _expanded_operation_body(
     operation: dict[str, Any],
     operations: dict[str, dict[str, Any]],
@@ -431,10 +520,12 @@ def check_experiment(
             ),
         )
     for scenario_index, scenario in enumerate(value["scenarios"]):
+        event_plan = _scenario_transition_events(scenario)
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
-            or scenario["terminal_condition"]["maximum"] != 1
+            or not _unique_rows(event_plan, "root_event_ref")
+            or scenario["terminal_condition"]["maximum"] < len(event_plan)
         ):
             return _refusal(
                 stage="static",
@@ -447,7 +538,8 @@ def check_experiment(
                 ),
                 message=(
                     "The deterministic-event-v1 slice requires unique assignments, "
-                    "unique streams, and one terminal Event"
+                    "unique streams and root Event references, with an Event-count "
+                    "bound admitting every authored root Event"
                 ),
             )
     for metric_index, metric in enumerate(value["metrics"]):
@@ -560,56 +652,61 @@ def check_experiment(
     required_numeric_policies: set[str] = set()
     required_rng_algorithms: set[str] = set()
     for scenario_index, scenario in enumerate(value["scenarios"]):
-        entrypoint = entrypoints.get(scenario["entrypoint"])
-        if entrypoint is None:
-            return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/entrypoint",
-                message="Scenario entrypoint is absent from the selected RIR",
+        selected_entrypoints: list[dict[str, Any]] = []
+        required_streams: set[str] = set()
+        for event_index, event in enumerate(_scenario_transition_events(scenario)):
+            entrypoint = entrypoints.get(event["entrypoint"])
+            pointer = f"/scenarios/{scenario_index}/event_plan/{event_index}/entrypoint"
+            if entrypoint is None:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolution_binding_mismatch",
+                    identity=experiment_identity,
+                    pointer=pointer,
+                    message="Root Event entrypoint is absent from the selected RIR",
+                )
+            operation = operations.get(entrypoint["operation"]["id"])
+            if operation is None or operation["runtime_profile"] != required_profile:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolution_binding_mismatch",
+                    identity=experiment_identity,
+                    pointer=pointer,
+                    message=(
+                        "Root Event entrypoint Operation is absent or requires "
+                        "another Runtime profile"
+                    ),
+                )
+            try:
+                requirements, named_streams = derive_scenario_program_requirements(
+                    rir,
+                    event["entrypoint"],
+                    required_profile,
+                    value["seed"]["algorithm"],
+                )
+            except ValueError:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolution_binding_mismatch",
+                    identity=experiment_identity,
+                    pointer=pointer,
+                    message="Root Event Operation composition is not closed",
+                )
+            selected_entrypoints.append(entrypoint)
+            required_operation_kinds.update(requirements["operation_kinds"])
+            required_instruction_nodes.update(requirements["instruction_nodes"])
+            required_effects.update(requirements["effects"])
+            required_numeric_policies.update(requirements["numeric_policies"])
+            required_rng_algorithms.update(requirements["rng_algorithms"])
+            required_streams.update(named_streams)
+        contract_targets = [
+            target
+            for entrypoint in selected_entrypoints
+            for target in cast(
+                list[dict[str, Any]],
+                entrypoint["scenario_input_contract"]["targets"],
             )
-        operation = operations.get(entrypoint["operation"]["id"])
-        if operation is None:
-            return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/entrypoint",
-                message="Scenario entrypoint Operation is absent from the selected RIR",
-            )
-        if operation["runtime_profile"] != required_profile:
-            return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/entrypoint",
-                message="Scenario entrypoint requires another Runtime profile",
-            )
-        try:
-            requirements, named_streams = derive_scenario_program_requirements(
-                rir,
-                scenario["entrypoint"],
-                required_profile,
-                value["seed"]["algorithm"],
-            )
-        except ValueError:
-            return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/entrypoint",
-                message="Scenario Operation composition is not closed",
-            )
-        required_operation_kinds.update(requirements["operation_kinds"])
-        required_instruction_nodes.update(requirements["instruction_nodes"])
-        required_effects.update(requirements["effects"])
-        required_numeric_policies.update(requirements["numeric_policies"])
-        required_rng_algorithms.update(requirements["rng_algorithms"])
-        contract_targets = cast(
-            list[dict[str, Any]],
-            entrypoint["scenario_input_contract"]["targets"],
-        )
+        ]
         allowed = {
             canonical_bytes(cast(JsonValue, row["target"])): row
             for row in contract_targets
@@ -630,7 +727,7 @@ def check_experiment(
                 pointer=f"/scenarios/{scenario_index}/assignments",
                 message="Scenario assignments do not close the Scenario Input Contract",
             )
-        if set(named_streams) != set(scenario["named_streams"]):
+        if required_streams != set(scenario["named_streams"]):
             return _refusal(
                 stage="static",
                 code="language.source_contract_mismatch",
@@ -916,8 +1013,9 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     reachable_nodes = {
         instruction["node"]
         for scenario in checked.value["scenarios"]
+        for event in _scenario_transition_events(scenario)
         for instruction in _expanded_operation_body(
-            operations[entrypoints[scenario["entrypoint"]]["operation"]["id"]],
+            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
     }
@@ -1545,18 +1643,25 @@ def evaluate_experiment(
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
     initialization_cache: dict[bytes, int] = {}
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
-        entrypoint = entrypoints[scenario["entrypoint"]]
-        scenario_input_contract = cast(
-            dict[str, Any], entrypoint["scenario_input_contract"]
-        )
-        actual_values = {
-            canonical_bytes(cast(JsonValue, initializer["target"])): initializer[
-                "value"
-            ]
+        ordered_events = _ordered_root_events(checked, scenario)
+        scenario_entrypoints = [
+            entrypoints[event["entrypoint"]] for event in ordered_events
+        ]
+        actual_values: dict[bytes, Any] = {}
+        for selected_entrypoint in scenario_entrypoints:
+            scenario_input_contract = cast(
+                dict[str, Any], selected_entrypoint["scenario_input_contract"]
+            )
             for initializer in cast(
                 list[dict[str, Any]], scenario_input_contract["initializers"]
-            )
-        }
+            ):
+                identity = canonical_bytes(cast(JsonValue, initializer["target"]))
+                previous = actual_values.get(identity, initializer["value"])
+                if previous != initializer["value"]:
+                    raise ValueError(
+                        "admitted Scenario Input Contracts disagree on an initializer"
+                    )
+                actual_values[identity] = initializer["value"]
         for assignment in scenario["assignments"]:
             identity = canonical_bytes(cast(JsonValue, assignment["target"]))
             actual_values[identity] = assignment["value"]
@@ -1607,7 +1712,6 @@ def evaluate_experiment(
             for identity, declaration in declarations.items()
             if declaration["role"] == "state" and identity in actual_values
         }
-        before = dict(state)
         snapshots.append(
             cast(
                 dict[str, JsonValue],
@@ -1618,6 +1722,7 @@ def evaluate_experiment(
                 },
             )
         )
+        entrypoint = scenario_entrypoints[0]
         operation = operations[entrypoint["operation"]["id"]]
         outcomes = {row["id"]: row for row in operation["outcomes"]}
         draws: list[dict[str, JsonValue]] = []
@@ -1848,136 +1953,164 @@ def evaluate_experiment(
                 result = None
             return cast(str, outcome), result
 
-        root_arguments: dict[str, Any] = {}
-        root_state_references: dict[str, bytes] = {}
-        for binding in entrypoint["arguments"]:
-            resolved_operand = binding["operand"]
-            if resolved_operand["kind"] == "symbol":
-                identity = canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
-                declaration = declarations[identity]
-                root_arguments[binding["port"]["name"]] = actual_values[identity]
-                if declaration["role"] == "state":
-                    root_state_references[binding["port"]["name"]] = identity
-            else:
-                root_arguments[binding["port"]["name"]] = resolved_operand["value"]
-        try:
-            outcome, root_result = execute_operation(
-                operation,
-                root_arguments,
-                root_state_references,
-                (cast(str, entrypoint["id"]),),
-                None,
-            )
-        except _RuntimeExecutionFault as fault:
-            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
-            message = (
-                "Runtime program exhausted its exact step bound"
-                if fault.signal == "step-limit"
-                else "Exact-int64 operation overflowed its numeric domain"
-            )
-            return _runtime_refusal_outcome(
-                checked,
-                scenario_id=scenario["id"],
-                scenario_index=scenario_index,
-                code=code,
-                message=message,
-                events=events,
-                entrypoint_id=entrypoint["id"],
-                entrypoint_identity=entrypoint["identity"],
-                operation=fault.operation,
-                call_path=fault.call_path,
-                call_site_identity=fault.call_site_identity,
-                evaluation_site_identity=fault.evaluation_site_identity,
-                state_before={
-                    display_names[identity]: value for identity, value in before.items()
+        for event_position, event_spec in enumerate(ordered_events):
+            entrypoint = entrypoints[event_spec["entrypoint"]]
+            operation = operations[entrypoint["operation"]["id"]]
+            outcomes = {row["id"]: row for row in operation["outcomes"]}
+            draws = []
+            call_trace = []
+            event_steps = 0
+            root_step_limit = operation["resource_bounds"]["max_steps"]
+            before = dict(state)
+            event_id = _root_event_id(checked, scenario["id"], event_spec)
+            payload_values = {
+                canonical_bytes(cast(JsonValue, row["target"])): row["value"]
+                for row in event_spec["payload"]
+            }
+            root_arguments: dict[str, Any] = {}
+            root_state_references: dict[str, bytes] = {}
+            for binding in entrypoint["arguments"]:
+                resolved_operand = binding["operand"]
+                if resolved_operand["kind"] == "symbol":
+                    identity = canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
+                    declaration = declarations[identity]
+                    root_arguments[binding["port"]["name"]] = payload_values.get(
+                        identity, actual_values[identity]
+                    )
+                    if declaration["role"] == "state":
+                        root_state_references[binding["port"]["name"]] = identity
+                else:
+                    root_arguments[binding["port"]["name"]] = resolved_operand["value"]
+            try:
+                outcome, root_result = execute_operation(
+                    operation,
+                    root_arguments,
+                    root_state_references,
+                    (cast(str, entrypoint["id"]),),
+                    None,
+                )
+            except _RuntimeExecutionFault as fault:
+                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                message = (
+                    "Runtime program exhausted its exact step bound"
+                    if fault.signal == "step-limit"
+                    else "Exact-int64 operation overflowed its numeric domain"
+                )
+                return _runtime_refusal_outcome(
+                    checked,
+                    scenario_id=scenario["id"],
+                    scenario_index=scenario_index,
+                    code=code,
+                    message=message,
+                    events=events,
+                    entrypoint_id=entrypoint["id"],
+                    entrypoint_identity=entrypoint["identity"],
+                    operation=fault.operation,
+                    call_path=fault.call_path,
+                    call_site_identity=fault.call_site_identity,
+                    evaluation_site_identity=fault.evaluation_site_identity,
+                    state_before={
+                        display_names[identity]: value for identity, value in before.items()
+                    },
+                )
+            for identity, value in state.items():
+                actual_values[identity] = value
+            outcome_definition = outcomes[outcome]
+            if (
+                outcome_definition["kind"] == "success"
+                and entrypoint["result"]["kind"] == "symbol"
+            ):
+                result_identity = canonical_bytes(
+                    cast(JsonValue, entrypoint["result"]["symbol"])
+                )
+                actual_values[result_identity] = root_result
+            typed_outcome = {
+                "id": outcome,
+                "kind": outcome_definition["kind"],
+            }
+            event = cast(
+                dict[str, JsonValue],
+                {
+                    "index": len(events),
+                    "event_id": event_id,
+                    "root_event_ref": event_spec["root_event_ref"],
+                    "ordering_key": {
+                        "logical_time": event_spec["logical_time"],
+                        "phase": event_spec["phase"],
+                        "priority": event_spec["priority"],
+                        "enqueue_sequence": event_spec["enqueue_sequence"],
+                    },
+                    "operation": operation["id"],
+                    "entrypoint": {
+                        "id": entrypoint["id"],
+                        "identity": entrypoint["identity"],
+                    },
+                    "calls": call_trace,
+                    "outcome": typed_outcome,
+                    "facts": _resolved_value_rows(actual_values, display_names),
+                    "state_before": _resolved_int_rows(before, display_names),
+                    "state_after": _resolved_int_rows(state, display_names),
+                    "rng_draws": draws,
                 },
             )
-        for identity, value in state.items():
-            actual_values[identity] = value
-        outcome_definition = outcomes[outcome]
-        if (
-            outcome_definition["kind"] == "success"
-            and entrypoint["result"]["kind"] == "symbol"
-        ):
-            result_identity = canonical_bytes(
-                cast(JsonValue, entrypoint["result"]["symbol"])
-            )
-            actual_values[result_identity] = root_result
-        typed_outcome = {
-            "id": outcome,
-            "kind": outcome_definition["kind"],
-        }
-        event = cast(
-            dict[str, JsonValue],
-            {
-                "index": len(events),
-                "operation": operation["id"],
-                "entrypoint": {
-                    "id": entrypoint["id"],
-                    "identity": entrypoint["identity"],
-                },
-                "calls": call_trace,
-                "outcome": typed_outcome,
-                "facts": _resolved_value_rows(actual_values, display_names),
-                "state_before": _resolved_int_rows(before, display_names),
-                "state_after": _resolved_int_rows(state, display_names),
-                "rng_draws": draws,
-            },
-        )
-        snapshot = cast(
-            dict[str, JsonValue],
-            {
-                "index": len(snapshots),
-                "name": f"{scenario['id']}:terminal",
-                "values": _resolved_int_rows(state, display_names),
-            },
-        )
-        events.append(event)
-        snapshots.append(snapshot)
-        snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
-        try:
-            total_steps = _evaluate_initialization_programs(
-                checked,
-                actual_values,
-                consumed_steps=total_steps,
-                runtime_limit=runtime_limit,
-                cache=initialization_cache,
-                frame_identity=snapshot_identity,
-                phase="observation",
-            )
-        except _InitializationProgramFault as fault:
-            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
-            message = (
-                "Runtime program exhausted its exact step bound"
-                if fault.signal == "step-limit"
-                else "Exact-int64 operation overflowed its numeric domain"
-            )
-            return _runtime_refusal_outcome(
-                checked,
-                scenario_id=scenario["id"],
-                scenario_index=scenario_index,
-                code=code,
-                message=message,
-                events=events,
-                entrypoint_id=entrypoint["id"],
-                entrypoint_identity=entrypoint["identity"],
-                operation=operation["id"],
-                call_path=(cast(str, entrypoint["id"]),),
-                call_site_identity=None,
-                evaluation_site_identity=fault.evaluation_site_identity,
-                state_before={
-                    display_names[identity]: value for identity, value in state.items()
+            snapshot = cast(
+                dict[str, JsonValue],
+                {
+                    "index": len(snapshots),
+                    "name": (
+                        f"{scenario['id']}:terminal"
+                        if event_position == len(ordered_events) - 1
+                        else f"{scenario['id']}:event:{event_id}"
+                    ),
+                    "values": _resolved_int_rows(state, display_names),
                 },
             )
-        event["facts"] = cast(
-            JsonValue,
-            _resolved_value_rows(actual_values, display_names),
-        )
-        scenario_outputs[scenario["id"]] = (
-            event,
-            {display_names[identity]: value for identity, value in state.items()},
-            outcome,
-        )
+            events.append(event)
+            snapshots.append(snapshot)
+            snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
+            try:
+                total_steps = _evaluate_initialization_programs(
+                    checked,
+                    actual_values,
+                    consumed_steps=total_steps,
+                    runtime_limit=runtime_limit,
+                    cache=initialization_cache,
+                    frame_identity=snapshot_identity,
+                    phase="observation",
+                )
+            except _InitializationProgramFault as fault:
+                code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+                message = (
+                    "Runtime program exhausted its exact step bound"
+                    if fault.signal == "step-limit"
+                    else "Exact-int64 operation overflowed its numeric domain"
+                )
+                return _runtime_refusal_outcome(
+                    checked,
+                    scenario_id=scenario["id"],
+                    scenario_index=scenario_index,
+                    code=code,
+                    message=message,
+                    events=events,
+                    entrypoint_id=entrypoint["id"],
+                    entrypoint_identity=entrypoint["identity"],
+                    operation=operation["id"],
+                    call_path=(cast(str, entrypoint["id"]),),
+                    call_site_identity=None,
+                    evaluation_site_identity=fault.evaluation_site_identity,
+                    state_before={
+                        display_names[identity]: value for identity, value in state.items()
+                    },
+                )
+            event["facts"] = cast(
+                JsonValue,
+                _resolved_value_rows(actual_values, display_names),
+            )
+            scenario_outputs[scenario["id"]] = (
+                event,
+                {display_names[identity]: value for identity, value in state.items()},
+                outcome,
+            )
 
     samples: list[dict[str, JsonValue]] = []
     for metric in checked.value["metrics"]:
