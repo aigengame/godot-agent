@@ -1140,7 +1140,9 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     )
 
     assert (exit_code, stderr) == (0, ""), (stdout, stderr)
-    events = _member(json.loads(stdout), "event-trace")["events"]
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    events = trace["events"]
     assert [event["operation"] for event in events] == [
         "game.combat.plan-casts-v1",
         "game.combat.cast-v1",
@@ -1159,6 +1161,39 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         }
     ]
     assert schedules[1]["event_id"] not in {event["event_id"] for event in events}
+    root_map = [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "plan-casts",
+            "event_id": events[0]["event_id"],
+        }
+    ]
+    assert trace["root_event_map"] == root_map
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    assert all(snapshot["snapshot_identity"].startswith("sha256:") for snapshot in snapshots)
+    assert [
+        (event["snapshot_before_identity"], event["snapshot_after_identity"])
+        for event in events
+    ] == [
+        (snapshots[0]["snapshot_identity"], snapshots[1]["snapshot_identity"]),
+        (snapshots[1]["snapshot_identity"], snapshots[2]["snapshot_identity"]),
+    ]
+    terminal_status = {
+        "scenario": "one-cast",
+        "condition": {"kind": "event-count", "maximum": 2},
+        "reason": "event-count-reached",
+        "terminal_event_id": events[-1]["event_id"],
+        "terminal_snapshot_identity": snapshots[-1]["snapshot_identity"],
+        "logical_time": 1,
+    }
+    assert trace["terminal_statuses"] == [terminal_status]
+    evaluation_run = _member(receipt, "evaluation-run")
+    assert evaluation_run["root_event_map"] == root_map
+    assert evaluation_run["terminal_statuses"] == [terminal_status]
+    sample = _member(receipt, "metric-dataset")["samples"][0]
+    assert sample["event_id"] == events[-1]["event_id"]
+    assert sample["snapshot_identity"] == snapshots[-1]["snapshot_identity"]
+    assert sample["logical_time"] == events[-1]["ordering_key"]["logical_time"]
 
 
 def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
