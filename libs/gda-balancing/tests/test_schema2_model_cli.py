@@ -4861,6 +4861,33 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
     )
 
 
+def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+
+    rir = model_module.lower_checked_model(checked)["rir-semantic-payload"]
+    entrypoint = next(
+        row for row in rir["entrypoints"] if row["id"] == "combat.cast"
+    )
+
+    assert {
+        row["target"]["name"]: (row["cardinality"], row["value_source"])
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    } == {
+        "action_cost": ("optional", "event-payload"),
+        "base_damage": ("optional", "event-payload"),
+        "critical_threshold": ("optional", "event-payload"),
+        "target_defense": ("optional", "event-payload"),
+    }
+    assert all(
+        row["override"] is True
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    )
+
+
 @pytest.mark.parametrize(
     ("member", "hidden_value"),
     (

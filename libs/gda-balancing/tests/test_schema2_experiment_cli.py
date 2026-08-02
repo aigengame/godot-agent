@@ -2797,6 +2797,73 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     }
 
 
+@pytest.mark.parametrize(
+    ("target_name", "accepted"),
+    (("base_damage", True), ("actor_mana", False)),
+)
+def test_transition_payload_must_exactly_match_its_event_local_contract(
+    tmp_path, run_cli, target_name, accepted
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    transition = next(
+        event
+        for event in value["scenarios"][0]["event_plan"]
+        if event["kind"] == "transition-invocation"
+    )
+    transition["payload"] = [
+        {
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": target_name,
+            },
+            "value": 50,
+        }
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert stderr == ""
+    assert exit_code == (0 if accepted else 2)
+    if not accepted:
+        error = json.loads(stdout)["error"]
+        assert error["stage"] == "static"
+        assert error["diagnostics"][0]["primary"]["pointer"] == (
+            "/scenarios/0/event_plan/0/payload"
+        )
+
+
+def test_transition_payload_rejects_duplicate_targets(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    transition = next(
+        event
+        for event in value["scenarios"][0]["event_plan"]
+        if event["kind"] == "transition-invocation"
+    )
+    payload = {
+        "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "base_damage",
+        },
+        "value": 50,
+    }
+    transition["payload"] = [payload, deepcopy(payload)]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/event_plan/0/payload"
+    )
+
+
 def test_experiment_cannot_rebind_a_resolved_entrypoint(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
