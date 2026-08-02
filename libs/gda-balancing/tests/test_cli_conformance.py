@@ -45,6 +45,16 @@ def _assert_envelope(stderr_text: str, category: str) -> dict:
     return payload["error"]
 
 
+def _record_not_applicable(request: pytest.FixtureRequest, reason: str) -> None:
+    """Keep capability-inapplicable matrix rows visible without counting a skip."""
+    request.node.user_properties.extend(
+        (
+            ("gda-balancing.applicability", "not-applicable"),
+            ("gda-balancing.applicability-reason", reason),
+        )
+    )
+
+
 _IDS = [" ".join(_command_path(descriptor)) for descriptor in REGISTRY]
 
 
@@ -59,11 +69,12 @@ class TestPerDescriptorRows:
         # reproduces the bytes — sorted keys, LF, defaults materialized.
         assert stdout == canonical_json(payload)
 
-    def test_verdict_row(self, descriptor, run_cli, invocation):
-        if (
-            descriptor.verdict_model is None
-            or descriptor.fixtures.prepare_verdict_document is None
-        ):
+    def test_verdict_row(self, descriptor, run_cli, invocation, request):
+        has_verdict_model = descriptor.verdict_model is not None
+        has_verdict_fixture = descriptor.fixtures.prepare_verdict_document is not None
+        assert has_verdict_model == has_verdict_fixture
+        if not has_verdict_model:
+            _record_not_applicable(request, "descriptor declares no Verdict outcome")
             return
         exit_code, stdout, stderr = run_cli(invocation(descriptor, verdicting=True))
         assert (exit_code, stderr) == (1, "")
@@ -217,11 +228,14 @@ class TestPerDescriptorRows:
 
     # --- Artifact-sink rows (bADR-0009), keyed on `descriptor.artifact_sink` ---
 
-    def test_artifact_sink_row(self, descriptor, run_cli, invocation, tmp_path):
+    def test_artifact_sink_row(
+        self, descriptor, run_cli, invocation, tmp_path, request
+    ):
         # `--out <path>` moves the artifact body to the sink and puts the receipt
         # on stdout; the sink's bytes equal the no-`--out` stdout of the same
         # invocation, and the receipt names the resolved sink and its byte size.
         if not descriptor.artifact_sink:
+            _record_not_applicable(request, "descriptor is not an artifact sink")
             return
         argv = invocation(descriptor)
         _, body, _ = run_cli(argv)
@@ -236,10 +250,13 @@ class TestPerDescriptorRows:
         # Atomic write-then-rename leaves the sink's directory with no temp litter.
         assert [p.name for p in tmp_path.iterdir()] == ["artifact.json"]
 
-    def test_receipt_forbidden_without_out(self, descriptor, run_cli, invocation):
+    def test_receipt_forbidden_without_out(
+        self, descriptor, run_cli, invocation, request
+    ):
         # bADR-0009: the receipt member is present exactly when `--out` was used,
         # forbidden otherwise — so a no-`--out` object body carries no `artifact`.
         if not descriptor.artifact_sink:
+            _record_not_applicable(request, "descriptor is not an artifact sink")
             return
         _, stdout, _ = run_cli(invocation(descriptor))
         parsed = json.loads(stdout)
@@ -247,11 +264,15 @@ class TestPerDescriptorRows:
             assert "artifact" not in parsed
 
     def test_out_aliasing_input_is_argument_conflict(
-        self, descriptor, run_cli, invocation
+        self, descriptor, run_cli, invocation, request
     ):
         # No command writes to its input path (bADR-0009): `--out <the input
         # path>` is a usage `argument_conflict`, and the input file is untouched.
         if not descriptor.artifact_sink or not descriptor.fixtures.has_valid_document:
+            _record_not_applicable(
+                request,
+                "descriptor has no artifact-sink document input",
+            )
             return
         argv = invocation(descriptor)
         input_path = argv[-1]  # the positional path is appended last
@@ -261,10 +282,13 @@ class TestPerDescriptorRows:
         assert _assert_envelope(stderr, "usage")["code"] == "argument_conflict"
         assert Path(input_path).read_bytes() == before
 
-    def test_unwritable_sink_is_usage_error(self, descriptor, run_cli, invocation):
+    def test_unwritable_sink_is_usage_error(
+        self, descriptor, run_cli, invocation, request
+    ):
         # An unwritable sink is a usage `unwritable_output` (bADR-0008/0009); the
         # write precedes stdout, so exit 3 keeps stdout empty.
         if not descriptor.artifact_sink:
+            _record_not_applicable(request, "descriptor is not an artifact sink")
             return
         argv = [*invocation(descriptor), "--out", "/nonexistent-dir/x.json"]
         exit_code, stdout, stderr = run_cli(argv)

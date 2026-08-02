@@ -16,7 +16,6 @@ def artifact_semantic_projection(
     collection_member_exclusions = projection.get("collection_member_exclusions")
     if (
         not isinstance(excluded_root_members, list)
-        or not excluded_root_members
         or not all(
             isinstance(member, str) and member for member in excluded_root_members
         )

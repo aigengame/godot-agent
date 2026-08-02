@@ -21,6 +21,7 @@ import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest
+from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
@@ -41,6 +42,21 @@ def _inject_authority_context(monkeypatch, kernel, language_bundle):
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
     return context
+
+
+def test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop():
+    artifact = {"member": {"value": 1}}
+
+    projection = artifact_semantic_projection(
+        artifact,
+        {
+            "excluded_root_members": [],
+            "collection_member_exclusions": [],
+        },
+    )
+
+    assert projection == artifact
+    assert projection is not artifact
 
 
 def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
