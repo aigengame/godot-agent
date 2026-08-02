@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0.0",
-  "id": "example.rpg-combat-cast.one-action",
+  "id": "example.rpg-combat-cast.multi-event",
   "version": "1.0.0",
-  "kernel_identity": "sha256:73628b8a0f659b9bcac98252b62d006d79515530fac1fa5e2ebfe5ec1b1c152f",
-  "language_bundle_identity": "sha256:974661cbc0ffac317550b148b5ff4d6757103b67046b45fe2e0f06a34abde944",
+  "kernel_identity": "sha256:cd360e13c5e55bc5127e2f02722cc307babbc67a8449665fdf5c654425b9638f",
+  "language_bundle_identity": "sha256:16c6a95d063a69732a9e01a50d736b1cf66b716f1bda59d7e9c62b968d0bee81",
   "model": {
-    "source_identity": "sha256:816404f7667e23436196c6989101995ed09eecb873d76e3b56868c67e0d29cda",
-    "build_receipt_identity": "sha256:d210e6cb2a7bb29f0bf1efd7f34578a425704f8cc1ba4b16d79e93eda0e63962",
-    "resolved_model_identity": "sha256:baa96808fa8697a0a11f1841a064c86923f00b28357ec822615966b31926fcc7",
-    "package_lock_identity": "sha256:92e86b1fdcbe5f9d13348dd94b5f93ca60d548dfb15bbbbbf967b43531788c08",
-    "rir_identity": "sha256:0364e9cedea8b988e00694b1639e37083892097241d64fd59395c487cf963cc4"
+    "source_identity": "sha256:567635b88135f3893530422b6956854bc15cbdfd8913be45b2130f7f2f3cb45b",
+    "build_receipt_identity": "sha256:b25bdd10ae299397c5155c1cc644681adb4daf7b387119e693e2232e0cc4a7c6",
+    "resolved_model_identity": "sha256:c3872d9220923cc4b65dd85a40672fcea070fef610bdc4a84600bfb559bef3a0",
+    "package_lock_identity": "sha256:ca70dcac880ea3b6ee4898af196cfbc87018dac986cef2543b07b9b7b42dcf18",
+    "rir_identity": "sha256:6f312336ded0842901e8f6afeb3978cb92dd880323a1d3deb402133f656ea066"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -20,6 +20,7 @@
       ],
       "instruction_nodes": [
         "add",
+        "cancel",
         "constant",
         "copy",
         "draw",
@@ -29,11 +30,14 @@
         "maximum",
         "multiply",
         "precondition-greater-than-or-equal",
+        "schedule",
         "subtract",
         "subtract-state"
       ],
       "effects": [
+        "event.cancel",
         "event.commit",
+        "event.schedule",
         "metric.observe",
         "rng.named-stream",
         "snapshot.commit"
@@ -53,17 +57,34 @@
     "algorithm": "splitmix64-v1",
     "value": 20260726
   },
-  "external_inputs": [],
   "scenarios": [
     {
       "id": "one-cast",
       "event_plan": [
         {
-          "kind": "transition-invocation",
-          "root_event_ref": "cast",
+          "kind": "external-input",
+          "root_event_ref": "raise-defense",
           "logical_time": 0,
           "priority": 0,
-          "entrypoint": "combat.cast",
+          "source_identity": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "source_sequence": 0,
+          "facts": [
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "target_defense"
+              },
+              "value": 20
+            }
+          ]
+        },
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "plan-casts",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "combat.plan-casts",
           "payload": []
         }
       ],
@@ -130,37 +151,11 @@
         "hit"
       ],
       "terminal_condition": {
-        "kind": "event-count",
-        "maximum": 1
+        "kind": "queue-drained"
       }
     }
   ],
   "metrics": [
-    {
-      "id": "damage_dealt",
-      "kind": "scalar",
-      "unit": "1",
-      "dimensions": [],
-      "window": {
-        "kind": "scenario",
-        "name": "terminal-event"
-      },
-      "aggregation": "single",
-      "replication": {
-        "unit": "scenario"
-      },
-      "missing": "refuse",
-      "censoring": "none",
-      "observation": {
-        "source": "event",
-        "name": "cast-resolved",
-        "member": "damage_dealt"
-      },
-      "target": {
-        "minimum": 1,
-        "maximum": 1000
-      }
-    },
     {
       "id": "target_health_remaining",
       "kind": "scalar",

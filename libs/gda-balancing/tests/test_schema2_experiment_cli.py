@@ -1170,19 +1170,6 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
 
 def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
     source_value = _rpg_model_source()
-    cast_entrypoint = source_value["entrypoints"][0]
-    source_value["entrypoints"].append(
-        {
-            **deepcopy(cast_entrypoint),
-            "id": "combat.plan-casts",
-            "operation": {
-                "package": "game.combat",
-                "version": "2.0.0",
-                "id": "game.combat.plan-casts-v1",
-            },
-            "result": {"kind": "discard"},
-        }
-    )
     source_path = tmp_path / "scheduled-combat-model.json"
     source_path.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -2843,12 +2830,10 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "game.combat.plan-casts-v1",
         "game.combat.cast-v1",
         None,
-        None,
     ]
     assert [event["ordering_key"]["logical_time"] for event in first_events] == [
         0,
         0,
-        1,
         1,
         1,
     ]
@@ -2856,7 +2841,6 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "input",
         "transition",
         "transition",
-        "observation",
         "observation",
     ]
     input_event, plan_event, cast_event = first_events[:3]
@@ -2877,9 +2861,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert plan_event["schedules"][1]["outcome"] == "canceled"
     assert plan_event["cancellations"] == [
         {
-            "call_site_identity": plan_event["cancellations"][0][
-                "call_site_identity"
-            ],
+            "call_site_identity": plan_event["cancellations"][0]["call_site_identity"],
             "event_id": plan_event["schedules"][1]["event_id"],
             "outcome": "canceled",
         }
@@ -2887,7 +2869,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert plan_event["schedules"][1]["event_id"] not in {
         event["event_id"] for event in first_events
     }
-    assert len(first_snapshots) == 6
+    assert len(first_snapshots) == 5
     assert [
         (event["snapshot_before_identity"], event["snapshot_after_identity"])
         for event in first_events
@@ -2896,7 +2878,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             first_snapshots[index]["snapshot_identity"],
             first_snapshots[index + 1]["snapshot_identity"],
         )
-        for index in range(5)
+        for index in range(4)
     ]
     recovered_exit, recovered_stdout, recovered_stderr = run_cli(
         [
@@ -2959,12 +2941,12 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         {"name": "actor_mana", "value": 26},
         {"name": "target_health", "value": 30},
     ]
-    first_damage = next(
+    first_health = next(
         sample["value"]
         for sample in first_metrics["samples"]
-        if sample["metric"] == "damage_dealt"
+        if sample["metric"] == "target_health_remaining"
     )
-    assert first_damage == 70
+    assert first_health == 30
 
     edited_source_value = deepcopy(source_value)
     edited_source_value["manifest"]["version"] = "1.1.0"
@@ -3108,10 +3090,10 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         == baseline_evaluator["evaluator_build_identity"]
     )
     assert tuned_trace["experiment_identity"] != first_trace["experiment_identity"]
-    tuned_damage = next(
+    tuned_health = next(
         sample["value"]
         for sample in tuned_metrics["samples"]
-        if sample["metric"] == "damage_dealt"
+        if sample["metric"] == "target_health_remaining"
     )
     assert (
         next(
@@ -3125,7 +3107,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         )
         == 45
     )
-    assert tuned_damage == 90 > first_damage
+    assert tuned_health == 10 < first_health
     assert next(
         event
         for event in tuned_trace["events"]
@@ -3181,9 +3163,9 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         next(
             sample["value"]
             for sample in alternate_metrics["samples"]
-            if sample["metric"] == "damage_dealt"
+            if sample["metric"] == "target_health_remaining"
         )
-        == 25
+        == 75
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -3308,10 +3290,11 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         if symbol["symbol"] == "target_defense"
     )
     defense["symbol"] = "renamed_defense"
-    for argument in renamed["entrypoints"][0]["arguments"]:
-        operand = argument["operand"]
-        if operand["kind"] == "symbol" and operand["symbol"] == "target_defense":
-            operand["symbol"] = "renamed_defense"
+    for entrypoint in renamed["entrypoints"]:
+        for argument in entrypoint["arguments"]:
+            operand = argument["operand"]
+            if operand["kind"] == "symbol" and operand["symbol"] == "target_defense":
+                operand["symbol"] = "renamed_defense"
 
     def build_and_run(
         label: str,

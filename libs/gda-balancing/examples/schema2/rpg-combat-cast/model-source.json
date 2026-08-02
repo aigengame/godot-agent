@@ -513,6 +513,83 @@
         "module": "combat",
         "symbol": "damage_dealt"
       }
+    },
+    {
+      "id": "combat.plan-casts",
+      "operation": {
+        "package": "game.combat",
+        "version": "2.0.0",
+        "id": "game.combat.plan-casts-v1"
+      },
+      "arguments": [
+        {
+          "port": "actor_resource",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "actor_mana"
+          }
+        },
+        {
+          "port": "action_cost",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "action_cost"
+          }
+        },
+        {
+          "port": "accuracy",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "effective_accuracy"
+          }
+        },
+        {
+          "port": "base_damage",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "base_damage"
+          }
+        },
+        {
+          "port": "critical_threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "critical_threshold"
+          }
+        },
+        {
+          "port": "hit_defense",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_defense"
+          }
+        },
+        {
+          "port": "damage_mitigation",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_defense"
+          }
+        },
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "target_health"
+          }
+        }
+      ],
+      "result": {
+        "kind": "discard"
+      }
     }
   ]
 }
