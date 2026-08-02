@@ -1041,9 +1041,7 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
     assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
 
 
-def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
-    tmp_path, run_cli
-):
+def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
     source_value = _rpg_model_source()
     cast_entrypoint = source_value["entrypoints"][0]
     source_value["entrypoints"].append(
@@ -1121,6 +1119,13 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     specification["runtime"]["required_evaluator"] = requirements
     specification_path = tmp_path / "scheduled-combat-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path
+
+
+def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -1154,6 +1159,36 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         }
     ]
     assert schedules[1]["event_id"] not in {event["event_id"] for event in events}
+
+
+def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    first_schedule["logical_time"] = -1
+
+    result = experiment_runtime_module.evaluate_experiment(
+        replace(checked, rir=rir)
+    )
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == "runtime.schedule_backward"
+    assert result.committed_events == ()
+    assert result.state_before == {"actor_mana": 30, "target_health": 100}
+    assert result.state_after == result.state_before
 
 
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
