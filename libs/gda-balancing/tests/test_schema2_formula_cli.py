@@ -1309,6 +1309,37 @@ def test_formula_parse_refuses_tokens_above_the_admitted_limit(
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
 
 
+def test_formula_parse_handles_deep_grouping_below_the_token_limit(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    depth = 1200
+    source = tmp_path / "deep-grouping-formula.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "deep-grouping",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": "(" * depth + "value" + ")" * depth,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["expression"] == "value"
+
+
 def test_formula_render_reports_an_unresolved_operation_at_the_body(
     tmp_path: Path, run_cli
 ) -> None:

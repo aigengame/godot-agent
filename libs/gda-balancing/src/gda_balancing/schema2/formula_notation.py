@@ -527,11 +527,13 @@ class _FormulaParser:
         )
 
     def parenthesized_operand(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        if self.current().kind != self.open_group:
-            return self.operand()
-        self.index += 1
-        parsed = self.parenthesized_operand()
-        self.take(self.close_group)
+        depth = 0
+        while self.current().kind == self.open_group:
+            self.index += 1
+            depth += 1
+        parsed = self.operand()
+        for _ in range(depth):
+            self.take(self.close_group)
         return parsed
 
     def resolve_contract(self, contract: dict[str, Any]) -> dict[str, Any]:
