@@ -2009,12 +2009,19 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
 @pytest.mark.parametrize(
     "external_roots",
     [
-        [("a", 0), ("a", 0)],
-        [("a", 1), ("a", 0)],
-        [("a", 0), ("a", 2)],
-        [("f", 0), ("a", 0)],
+        [("a", 0, 0, 0), ("a", 0, 0, 0)],
+        [("a", 1, 0, 0), ("a", 0, 0, 0)],
+        [("a", 0, 0, 0), ("a", 2, 0, 0)],
+        [("a", 0, 1, 0), ("a", 1, 0, 0)],
+        [("a", 0, 0, 0), ("a", 1, 0, 10)],
     ],
-    ids=["duplicate", "decreasing", "continuity-gap", "source-order"],
+    ids=[
+        "duplicate",
+        "decreasing",
+        "continuity-gap",
+        "logical-order",
+        "priority-order",
+    ],
 )
 def test_external_input_sources_require_canonical_contiguous_sequences(
     tmp_path, run_cli, external_roots
@@ -2030,13 +2037,15 @@ def test_external_input_sources_require_canonical_contiguous_sequences(
             {
                 "kind": "external-input",
                 "root_event_ref": f"input-{index}",
-                "logical_time": 0,
-                "priority": 0,
+                "logical_time": logical_time,
+                "priority": priority,
                 "source_identity": "sha256:" + source * 64,
                 "source_sequence": sequence,
                 "facts": [{"target": target, "value": 6 + index}],
             }
-            for index, (source, sequence) in enumerate(external_roots)
+            for index, (source, sequence, logical_time, priority) in enumerate(
+                external_roots
+            )
         ],
         transition,
     ]
@@ -2048,6 +2057,80 @@ def test_external_input_sources_require_canonical_contiguous_sequences(
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
     assert result.diagnostics[0].code == "language.source_contract_mismatch"
+
+
+def test_external_facts_must_target_the_compiler_projected_reachable_contract(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    module = source_value["modules"][0]
+    ambient = deepcopy(
+        next(row for row in module["symbols"] if row["symbol"] == "target_defense")
+    )
+    ambient["symbol"] = "ambient_temperature"
+    module["symbols"].append(ambient)
+    source_path = tmp_path / "external-fact-contract-model.json"
+    source_path.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "external-fact-contract-model"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    receipt = json.loads(build_stdout)
+    build = _member(receipt, "build-receipt")
+    rir = _member(receipt, "rir-semantic-payload")
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    assert {
+        row["target"]["name"]
+        for row in entrypoint["external_fact_contract"]["targets"]
+    } == {"target_defense"}
+
+    specification = _experiment(
+        kernel_identity=build["kernel_identity"],
+        language_bundle_identity=build["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=receipt,
+        base_damage=24,
+    )
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "ambient-input",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "d" * 64,
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "ambient_temperature",
+                    },
+                    "value": 10,
+                }
+            ],
+        },
+        {**scenario["event_plan"][0], "logical_time": 1},
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification_path = tmp_path / "external-fact-contract-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    result = experiment_runtime_module.check_experiment(str(specification_path))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "static"
+    assert result.diagnostics[0].code == "language.source_contract_mismatch"
+    assert result.diagnostics[0].primary.pointer.endswith("/facts/0/target")
 
 
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
