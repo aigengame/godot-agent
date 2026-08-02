@@ -177,6 +177,150 @@ class TestKeyUserPath:
             row["id"] for row in explanation["operation_explanations"]
         }
 
+    def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = (
+            Path(__file__).parents[1]
+            / "examples"
+            / "schema2"
+            / "rpg-combat-cast"
+        )
+        source = json.loads((example / "model-source.json").read_text())
+        module = source["modules"][0]
+        formula = next(
+            row for row in module["formulas"] if row["id"] == "mitigated-damage"
+        )
+        request_context = {
+            "schema_version": source["schema_version"],
+            "package_requirements": source["package_requirements"],
+            "module": {"id": module["id"], "imports": module["imports"]},
+        }
+
+        render_request = {
+            **request_context,
+            "formula": {key: value for key, value in formula.items() if key != "expression"},
+        }
+        render_source = tmp_path / "formula-render.json"
+        render_source.write_text(json.dumps(render_request), encoding="utf-8")
+        rendered = _run("formula", "render", str(render_source))
+        assert (rendered.returncode, rendered.stderr) == (0, "")
+        rendered_pair = json.loads(rendered.stdout)
+
+        parse_request = {
+            **request_context,
+            "formula": {
+                **{key: value for key, value in formula.items() if key != "body"},
+                "expression": (
+                    " let raw_damage = ((damage_before_defense - mitigation)); "
+                    "let damage = floor_zero(((raw_damage))); damage "
+                ),
+            },
+        }
+        parse_source = tmp_path / "formula-parse.json"
+        parse_source.write_text(json.dumps(parse_request), encoding="utf-8")
+        parsed = _run("formula", "parse", str(parse_source))
+        assert (parsed.returncode, parsed.stderr) == (0, "")
+        parsed_pair = json.loads(parsed.stdout)
+        assert parsed_pair == rendered_pair
+        assert {
+            key: parsed_pair[key] for key in ("body", "expression")
+        } == {
+            "body": formula["body"],
+            "expression": formula["expression"],
+        }
+        assert parsed_pair["kernel_identity"].startswith("sha256:")
+        assert parsed_pair["language_bundle_identity"].startswith("sha256:")
+
+        source_path = example / "model-source.json"
+        checked = _run("model", "check", str(source_path))
+        assert (checked.returncode, checked.stderr) == (0, "")
+
+        drifted = json.loads(json.dumps(source))
+        drifted["modules"][0]["formulas"][0]["expression"] += " "
+        drifted_path = tmp_path / "model-source-drifted.json"
+        drifted_path.write_text(json.dumps(drifted), encoding="utf-8")
+        refused = _run("model", "check", str(drifted_path))
+        assert (refused.returncode, refused.stderr) == (2, "")
+        diagnostic = json.loads(refused.stdout)["error"]["diagnostics"][0]
+        assert diagnostic["code"] == "language.formula_notation_mismatch"
+        assert diagnostic["primary"]["pointer"] == (
+            "/modules/0/formulas/0/expression"
+        )
+
+        built = _run(
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "b" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        build_receipt = json.loads(built.stdout)
+        receipt_path = tmp_path / "model-set-receipt.json"
+        receipt_path.write_text(built.stdout, encoding="utf-8")
+        model_members = {
+            row["logical_name"]: Path(row["locator"])
+            for row in build_receipt["member_locators"]
+        }
+
+        inspected = _run(
+            "model", "inspect", str(receipt_path), "--format", "indented"
+        )
+        assert (inspected.returncode, inspected.stderr) == (0, "")
+        explanation = json.loads(inspected.stdout)
+        source_expressions = {
+            row["id"]: row["expression"]
+            for row in module["formulas"]
+        }
+        explanation_pairs = {
+            row["id"]: (row["body"], row["expression"])
+            for row in explanation["formula_explanations"]
+        }
+        rir = json.loads(model_members["rir-semantic-payload"].read_text())
+        rir_pairs = {
+            row["id"]: (row["body"], row["expression"])
+            for row in rir["formulas"]
+        }
+        assert explanation_pairs == rir_pairs
+        assert {
+            identifier: expression
+            for identifier, (_body, expression) in rir_pairs.items()
+        } == source_expressions
+        assert rir["content_identity"] != rir["semantic_identity"]
+
+        experiment_path = example / "experiment.json"
+        experiment_checked = _run("experiment", "check", str(experiment_path))
+        assert (experiment_checked.returncode, experiment_checked.stderr) == (0, "")
+        run = _run(
+            "experiment",
+            "run",
+            str(experiment_path),
+            "--out",
+            str(tmp_path / "evaluation-run.json"),
+            "--invocation-key",
+            "c" * 64,
+        )
+        assert (run.returncode, run.stderr) == (0, "")
+        run_receipt = json.loads(run.stdout)
+        run_members = {
+            row["logical_name"]: Path(row["locator"])
+            for row in run_receipt["member_locators"]
+        }
+        metrics = json.loads(run_members["metric-dataset"].read_text())
+        trace = json.loads(run_members["event-trace"].read_text())
+        assert next(
+            row["value"]
+            for row in metrics["samples"]
+            if row["metric"] == "damage_dealt"
+        ) == 60
+        assert trace["events"][0]["state_after"] == [
+            {"name": "actor_mana", "value": 26},
+            {"name": "target_health", "value": 40},
+        ]
+
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")
         assert (result.returncode, result.stderr) == (0, "")
