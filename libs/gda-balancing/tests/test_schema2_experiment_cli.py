@@ -4705,23 +4705,56 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     error = json.loads(stdout)["error"]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
     assert audit["scenario"] == "overflowing-cast"
-    assert audit["committed_trace_prefix"] == [
+    prefix = audit["committed_trace_prefix"]
+    assert [event["ordering_key"]["phase"] for event in prefix] == [
+        "transition",
+        "observation",
+        "observation",
+    ]
+    assert prefix[0]["root_event_ref"] == "cast"
+    assert prefix[0]["entrypoint"]["id"] == "combat.cast"
+    assert prefix[0]["event_id"].startswith("sha256:")
+    assert all(
+        call["call_site_identity"].startswith("sha256:")
+        for call in prefix[0]["calls"]
+    )
+    assert prefix[0]["snapshot_before_identity"].startswith("sha256:")
+    assert prefix[-1]["snapshot_after_identity"].startswith("sha256:")
+    assert prefix[-1]["observation"]["window"] == {
+        "kind": "scenario",
+        "name": "terminal-event",
+    }
+    assert audit["last_snapshot_identity"] == prefix[-1][
+        "snapshot_after_identity"
+    ]
+    assert audit["terminal_condition"] == {"kind": "event-count", "maximum": 1}
+    assert audit["root_event_map"] == [
         {
-            "index": 0,
-            "operation": "game.combat.cast-v1",
-            "outcome": {"id": "cast-resolved", "kind": "success"},
+            "scenario": "one-cast",
+            "root_event_ref": "cast",
+            "event_id": prefix[0]["event_id"],
         },
         {
-            "index": 1,
-            "operation": None,
-            "outcome": {"id": "observation-emitted", "kind": "success"},
-        },
-        {
-            "index": 2,
-            "operation": None,
-            "outcome": {"id": "observation-emitted", "kind": "success"},
+            "scenario": "overflowing-cast",
+            "root_event_ref": "cast",
+            "event_id": audit["refusing_event"]["event_id"],
         },
     ]
+    assert audit["refusing_event"]["ordering_key"] == {
+        "logical_time": 0,
+        "phase": "transition",
+        "priority": 0,
+        "enqueue_sequence": 0,
+    }
+    assert audit["refusing_event"]["snapshot_before_identity"] == prefix[-1][
+        "snapshot_after_identity"
+    ]
+    assert audit["budget_counters"]["logical_time"] == 0
+    assert audit["budget_counters"]["queue_events"] == 0
+    assert audit["budget_counters"]["total_events"] == 1
+    assert audit["budget_counters"]["zero_time_depth"] == 0
+    assert audit["budget_counters"]["event_steps"] > 0
+    assert audit["budget_counters"]["node_steps"] > 0
 
 
 @pytest.mark.parametrize(
