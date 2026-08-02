@@ -868,7 +868,6 @@ def _experiment(
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260726},
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": "one-cast",
@@ -1162,7 +1161,6 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
-    specification.pop("external_inputs")
     scenario = specification["scenarios"][0]
     scenario["event_plan"] = [
         {

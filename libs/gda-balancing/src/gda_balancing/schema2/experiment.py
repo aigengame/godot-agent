@@ -201,6 +201,36 @@ def _pointer(parts: Any) -> str:
 
 
 def _schema_error_pointer(error: jsonschema.ValidationError) -> str:
+    if (
+        error.validator == "oneOf"
+        and isinstance(error.instance, dict)
+        and isinstance(error.schema, dict)
+        and isinstance(error.schema.get("oneOf"), list)
+    ):
+        discriminator = error.instance.get("kind")
+        matching_branches = [
+            index
+            for index, branch in enumerate(error.schema["oneOf"])
+            if isinstance(branch, dict)
+            and isinstance(branch.get("properties"), dict)
+            and branch["properties"].get("kind", {}).get("const") == discriminator
+        ]
+        if len(matching_branches) == 1:
+            selected_branch = matching_branches[0]
+            branch_errors = [
+                nested
+                for nested in error.context
+                if list(nested.relative_schema_path)[:1] == [selected_branch]
+            ]
+            if branch_errors:
+                most_specific = min(
+                    branch_errors,
+                    key=lambda nested: (
+                        nested.validator not in {"required", "unevaluatedProperties"},
+                        tuple(str(part) for part in nested.absolute_path),
+                    ),
+                )
+                return _schema_error_pointer(most_specific)
     parts = list(error.absolute_path)
     if error.validator == "required" and isinstance(error.instance, dict):
         missing = [
@@ -316,8 +346,16 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
     return scheduler
 
 
-def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
+def _scenario_root_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], scenario["event_plan"])
+
+
+def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in _scenario_root_events(scenario)
+        if event["kind"] == "transition-invocation"
+    ]
 
 
 def _ordered_root_events(
@@ -332,10 +370,12 @@ def _ordered_root_events(
     admitted = [
         {
             **event,
-            "phase": "transition",
+            "phase": (
+                "input" if event["kind"] == "external-input" else "transition"
+            ),
             "enqueue_sequence": sequence,
         }
-        for sequence, event in enumerate(_scenario_transition_events(scenario))
+        for sequence, event in enumerate(_scenario_root_events(scenario))
     ]
     return sorted(
         admitted,
@@ -545,24 +585,23 @@ def check_experiment(
                 pointer="",
                 message=f"Experiment {member} values must be unique",
             )
-    if value["external_inputs"]:
-        return _refusal(
-            stage="static",
-            code="language.source_contract_mismatch",
-            identity=experiment_identity,
-            pointer="/external_inputs",
-            message=(
-                "The bounded RPG Experiment slice admits no external input "
-                "until an LDB-owned input judgment is selected"
-            ),
-        )
     for scenario_index, scenario in enumerate(value["scenarios"]):
-        event_plan = _scenario_transition_events(scenario)
+        event_plan = _scenario_root_events(scenario)
+        terminal_condition = scenario["terminal_condition"]
+        event_count_too_small = (
+            terminal_condition["kind"] == "event-count"
+            and terminal_condition["maximum"] < len(event_plan)
+        )
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
             or not _unique_rows(event_plan, "root_event_ref")
-            or scenario["terminal_condition"]["maximum"] < len(event_plan)
+            or any(
+                not _unique_canonical_rows(event["facts"], "target")
+                for event in event_plan
+                if event["kind"] == "external-input"
+            )
+            or event_count_too_small
         ):
             return _refusal(
                 stage="static",
@@ -575,8 +614,8 @@ def check_experiment(
                 ),
                 message=(
                     "The deterministic-event-v1 slice requires unique assignments, "
-                    "unique streams and root Event references, with an Event-count "
-                    "bound admitting every authored root Event"
+                    "unique streams, input facts and root Event references, with an "
+                    "Event-count bound admitting every authored root Event"
                 ),
             )
     for metric_index, metric in enumerate(value["metrics"]):
@@ -691,7 +730,9 @@ def check_experiment(
     for scenario_index, scenario in enumerate(value["scenarios"]):
         selected_entrypoints: list[dict[str, Any]] = []
         required_streams: set[str] = set()
-        for event_index, event in enumerate(_scenario_transition_events(scenario)):
+        for event_index, event in enumerate(_scenario_root_events(scenario)):
+            if event["kind"] != "transition-invocation":
+                continue
             entrypoint = entrypoints.get(event["entrypoint"])
             pointer = f"/scenarios/{scenario_index}/event_plan/{event_index}/entrypoint"
             if entrypoint is None:
@@ -783,6 +824,36 @@ def check_experiment(
                     pointer=f"/scenarios/{scenario_index}/assignments",
                     message="Scenario assignment is outside its declared domain",
                 )
+        for event_index, event in enumerate(_scenario_root_events(scenario)):
+            if event["kind"] != "external-input":
+                continue
+            for fact_index, fact in enumerate(event["facts"]):
+                identity = canonical_bytes(cast(JsonValue, fact["target"]))
+                declaration = declarations.get(identity)
+                pointer = (
+                    f"/scenarios/{scenario_index}/event_plan/{event_index}"
+                    f"/facts/{fact_index}"
+                )
+                if declaration is None or declaration["role"] != "input":
+                    return _refusal(
+                        stage="static",
+                        code="language.source_contract_mismatch",
+                        identity=experiment_identity,
+                        pointer=f"{pointer}/target",
+                        message=(
+                            "External-input facts must target an exact input-role "
+                            "Resolved Model symbol"
+                        ),
+                    )
+                domain = declaration["domain"]
+                if not domain["minimum"] <= fact["value"] <= domain["maximum"]:
+                    return _refusal(
+                        stage="static",
+                        code="language.invalid_domain",
+                        identity=experiment_identity,
+                        pointer=f"{pointer}/value",
+                        message="External-input fact is outside its declared domain",
+                    )
     expected_requirements = {
         "operation_kinds": required_operation_kinds,
         "instruction_nodes": required_instruction_nodes,
@@ -1252,7 +1323,7 @@ def _reproduction_receipt(
             "evaluator_manifest_identity": evaluator.content_identity,
             "seed_algorithm": checked.value["seed"]["algorithm"],
             "seed_value": checked.value["seed"]["value"],
-            "external_inputs": checked.value["external_inputs"],
+            "external_inputs": [],
         },
     )
 
@@ -1688,7 +1759,9 @@ def evaluate_experiment(
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = _ordered_root_events(checked, scenario)
         scenario_entrypoints = [
-            entrypoints[event["entrypoint"]] for event in ordered_events
+            entrypoints[event["entrypoint"]]
+            for event in ordered_events
+            if event["kind"] == "transition-invocation"
         ]
         actual_values: dict[bytes, Any] = {}
         for selected_entrypoint in scenario_entrypoints:
@@ -1765,9 +1838,11 @@ def evaluate_experiment(
                 },
             )
         )
-        entrypoint = scenario_entrypoints[0]
-        operation = operations[entrypoint["operation"]["id"]]
-        outcomes = {row["id"]: row for row in operation["outcomes"]}
+        operation = (
+            operations[scenario_entrypoints[0]["operation"]["id"]]
+            if scenario_entrypoints
+            else None
+        )
         draws: list[dict[str, JsonValue]] = []
         call_trace: list[dict[str, JsonValue]] = []
         schedule_trace: list[dict[str, JsonValue]] = []
@@ -1777,7 +1852,9 @@ def evaluate_experiment(
         event_id = ""
         next_enqueue_sequence = len(ordered_events)
         event_steps = 0
-        root_step_limit = operation["resource_bounds"]["max_steps"]
+        root_step_limit = (
+            operation["resource_bounds"]["max_steps"] if operation is not None else 0
+        )
 
         def instruction_evaluation_sites(
             selected_operation: dict[str, Any],
@@ -2113,17 +2190,36 @@ def evaluate_experiment(
 
         pending_events = list(ordered_events)
         event_position = 0
-        terminal_maximum = scenario["terminal_condition"]["maximum"]
-        while pending_events and event_position < terminal_maximum:
+        terminal_condition = scenario["terminal_condition"]
+        terminal_maximum = (
+            terminal_condition["maximum"]
+            if terminal_condition["kind"] == "event-count"
+            else None
+        )
+        phase_rank = {
+            phase: index
+            for index, phase in enumerate(
+                _scheduler_contract(checked)["ordering"][1]["rank"]
+            )
+        }
+        while pending_events and (
+            terminal_maximum is None or event_position < terminal_maximum
+        ):
             pending_events.sort(
                 key=lambda event: (
                     event["logical_time"],
+                    phase_rank[event["phase"]],
                     -event["priority"],
                     event["enqueue_sequence"],
                 )
             )
             event_spec = pending_events.pop(0)
-            if "entrypoint" in event_spec:
+            external_input = event_spec.get("kind") == "external-input"
+            if external_input:
+                entrypoint = None
+                operation = None
+                event_id = _root_event_id(checked, scenario["id"], event_spec)
+            elif "entrypoint" in event_spec:
                 entrypoint = entrypoints[event_spec["entrypoint"]]
                 operation = operations[entrypoint["operation"]["id"]]
                 event_id = _root_event_id(checked, scenario["id"], event_spec)
@@ -2131,7 +2227,11 @@ def evaluate_experiment(
                 entrypoint = None
                 operation = operations[event_spec["operation"]]
                 event_id = event_spec["event_id"]
-            outcomes = {row["id"]: row for row in operation["outcomes"]}
+            outcomes = (
+                {row["id"]: row for row in operation["outcomes"]}
+                if operation is not None
+                else {}
+            )
             draws = []
             call_trace = []
             schedule_trace = []
@@ -2139,11 +2239,19 @@ def evaluate_experiment(
             buffered_children = []
             canceled_event_ids = set()
             event_steps = 0
-            root_step_limit = operation["resource_bounds"]["max_steps"]
+            root_step_limit = (
+                operation["resource_bounds"]["max_steps"]
+                if operation is not None
+                else 0
+            )
             before = dict(state)
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
-            if entrypoint is None:
+            if external_input:
+                for fact in event_spec["facts"]:
+                    identity = canonical_bytes(cast(JsonValue, fact["target"]))
+                    actual_values[identity] = fact["value"]
+            elif entrypoint is None:
                 root_arguments.update(event_spec["arguments"])
                 root_state_references.update(event_spec["state_references"])
             else:
@@ -2167,19 +2275,27 @@ def evaluate_experiment(
                         root_arguments[binding["port"]["name"]] = resolved_operand[
                             "value"
                         ]
-            try:
-                dispatch_path = (
+            dispatch_path = (
+                (f"input:{event_spec['root_event_ref']}",)
+                if external_input
+                else (
                     (cast(str, entrypoint["id"]),)
                     if entrypoint is not None
                     else (f"scheduled:{event_spec['call_site_identity']}",)
                 )
-                outcome, root_result = execute_operation(
-                    operation,
-                    root_arguments,
-                    root_state_references,
-                    dispatch_path,
-                    None,
-                )
+            )
+            try:
+                if external_input:
+                    outcome, root_result = "input-admitted", None
+                else:
+                    assert operation is not None
+                    outcome, root_result = execute_operation(
+                        operation,
+                        root_arguments,
+                        root_state_references,
+                        dispatch_path,
+                        None,
+                    )
             except _RuntimeExecutionFault as fault:
                 code = _diagnostic_for_signal(checked, fault.signal, "runtime")
                 message = (
@@ -2214,20 +2330,23 @@ def evaluate_experiment(
                 )
             for identity, value in state.items():
                 actual_values[identity] = value
-            outcome_definition = outcomes[outcome]
-            if (
-                outcome_definition["kind"] == "success"
-                and entrypoint is not None
-                and entrypoint["result"]["kind"] == "symbol"
-            ):
-                result_identity = canonical_bytes(
-                    cast(JsonValue, entrypoint["result"]["symbol"])
-                )
-                actual_values[result_identity] = root_result
-            typed_outcome = {
-                "id": outcome,
-                "kind": outcome_definition["kind"],
-            }
+            if external_input:
+                typed_outcome = {"id": outcome, "kind": "success"}
+            else:
+                outcome_definition = outcomes[outcome]
+                if (
+                    outcome_definition["kind"] == "success"
+                    and entrypoint is not None
+                    and entrypoint["result"]["kind"] == "symbol"
+                ):
+                    result_identity = canonical_bytes(
+                        cast(JsonValue, entrypoint["result"]["symbol"])
+                    )
+                    actual_values[result_identity] = root_result
+                typed_outcome = {
+                    "id": outcome,
+                    "kind": outcome_definition["kind"],
+                }
             for child in buffered_children:
                 if child["event_id"] not in canceled_event_ids:
                     pending_events.append(child)
@@ -2242,7 +2361,7 @@ def evaluate_experiment(
                         "priority": event_spec["priority"],
                         "enqueue_sequence": event_spec["enqueue_sequence"],
                     },
-                    "operation": operation["id"],
+                    "operation": operation["id"] if operation is not None else None,
                     "entrypoint": (
                         {
                             "id": entrypoint["id"],
@@ -2261,7 +2380,7 @@ def evaluate_experiment(
                     "rng_draws": draws,
                 },
             )
-            if entrypoint is not None:
+            if "root_event_ref" in event_spec:
                 event_payload["root_event_ref"] = event_spec["root_event_ref"]
             else:
                 event_payload["parent_event_id"] = event_spec["parent_event_id"]
@@ -2270,7 +2389,11 @@ def evaluate_experiment(
                 ]
             event = cast(dict[str, JsonValue], event_payload)
             terminal_after_event = (
-                event_position + 1 >= terminal_maximum or not pending_events
+                (
+                    terminal_maximum is not None
+                    and event_position + 1 >= terminal_maximum
+                )
+                or not pending_events
             )
             snapshot = cast(
                 dict[str, JsonValue],
@@ -2321,7 +2444,9 @@ def evaluate_experiment(
                         if entrypoint is not None
                         else event_spec["call_site_identity"]
                     ),
-                    operation=operation["id"],
+                    operation=(
+                        operation["id"] if operation is not None else "external-input"
+                    ),
                     call_path=dispatch_path,
                     call_site_identity=None,
                     evaluation_site_identity=fault.evaluation_site_identity,
