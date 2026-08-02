@@ -18,6 +18,7 @@ from gda_balancing.schema2.formula_types import (
     literal_context_contract,
     resolve_formula_contract,
 )
+from gda_balancing.schema2.formula_inference import infer_formula_operation_result
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,30 @@ def _notation_authority(
     grammar = grammar_schema.get("const") if isinstance(grammar_schema, dict) else None
     if not isinstance(grammar, dict) or not isinstance(notation_schema, dict):
         raise ValueError("standard.schema Formula notation authority is incomplete")
+    token_pattern = grammar.get("identifier_token_pattern")
+    bare_pattern = grammar.get("bare_identifier_pattern")
+    integer_pattern = grammar.get("integer_literal_pattern")
+    whitespace_pattern = grammar.get("whitespace_pattern")
+    if (
+        grammar.get("version") != "1.1.0"
+        or not isinstance(token_pattern, str)
+        or bare_pattern != f"^{token_pattern}$"
+        or not isinstance(integer_pattern, str)
+        or not isinstance(whitespace_pattern, str)
+        or grammar.get("signed_integer_context") != "operand-position"
+        or not isinstance(grammar.get("max_group_depth"), int)
+        or cast(int, grammar["max_group_depth"]) < 1
+    ):
+        raise ValueError("standard.schema Formula notation grammar is malformed")
+    try:
+        if (
+            re.fullmatch(token_pattern, "") is not None
+            or re.fullmatch(integer_pattern, "") is not None
+            or re.fullmatch(whitespace_pattern, "") is not None
+        ):
+            raise ValueError("Formula notation token patterns admit empty input")
+    except re.error as err:
+        raise ValueError("Formula notation token pattern is malformed") from err
     return grammar, notation_schema
 
 
@@ -171,7 +196,7 @@ def _selected_operation_notations(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[_OperationNotation, ...]:
-    _grammar, notation_schema = _notation_authority(authority_context)
+    grammar, notation_schema = _notation_authority(authority_context)
     requirements = request.get("package_requirements")
     if not isinstance(requirements, list):
         raise ValueError("Formula context has no package requirements")
@@ -193,6 +218,23 @@ def _selected_operation_notations(
         if isinstance(notation, dict) and not list(
             jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)
         ):
+            spelling = notation.get(
+                "token" if notation.get("kind") == "infix" else "name"
+            )
+            if not isinstance(spelling, str) or not spelling:
+                raise ValueError("Formula Operation notation spelling is malformed")
+            if notation.get("kind") == "function" and (
+                re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), spelling)
+                is None
+                or spelling in grammar["reserved_identifiers"]
+            ):
+                raise ValueError("Formula function notation spelling is ambiguous")
+            if notation.get("kind") == "infix" and re.fullmatch(
+                cast(str, grammar["bare_identifier_pattern"]), f"a{spelling}b"
+            ):
+                raise ValueError(
+                    "Formula infix notation collides with bare identifiers"
+                )
             declarations.append(_OperationNotation(coordinate, operation, notation))
     return tuple(declarations)
 
@@ -221,6 +263,19 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     )
     if not isinstance(policy, dict):
         raise ValueError("Formula conversion has no selected Formula policy")
+    conversion = policy.get("notation_conversion")
+    if (
+        not isinstance(conversion, dict)
+        or conversion.get("condition_contract") != "kernel-boolean"
+        or conversion.get("formula_argument_compatibility") != "exact-resolved-contract"
+        or conversion.get("formula_result_compatibility") != "exact-resolved-contract"
+        or conversion.get("literal_typing") != "selected-unique-formal-match"
+        or conversion.get("literal_result_inference") != "contextual-anchor"
+        or conversion.get("operation_argument_compatibility")
+        != "exact-operation-formal"
+        or conversion.get("symbol_resolution") != "exact-module-coordinate"
+    ):
+        raise ValueError("Formula conversion policy is incomplete")
     return policy
 
 
@@ -261,16 +316,31 @@ def _lex(
         cast(str, grammar["argument_separator"]),
         coordinate_separator,
     }
+    whitespace_pattern = re.compile(cast(str, grammar["whitespace_pattern"]))
+    identifier_pattern = re.compile(cast(str, grammar["identifier_token_pattern"]))
+    integer_pattern = re.compile(cast(str, grammar["integer_literal_pattern"]))
     tokens: list[_Token] = []
     index = 0
     ordered_operators = sorted(operator_tokens, key=len, reverse=True)
+    group_depth = 0
+    max_group_depth = cast(int, grammar["max_group_depth"])
+    open_group, close_group = cast(list[str], grammar["group_delimiters"])
     while index < len(expression):
         character = expression[index]
-        if character.isspace():
-            index += 1
+        whitespace = whitespace_pattern.match(expression, index)
+        if whitespace is not None:
+            index = whitespace.end()
             continue
         if character in punctuation:
             tokens.append(_Token(character, character, index))
+            if character == open_group:
+                group_depth += 1
+                if group_depth > max_group_depth:
+                    raise _FormulaNotationResourceError(
+                        "Formula expression exceeds its admitted group-depth bound"
+                    )
+            elif character == close_group:
+                group_depth -= 1
             index += 1
             continue
         if character == quote:
@@ -296,22 +366,25 @@ def _lex(
             index += 1
             tokens.append(_Token("identifier", "".join(quoted_chars), start))
             continue
-        if character.isdigit() or (
-            character == "-"
-            and index + 1 < len(expression)
-            and expression[index + 1].isdigit()
-        ):
-            start = index
-            index += 1
-            while index < len(expression) and expression[index].isdigit():
-                index += 1
-            tokens.append(_Token("integer", expression[start:index], start))
+        previous = tokens[-1] if tokens else None
+        can_end_operand = previous is not None and (
+            previous.kind in {"integer", "identifier", close_group}
+            and previous.value
+            not in {
+                grammar["binding_keyword"],
+                *cast(list[str], grammar["conditional_keywords"]),
+            }
+        )
+        integer = None if can_end_operand else integer_pattern.match(expression, index)
+        if integer is not None:
+            tokens.append(_Token("integer", integer.group(0), index))
+            index = integer.end()
             continue
-        identifier = re.match(r"[A-Za-z_][A-Za-z0-9_]*", expression[index:])
+        identifier = identifier_pattern.match(expression, index)
         if identifier is not None:
             identifier_value = identifier.group(0)
             tokens.append(_Token("identifier", identifier_value, index))
-            index += len(identifier_value)
+            index = identifier.end()
             continue
         operator = next(
             (
@@ -353,7 +426,31 @@ class _FormulaParser:
             raise ValueError("Formula module context is malformed")
         self.authority_context = authority_context
         self.policy = _formula_policy(authority_context)
+        self.conversion_policy = cast(
+            dict[str, Any], self.policy["notation_conversion"]
+        )
         self.imports = _module_imports(module)
+        self.source_type_aliases = {
+            (identity["package"], identity["version"], identity["symbol"]): alias
+            for alias, identity in self.imports.items()
+        }
+        fixed_contracts = cast(
+            dict[str, dict[str, Any]],
+            authority_context.kernel["meta_format"]["runtime_program"][
+                "fixed_value_contracts"
+            ],
+        )
+        for row in cast(list[dict[str, str]], self.policy["fixed_value_type_aliases"]):
+            fixed = fixed_contracts.get(row["contract"])
+            fixed_type = fixed.get("type") if isinstance(fixed, dict) else None
+            if isinstance(fixed_type, dict):
+                self.source_type_aliases[
+                    (
+                        cast(str, fixed_type["package"]),
+                        cast(str, fixed_type["version"]),
+                        cast(str, fixed_type["id"]),
+                    )
+                ] = row["alias"]
         self.formula_declarations = {
             (module_id, cast(str, item["id"])): item
             for item in declarations
@@ -597,7 +694,9 @@ class _FormulaParser:
             raise ValueError("Formula operand is incompatible with its Operation port")
         return contract
 
-    def right_hand_side(self, local: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def right_hand_side(
+        self, local: str
+    ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         conditional_keywords = cast(list[str], self.grammar["conditional_keywords"])
         if (
             self.current().kind == "identifier"
@@ -623,16 +722,18 @@ class _FormulaParser:
                 self.resolve_contract(false_contract),
             ):
                 raise ValueError("Formula conditional branches are incompatible")
-            return (
-                {
-                    "id": local,
-                    "node": "conditional",
-                    "condition": condition,
-                    "when_true": when_true,
-                    "when_false": when_false,
-                },
-                deepcopy(true_contract),
-            )
+            return [
+                (
+                    {
+                        "id": local,
+                        "node": "conditional",
+                        "condition": condition,
+                        "when_true": when_true,
+                        "when_false": when_false,
+                    },
+                    deepcopy(true_contract),
+                )
+            ]
         if (
             self.current().kind == "identifier"
             and self.tokens[self.index + 1].kind == self.grammar["coordinate_separator"]
@@ -682,18 +783,20 @@ class _FormulaParser:
                     contract,
                     resolved_parameters[parameter],
                 )
-            return (
-                {
-                    "id": local,
-                    "node": "formula-call",
-                    "formula": {"module": module, "id": formula_id},
-                    "arguments": [
-                        {"parameter": parameter, "operand": arguments[parameter][0]}
-                        for parameter in sorted(arguments)
-                    ],
-                },
-                deepcopy(result),
-            )
+            return [
+                (
+                    {
+                        "id": local,
+                        "node": "formula-call",
+                        "formula": {"module": module, "id": formula_id},
+                        "arguments": [
+                            {"parameter": parameter, "operand": arguments[parameter][0]}
+                            for parameter in sorted(arguments)
+                        ],
+                    },
+                    deepcopy(result),
+                )
+            ]
         if (
             self.current().kind == "identifier"
             and self.tokens[self.index + 1].kind == self.open_group
@@ -708,27 +811,126 @@ class _FormulaParser:
                     self.index += 1
                     operands.append(self.parenthesized_operand())
             self.take(self.close_group)
-            return self.operation_node(local, operation, operands)
-        self.take_parentheses_before_expression()
-        left = self.parenthesized_operand()
-        operator = self.take("operator").value
-        right = self.parenthesized_operand()
-        self.take_parentheses_after_expression()
-        return self.operation_node(
-            local,
-            self.operation_for(kind="infix", spelling=operator),
-            [left, right],
-        )
+            return [self.operation_node(local, operation, operands)]
+        return self.infix_bindings(local)
 
-    def take_parentheses_before_expression(self) -> None:
-        self.expression_parentheses = 0
-        while self.current().kind == self.open_group:
+    def infix_bindings(self, local: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Parse one infix RHS with authority-declared precedence and associativity."""
+        output: list[
+            tuple[dict[str, Any], dict[str, Any] | None] | _OperationNotation
+        ] = []
+        operators: list[_OperationNotation | None] = []
+        expect_operand = True
+        operator_count = 0
+
+        def precedence(operation: _OperationNotation) -> int:
+            value = operation.notation.get("precedence")
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError("Formula infix precedence is malformed")
+            return value
+
+        def reduce_operator() -> None:
+            operation = operators.pop()
+            if operation is None:
+                raise _FormulaNotationSyntaxError(
+                    "Formula infix grouping is unbalanced"
+                )
+            output.append(operation)
+
+        while self.current().kind != self.grammar["binding_terminator"]:
+            token = self.current()
+            if expect_operand:
+                if token.kind == self.open_group:
+                    operators.append(None)
+                    self.index += 1
+                    continue
+                if token.kind not in {"identifier", "integer"}:
+                    raise _FormulaNotationSyntaxError(
+                        f"expected Formula operand at byte {token.offset}"
+                    )
+                output.append(self.operand())
+                expect_operand = False
+                continue
+            if token.kind == self.close_group:
+                while operators and operators[-1] is not None:
+                    reduce_operator()
+                if not operators:
+                    raise _FormulaNotationSyntaxError(
+                        f"unmatched Formula group at byte {token.offset}"
+                    )
+                operators.pop()
+                self.index += 1
+                continue
+            if token.kind != "operator":
+                raise _FormulaNotationSyntaxError(
+                    f"expected Formula infix operator at byte {token.offset}"
+                )
+            incoming = self.operation_for(kind="infix", spelling=token.value)
+            incoming_precedence = precedence(incoming)
+            associativity = incoming.notation.get("associativity")
+            if associativity not in {"left", "none", "right"}:
+                raise ValueError("Formula infix associativity is malformed")
+            while operators and operators[-1] is not None:
+                top = cast(_OperationNotation, operators[-1])
+                top_precedence = precedence(top)
+                if top_precedence < incoming_precedence:
+                    break
+                if top_precedence == incoming_precedence:
+                    if associativity == "right":
+                        break
+                    if associativity == "none":
+                        raise _FormulaNotationSyntaxError(
+                            "Formula non-associative infix cannot be chained"
+                        )
+                reduce_operator()
+            operators.append(incoming)
+            operator_count += 1
             self.index += 1
-            self.expression_parentheses += 1
+            expect_operand = True
+        if expect_operand or operator_count == 0:
+            raise _FormulaNotationSyntaxError("Formula infix expression is incomplete")
+        max_nodes = self.policy.get("max_nodes_per_formula")
+        if (
+            not isinstance(max_nodes, int)
+            or isinstance(max_nodes, bool)
+            or len(self.locals) + operator_count > max_nodes
+        ):
+            raise _FormulaNotationResourceError(
+                "Formula infix expansion exceeds its admitted node bound"
+            )
+        while operators:
+            reduce_operator()
 
-    def take_parentheses_after_expression(self) -> None:
-        for _ in range(self.expression_parentheses):
-            self.take(self.close_group)
+        values: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+        bindings: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        separator = self.conversion_policy.get("infix_parser", {}).get(
+            "generated_local_separator"
+        )
+        if not isinstance(separator, str) or not separator:
+            raise ValueError("Formula infix generated-local policy is malformed")
+        reduction = 0
+        for item in output:
+            if not isinstance(item, _OperationNotation):
+                values.append(item)
+                continue
+            if len(values) < 2:
+                raise _FormulaNotationSyntaxError("Formula infix arity is malformed")
+            right = values.pop()
+            left = values.pop()
+            reduction += 1
+            target = (
+                local
+                if reduction == operator_count
+                else f"{local}{separator}{reduction}"
+            )
+            if target != local and (target in self.locals or target in self.contracts):
+                raise ValueError("Formula generated local identity is ambiguous")
+            node, contract = self.operation_node(target, item, [left, right])
+            bindings.append((node, contract))
+            values.append(({"kind": "local", "local": target}, contract))
+        if len(values) != 1 or len(bindings) != operator_count:
+            raise _FormulaNotationSyntaxError("Formula infix reduction is malformed")
+        return bindings
 
     def operation_node(
         self,
@@ -783,126 +985,29 @@ class _FormulaParser:
         ports: list[Any],
         operands: list[tuple[dict[str, Any], dict[str, Any] | None]],
     ) -> dict[str, Any]:
-        anchor = next((contract for _operand, contract in operands if contract), None)
         fallback = self.formula.get("result")
-        if anchor is None and not isinstance(fallback, dict):
+        if not isinstance(fallback, dict):
             raise ValueError("Formula local result cannot be inferred")
-        contextual = cast(dict[str, Any], anchor or fallback)
-        values: dict[str, dict[str, Any]] = {
-            cast(str, port): deepcopy(contract or contextual)
-            for port, (_operand, contract) in zip(ports, operands, strict=True)
-        }
-
-        def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
-            domain = contract.get("domain")
-            if (
-                contract.get("domain_kind") != "closed-interval"
-                or not isinstance(domain, dict)
-                or not isinstance(domain.get("minimum"), int)
-                or not isinstance(domain.get("maximum"), int)
-            ):
-                return None
-            return cast(int, domain["minimum"]), cast(int, domain["maximum"])
-
-        def with_interval(
-            contract: dict[str, Any], bounds: tuple[int, int]
-        ) -> dict[str, Any]:
-            inferred = deepcopy(contract)
-            inferred["domain_kind"] = "closed-interval"
-            inferred["domain"] = {
-                "minimum": max(bounds[0], -(2**63)),
-                "maximum": min(bounds[1], 2**63 - 1),
-            }
-            return inferred
-
-        body = operation.declaration.get("body")
-        if not isinstance(body, list):
-            raise ValueError("Formula operation has no inferable body")
-        for instruction in body:
-            if not isinstance(instruction, dict):
-                raise ValueError("Formula operation body is malformed")
-            node = instruction.get("node")
-            target = instruction.get("target")
-            if not isinstance(target, str):
-                raise ValueError("Formula operation body has no target")
-            if node == "constant" and isinstance(instruction.get("literal"), int):
-                literal = cast(int, instruction["literal"])
-                values[target] = with_interval(contextual, (literal, literal))
-            elif node == "copy" and isinstance(instruction.get("value"), str):
-                values[target] = deepcopy(values[cast(str, instruction["value"])])
-            elif node in {"maximum", "subtract"}:
-                left = values.get(cast(str, instruction.get("left")))
-                right = values.get(cast(str, instruction.get("right")))
-                if left is None or right is None:
-                    raise ValueError("Formula operation body operand is unresolved")
-                left_interval = interval(left)
-                right_interval = interval(right)
-                if left_interval is None or right_interval is None:
-                    values[target] = deepcopy(left)
-                elif node == "subtract":
-                    values[target] = with_interval(
-                        left,
-                        (
-                            left_interval[0] - right_interval[1],
-                            left_interval[1] - right_interval[0],
-                        ),
-                    )
-                else:
-                    values[target] = with_interval(
-                        left,
-                        (
-                            max(left_interval[0], right_interval[0]),
-                            max(left_interval[1], right_interval[1]),
-                        ),
-                    )
-            elif node == "less-than":
-                result_declaration = operation.declaration.get("result")
-                result_type = (
-                    result_declaration.get("type")
-                    if isinstance(result_declaration, dict)
-                    else None
-                )
-                if (
-                    not isinstance(result_declaration, dict)
-                    or not isinstance(result_type, dict)
-                    or result_type.get("package") != "kernel"
-                    or not isinstance(result_type.get("id"), str)
-                    or not isinstance(result_type.get("version"), str)
-                ):
-                    raise ValueError("Formula comparison result contract is unresolved")
-                type_member = (
-                    {
-                        "type_identity": {
-                            "package": result_type["package"],
-                            "version": result_type["version"],
-                            "symbol": result_type["id"],
-                        }
-                    }
-                    if "type_identity" in contextual
-                    else {"type": result_type["id"]}
-                )
-                values[target] = {
-                    **type_member,
-                    "representation": result_declaration["representation"],
-                    "kind": result_declaration["kind"],
-                    "unit": result_declaration["unit"],
-                    "domain": deepcopy(result_declaration["domain"]),
-                    "numeric_policy": result_declaration["numeric_policy"],
-                }
-            else:
-                raise ValueError(
-                    "Formula operation body has no admitted type inference"
-                )
-        result_declaration = operation.declaration.get("result")
-        source = (
-            result_declaration.get("source")
-            if isinstance(result_declaration, dict)
-            else None
+        anchor = next(
+            (contract for _operand, contract in operands if isinstance(contract, dict)),
+            self.resolve_contract(fallback),
         )
-        result_name = source.get("name") if isinstance(source, dict) else None
-        if not isinstance(result_name, str) or result_name not in values:
-            raise ValueError("Formula operation result source is unresolved")
-        return values[result_name]
+        if (
+            self.conversion_policy.get("literal_result_inference")
+            != "contextual-anchor"
+        ):
+            raise ValueError("Formula literal result-inference policy is malformed")
+        contracts = [
+            cast(dict[str, Any], contract or anchor) for _operand, contract in operands
+        ]
+        return infer_formula_operation_result(
+            operation.declaration,
+            [cast(str, port) for port in ports],
+            contracts,
+            self.resolve_contract(fallback),
+            self.conversion_policy,
+            self.source_type_aliases,
+        )
 
     def parse(self) -> dict[str, Any]:
         nodes: list[dict[str, Any]] = []
@@ -917,10 +1022,11 @@ class _FormulaParser:
                     "Formula local identity is duplicate or captures a parameter"
                 )
             self.take(cast(str, self.grammar["named_argument_operator"]))
-            node, contract = self.right_hand_side(local)
+            bindings = self.right_hand_side(local)
             self.take(cast(str, self.grammar["binding_terminator"]))
-            nodes.append(node)
-            self.locals[local] = contract
+            for node, contract in bindings:
+                nodes.append(node)
+                self.locals[cast(str, node["id"])] = contract
         result, contract = self.parenthesized_operand()
         self.take("eof")
         self.operand_against_formula_contract(

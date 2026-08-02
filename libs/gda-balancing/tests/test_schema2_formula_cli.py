@@ -211,6 +211,246 @@ def test_formula_render_preserves_the_mitigated_damage_program(
     )
 
 
+def test_formula_parse_uses_context_to_distinguish_infix_minus_from_signed_literals(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    result_contract = deepcopy(value_contract)
+    result_contract["domain"] = {"minimum": -1000, "maximum": 1000}
+    source = tmp_path / "compact-subtraction.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "compact-subtraction",
+                    "parameters": [
+                        _quantity_contract("left"),
+                    ],
+                    "result": result_contract,
+                    "expression": "let result=left-1;result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    body = json.loads(stdout)["body"]
+    assert body["nodes"][0]["operation"]["id"] == "quantity.subtract"
+    assert body["nodes"][0]["arguments"] == [
+        {"port": "left", "operand": {"kind": "parameter", "parameter": "left"}},
+        {"port": "right", "operand": {"kind": "literal", "value": 1}},
+    ]
+
+
+def test_formula_parse_consumes_declared_infix_precedence_and_associativity(
+    tmp_path: Path, run_cli
+) -> None:
+    result_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    result_contract["domain"] = {"minimum": -2000, "maximum": 1000}
+    source = tmp_path / "associative-subtraction.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "associative-subtraction",
+                    "parameters": [
+                        _quantity_contract("a"),
+                        _quantity_contract("b"),
+                        _quantity_contract("c"),
+                    ],
+                    "result": result_contract,
+                    "expression": "let result = a - b - c; result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    output = json.loads(stdout)
+    assert [node["id"] for node in output["body"]["nodes"]] == [
+        "result__notation_1",
+        "result",
+    ]
+    assert output["body"]["nodes"][0]["arguments"] == [
+        {"port": "left", "operand": {"kind": "parameter", "parameter": "a"}},
+        {"port": "right", "operand": {"kind": "parameter", "parameter": "b"}},
+    ]
+    assert output["body"]["nodes"][1]["arguments"] == [
+        {
+            "port": "left",
+            "operand": {"kind": "local", "local": "result__notation_1"},
+        },
+        {"port": "right", "operand": {"kind": "parameter", "parameter": "c"}},
+    ]
+    assert output["expression"] == (
+        "let result__notation_1 = a - b;\nlet result = result__notation_1 - c;\nresult"
+    )
+
+
+def test_formula_parse_obeys_mutated_package_owned_associativity(
+    tmp_path: Path,
+    run_cli,
+    pristine_authority_context,
+    monkeypatch,
+) -> None:
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == "quantity.subtract"
+    )
+    operation["extensions"]["standard.formula-notation"]["associativity"] = "right"
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == "formula.notation.quantity.subtract"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+    child_vector = next(
+        row
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+        for row in vector_set["vector_definitions"]
+        if row["id"] == vector["id"]
+    )
+    child_vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        formula_command_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+    result_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    result_contract["domain"] = {"minimum": -1000, "maximum": 2000}
+    source = tmp_path / "right-associative-subtraction.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "right-associative-subtraction",
+                    "parameters": [
+                        _quantity_contract("a"),
+                        _quantity_contract("b"),
+                        _quantity_contract("c"),
+                    ],
+                    "result": result_contract,
+                    "expression": "let result = a - b - c; result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    nodes = json.loads(stdout)["body"]["nodes"]
+    assert nodes[0]["arguments"] == [
+        {"port": "left", "operand": {"kind": "parameter", "parameter": "b"}},
+        {"port": "right", "operand": {"kind": "parameter", "parameter": "c"}},
+    ]
+    assert nodes[1]["arguments"] == [
+        {"port": "left", "operand": {"kind": "parameter", "parameter": "a"}},
+        {
+            "port": "right",
+            "operand": {"kind": "local", "local": "result__notation_1"},
+        },
+    ]
+
+
+def test_formula_parse_obeys_mutated_package_owned_precedence(
+    tmp_path: Path,
+    run_cli,
+    pristine_authority_context,
+    monkeypatch,
+) -> None:
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == "quantity.less-than"
+    )
+    operation["extensions"]["standard.formula-notation"]["precedence"] = 60
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == "formula.notation.quantity.less-than"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+    child_vector = next(
+        row
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+        for row in vector_set["vector_definitions"]
+        if row["id"] == vector["id"]
+    )
+    child_vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        formula_command_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+    source = tmp_path / "mutated-precedence.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "mutated-precedence",
+                    "parameters": [
+                        _quantity_contract("a"),
+                        _quantity_contract("b"),
+                        _quantity_contract("c"),
+                    ],
+                    "result": {
+                        key: value
+                        for key, value in _boolean_contract("result").items()
+                        if key != "id"
+                    },
+                    "expression": "let result = a - b < c; result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "language.formula_type_mismatch"
+    ]
+
+
 def test_formula_render_quotes_non_bare_locals_and_renders_literals(
     tmp_path: Path, run_cli
 ) -> None:
@@ -691,8 +931,12 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
     )
     grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
     assert grammar == {
-        "version": "1.0.0",
+        "version": "1.1.0",
         "bare_identifier_pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "identifier_token_pattern": "[A-Za-z_][A-Za-z0-9_]*",
+        "integer_literal_pattern": "-?(?:0|[1-9][0-9]*)",
+        "whitespace_pattern": "\\s+",
+        "signed_integer_context": "operand-position",
         "reserved_identifiers": ["else", "if", "let", "then"],
         "identifier_quote": "`",
         "escape_character": "\\",
@@ -706,6 +950,7 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "coordinate_separator": ".",
         "request_identity_domain": "formula-notation-request-v2",
         "max_expression_bytes": 65536,
+        "max_group_depth": 1536,
         "max_tokens": 4096,
     }
     notation_schema = source_schema["$defs"]["formulaOperationNotation"]
@@ -721,6 +966,52 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "name",
         "ordered_ports",
     ]
+
+
+def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> None:
+    exit_code, stdout, stderr = run_cli(
+        [
+            "package",
+            "get",
+            "--id",
+            "standard.compiler",
+            "--version",
+            "1.1.0",
+            "--member",
+            "release",
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    release = json.loads(stdout)
+    profile = next(
+        definition
+        for closure in release["semantic_closure"]
+        if closure["authority_path"] == "language.resolution_profiles"
+        for definition in closure["definitions"]
+        if definition["id"] == "exact-import-resolution-v1"
+    )
+    conversion = profile["extensions"]["standard.formula"]["notation_conversion"]
+    assert conversion["condition_contract"] == "kernel-boolean"
+    assert conversion["formula_argument_compatibility"] == "exact-resolved-contract"
+    assert conversion["formula_result_compatibility"] == "exact-resolved-contract"
+    assert conversion["literal_typing"] == "selected-unique-formal-match"
+    assert conversion["literal_result_inference"] == "contextual-anchor"
+    assert conversion["operation_argument_compatibility"] == "exact-operation-formal"
+    assert conversion["symbol_resolution"] == "exact-module-coordinate"
+    assert conversion["infix_parser"] == {
+        "algorithm": "precedence-climbing",
+        "generated_local_separator": "__notation_",
+    }
+    assert {
+        row["node"]: row["rule"] for row in conversion["local_result_inference"]
+    } == {
+        "constant": "literal-closed-interval",
+        "copy": "copy-contract",
+        "less-than": "declared-result-contract",
+        "maximum": "closed-interval-maximum",
+        "subtract": "closed-interval-subtract",
+    }
 
 
 def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
@@ -1388,6 +1679,40 @@ def test_formula_parse_handles_deep_grouping_below_the_token_limit(
     assert json.loads(stdout)["expression"] == "value"
 
 
+def test_formula_parse_enforces_the_authority_owned_group_depth_bound(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    depth = 1537
+    source = tmp_path / "over-group-depth.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "over-group-depth",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": "(" * depth + "value" + ")" * depth,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_resource_exhausted"
+    ]
+
+
 def test_formula_render_reports_an_unresolved_operation_at_the_body(
     tmp_path: Path, run_cli
 ) -> None:
@@ -1625,6 +1950,31 @@ def test_independent_consumer_mutually_admits_production_formula_pairs() -> None
             independent_pair = deepcopy(request)
             independent_pair["formula"]["expression"] = independent_expression
             admit_formula_pair(independent_pair, context)
+
+
+def test_independent_consumer_reconstructs_results_without_body_guidance() -> None:
+    context = authority_module.packaged_authority_context()
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    module = source["modules"][0]
+    formula = next(row for row in module["formulas"] if row["id"] == "mitigated-damage")
+    request = {
+        "schema_version": source["schema_version"],
+        "package_requirements": source["package_requirements"],
+        "module": module,
+        "formula": deepcopy(formula),
+    }
+    assert independently_admit_pair(request, context.language_bundle)
+    request["formula"]["body"]["nodes"][0]["result"]["domain"] = {
+        "minimum": 0,
+        "maximum": 0,
+    }
+
+    assert not independently_admit_pair(request, context.language_bundle)
 
 
 def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> None:
