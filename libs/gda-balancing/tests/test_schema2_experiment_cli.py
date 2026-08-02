@@ -1421,7 +1421,8 @@ def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli)
     assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
     assert result.report.diagnostics[0].code == "runtime.event_limit_exceeded"
     assert [
-        event["ordering_key"]["phase"] for event in result.committed_trace_prefix
+        cast(dict[str, Any], event["ordering_key"])["phase"]
+        for event in result.committed_trace_prefix
     ] == ["transition", "observation"]
     assert result.budget_counters["total_events"] == 2
     assert result.refusing_operation == "observation"

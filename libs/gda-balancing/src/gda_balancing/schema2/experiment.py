@@ -2992,6 +2992,49 @@ def evaluate_experiment(
                 logical_time=logical_time,
                 enqueue_sequence=next_enqueue_sequence,
             )
+            observation_ordering_key = cast(
+                dict[str, JsonValue],
+                {
+                    "logical_time": logical_time,
+                    "phase": "observation",
+                    "priority": 0,
+                    "enqueue_sequence": next_enqueue_sequence,
+                },
+            )
+            if admitted_event_count + 1 > runtime_bounds["max_total_events"]:
+                return _runtime_refusal_outcome(
+                    checked,
+                    scenario_id=scenario["id"],
+                    scenario_index=scenario_index,
+                    code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+                    message="Runtime scheduler refused event-limit",
+                    events=events,
+                    root_event_map=root_event_map,
+                    terminal_condition=terminal_condition,
+                    last_snapshot_identity=current_snapshot_identity,
+                    budget_counters={
+                        "event_steps": event_steps,
+                        "logical_time": logical_time,
+                        "node_steps": total_steps,
+                        "queue_events": len(pending_events),
+                        "total_events": admitted_event_count,
+                        "zero_time_depth": 0,
+                    },
+                    entrypoint_id=f"observation:{metric['id']}",
+                    entrypoint_identity=metric_identity,
+                    operation="observation",
+                    call_path=("observation", cast(str, metric["id"])),
+                    call_site_identity=None,
+                    evaluation_site_identity=None,
+                    refusing_event_id=observation_event_id,
+                    refusing_ordering_key=observation_ordering_key,
+                    refusing_snapshot_before_identity=current_snapshot_identity,
+                    state_before={
+                        display_names[identity]: value
+                        for identity, value in state.items()
+                    },
+                )
+            admitted_event_count += 1
             next_enqueue_sequence += 1
             resolved_state = _resolved_int_rows(state, display_names)
             observation_event = cast(
@@ -2999,12 +3042,7 @@ def evaluate_experiment(
                 {
                     "index": len(events),
                     "event_id": observation_event_id,
-                    "ordering_key": {
-                        "logical_time": logical_time,
-                        "phase": "observation",
-                        "priority": 0,
-                        "enqueue_sequence": next_enqueue_sequence - 1,
-                    },
+                    "ordering_key": observation_ordering_key,
                     "operation": None,
                     "entrypoint": None,
                     "calls": [],
