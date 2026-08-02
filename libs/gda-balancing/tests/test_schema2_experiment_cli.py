@@ -2174,7 +2174,14 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     assert outcome.report.variant == "post-dispatch"
     assert len(observation_frames) == 2
     assert all(frame.startswith("sha256:") for frame in observation_frames)
-    assert outcome.committed_trace_prefix == (
+    assert tuple(
+        {
+            "index": event["index"],
+            "operation": event["operation"],
+            "outcome": event["outcome"],
+        }
+        for event in outcome.committed_trace_prefix
+    ) == (
         {
             "index": 0,
             "operation": "game.combat.cast-v1",
@@ -4715,8 +4722,7 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     assert prefix[0]["entrypoint"]["id"] == "combat.cast"
     assert prefix[0]["event_id"].startswith("sha256:")
     assert all(
-        call["call_site_identity"].startswith("sha256:")
-        for call in prefix[0]["calls"]
+        call["call_site_identity"].startswith("sha256:") for call in prefix[0]["calls"]
     )
     assert prefix[0]["snapshot_before_identity"].startswith("sha256:")
     assert prefix[-1]["snapshot_after_identity"].startswith("sha256:")
@@ -4724,9 +4730,11 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
         "kind": "scenario",
         "name": "terminal-event",
     }
-    assert audit["last_snapshot_identity"] == prefix[-1][
-        "snapshot_after_identity"
-    ]
+    assert (
+        audit["last_snapshot_identity"]
+        == audit["refusing_event"]["snapshot_before_identity"]
+    )
+    assert audit["last_snapshot_identity"] != prefix[-1]["snapshot_after_identity"]
     assert audit["terminal_condition"] == {"kind": "event-count", "maximum": 1}
     assert audit["root_event_map"] == [
         {
@@ -4746,9 +4754,10 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
         "priority": 0,
         "enqueue_sequence": 0,
     }
-    assert audit["refusing_event"]["snapshot_before_identity"] == prefix[-1][
-        "snapshot_after_identity"
-    ]
+    assert (
+        audit["refusing_event"]["snapshot_before_identity"]
+        == audit["last_snapshot_identity"]
+    )
     assert audit["budget_counters"]["logical_time"] == 0
     assert audit["budget_counters"]["queue_events"] == 0
     assert audit["budget_counters"]["total_events"] == 1

@@ -89,8 +89,15 @@ class RuntimeRefusalOutcome:
     scenario_id: str
     scenario_index: int
     committed_trace_prefix: tuple[dict[str, JsonValue], ...]
+    root_event_map: tuple[dict[str, JsonValue], ...]
+    terminal_condition: dict[str, JsonValue]
+    last_snapshot_identity: str
+    budget_counters: dict[str, int]
     last_state: dict[str, int]
     refusing_event_index: int
+    refusing_event_id: str
+    refusing_ordering_key: dict[str, JsonValue]
+    refusing_snapshot_before_identity: str
     refusing_entrypoint_id: str
     refusing_entrypoint_identity: str
     refusing_operation: str
@@ -1541,9 +1548,18 @@ def runtime_terminal_audit_members(
                 "evaluator_manifest_identity": evaluator.content_identity,
                 "scenario": outcome.scenario_id,
                 "committed_trace_prefix": list(outcome.committed_trace_prefix),
+                "root_event_map": list(outcome.root_event_map),
+                "terminal_condition": outcome.terminal_condition,
+                "last_snapshot_identity": outcome.last_snapshot_identity,
+                "budget_counters": cast(JsonValue, outcome.budget_counters),
                 "last_snapshot": _int_rows(outcome.last_state),
                 "refusing_event": {
                     "index": outcome.refusing_event_index,
+                    "event_id": outcome.refusing_event_id,
+                    "ordering_key": outcome.refusing_ordering_key,
+                    "snapshot_before_identity": (
+                        outcome.refusing_snapshot_before_identity
+                    ),
                     "entrypoint": {
                         "id": outcome.refusing_entrypoint_id,
                         "identity": outcome.refusing_entrypoint_identity,
@@ -1865,12 +1881,19 @@ def _runtime_refusal_outcome(
     code: str,
     message: str,
     events: list[dict[str, JsonValue]],
+    root_event_map: list[dict[str, JsonValue]],
+    terminal_condition: dict[str, JsonValue],
+    last_snapshot_identity: str,
+    budget_counters: dict[str, int],
     entrypoint_id: str,
     entrypoint_identity: str,
     operation: str,
     call_path: tuple[str, ...],
     call_site_identity: str | None,
     evaluation_site_identity: str | None,
+    refusing_event_id: str,
+    refusing_ordering_key: dict[str, JsonValue],
+    refusing_snapshot_before_identity: str,
     state_before: dict[str, int],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
@@ -1885,16 +1908,16 @@ def _runtime_refusal_outcome(
         report=report,
         scenario_id=scenario_id,
         scenario_index=scenario_index,
-        committed_trace_prefix=tuple(
-            {
-                "index": event["index"],
-                "operation": event["operation"],
-                "outcome": event["outcome"],
-            }
-            for event in events
-        ),
+        committed_trace_prefix=tuple(dict(event) for event in events),
+        root_event_map=tuple(dict(row) for row in root_event_map),
+        terminal_condition=dict(terminal_condition),
+        last_snapshot_identity=last_snapshot_identity,
+        budget_counters=dict(budget_counters),
         last_state=dict(state_before),
         refusing_event_index=len(events),
+        refusing_event_id=refusing_event_id,
+        refusing_ordering_key=dict(refusing_ordering_key),
+        refusing_snapshot_before_identity=refusing_snapshot_before_identity,
         refusing_entrypoint_id=entrypoint_id,
         refusing_entrypoint_identity=entrypoint_identity,
         refusing_operation=operation,
@@ -2599,6 +2622,19 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
+                    root_event_map=root_event_map,
+                    terminal_condition=terminal_condition,
+                    last_snapshot_identity=current_snapshot_identity,
+                    budget_counters={
+                        "event_steps": event_steps,
+                        "logical_time": cast(int, event_spec["logical_time"]),
+                        "node_steps": total_steps,
+                        "queue_events": len(pending_events),
+                        "total_events": admitted_event_count,
+                        "zero_time_depth": cast(
+                            int, event_spec.get("zero_time_depth", 0)
+                        ),
+                    },
                     entrypoint_id=(
                         entrypoint["id"]
                         if entrypoint is not None
@@ -2613,6 +2649,17 @@ def evaluate_experiment(
                     call_path=fault.call_path,
                     call_site_identity=fault.call_site_identity,
                     evaluation_site_identity=fault.evaluation_site_identity,
+                    refusing_event_id=event_id,
+                    refusing_ordering_key=cast(
+                        dict[str, JsonValue],
+                        {
+                            "logical_time": event_spec["logical_time"],
+                            "phase": event_spec["phase"],
+                            "priority": event_spec["priority"],
+                            "enqueue_sequence": event_spec["enqueue_sequence"],
+                        },
+                    ),
+                    refusing_snapshot_before_identity=current_snapshot_identity,
                     state_before={
                         display_names[identity]: value
                         for identity, value in before.items()
@@ -2736,6 +2783,19 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
+                    root_event_map=root_event_map,
+                    terminal_condition=terminal_condition,
+                    last_snapshot_identity=current_snapshot_identity,
+                    budget_counters={
+                        "event_steps": event_steps,
+                        "logical_time": cast(int, event_spec["logical_time"]),
+                        "node_steps": total_steps,
+                        "queue_events": len(pending_events),
+                        "total_events": admitted_event_count,
+                        "zero_time_depth": cast(
+                            int, event_spec.get("zero_time_depth", 0)
+                        ),
+                    },
                     entrypoint_id=(
                         entrypoint["id"]
                         if entrypoint is not None
@@ -2752,6 +2812,17 @@ def evaluate_experiment(
                     call_path=dispatch_path,
                     call_site_identity=None,
                     evaluation_site_identity=fault.evaluation_site_identity,
+                    refusing_event_id=event_id,
+                    refusing_ordering_key=cast(
+                        dict[str, JsonValue],
+                        {
+                            "logical_time": event_spec["logical_time"],
+                            "phase": event_spec["phase"],
+                            "priority": event_spec["priority"],
+                            "enqueue_sequence": event_spec["enqueue_sequence"],
+                        },
+                    ),
+                    refusing_snapshot_before_identity=current_snapshot_identity,
                     state_before={
                         display_names[identity]: value
                         for identity, value in state.items()
