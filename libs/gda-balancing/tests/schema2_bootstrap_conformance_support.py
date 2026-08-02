@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fd0d063244f056c79ed62cb3117d4ea2a1c451c7099ac15b5bf286155d7649f5"
+    "sha256:7bebd3e828f26d15611ff4afe2543967d727c29325b5db8c9471d652a7df87c0"
 )
 
 
@@ -5094,6 +5094,43 @@ def _consumer_b_runtime_authority_is_closed(
                 "queue_events": "max_queue_events",
                 "total_events": "max_total_events",
                 "zero_time_depth": "max_zero_time_depth",
+            },
+            "root_admission_map": {
+                "members": ["scenario", "root_event_ref", "event_id"],
+                "order": "scenario-order-then-authored-array-order",
+            },
+            "snapshot_identity": {
+                "domain": "runtime-snapshot-v2",
+                "projection": [
+                    "experiment_identity",
+                    "scenario_id",
+                    "index",
+                    "logical_time",
+                    "event_id",
+                    "values",
+                ],
+            },
+            "external_input_identity": {
+                "domain": "runtime-external-input-v2",
+                "projection": [
+                    "experiment_identity",
+                    "scenario_id",
+                    "root_event_ref",
+                    "source_identity",
+                    "source_sequence",
+                    "facts",
+                ],
+            },
+            "terminal_status": {
+                "members": [
+                    "scenario",
+                    "condition",
+                    "reason",
+                    "terminal_event_id",
+                    "terminal_snapshot_identity",
+                    "logical_time",
+                ],
+                "reasons": ["event-count-reached", "queue-drained"],
             },
             "step_boundary": "next-observation-or-logical-boundary",
         }

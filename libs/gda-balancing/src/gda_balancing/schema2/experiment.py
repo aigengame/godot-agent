@@ -362,6 +362,47 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
             "total_events": "max_total_events",
             "zero_time_depth": "max_zero_time_depth",
         }
+        or scheduler.get("root_admission_map")
+        != {
+            "members": ["scenario", "root_event_ref", "event_id"],
+            "order": "scenario-order-then-authored-array-order",
+        }
+        or scheduler.get("snapshot_identity")
+        != {
+            "domain": "runtime-snapshot-v2",
+            "projection": [
+                "experiment_identity",
+                "scenario_id",
+                "index",
+                "logical_time",
+                "event_id",
+                "values",
+            ],
+        }
+        or scheduler.get("external_input_identity")
+        != {
+            "domain": "runtime-external-input-v2",
+            "projection": [
+                "experiment_identity",
+                "scenario_id",
+                "root_event_ref",
+                "source_identity",
+                "source_sequence",
+                "facts",
+            ],
+        }
+        or scheduler.get("terminal_status")
+        != {
+            "members": [
+                "scenario",
+                "condition",
+                "reason",
+                "terminal_event_id",
+                "terminal_snapshot_identity",
+                "logical_time",
+            ],
+            "reasons": ["event-count-reached", "queue-drained"],
+        }
     ):
         raise ValueError("Kernel scheduler contract is unsupported or incomplete")
     event_identity = scheduler.get("event_identity")
@@ -474,6 +515,24 @@ def _scheduled_event_id(
         "enqueue_sequence": event["enqueue_sequence"],
     }
     return content_identity(cast(str, identity["domain"]), cast(JsonValue, body))
+
+
+def _projected_runtime_identity(
+    contract: dict[str, Any], values: dict[str, JsonValue]
+) -> str:
+    projection = contract.get("projection")
+    domain = contract.get("domain")
+    if (
+        not isinstance(projection, list)
+        or not projection
+        or not all(isinstance(member, str) for member in projection)
+        or set(values) != set(projection)
+        or not isinstance(domain, str)
+        or not domain
+    ):
+        raise ValueError("Kernel runtime identity projection is incomplete")
+    body = {member: values[member] for member in projection}
+    return content_identity(domain, cast(JsonValue, body))
 
 
 def _expanded_operation_body(
@@ -1338,6 +1397,8 @@ def _formula_snapshot_identity_domain(checked: CheckedExperiment) -> str:
     )
     if not isinstance(domain, str) or not domain:
         raise ValueError("Runtime profile declares no Formula Snapshot identity domain")
+    if domain != _scheduler_contract(checked)["snapshot_identity"]["domain"]:
+        raise ValueError("Runtime profile and Kernel disagree on Snapshot identity")
     return domain
 
 
@@ -1794,7 +1855,7 @@ def evaluate_experiment(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     runtime_bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
-    snapshot_identity_domain = _formula_snapshot_identity_domain(checked)
+    _formula_snapshot_identity_domain(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
@@ -1821,12 +1882,29 @@ def evaluate_experiment(
     )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
+    root_event_map: list[dict[str, JsonValue]] = []
+    terminal_statuses: list[dict[str, JsonValue]] = []
+    scenario_terminal_evidence: dict[str, tuple[str, str, int]] = {}
     scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
     total_steps = 0
     runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = _ordered_root_events(checked, scenario)
+        for root_event in ordered_events:
+            root_event["event_id"] = _root_event_id(
+                checked, scenario["id"], root_event
+            )
+        root_event_map.extend(
+            {
+                "scenario": scenario["id"],
+                "root_event_ref": root_event["root_event_ref"],
+                "event_id": root_event["event_id"],
+            }
+            for root_event in sorted(
+                ordered_events, key=lambda event: event["enqueue_sequence"]
+            )
+        )
         scenario_entrypoints = [
             entrypoints[event["entrypoint"]]
             for event in ordered_events
@@ -1897,15 +1975,32 @@ def evaluate_experiment(
             for identity, declaration in declarations.items()
             if declaration["role"] == "state" and identity in actual_values
         }
-        snapshots.append(
-            cast(
-                dict[str, JsonValue],
-                {
-                    "index": len(snapshots),
-                    "name": f"{scenario['id']}:initial",
-                    "values": _resolved_int_rows(state, display_names),
-                },
-            )
+        initial_values = _resolved_int_rows(state, display_names)
+        initial_snapshot = cast(
+            dict[str, JsonValue],
+            {
+                "index": len(snapshots),
+                "name": f"{scenario['id']}:initial",
+                "scenario": scenario["id"],
+                "event_id": None,
+                "logical_time": None,
+                "values": cast(JsonValue, initial_values),
+            },
+        )
+        initial_snapshot["snapshot_identity"] = _projected_runtime_identity(
+            _scheduler_contract(checked)["snapshot_identity"],
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": scenario["id"],
+                "index": initial_snapshot["index"],
+                "logical_time": None,
+                "event_id": None,
+                "values": cast(JsonValue, initial_values),
+            },
+        )
+        snapshots.append(initial_snapshot)
+        current_snapshot_identity = cast(
+            str, initial_snapshot["snapshot_identity"]
         )
         operation = (
             operations[scenario_entrypoints[0]["operation"]["id"]]
@@ -2349,11 +2444,11 @@ def evaluate_experiment(
             if external_input:
                 entrypoint = None
                 operation = None
-                event_id = _root_event_id(checked, scenario["id"], event_spec)
+                event_id = cast(str, event_spec["event_id"])
             elif "entrypoint" in event_spec:
                 entrypoint = entrypoints[event_spec["entrypoint"]]
                 operation = operations[entrypoint["operation"]["id"]]
-                event_id = _root_event_id(checked, scenario["id"], event_spec)
+                event_id = cast(str, event_spec["event_id"])
             else:
                 entrypoint = None
                 operation = operations[event_spec["operation"]]
@@ -2513,6 +2608,7 @@ def evaluate_experiment(
                     "state_before": _resolved_int_rows(before, display_names),
                     "state_after": _resolved_int_rows(state, display_names),
                     "rng_draws": draws,
+                    "snapshot_before_identity": current_snapshot_identity,
                 },
             )
             if "root_event_ref" in event_spec:
@@ -2539,12 +2635,52 @@ def evaluate_experiment(
                         if terminal_after_event
                         else f"{scenario['id']}:event:{event_id}"
                     ),
+                    "scenario": scenario["id"],
+                    "event_id": event_id,
+                    "logical_time": event_spec["logical_time"],
                     "values": _resolved_int_rows(state, display_names),
                 },
             )
+            snapshot["snapshot_identity"] = _projected_runtime_identity(
+                _scheduler_contract(checked)["snapshot_identity"],
+                {
+                    "experiment_identity": checked.content_identity,
+                    "scenario_id": scenario["id"],
+                    "index": snapshot["index"],
+                    "logical_time": event_spec["logical_time"],
+                    "event_id": event_id,
+                    "values": snapshot["values"],
+                },
+            )
+            event["snapshot_after_identity"] = snapshot["snapshot_identity"]
             events.append(event)
             snapshots.append(snapshot)
-            snapshot_identity = content_identity(snapshot_identity_domain, snapshot)
+            snapshot_identity = cast(str, snapshot["snapshot_identity"])
+            current_snapshot_identity = snapshot_identity
+            if terminal_after_event:
+                terminal_reason = (
+                    "event-count-reached"
+                    if terminal_maximum is not None
+                    and event_position + 1 >= terminal_maximum
+                    else "queue-drained"
+                )
+                terminal_status = cast(
+                    dict[str, JsonValue],
+                    {
+                        "scenario": scenario["id"],
+                        "condition": terminal_condition,
+                        "reason": terminal_reason,
+                        "terminal_event_id": event_id,
+                        "terminal_snapshot_identity": snapshot_identity,
+                        "logical_time": event_spec["logical_time"],
+                    },
+                )
+                terminal_statuses.append(terminal_status)
+                scenario_terminal_evidence[scenario["id"]] = (
+                    event_id,
+                    snapshot_identity,
+                    cast(int, event_spec["logical_time"]),
+                )
             try:
                 total_steps = _evaluate_initialization_programs(
                     checked,
@@ -2634,6 +2770,9 @@ def evaluate_experiment(
                 message="Metric observation did not resolve to exactly one value",
             )
         scenario_id, value = matched[0]
+        terminal_event_id, terminal_snapshot_identity, terminal_logical_time = (
+            scenario_terminal_evidence[scenario_id]
+        )
         target = metric["target"]
         samples.append(
             {
@@ -2643,7 +2782,9 @@ def evaluate_experiment(
                 "status": "value",
                 "value": value,
                 "unit": metric["unit"],
-                "logical_time": 0,
+                "logical_time": terminal_logical_time,
+                "event_id": terminal_event_id,
+                "snapshot_identity": terminal_snapshot_identity,
                 "window": metric["window"]["name"],
                 "dimensions": metric["dimensions"],
                 "replication_identity": scenario_id,
@@ -2670,6 +2811,8 @@ def evaluate_experiment(
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
                 "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
+                "root_event_map": root_event_map,
+                "terminal_statuses": terminal_statuses,
                 "events": events,
             },
         ),
@@ -2724,32 +2867,46 @@ def evaluate_experiment(
         primary = _artifact(
             checked,
             "experiment-verdict",
-            {
-                "experiment_identity": checked.content_identity,
-                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-                "event_trace_identity": trace.content_identity,
-                "snapshot_series_identity": snapshot_series.content_identity,
-                "metric_dataset_identity": metric_dataset.content_identity,
-                "reproduction_receipt_identity": reproduction.content_identity,
-                "outcome": "rejected",
-                "failed_metrics": list(failed_metrics),
-            },
+            cast(
+                dict[str, JsonValue],
+                {
+                    "experiment_identity": checked.content_identity,
+                    "resolved_runtime_profile_identity": (
+                        resolved_runtime.content_identity
+                    ),
+                    "event_trace_identity": trace.content_identity,
+                    "snapshot_series_identity": snapshot_series.content_identity,
+                    "metric_dataset_identity": metric_dataset.content_identity,
+                    "reproduction_receipt_identity": reproduction.content_identity,
+                    "root_event_map": root_event_map,
+                    "terminal_statuses": terminal_statuses,
+                    "outcome": "rejected",
+                    "failed_metrics": list(failed_metrics),
+                },
+            ),
         )
         primary_name = "experiment-verdict"
     else:
         primary = _artifact(
             checked,
             "evaluation-run",
-            {
-                "experiment_identity": checked.content_identity,
-                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-                "evaluator_manifest_identity": evaluator.content_identity,
-                "event_trace_identity": trace.content_identity,
-                "snapshot_series_identity": snapshot_series.content_identity,
-                "metric_dataset_identity": metric_dataset.content_identity,
-                "reproduction_receipt_identity": reproduction.content_identity,
-                "outcome": "accepted",
-            },
+            cast(
+                dict[str, JsonValue],
+                {
+                    "experiment_identity": checked.content_identity,
+                    "resolved_runtime_profile_identity": (
+                        resolved_runtime.content_identity
+                    ),
+                    "evaluator_manifest_identity": evaluator.content_identity,
+                    "event_trace_identity": trace.content_identity,
+                    "snapshot_series_identity": snapshot_series.content_identity,
+                    "metric_dataset_identity": metric_dataset.content_identity,
+                    "reproduction_receipt_identity": reproduction.content_identity,
+                    "root_event_map": root_event_map,
+                    "terminal_statuses": terminal_statuses,
+                    "outcome": "accepted",
+                },
+            ),
         )
         primary_name = "evaluation-run"
     return EvaluationArtifacts(

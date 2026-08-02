@@ -25,6 +25,14 @@ _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
+_REFERENCE_EVENT_RUNTIME_BINDINGS = {
+    "index",
+    "event_id",
+    "root_event_ref",
+    "ordering_key",
+    "snapshot_before_identity",
+    "snapshot_after_identity",
+}
 
 
 def test_experiment_conformance_uses_only_prepared_public_documents():
@@ -2033,12 +2041,8 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     terminal_snapshots = [
         snapshot for snapshot in snapshots if snapshot["name"].endswith(":terminal")
     ]
-    snapshot_identity_domain = (
-        experiment_runtime_module._formula_snapshot_identity_domain(checked)
-    )
     assert observation_frames == [
-        content_identity(snapshot_identity_domain, cast(Any, snapshot))
-        for snapshot in terminal_snapshots
+        snapshot["snapshot_identity"] for snapshot in terminal_snapshots
     ]
     assert len(set(observation_frames)) == 2
     assert observation_cache_growth == [1, 1]
@@ -2678,7 +2682,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert {
         key: value
         for key, value in first_trace["events"][0].items()
-        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert (
         next(
@@ -4158,7 +4162,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     assert {
         key: item
         for key, item in production_event.items()
-        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert (
         next(
@@ -4220,7 +4224,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     assert {
         key: value
         for key, value in production_event.items()
-        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},
@@ -4285,7 +4289,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     assert {
         key: value
         for key, value in production_event.items()
-        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert (
         next(
@@ -4386,7 +4390,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     assert {
         key: item
         for key, item in production_event.items()
-        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert production_event["outcome"]["id"] == "miss"
     assert production_event["state_after"] == [
