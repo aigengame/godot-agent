@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e92caac185986af6fae8a451a07d205745a99862c59c2323e08f28daae204adb"
+    "sha256:fd0d063244f056c79ed62cb3117d4ea2a1c451c7099ac15b5bf286155d7649f5"
 )
 
 
@@ -5047,7 +5047,54 @@ def _consumer_b_runtime_authority_is_closed(
                 {"direction": "ascending", "member": "enqueue_sequence"},
             ],
             "root_enqueue_sequence": "authored-array-order",
-            "schedule_call_site_identity_domain": "runtime-schedule-call-site-v2",
+            "call_site_identity": {
+                "schedule": {
+                    "domain": "runtime-schedule-call-site-v2",
+                    "projection": [
+                        "parent_event_id",
+                        "parent_operation",
+                        "site",
+                        "operation",
+                    ],
+                },
+                "cancel": {
+                    "domain": "runtime-cancel-call-site-v2",
+                    "projection": [
+                        "canceling_event_id",
+                        "operation",
+                        "site",
+                        "target_event_id",
+                    ],
+                },
+            },
+            "schedule": {
+                "child_phase": "transition",
+                "legal_position": "strictly-after-active-ordering-key",
+                "same_time_priority": "not-greater-than-active-priority",
+                "refusal_signals": {
+                    "backward": "schedule-backward",
+                    "hidden_input": "schedule-hidden-input",
+                    "illegal_same_time_priority": (
+                        "schedule-illegal-same-time-priority"
+                    ),
+                },
+            },
+            "cancel": {
+                "admitted_target_states": ["pending", "provisional"],
+                "refusal_signals": {
+                    "active": "cancel-active",
+                    "completed": "cancel-completed",
+                    "unknown": "cancel-unknown",
+                },
+            },
+            "budget_members": {
+                "event_steps": "max_event_steps",
+                "logical_time": "max_logical_time",
+                "node_steps": "max_node_steps",
+                "queue_events": "max_queue_events",
+                "total_events": "max_total_events",
+                "zero_time_depth": "max_zero_time_depth",
+            },
             "step_boundary": "next-observation-or-logical-boundary",
         }
     ):
@@ -5306,8 +5353,22 @@ def _consumer_b_runtime_authority_is_closed(
             or profile.get("rng", {}).get("algorithm") != rng["algorithm"]
             or profile.get("budget_scopes")
             != {
-                "operation_max_steps": "per-event",
-                "runtime_max_steps": "per-run",
+                "event_steps": "per-event-transaction",
+                "logical_time": "per-event",
+                "node_steps": "per-run",
+                "operation_steps": "per-operation-invocation",
+                "queue_events": "pending-and-provisional",
+                "total_events": "per-scenario",
+                "zero_time_depth": "per-descendant-chain",
+            }
+            or profile.get("resource_bounds")
+            != {
+                "max_event_steps": 256,
+                "max_logical_time": (1 << 63) - 1,
+                "max_node_steps": 4096,
+                "max_queue_events": 128,
+                "max_total_events": 1024,
+                "max_zero_time_depth": 32,
             }
         ):
             return False

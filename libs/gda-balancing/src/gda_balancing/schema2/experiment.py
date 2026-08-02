@@ -304,14 +304,64 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
         {"direction": "descending", "member": "priority"},
         {"direction": "ascending", "member": "enqueue_sequence"},
     ]
+    expected_call_sites = {
+        "schedule": {
+            "domain": "runtime-schedule-call-site-v2",
+            "projection": [
+                "parent_event_id",
+                "parent_operation",
+                "site",
+                "operation",
+            ],
+        },
+        "cancel": {
+            "domain": "runtime-cancel-call-site-v2",
+            "projection": [
+                "canceling_event_id",
+                "operation",
+                "site",
+                "target_event_id",
+            ],
+        },
+    }
     if (
         not isinstance(scheduler, dict)
         or scheduler.get("ordering") != expected_ordering
         or scheduler.get("root_enqueue_sequence") != "authored-array-order"
         or scheduler.get("step_boundary")
         != "next-observation-or-logical-boundary"
-        or scheduler.get("schedule_call_site_identity_domain")
-        != "runtime-schedule-call-site-v2"
+        or scheduler.get("call_site_identity") != expected_call_sites
+        or scheduler.get("schedule")
+        != {
+            "child_phase": "transition",
+            "legal_position": "strictly-after-active-ordering-key",
+            "same_time_priority": "not-greater-than-active-priority",
+            "refusal_signals": {
+                "backward": "schedule-backward",
+                "hidden_input": "schedule-hidden-input",
+                "illegal_same_time_priority": (
+                    "schedule-illegal-same-time-priority"
+                ),
+            },
+        }
+        or scheduler.get("cancel")
+        != {
+            "admitted_target_states": ["pending", "provisional"],
+            "refusal_signals": {
+                "active": "cancel-active",
+                "completed": "cancel-completed",
+                "unknown": "cancel-unknown",
+            },
+        }
+        or scheduler.get("budget_members")
+        != {
+            "event_steps": "max_event_steps",
+            "logical_time": "max_logical_time",
+            "node_steps": "max_node_steps",
+            "queue_events": "max_queue_events",
+            "total_events": "max_total_events",
+            "zero_time_depth": "max_zero_time_depth",
+        }
     ):
         raise ValueError("Kernel scheduler contract is unsupported or incomplete")
     event_identity = scheduler.get("event_identity")
@@ -1153,8 +1203,13 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             }
             and row.get("budget_scopes")
             == {
-                "operation_max_steps": "per-event",
-                "runtime_max_steps": "per-run",
+                "event_steps": "per-event-transaction",
+                "logical_time": "per-event",
+                "node_steps": "per-run",
+                "operation_steps": "per-operation-invocation",
+                "queue_events": "pending-and-provisional",
+                "total_events": "per-scenario",
+                "zero_time_depth": "per-descendant-chain",
             }
             and set(row["effects"])
             <= {
@@ -1246,7 +1301,7 @@ def _resolved_runtime_profile(
                 "rng": definition["rng"],
                 "budget_scopes": definition["budget_scopes"],
                 "effects": definition["effects"],
-                "max_steps": definition["resource_bounds"]["max_steps"],
+                "resource_bounds": definition["resource_bounds"],
             },
             "rng_algorithm": checked.value["seed"]["algorithm"],
             "platform": {
@@ -2016,17 +2071,16 @@ def evaluate_experiment(
                         else:
                             child_arguments[binding["port"]] = operand["literal"]
                     scheduler = _scheduler_contract(checked)
+                    schedule_identity = scheduler["call_site_identity"]["schedule"]
+                    schedule_identity_body = {
+                        "parent_event_id": event_id,
+                        "parent_operation": selected_operation["id"],
+                        "site": instruction["site"],
+                        "operation": instruction["operation"],
+                    }
                     schedule_call_site_identity = content_identity(
-                        cast(str, scheduler["schedule_call_site_identity_domain"]),
-                        cast(
-                            JsonValue,
-                            {
-                                "parent_event_id": event_id,
-                                "parent_operation": selected_operation["id"],
-                                "site": instruction["site"],
-                                "operation": instruction["operation"],
-                            },
-                        ),
+                        cast(str, schedule_identity["domain"]),
+                        cast(JsonValue, schedule_identity_body),
                     )
                     child_event: dict[str, Any] = {
                         "arguments": child_arguments,
@@ -2075,22 +2129,18 @@ def evaluate_experiment(
                         for child in buffered_children
                     ):
                         raise ValueError("admitted cancel target is not pending")
+                    cancel_identity = _scheduler_contract(checked)[
+                        "call_site_identity"
+                    ]["cancel"]
+                    cancel_identity_body = {
+                        "canceling_event_id": event_id,
+                        "operation": selected_operation["id"],
+                        "site": instruction["site"],
+                        "target_event_id": target_event_id,
+                    }
                     cancel_call_site_identity = content_identity(
-                        cast(
-                            str,
-                            _scheduler_contract(checked)[
-                                "schedule_call_site_identity_domain"
-                            ],
-                        ),
-                        cast(
-                            JsonValue,
-                            {
-                                "canceling_event_id": event_id,
-                                "operation": selected_operation["id"],
-                                "site": instruction["site"],
-                                "target_event_id": target_event_id,
-                            },
-                        ),
+                        cast(str, cancel_identity["domain"]),
+                        cast(JsonValue, cancel_identity_body),
                     )
                     canceled_event_ids.add(cast(str, target_event_id))
                     for scheduled in schedule_trace:
