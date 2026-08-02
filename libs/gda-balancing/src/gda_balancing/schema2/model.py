@@ -4227,6 +4227,34 @@ def _symbol_event_payload_contract(
     }
 
 
+def _symbol_external_fact_contract(
+    declaration: dict[str, Any],
+    resolved_symbol: dict[str, JsonValue],
+    target_identity: str,
+) -> dict[str, JsonValue] | None:
+    if declaration["role"] != "input":
+        return None
+    return {
+        "target": resolved_symbol,
+        "target_identity": target_identity,
+        "owner": "external-source",
+        "cardinality": "optional",
+        "value_source": "external-input-fact",
+        "value_contract": {
+            member: cast(JsonValue, declaration[member])
+            for member in (
+                "type_identity",
+                "representation",
+                "kind",
+                "unit",
+                "domain_kind",
+                "domain",
+                "numeric_policy",
+            )
+        },
+    }
+
+
 def _formula_symbol_dependencies(
     formulas: list[dict[str, Any]],
     bindings: list[dict[str, Any]],
@@ -4528,6 +4556,7 @@ def _resolved_entrypoints(
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         event_payload_targets: dict[str, dict[str, JsonValue]] = {}
+        external_fact_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
 
         def record_formula_dependency(
@@ -4599,6 +4628,25 @@ def _resolved_entrypoints(
                         "payload contracts",
                     )
                 event_payload_targets[dependency_identity] = event_payload_target
+            external_fact_target = _symbol_external_fact_contract(
+                dependency,
+                dependency_symbol,
+                dependency_identity,
+            )
+            if external_fact_target is not None:
+                previous_external_target = external_fact_targets.get(
+                    dependency_identity
+                )
+                if (
+                    previous_external_target is not None
+                    and previous_external_target != external_fact_target
+                ):
+                    raise _EntrypointBindingError(
+                        f"{pointer}/operation",
+                        "one Formula dependency derived conflicting external-fact "
+                        "contracts",
+                    )
+                external_fact_targets[dependency_identity] = external_fact_target
             if dependency_initializer is not None:
                 previous_initializer = initializers.get(dependency_identity)
                 if (
@@ -4697,6 +4745,25 @@ def _resolved_entrypoints(
                             "payload contracts",
                         )
                     event_payload_targets[operand_identity] = event_payload_target
+                external_fact_target = _symbol_external_fact_contract(
+                    declaration,
+                    resolved_symbol,
+                    operand_identity,
+                )
+                if external_fact_target is not None:
+                    previous_external_target = external_fact_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_external_target is not None
+                        and previous_external_target != external_fact_target
+                    ):
+                        raise _EntrypointBindingError(
+                            operand_pointer,
+                            "one actual target derived conflicting external-fact "
+                            "contracts",
+                        )
+                    external_fact_targets[operand_identity] = external_fact_target
                 if initializer is not None:
                     previous_initializer = initializers.get(operand_identity)
                     if (
@@ -4849,6 +4916,12 @@ def _resolved_entrypoints(
                 "event_local_payload_contract": {
                     "targets": sorted(
                         event_payload_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    )
+                },
+                "external_fact_contract": {
+                    "targets": sorted(
+                        external_fact_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
                     )
                 },
@@ -6016,6 +6089,7 @@ def _resolved_entrypoint_graph_is_admitted(
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         event_payload_targets: dict[str, dict[str, JsonValue]] = {}
+        external_fact_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
 
@@ -6074,6 +6148,21 @@ def _resolved_entrypoint_graph_is_admitted(
                 ):
                     return False
                 event_payload_targets[dependency_identity] = event_payload_target
+            external_fact_target = _symbol_external_fact_contract(
+                dependency,
+                dependency_symbol,
+                dependency_identity,
+            )
+            if external_fact_target is not None:
+                previous_external_target = external_fact_targets.get(
+                    dependency_identity
+                )
+                if (
+                    previous_external_target is not None
+                    and previous_external_target != external_fact_target
+                ):
+                    return False
+                external_fact_targets[dependency_identity] = external_fact_target
             if dependency_initializer is not None:
                 previous_initializer = initializers.get(dependency_identity)
                 if (
@@ -6163,6 +6252,21 @@ def _resolved_entrypoint_graph_is_admitted(
                     ):
                         return False
                     event_payload_targets[operand_identity] = event_payload_target
+                external_fact_target = _symbol_external_fact_contract(
+                    declaration,
+                    cast(dict[str, JsonValue], symbol),
+                    operand_identity,
+                )
+                if external_fact_target is not None:
+                    previous_external_target = external_fact_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_external_target is not None
+                        and previous_external_target != external_fact_target
+                    ):
+                        return False
+                    external_fact_targets[operand_identity] = external_fact_target
                 if initializer is not None:
                     previous_initializer = initializers.get(operand_identity)
                     if (
@@ -6303,6 +6407,12 @@ def _resolved_entrypoint_graph_is_admitted(
                 "event_local_payload_contract": {
                     "targets": sorted(
                         event_payload_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    )
+                },
+                "external_fact_contract": {
+                    "targets": sorted(
+                        external_fact_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
                     )
                 },

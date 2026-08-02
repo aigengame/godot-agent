@@ -750,20 +750,18 @@ def _external_input_plan_is_admitted(
         "continuity": "contiguous-per-source",
     }:
         raise ValueError("Kernel external-input admission contract is incomplete")
-    external_events = [
-        event
-        for event in _scenario_root_events(scenario)
-        if event["kind"] == "external-input"
-    ]
-    boundaries = sorted({cast(int, event["logical_time"]) for event in external_events})
-    for logical_time in boundaries:
-        boundary_keys = [
-            (cast(str, event["source_identity"]), cast(int, event["source_sequence"]))
-            for event in external_events
-            if event["logical_time"] == logical_time
-        ]
-        if boundary_keys != sorted(boundary_keys):
-            return False
+    external_events = sorted(
+        (
+            {**event, "authored_sequence": authored_sequence}
+            for authored_sequence, event in enumerate(_scenario_root_events(scenario))
+            if event["kind"] == "external-input"
+        ),
+        key=lambda event: (
+            cast(int, event["logical_time"]),
+            -cast(int, event["priority"]),
+            cast(int, event["authored_sequence"]),
+        ),
+    )
     source_identities = sorted(
         {cast(str, event["source_identity"]) for event in external_events}
     )
@@ -1325,6 +1323,18 @@ def check_experiment(
                 pointer=f"/scenarios/{scenario_index}/named_streams",
                 message="Scenario Named streams do not exactly close operation draws",
             )
+        external_fact_targets = [
+            target
+            for entrypoint in selected_entrypoints
+            for target in cast(
+                list[dict[str, Any]],
+                entrypoint["external_fact_contract"]["targets"],
+            )
+        ]
+        allowed_external_facts = {
+            canonical_bytes(cast(JsonValue, row["target"])): row
+            for row in external_fact_targets
+        }
         for row in scenario["assignments"]:
             declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
             domain = declaration["domain"]
@@ -1341,23 +1351,26 @@ def check_experiment(
                 continue
             for fact_index, fact in enumerate(event["facts"]):
                 identity = canonical_bytes(cast(JsonValue, fact["target"]))
-                declaration = declarations.get(identity)
+                target_contract = allowed_external_facts.get(identity)
                 pointer = (
                     f"/scenarios/{scenario_index}/event_plan/{event_index}"
                     f"/facts/{fact_index}"
                 )
-                if declaration is None or declaration["role"] != "input":
+                if target_contract is None:
                     return _refusal(
                         stage="static",
                         code="language.source_contract_mismatch",
                         identity=experiment_identity,
                         pointer=f"{pointer}/target",
                         message=(
-                            "External-input facts must target an exact input-role "
-                            "Resolved Model symbol"
+                            "External-input facts must target the selected "
+                            "entrypoints' exact external-fact contract"
                         ),
                     )
-                domain = declaration["domain"]
+                value_contract = cast(
+                    dict[str, Any], target_contract["value_contract"]
+                )
+                domain = cast(dict[str, int], value_contract["domain"])
                 if not domain["minimum"] <= fact["value"] <= domain["maximum"]:
                     return _refusal(
                         stage="static",
