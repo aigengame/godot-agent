@@ -2835,8 +2835,82 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert (first_exit, first_stderr) == (0, "")
     first_receipt = json.loads(first_stdout)
     first_trace = _member(first_receipt, "event-trace")
+    first_snapshots = _member(first_receipt, "snapshot-series")["snapshots"]
     first_metrics = _member(first_receipt, "metric-dataset")
-    assert first_trace["events"][0]["operation"] == "game.combat.cast-v1"
+    first_events = first_trace["events"]
+    assert [event["operation"] for event in first_events] == [
+        None,
+        "game.combat.plan-casts-v1",
+        "game.combat.cast-v1",
+        None,
+        None,
+    ]
+    assert [event["ordering_key"]["logical_time"] for event in first_events] == [
+        0,
+        0,
+        1,
+        1,
+        1,
+    ]
+    assert [event["ordering_key"]["phase"] for event in first_events] == [
+        "input",
+        "transition",
+        "transition",
+        "observation",
+        "observation",
+    ]
+    input_event, plan_event, cast_event = first_events[:3]
+    assert first_trace["root_event_map"] == [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "raise-defense",
+            "event_id": input_event["event_id"],
+        },
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "plan-casts",
+            "event_id": plan_event["event_id"],
+        },
+    ]
+    assert cast_event["parent_event_id"] == plan_event["event_id"]
+    assert plan_event["schedules"][0]["event_id"] == cast_event["event_id"]
+    assert plan_event["schedules"][1]["outcome"] == "canceled"
+    assert plan_event["cancellations"] == [
+        {
+            "call_site_identity": plan_event["cancellations"][0][
+                "call_site_identity"
+            ],
+            "event_id": plan_event["schedules"][1]["event_id"],
+            "outcome": "canceled",
+        }
+    ]
+    assert plan_event["schedules"][1]["event_id"] not in {
+        event["event_id"] for event in first_events
+    }
+    assert len(first_snapshots) == 6
+    assert [
+        (event["snapshot_before_identity"], event["snapshot_after_identity"])
+        for event in first_events
+    ] == [
+        (
+            first_snapshots[index]["snapshot_identity"],
+            first_snapshots[index + 1]["snapshot_identity"],
+        )
+        for index in range(5)
+    ]
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(first_path),
+            "--out",
+            str(tmp_path / "evaluation-45.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    assert json.loads(recovered_stdout) == first_receipt
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     _loaded_kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
@@ -2847,11 +2921,19 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
+    reference_scenario = deepcopy(first_spec["scenarios"][0])
+    external_fact = input_event["facts"]
+    defense = next(
+        row["integer"] for row in external_fact if row["name"] == "target_defense"
+    )
+    for assignment in reference_scenario["assignments"]:
+        if assignment["target"]["name"] == "target_defense":
+            assignment["value"] = defense
     reference_event = _reference_execute_event(
         kernel,
         operation,
         operations,
-        first_spec["scenarios"][0],
+        reference_scenario,
         seed=first_spec["seed"]["value"],
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
@@ -2859,28 +2941,30 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value
-        for key, value in first_trace["events"][0].items()
-        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
-    } == reference_event
+        member: cast_event[member]
+        for member in ("outcome", "rng_draws", "state_before", "state_after")
+    } == {
+        member: reference_event[member]
+        for member in ("outcome", "rng_draws", "state_before", "state_after")
+    }
     assert (
         next(
             item["integer"]
-            for item in first_trace["events"][0]["facts"]
+            for item in cast_event["facts"]
             if item["name"] == "base_damage"
         )
         == 45
     )
-    assert first_trace["events"][0]["state_after"] == [
+    assert cast_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 40},
+        {"name": "target_health", "value": 30},
     ]
     first_damage = next(
         sample["value"]
         for sample in first_metrics["samples"]
         if sample["metric"] == "damage_dealt"
     )
-    assert first_damage == 60
+    assert first_damage == 70
 
     edited_source_value = deepcopy(source_value)
     edited_source_value["manifest"]["version"] = "1.1.0"
@@ -2985,7 +3069,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     tuned_requirements, _named_streams = (
         experiment_runtime_module.derive_scenario_program_requirements(
             _member(edited_build_receipt, "rir-semantic-payload"),
-            entrypoint_id=tuned_spec["scenarios"][0]["event_plan"][0]["entrypoint"],
+            entrypoint_id=next(
+                event["entrypoint"]
+                for event in tuned_spec["scenarios"][0]["event_plan"]
+                if event["kind"] == "transition-invocation"
+            ),
             runtime_profile=tuned_spec["runtime"]["profile"],
             rng_algorithm=tuned_spec["seed"]["algorithm"],
         )
@@ -3028,13 +3116,21 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert (
         next(
             item["integer"]
-            for item in tuned_trace["events"][0]["facts"]
+            for item in next(
+                event
+                for event in tuned_trace["events"]
+                if event["operation"] == "game.combat.cast-v1"
+            )["facts"]
             if item["name"] == "base_damage"
         )
         == 45
     )
     assert tuned_damage == 90 > first_damage
-    assert tuned_trace["events"][0]["state_after"] == [
+    assert next(
+        event
+        for event in tuned_trace["events"]
+        if event["operation"] == "game.combat.cast-v1"
+    )["state_after"] == [
         {"name": "actor_mana", "value": 26},
         {"name": "target_health", "value": 10},
     ]
@@ -3065,7 +3161,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     alternate_receipt = json.loads(alternate_stdout)
     alternate_trace = _member(alternate_receipt, "event-trace")
     alternate_metrics = _member(alternate_receipt, "metric-dataset")
-    alternate_event = alternate_trace["events"][0]
+    alternate_event = next(
+        event
+        for event in alternate_trace["events"]
+        if event["operation"] == "game.combat.cast-v1"
+    )
     assert alternate_event["outcome"]["id"] == "cast-resolved"
     assert [
         (draw["stream"], draw["value"]) for draw in alternate_event["rng_draws"]
@@ -3075,7 +3175,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     ]
     assert alternate_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 85},
+        {"name": "target_health", "value": 75},
     ]
     assert (
         next(
@@ -3083,7 +3183,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for sample in alternate_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 15
+        == 25
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -3140,7 +3240,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         == runtime_definition_identity
     )
     changed_definition = deepcopy(runtime_definition)
-    changed_definition["resource_bounds"]["max_steps"] += 1
+    changed_definition["resource_bounds"]["max_event_steps"] += 1
     assert (
         experiment_runtime_module._runtime_profile_definition_identity(
             checked_experiment,
