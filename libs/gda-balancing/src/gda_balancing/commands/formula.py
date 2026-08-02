@@ -1,6 +1,7 @@
 """Schema 2.0 Formula notation conversion commands."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,6 +20,7 @@ from gda_balancing.schema2.diagnostics import (
 )
 from gda_balancing.schema2.formula_notation import (
     FormulaNotationRefusal,
+    admit_formula_pair,
     formula_notation_request_identity_domain,
     parse_formula_expression,
     render_formula_body,
@@ -80,6 +82,10 @@ def run_formula_render(
     body = formula["body"]
     try:
         expression = render_formula_body(body, authority_context)
+        paired_request = deepcopy(request)
+        paired_formula = cast(dict[str, Any], paired_request["formula"])
+        paired_formula["expression"] = expression
+        admit_formula_pair(paired_request, authority_context)
     except FormulaNotationRefusal as err:
         return _formula_refusal_report(
             request,
@@ -290,6 +296,7 @@ FORMULA_RENDER = CommandDescriptor(
         (
             "model.reason.unresolved-name",
             "model.reason.name-ambiguity",
+            "model.reason.formula-notation-mismatch",
             "model.reason.formula-type-mismatch",
             "model.reason.source-contract-mismatch",
         )

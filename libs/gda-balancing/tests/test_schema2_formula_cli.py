@@ -5,10 +5,14 @@ from copy import deepcopy
 from pathlib import Path
 from typing import cast
 
+import gda_balancing.commands.formula as formula_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import JsonValue, content_identity
 from gda_balancing.schema2.formula_notation import admit_formula_pair
+from schema2_bootstrap_production_support import (
+    _refresh_package_closure_and_reidentify,
+)
 from schema2_formula_conformance_support import admit_pair as independently_admit_pair
 from schema2_formula_conformance_support import render_body as independently_render_body
 
@@ -41,6 +45,12 @@ def _boolean_contract(identifier: str) -> dict[str, object]:
 def test_formula_render_projects_a_structured_subtraction_program(
     tmp_path: Path, run_cli
 ) -> None:
+    difference_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    cast(dict[str, object], difference_contract["domain"])["minimum"] = -1000
     body = {
         "nodes": [
             {
@@ -61,11 +71,7 @@ def test_formula_render_projects_a_structured_subtraction_program(
                         "operand": {"kind": "parameter", "parameter": "right"},
                     },
                 ],
-                "result": {
-                    key: value
-                    for key, value in _quantity_contract("result").items()
-                    if key != "id"
-                },
+                "result": difference_contract,
             }
         ],
         "result": {"kind": "local", "local": "difference"},
@@ -90,11 +96,7 @@ def test_formula_render_projects_a_structured_subtraction_program(
                 _quantity_contract("left"),
                 _quantity_contract("right"),
             ],
-            "result": {
-                key: value
-                for key, value in _quantity_contract("result").items()
-                if key != "id"
-            },
+            "result": difference_contract,
             "body": body,
         },
     }
@@ -119,6 +121,8 @@ def test_formula_render_preserves_the_mitigated_damage_program(
         for key, value in _quantity_contract("result").items()
         if key != "id"
     }
+    raw_contract = deepcopy(value_contract)
+    cast(dict[str, object], raw_contract["domain"])["minimum"] = -1000
     body = {
         "nodes": [
             {
@@ -145,7 +149,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
                         },
                     },
                 ],
-                "result": value_contract,
+                "result": raw_contract,
             },
             {
                 "id": "damage",
@@ -566,7 +570,22 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
                 "package_requirements": [
                     {"id": "core.quantity", "version": "2.1.0"}
                 ],
-                "module": {"id": "main", "imports": []},
+                "module": {
+                    "id": "main",
+                    "imports": [],
+                    "formulas": [
+                        {
+                            "id": "inner",
+                            "parameters": [_quantity_contract("value")],
+                            "result": value_contract,
+                            "body": {
+                                "node": "parameter",
+                                "parameter": "value",
+                            },
+                            "expression": "value",
+                        }
+                    ],
+                },
                 "formula": {
                     "id": "outer",
                     "parameters": [_quantity_contract("value")],
@@ -785,6 +804,290 @@ def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
         "language.formula_notation_parse_failure"
     ]
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_reports_invalid_identifier_escape_at_the_parse_stage(
+    tmp_path: Path, run_cli
+) -> None:
+    source = tmp_path / "invalid-identifier-escape.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "invalid-escape",
+                    "parameters": [_quantity_contract("value")],
+                    "result": {
+                        key: value
+                        for key, value in _quantity_contract("result").items()
+                        if key != "id"
+                    },
+                    "expression": (
+                        "let `invalid\\x` = identity(value); `invalid\\x`"
+                    ),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_parse_failure"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatch(
+    tmp_path: Path, run_cli
+) -> None:
+    source = tmp_path / "incompatible-conditional.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "incompatible-conditional",
+                    "parameters": [
+                        _boolean_contract("condition"),
+                        _quantity_contract("amount"),
+                    ],
+                    "result": {
+                        key: value
+                        for key, value in _quantity_contract("result").items()
+                        if key != "id"
+                    },
+                    "expression": (
+                        "let result = if condition then amount else condition; "
+                        "result"
+                    ),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_type_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_reports_ambiguous_selected_package_notation(
+    tmp_path: Path,
+    run_cli,
+    pristine_authority_context,
+    monkeypatch,
+) -> None:
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    identity = deepcopy(
+        next(
+            row
+            for row in language_bundle["language"]["operations"]
+            if row["id"] == "quantity.identity"
+        )
+    )
+    identity["id"] = "game.check.duplicate-identity"
+    identity["version"] = "1.0.1"
+    identity["vectors"] = []
+    language_bundle["language"]["operations"].append(identity)
+    language_bundle["language"]["operations"].sort(key=lambda row: row["id"])
+    game_check = next(
+        row
+        for row in language_bundle["language"]["packages"]
+        if row["id"] == "game.check"
+    )
+    game_check["exports"]["operations"].append(identity["id"])
+    game_check["exports"]["operations"].sort()
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        formula_command_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+    source = tmp_path / "ambiguous-notation.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"},
+                    {"id": "game.check", "version": "1.0.1"},
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "ambiguous",
+                    "parameters": [_quantity_contract("value")],
+                    "result": {
+                        key: value
+                        for key, value in _quantity_contract("result").items()
+                        if key != "id"
+                    },
+                    "expression": "let result = identity(value); result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.name_ambiguity"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
+    tmp_path: Path, run_cli
+) -> None:
+    result_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    source = tmp_path / "invalid-port-closure.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "invalid-port-closure",
+                    "parameters": [_quantity_contract("value")],
+                    "result": result_contract,
+                    "body": {
+                        "nodes": [
+                            {
+                                "id": "result",
+                                "node": "operation-call",
+                                "operation": {
+                                    "package": "core.quantity",
+                                    "version": "2.1.0",
+                                    "id": "quantity.maximum",
+                                },
+                                "arguments": [
+                                    {
+                                        "port": "left",
+                                        "operand": {
+                                            "kind": "parameter",
+                                            "parameter": "value",
+                                        },
+                                    }
+                                ],
+                                "result": result_contract,
+                            }
+                        ],
+                        "result": {"kind": "local", "local": "result"},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_type_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/body"
+
+
+def test_formula_render_refuses_a_body_that_cannot_round_trip_after_port_reordering(
+    tmp_path: Path,
+    run_cli,
+    pristine_authority_context,
+    monkeypatch,
+) -> None:
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == "quantity.subtract"
+    )
+    operation["extensions"]["standard.formula-notation"]["ordered_ports"] = [
+        "right",
+        "left",
+    ]
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == "formula.notation.quantity.subtract"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+    child_vector = next(
+        row
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+        for row in vector_set["vector_definitions"]
+        if row["id"] == vector["id"]
+    )
+    child_vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        formula_command_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    module = source_value["modules"][0]
+    formula = next(
+        row for row in module["formulas"] if row["id"] == "mitigated-damage"
+    )
+    request = {
+        "schema_version": source_value["schema_version"],
+        "package_requirements": source_value["package_requirements"],
+        "module": {"id": module["id"], "imports": module["imports"]},
+        "formula": {key: value for key, value in formula.items() if key != "expression"},
+    }
+    source = tmp_path / "reordered-ports-render.json"
+    source.write_text(json.dumps(request), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/body"
 
 
 def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(
