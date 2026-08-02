@@ -1000,7 +1000,7 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
     assert conversion["operation_argument_compatibility"] == "exact-operation-formal"
     assert conversion["symbol_resolution"] == "exact-module-coordinate"
     assert conversion["infix_parser"] == {
-        "algorithm": "precedence-climbing",
+        "algorithm": "shunting-yard",
         "generated_local_separator": "__notation_",
     }
     assert {

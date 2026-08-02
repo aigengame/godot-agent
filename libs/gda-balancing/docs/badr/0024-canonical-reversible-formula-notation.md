@@ -115,8 +115,10 @@ making presentation wording part of semantic equivalence.
   Package Release `content_identity` covers notation declarations. Its `semantic_identity` is the
   Kernel-declared runtime projection: a release inventories non-runtime definition extensions, and
   the projection removes `standard.formula-notation` before hashing executable Operation semantics.
-  A notation-only mutation therefore preserves Package Release semantic identity as well as RIR
-  semantic identity; the exact Package Release and downstream wrappers still reidentify.
+  A mutation confined to that Operation extension therefore preserves its Package Release semantic
+  identity as well as RIR semantic identity; the exact Package Release and downstream wrappers still
+  reidentify. Grammar or compiler-policy changes remain semantic when their owning release inventories
+  no corresponding exclusion.
 
   | Canonical Package Lock bytes change | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
   | --- | --- | --- | --- | --- | --- | --- |

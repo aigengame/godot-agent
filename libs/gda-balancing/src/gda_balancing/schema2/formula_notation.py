@@ -264,6 +264,9 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     if not isinstance(policy, dict):
         raise ValueError("Formula conversion has no selected Formula policy")
     conversion = policy.get("notation_conversion")
+    infix_parser = (
+        conversion.get("infix_parser") if isinstance(conversion, dict) else None
+    )
     if (
         not isinstance(conversion, dict)
         or conversion.get("condition_contract") != "kernel-boolean"
@@ -274,6 +277,10 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
         or conversion.get("operation_argument_compatibility")
         != "exact-operation-formal"
         or conversion.get("symbol_resolution") != "exact-module-coordinate"
+        or not isinstance(infix_parser, dict)
+        or infix_parser.get("algorithm") != "shunting-yard"
+        or not isinstance(infix_parser.get("generated_local_separator"), str)
+        or not infix_parser["generated_local_separator"]
     ):
         raise ValueError("Formula conversion policy is incomplete")
     return policy
