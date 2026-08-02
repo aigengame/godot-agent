@@ -1237,9 +1237,23 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
 
 
 def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
-    tmp_path, run_cli
+    tmp_path, run_cli, monkeypatch
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+    event_frames: list[str] = []
+
+    def record_formula_frame(*args, **kwargs):
+        result = evaluate_programs(*args, **kwargs)
+        if kwargs.get("phase") == "event":
+            event_frames.append(kwargs["frame_identity"])
+        return result
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        record_formula_frame,
+    )
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -1283,6 +1297,10 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     ]
     assert trace["root_event_map"] == root_map
     snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    assert event_frames == [
+        snapshots[0]["snapshot_identity"],
+        snapshots[1]["snapshot_identity"],
+    ]
     assert all(
         snapshot["snapshot_identity"].startswith("sha256:") for snapshot in snapshots
     )
@@ -5459,7 +5477,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         def overflow_at_runtime(value, numeric):
             nonlocal numeric_admissions
             numeric_admissions += 1
-            if numeric_admissions <= 3:
+            if numeric_admissions <= 6:
                 return admit_numeric(value, numeric)
             raise OverflowError
 

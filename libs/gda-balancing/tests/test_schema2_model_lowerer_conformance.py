@@ -1787,7 +1787,7 @@ def _reference_formulas_and_bindings(
                     "context": formula_contexts[phase],
                     "resolved_symbol": declaration["resolved_symbol"],
                 }
-                for phase in ("initialization", "observation")
+                for phase in ("initialization", "event", "observation")
             ]
         arguments.sort(key=lambda item: item["parameter"])
         for site_body in site_bodies:

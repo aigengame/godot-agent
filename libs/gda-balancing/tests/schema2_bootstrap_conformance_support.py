@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c0ec895850a0384f9dab567d3d483fc4b32e4fca535e9745ad6adb02194c9c03"
+    "sha256:9a7c56e0d2c1c21457354936fe01e352a708cb7484657b9ebf304586e4113883"
 )
 
 
@@ -5175,6 +5175,9 @@ def _consumer_b_runtime_authority_is_closed(
             "named_rng",
             "scheduler",
             "event_atomicity",
+            "runtime_configuration",
+            "transition",
+            "step",
             "outcome_contract",
             "invocation_contract",
             "vectors",
@@ -5325,6 +5328,42 @@ def _consumer_b_runtime_authority_is_closed(
                 "state_effects": "forbidden",
             },
             "step_boundary": "next-observation-or-logical-boundary",
+        }
+        or runtime.get("runtime_configuration")
+        != {
+            "lifecycle_states": [
+                "instantiated",
+                "initializing",
+                "event",
+                "terminated",
+            ],
+            "members": [
+                "scenario_cursor",
+                "pending_events",
+                "completed_events",
+                "current_snapshot",
+                "state",
+                "rng",
+                "resource_ledger",
+                "next_enqueue_sequence",
+                "root_event_map",
+            ],
+            "mutation": "internal-transition-only",
+        }
+        or runtime.get("transition")
+        != {
+            "input": "runtime-configuration",
+            "dispatch_count": 1,
+            "event_selection": "scheduler-order-head",
+            "transaction": "event-atomicity",
+            "result": ["runtime-configuration", "runtime-refusal"],
+        }
+        or runtime.get("step")
+        != {
+            "input": "runtime-configuration",
+            "advance": "repeat-transition",
+            "stop": ["observation-boundary", "logical-boundary", "terminal"],
+            "result": "committed-boundary",
         }
     ):
         return False

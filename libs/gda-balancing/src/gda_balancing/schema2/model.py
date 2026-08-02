@@ -2870,7 +2870,7 @@ def _resolved_formula_programs_and_bindings_impl(
                     ),
                     formula_contexts[phase],
                 )
-                for phase in ("initialization", "observation")
+                for phase in ("initialization", "event", "observation")
             ]
         elif source_site.get("kind") == "operation-slot":
             source_operation = cast(dict[str, Any], source_site.get("operation"))
@@ -6771,6 +6771,7 @@ def _formula_program_graph_is_admitted(
                 or context_items
                 not in {
                     tuple(sorted(formula_contexts["initialization"].items())),
+                    tuple(sorted(formula_contexts["event"].items())),
                     tuple(sorted(formula_contexts["observation"].items())),
                 }
                 or not isinstance(site.get("resolved_symbol"), dict)
@@ -6917,7 +6918,7 @@ def _formula_program_graph_is_admitted(
     return bound_derived_sites == {
         (*site, phase)
         for site in reachable_derived_sites
-        for phase in ("initialization", "observation")
+        for phase in ("initialization", "event", "observation")
     }
 
 
@@ -7043,6 +7044,7 @@ def _formula_graph_is_admitted(
             or context_items
             not in {
                 tuple(sorted(formula_contexts["initialization"].items())),
+                tuple(sorted(formula_contexts["event"].items())),
                 tuple(sorted(formula_contexts["observation"].items())),
             }
             or not isinstance(site.get("resolved_symbol"), dict)
@@ -7153,7 +7155,7 @@ def _formula_graph_is_admitted(
     return bound_sites == {
         (*site, phase)
         for site in reachable_derived_sites
-        for phase in ("initialization", "observation")
+        for phase in ("initialization", "event", "observation")
     }
 
 

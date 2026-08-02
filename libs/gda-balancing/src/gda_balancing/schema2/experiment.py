@@ -292,6 +292,52 @@ def _runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
     return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
 
 
+def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
+    runtime = _runtime_contract(checked)
+    expected = {
+        "runtime_configuration": {
+            "lifecycle_states": [
+                "instantiated",
+                "initializing",
+                "event",
+                "terminated",
+            ],
+            "members": [
+                "scenario_cursor",
+                "pending_events",
+                "completed_events",
+                "current_snapshot",
+                "state",
+                "rng",
+                "resource_ledger",
+                "next_enqueue_sequence",
+                "root_event_map",
+            ],
+            "mutation": "internal-transition-only",
+        },
+        "transition": {
+            "input": "runtime-configuration",
+            "dispatch_count": 1,
+            "event_selection": "scheduler-order-head",
+            "transaction": "event-atomicity",
+            "result": ["runtime-configuration", "runtime-refusal"],
+        },
+        "step": {
+            "input": "runtime-configuration",
+            "advance": "repeat-transition",
+            "stop": [
+                "observation-boundary",
+                "logical-boundary",
+                "terminal",
+            ],
+            "result": "committed-boundary",
+        },
+    }
+    if any(runtime.get(member) != contract for member, contract in expected.items()):
+        raise ValueError("Kernel Runtime lifecycle contract is unsupported or incomplete")
+    return expected
+
+
 def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     return {
         row["id"]: row
@@ -488,6 +534,32 @@ def _scheduler_ordering_key(
         -cast(int, event["priority"]),
         cast(int, event["enqueue_sequence"]),
     )
+
+
+def _runtime_step_boundary(
+    checked: CheckedExperiment,
+    *,
+    active_logical_time: int,
+    pending_events: list[dict[str, Any]],
+    event_position: int,
+    terminal_maximum: int | None,
+) -> str | None:
+    contract = _runtime_execution_contract(checked)["step"]
+    stops = cast(list[str], contract["stop"])
+    if terminal_maximum is not None and event_position >= terminal_maximum:
+        return "terminal" if "terminal" in stops else None
+    if not pending_events:
+        return "terminal" if "terminal" in stops else None
+    scheduler = _scheduler_contract(checked)
+    next_event = min(
+        pending_events,
+        key=lambda event: _scheduler_ordering_key(scheduler, event),
+    )
+    if next_event["phase"] == "observation":
+        return "observation-boundary" if "observation-boundary" in stops else None
+    if next_event["logical_time"] != active_logical_time:
+        return "logical-boundary" if "logical-boundary" in stops else None
+    return None
 
 
 def _schedule_position_signal(
@@ -2166,6 +2238,7 @@ def evaluate_experiment(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     runtime_bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
+    _runtime_execution_contract(checked)
     _formula_snapshot_identity_domain(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2196,7 +2269,10 @@ def evaluate_experiment(
     root_event_map: list[dict[str, JsonValue]] = []
     terminal_statuses: list[dict[str, JsonValue]] = []
     scenario_observation_evidence: dict[tuple[str, str], tuple[str, str, int]] = {}
-    scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
+    scenario_event_outputs: dict[
+        str, list[tuple[dict[str, Any], dict[str, int], str]]
+    ] = {}
+    scenario_terminal_states: dict[str, dict[str, int]] = {}
     total_steps = 0
     runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
@@ -2350,6 +2426,7 @@ def evaluate_experiment(
         )
         snapshots.append(initial_snapshot)
         current_snapshot_identity = cast(str, initial_snapshot["snapshot_identity"])
+        scenario_event_outputs[scenario["id"]] = []
         operation = (
             operations[scenario_entrypoints[0]["operation"]["id"]]
             if scenario_entrypoints
@@ -2834,6 +2911,36 @@ def evaluate_experiment(
             next_enqueue_sequence_before = next_enqueue_sequence
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
+            dispatch_path = (
+                (f"input:{event_spec['root_event_ref']}",)
+                if external_input
+                else (
+                    (cast(str, entrypoint["id"]),)
+                    if entrypoint is not None
+                    else (f"scheduled:{event_spec['call_site_identity']}",)
+                )
+            )
+            event_formula_fault: _RuntimeExecutionFault | None = None
+            if not external_input:
+                assert operation is not None
+                try:
+                    total_steps = _evaluate_initialization_programs(
+                        checked,
+                        actual_values,
+                        consumed_steps=total_steps,
+                        runtime_limit=runtime_limit,
+                        cache=initialization_cache,
+                        frame_identity=current_snapshot_identity,
+                        phase="event",
+                    )
+                except _InitializationProgramFault as fault:
+                    event_formula_fault = _RuntimeExecutionFault(
+                        signal=fault.signal,
+                        operation=cast(str, operation["id"]),
+                        call_path=dispatch_path,
+                        call_site_identity=None,
+                        evaluation_site_identity=fault.evaluation_site_identity,
+                    )
             if external_input:
                 for fact in event_spec["facts"]:
                     identity = canonical_bytes(cast(JsonValue, fact["target"]))
@@ -2862,16 +2969,9 @@ def evaluate_experiment(
                         root_arguments[binding["port"]["name"]] = resolved_operand[
                             "value"
                         ]
-            dispatch_path = (
-                (f"input:{event_spec['root_event_ref']}",)
-                if external_input
-                else (
-                    (cast(str, entrypoint["id"]),)
-                    if entrypoint is not None
-                    else (f"scheduled:{event_spec['call_site_identity']}",)
-                )
-            )
             try:
+                if event_formula_fault is not None:
+                    raise event_formula_fault
                 if external_input:
                     outcome, root_result = "input-admitted", None
                 else:
@@ -3048,6 +3148,26 @@ def evaluate_experiment(
             snapshots.append(snapshot)
             snapshot_identity = cast(str, snapshot["snapshot_identity"])
             current_snapshot_identity = snapshot_identity
+            scenario_event_outputs[scenario["id"]].append(
+                (
+                    event,
+                    {
+                        display_names[identity]: value
+                        for identity, value in state.items()
+                    },
+                    outcome,
+                )
+            )
+            event_position += 1
+            step_boundary = _runtime_step_boundary(
+                checked,
+                active_logical_time=cast(int, event_spec["logical_time"]),
+                pending_events=pending_events,
+                event_position=event_position,
+                terminal_maximum=terminal_maximum,
+            )
+            if step_boundary is None:
+                continue
             try:
                 total_steps = _evaluate_initialization_programs(
                     checked,
@@ -3121,12 +3241,10 @@ def evaluate_experiment(
                 JsonValue,
                 _resolved_value_rows(actual_values, display_names),
             )
-            scenario_outputs[scenario["id"]] = (
-                event,
-                {display_names[identity]: value for identity, value in state.items()},
-                outcome,
-            )
-            event_position += 1
+
+        scenario_terminal_states[scenario["id"]] = {
+            display_names[identity]: value for identity, value in state.items()
+        }
 
         terminal_reason = (
             "event-count-reached"
@@ -3277,21 +3395,28 @@ def evaluate_experiment(
         observation = metric["observation"]
         matched: list[tuple[str, int]] = []
         for scenario in checked.value["scenarios"]:
-            event, metric_state, outcome = scenario_outputs[scenario["id"]]
             if observation["source"] == "event":
-                if outcome != observation["name"]:
-                    continue
-                facts = {
-                    row["name"]: row.get("integer")
-                    for row in event["facts"]
-                    if row["kind"] == "integer"
-                }
-                value = facts.get(observation["member"])
+                for event, _event_state, outcome in scenario_event_outputs[
+                    scenario["id"]
+                ]:
+                    if outcome != observation["name"]:
+                        continue
+                    facts = {
+                        row["name"]: row.get("integer")
+                        for row in event["facts"]
+                        if row["kind"] == "integer"
+                    }
+                    value = facts.get(observation["member"])
+                    if isinstance(value, int):
+                        matched.append((scenario["id"], value))
+                continue
             else:
                 expected_name = observation["name"]
                 if expected_name not in {"terminal", f"{scenario['id']}:terminal"}:
                     continue
-                value = metric_state.get(observation["member"])
+                value = scenario_terminal_states[scenario["id"]].get(
+                    observation["member"]
+                )
             if isinstance(value, int):
                 matched.append((scenario["id"], value))
         if len(matched) != 1:
