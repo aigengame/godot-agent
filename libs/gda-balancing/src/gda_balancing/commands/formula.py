@@ -9,10 +9,20 @@ from pydantic import BaseModel, ConfigDict
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.envelope import UnreadableInputError
 from gda_balancing.schema2.authority import packaged_authority_context
+from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.diagnostics import (
+    ArtifactLocation,
+    RefusalStage,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+    reason_by_id,
+)
 from gda_balancing.schema2.formula_notation import (
+    FormulaNotationRefusal,
     parse_formula_expression,
     render_formula_body,
 )
+from gda_balancing.schema2.model import refusal_catalog_for_reasons
 
 
 class FormulaRenderInput(BaseModel):
@@ -61,10 +71,32 @@ def run_formula_render(inp: FormulaRenderInput) -> FormulaConversionResult:
     )
 
 
-def run_formula_parse(inp: FormulaParseInput) -> FormulaConversionResult:
+def run_formula_parse(
+    inp: FormulaParseInput,
+) -> FormulaConversionResult | Schema2RefusalReport:
     request = _read_request(inp.source)
     authority_context = packaged_authority_context()
-    body = parse_formula_expression(request, authority_context)
+    try:
+        body = parse_formula_expression(request, authority_context)
+    except FormulaNotationRefusal as err:
+        reason = reason_by_id(authority_context.language_bundle, err.reason_id)
+        request_identity = content_identity(
+            "formula-notation-request-v2", cast(JsonValue, request)
+        )
+        return Schema2RefusalReport(
+            stage=cast(RefusalStage, reason["stage"]),
+            diagnostics=(
+                Schema2Diagnostic(
+                    code=cast(str, reason["diagnostic"]),
+                    message=err.message,
+                    primary=ArtifactLocation(
+                        content_identity=request_identity,
+                        pointer="/formula/expression",
+                    ),
+                ),
+            ),
+            truncated=False,
+        )
     return FormulaConversionResult(
         body=body,
         expression=render_formula_body(body, authority_context),
@@ -143,6 +175,12 @@ FORMULA_PARSE = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     success_schema=_formula_conversion_result_schema,
+    refusal_catalog=refusal_catalog_for_reasons(
+        (
+            "formula.reason.notation-parse-failure",
+            "model.reason.unresolved-name",
+        )
+    ),
     usage_codes=(
         "invalid_argument",
         "unknown_argument",

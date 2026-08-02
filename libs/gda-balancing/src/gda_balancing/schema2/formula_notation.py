@@ -26,6 +26,19 @@ class _OperationNotation:
     notation: dict[str, Any]
 
 
+class FormulaNotationRefusal(ValueError):
+    """One Formula notation refusal projected through LDB-owned reason data."""
+
+    def __init__(self, reason_id: str, message: str) -> None:
+        super().__init__(message)
+        self.reason_id = reason_id
+        self.message = message
+
+
+class _FormulaNotationSyntaxError(ValueError):
+    """A grammar-level failure before contextual Formula resolution."""
+
+
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -168,13 +181,15 @@ def _lex(
                         quote,
                         escape,
                     }:
-                        raise ValueError(
+                        raise _FormulaNotationSyntaxError(
                             f"invalid quoted identifier escape at byte {index}"
                         )
                 quoted_chars.append(expression[index])
                 index += 1
             if index >= len(expression):
-                raise ValueError(f"unterminated quoted identifier at byte {start}")
+                raise _FormulaNotationSyntaxError(
+                    f"unterminated quoted identifier at byte {start}"
+                )
             index += 1
             tokens.append(_Token("identifier", "".join(quoted_chars), start))
             continue
@@ -203,7 +218,9 @@ def _lex(
             tokens.append(_Token("operator", operator, index))
             index += len(operator)
             continue
-        raise ValueError(f"unexpected Formula notation token at byte {index}")
+        raise _FormulaNotationSyntaxError(
+            f"unexpected Formula notation token at byte {index}"
+        )
     tokens.append(_Token("eof", "", len(expression)))
     return tokens
 
@@ -269,7 +286,7 @@ class _FormulaParser:
         token = self.current()
         if token.kind != kind or (value is not None and token.value != value):
             expected = value if value is not None else kind
-            raise ValueError(
+            raise _FormulaNotationSyntaxError(
                 f"expected {expected!r} at byte {token.offset}, got {token.value!r}"
             )
         self.index += 1
@@ -292,7 +309,9 @@ class _FormulaParser:
             self.index += 1
             return {"kind": "literal", "value": int(token.value)}, None
         if token.kind != "identifier":
-            raise ValueError(f"expected Formula operand at byte {token.offset}")
+            raise _FormulaNotationSyntaxError(
+                f"expected Formula operand at byte {token.offset}"
+            )
         self.index += 1
         segments = [token.value]
         coordinate_separator = cast(str, self.grammar["coordinate_separator"])
@@ -314,7 +333,10 @@ class _FormulaParser:
                 {"kind": "symbol", "module": segments[0], "symbol": segments[1]},
                 None,
             )
-        raise ValueError(f"Formula name {'.'.join(segments)!r} is unresolved")
+        raise FormulaNotationRefusal(
+            "model.reason.unresolved-name",
+            f"Formula name {'.'.join(segments)!r} is unresolved",
+        )
 
     def parenthesized_operand(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
         if self.current().kind != self.open_group:
@@ -580,7 +602,12 @@ def parse_formula_expression(
     expression = formula.get("expression") if isinstance(formula, dict) else None
     if not isinstance(expression, str):
         raise ValueError("Formula parse request has no expression")
-    return _FormulaParser(expression, request, authority_context).parse()
+    try:
+        return _FormulaParser(expression, request, authority_context).parse()
+    except _FormulaNotationSyntaxError as err:
+        raise FormulaNotationRefusal(
+            "formula.reason.notation-parse-failure", str(err)
+        ) from err
 
 
 def _render_operand(operand: object, grammar: dict[str, Any]) -> str:

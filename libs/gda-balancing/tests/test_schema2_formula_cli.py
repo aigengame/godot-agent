@@ -694,3 +694,84 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
         "name",
         "ordered_ports",
     ]
+
+
+def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    source = tmp_path / "unquoted-kebab-local.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "bad-local-reference",
+                    "parameters": [_quantity_contract("base")],
+                    "result": value_contract,
+                    "expression": (
+                        "let `minimum-accuracy` = max(base, 1); "
+                        "minimum-accuracy"
+                    ),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.unresolved_name"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    source = tmp_path / "malformed-formula.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "malformed",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": "let result = floor_zero(value; result",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_parse_failure"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
