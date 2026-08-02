@@ -1610,6 +1610,8 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         EXPERIMENT_RUN: bootstrap | experiment_check | experiment_run_only,
         FORMULA_PARSE: bootstrap
         | {
+            ("language.source_too_large", "ingress"),
+            ("language.source_parse_failure", "parse"),
             ("language.formula_notation_parse_failure", "parse"),
             ("language.formula_notation_resource_exhausted", "parse"),
             ("language.unresolved_name", "static"),
@@ -1619,6 +1621,8 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         },
         FORMULA_RENDER: bootstrap
         | {
+            ("language.source_too_large", "ingress"),
+            ("language.source_parse_failure", "parse"),
             ("language.unresolved_name", "static"),
             ("language.name_ambiguity", "static"),
             ("language.formula_notation_mismatch", "static"),

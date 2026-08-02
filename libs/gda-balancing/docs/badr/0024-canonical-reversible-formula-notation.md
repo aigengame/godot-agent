@@ -37,6 +37,12 @@ making presentation wording part of semantic equivalence.
   equivalence, and HIR normalization. A host parser or renderer consumes those authorities and
   cannot hard-code an operation catalog.
 
+  The grammar authority also owns identifier, integer, and whitespace token patterns, signed-literal
+  context, token/byte limits, and a group-depth bound. The selected compiler profile declares the
+  exact contract-comparison modes, Operation-body transfer rules and member mappings, generated-local
+  policy, and infix algorithm. Precedence and associativity therefore normalize multi-operator
+  authored bindings into deterministic additional `let` nodes instead of remaining inert metadata.
+
   The first RPG vertical requires the exact `core.quantity` Package Release selected by the
   committed example to declare these conventional mappings: `quantity.subtract` is infix `-` with
   ordered ports `left`, `right`;
@@ -105,6 +111,12 @@ making presentation wording part of semantic equivalence.
   projection, excludes `expression`, and never changes for a notation-only mutation. Package
   selection, Lock projection, and expression projection are therefore separate; RIR never embeds a
   notation catalog merely because a release is selected.
+
+  Package Release `content_identity` covers notation declarations. Its `semantic_identity` is the
+  Kernel-declared runtime projection: a release inventories non-runtime definition extensions, and
+  the projection removes `standard.formula-notation` before hashing executable Operation semantics.
+  A notation-only mutation therefore preserves Package Release semantic identity as well as RIR
+  semantic identity; the exact Package Release and downstream wrappers still reidentify.
 
   | Canonical Package Lock bytes change | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
   | --- | --- | --- | --- | --- | --- | --- |
