@@ -470,14 +470,51 @@ def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]
     ]
 
 
+def _scheduler_ordering_key(
+    scheduler: dict[str, Any], event: dict[str, Any]
+) -> tuple[int, int, int, int]:
+    phase_rank = {
+        phase: index for index, phase in enumerate(scheduler["ordering"][1]["rank"])
+    }
+    return (
+        cast(int, event["logical_time"]),
+        phase_rank[cast(str, event["phase"])],
+        -cast(int, event["priority"]),
+        cast(int, event["enqueue_sequence"]),
+    )
+
+
+def _schedule_position_signal(
+    scheduler: dict[str, Any],
+    parent: dict[str, Any],
+    child: dict[str, Any],
+) -> str | None:
+    signals = scheduler["schedule"]["refusal_signals"]
+    if child["phase"] != scheduler["schedule"]["child_phase"]:
+        return cast(str, signals["hidden_input"])
+    if child["logical_time"] < parent["logical_time"]:
+        return cast(str, signals["backward"])
+    if (
+        child["logical_time"] == parent["logical_time"]
+        and child["priority"] > parent["priority"]
+    ):
+        return cast(str, signals["illegal_same_time_priority"])
+    return None
+
+
+def _cancel_target_signal(scheduler: dict[str, Any], status: str) -> str | None:
+    if status in scheduler["cancel"]["admitted_target_states"]:
+        return None
+    return cast(
+        str, scheduler["cancel"]["refusal_signals"].get(status, "cancel-unknown")
+    )
+
+
 def _ordered_root_events(
     checked: CheckedExperiment,
     scenario: dict[str, Any],
 ) -> list[dict[str, Any]]:
     scheduler = _scheduler_contract(checked)
-    phase_rank = {
-        phase: index for index, phase in enumerate(scheduler["ordering"][1]["rank"])
-    }
     admitted = [
         {
             **event,
@@ -486,15 +523,7 @@ def _ordered_root_events(
         }
         for sequence, event in enumerate(_scenario_root_events(scenario))
     ]
-    return sorted(
-        admitted,
-        key=lambda event: (
-            event["logical_time"],
-            phase_rank[event["phase"]],
-            -event["priority"],
-            event["enqueue_sequence"],
-        ),
-    )
+    return sorted(admitted, key=lambda event: _scheduler_ordering_key(scheduler, event))
 
 
 def _root_event_id(
@@ -1737,6 +1766,95 @@ def _evaluate_value_program_vector(
     }
 
 
+def _evaluate_scheduler_vector(
+    kernel: dict[str, Any], vector: dict[str, Any]
+) -> dict[str, JsonValue]:
+    """Execute one closed scheduler-scenario conformance vector."""
+    scheduler = cast(
+        dict[str, Any], kernel["meta_format"]["runtime_program"]["scheduler"]
+    )
+    inp = cast(dict[str, Any], vector["input"])
+    events = cast(list[dict[str, Any]], inp["events"])
+    initial_states = cast(list[dict[str, Any]], inp["initial_states"])
+    scenario_order = {
+        cast(str, row["scenario"]): index for index, row in enumerate(initial_states)
+    }
+    states = {
+        cast(str, row["scenario"]): cast(int, row["value"]) for row in initial_states
+    }
+    by_id = {cast(str, event["id"]): event for event in events}
+
+    def refused(signal: str) -> dict[str, JsonValue]:
+        return {
+            "event_order": [],
+            "observations": [],
+            "outcome": "refused",
+            "signal": signal,
+            "terminal_reason": None,
+            "terminal_states": cast(JsonValue, initial_states),
+        }
+
+    for event in events:
+        if not event["cancel_requested"]:
+            continue
+        signal = _cancel_target_signal(scheduler, cast(str, event["status"]))
+        if signal is not None:
+            return refused(signal)
+    for event in events:
+        parent_id = event["parent_id"]
+        if parent_id is None:
+            continue
+        signal = _schedule_position_signal(
+            scheduler, by_id[cast(str, parent_id)], event
+        )
+        if signal is not None:
+            return refused(signal)
+
+    admitted = sorted(
+        (
+            event
+            for event in events
+            if event["status"] not in {"canceled", "completed"}
+            and not event["cancel_requested"]
+        ),
+        key=lambda event: (
+            scenario_order[cast(str, event["scenario"])],
+            *_scheduler_ordering_key(scheduler, event),
+        ),
+    )
+    observations: list[dict[str, JsonValue]] = []
+    for event in admitted:
+        scenario = cast(str, event["scenario"])
+        before = states[scenario]
+        after = before + cast(int, event["state_delta"])
+        states[scenario] = after
+        observations.append(
+            {
+                "event_id": cast(str, event["id"]),
+                "scenario": scenario,
+                "state_after": after,
+                "state_before": before,
+            }
+        )
+    return {
+        "event_order": [cast(str, event["id"]) for event in admitted],
+        "observations": cast(JsonValue, observations),
+        "outcome": "admitted",
+        "signal": None,
+        "terminal_reason": cast(str, inp["terminal_condition"]),
+        "terminal_states": cast(
+            JsonValue,
+            [
+                {
+                    "scenario": cast(str, row["scenario"]),
+                    "value": states[cast(str, row["scenario"])],
+                }
+                for row in initial_states
+            ],
+        ),
+    }
+
+
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],
@@ -2279,7 +2397,6 @@ def evaluate_experiment(
                     scheduled_priority = cast(int, instruction["priority"])
                     active_logical_time = cast(int, event_spec["logical_time"])
                     active_priority = cast(int, event_spec["priority"])
-                    refusal_signals = scheduler["schedule"]["refusal_signals"]
 
                     def refuse_schedule(signal: str) -> None:
                         raise _RuntimeExecutionFault(
@@ -2291,20 +2408,21 @@ def evaluate_experiment(
                         )
 
                     child_phase = cast(str, scheduler["schedule"]["child_phase"])
-                    if instruction.get("phase", child_phase) != child_phase:
-                        refuse_schedule(cast(str, refusal_signals["hidden_input"]))
-                    if scheduled_logical_time < active_logical_time:
-                        refuse_schedule(cast(str, refusal_signals["backward"]))
-                    if (
-                        scheduled_logical_time == active_logical_time
-                        and scheduled_priority > active_priority
-                    ):
-                        refuse_schedule(
-                            cast(
-                                str,
-                                refusal_signals["illegal_same_time_priority"],
-                            )
-                        )
+                    position_signal = _schedule_position_signal(
+                        scheduler,
+                        {
+                            "logical_time": active_logical_time,
+                            "phase": event_spec["phase"],
+                            "priority": active_priority,
+                        },
+                        {
+                            "logical_time": scheduled_logical_time,
+                            "phase": instruction.get("phase", child_phase),
+                            "priority": scheduled_priority,
+                        },
+                    )
+                    if position_signal is not None:
+                        refuse_schedule(position_signal)
                     if scheduled_logical_time > runtime_bounds["max_logical_time"]:
                         refuse_schedule("logical-time-limit")
                     zero_time_depth = (
@@ -2376,12 +2494,32 @@ def evaluate_experiment(
                             evaluation_site_identity=evaluation_site_identity,
                         )
                     target_event_id = variables[target["local"]]
-                    if not any(
-                        child["event_id"] == target_event_id
-                        for child in buffered_children
-                    ):
+                    target_status = (
+                        "active"
+                        if target_event_id == event_id
+                        else "completed"
+                        if any(
+                            completed["event_id"] == target_event_id
+                            for completed in events
+                        )
+                        else "provisional"
+                        if any(
+                            child["event_id"] == target_event_id
+                            for child in buffered_children
+                        )
+                        else "pending"
+                        if any(
+                            child["event_id"] == target_event_id
+                            for child in pending_events
+                        )
+                        else "unknown"
+                    )
+                    cancel_signal = _cancel_target_signal(
+                        _scheduler_contract(checked), target_status
+                    )
+                    if cancel_signal is not None:
                         raise _RuntimeExecutionFault(
-                            signal=cast(str, cancel_signals["unknown"]),
+                            signal=cancel_signal,
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
@@ -2401,6 +2539,11 @@ def evaluate_experiment(
                         cast(JsonValue, cancel_identity_body),
                     )
                     canceled_event_ids.add(cast(str, target_event_id))
+                    pending_events[:] = [
+                        pending
+                        for pending in pending_events
+                        if pending["event_id"] != target_event_id
+                    ]
                     for scheduled in schedule_trace:
                         if scheduled["event_id"] == target_event_id:
                             scheduled["outcome"] = "canceled"
@@ -2506,22 +2649,12 @@ def evaluate_experiment(
             else None
         )
         last_logical_time: int | None = None
-        phase_rank = {
-            phase: index
-            for index, phase in enumerate(
-                _scheduler_contract(checked)["ordering"][1]["rank"]
-            )
-        }
+        scheduler = _scheduler_contract(checked)
         while pending_events and (
             terminal_maximum is None or event_position < terminal_maximum
         ):
             pending_events.sort(
-                key=lambda event: (
-                    event["logical_time"],
-                    phase_rank[event["phase"]],
-                    -event["priority"],
-                    event["enqueue_sequence"],
-                )
+                key=lambda event: _scheduler_ordering_key(scheduler, event)
             )
             event_spec = pending_events.pop(0)
             last_logical_time = cast(int, event_spec["logical_time"])

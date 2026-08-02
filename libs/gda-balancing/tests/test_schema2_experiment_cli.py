@@ -786,14 +786,11 @@ def _reference_evaluate_scheduler_vector(
             and event["priority"] > parent["priority"]
         ):
             return refused(
-                scheduler["schedule"]["refusal_signals"][
-                    "illegal_same_time_priority"
-                ]
+                scheduler["schedule"]["refusal_signals"]["illegal_same_time_priority"]
             )
 
     phase_rank = {
-        phase: index
-        for index, phase in enumerate(scheduler["ordering"][1]["rank"])
+        phase: index for index, phase in enumerate(scheduler["ordering"][1]["rank"])
     }
 
     def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
@@ -823,15 +820,11 @@ def _reference_evaluate_scheduler_vector(
     for event in admitted:
         scenario = event["scenario"]
         before = (
-            shared_state
-            if mutation == "scenario-as-timestep"
-            else states[scenario]
+            shared_state if mutation == "scenario-as-timestep" else states[scenario]
         )
         if mutation == "pre-commit-visibility":
             before = next(
-                row["value"]
-                for row in initial_states
-                if row["scenario"] == scenario
+                row["value"] for row in initial_states if row["scenario"] == scenario
             )
         after = before + event["state_delta"]
         if mutation == "scenario-as-timestep":

@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:a9ffe7be906e9433db5d51c054888f25c46c9d33b0a8bca6cb6c134dab60efde"
+    "sha256:cd360e13c5e55bc5127e2f02722cc307babbc67a8449665fdf5c654425b9638f"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -412,6 +412,16 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "instruction_nodes",
         "required_members",
     },
+    "scheduler-scenario": {
+        "event_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "observation_members",
+        "required_members",
+        "state_value_members",
+        "target_states",
+    },
 }
 
 
@@ -480,6 +490,13 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "input",
             "kind",
         },
+        "scheduler-scenario": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -527,6 +544,36 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "multiply",
             "subtract",
         ]
+        and kinds["scheduler-scenario"].get("input_members")
+        == ["events", "initial_states", "terminal_condition"]
+        and kinds["scheduler-scenario"].get("expect_members")
+        == [
+            "event_order",
+            "observations",
+            "outcome",
+            "signal",
+            "terminal_reason",
+            "terminal_states",
+        ]
+        and kinds["scheduler-scenario"].get("event_members")
+        == [
+            "cancel_requested",
+            "enqueue_sequence",
+            "id",
+            "logical_time",
+            "parent_id",
+            "phase",
+            "priority",
+            "scenario",
+            "state_delta",
+            "status",
+        ]
+        and kinds["scheduler-scenario"].get("observation_members")
+        == ["event_id", "scenario", "state_after", "state_before"]
+        and kinds["scheduler-scenario"].get("state_value_members")
+        == ["scenario", "value"]
+        and kinds["scheduler-scenario"].get("target_states")
+        == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
     )
 
 
@@ -590,6 +637,101 @@ def _value_program_instruction_is_closed(
                 isinstance(instruction.get(member), str) and bool(instruction[member])
                 for member in required - {"node", "target"}
             )
+        )
+    )
+
+
+def _scheduler_scenario_vector_is_closed(
+    vector: dict[str, Any], kind: dict[str, Any]
+) -> bool:
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    if (
+        not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+        or inp.get("terminal_condition") not in {"event-count-reached", "queue-drained"}
+        or not isinstance(inp.get("initial_states"), list)
+        or not inp["initial_states"]
+        or not isinstance(inp.get("events"), list)
+        or not inp["events"]
+    ):
+        return False
+    initial_states = inp["initial_states"]
+    scenarios = [row.get("scenario") for row in initial_states if isinstance(row, dict)]
+    if (
+        len(scenarios) != len(initial_states)
+        or len(scenarios) != len(set(scenarios))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and isinstance(row.get("scenario"), str)
+            and bool(row["scenario"])
+            and _signed_int64(row.get("value"))
+            for row in initial_states
+        )
+    ):
+        return False
+    events = inp["events"]
+    event_ids = [row.get("id") for row in events if isinstance(row, dict)]
+    if (
+        len(event_ids) != len(events)
+        or len(event_ids) != len(set(event_ids))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["event_members"])
+            and isinstance(row.get("id"), str)
+            and bool(row["id"])
+            and row.get("scenario") in scenarios
+            and _signed_int64(row.get("logical_time"))
+            and isinstance(row.get("phase"), str)
+            and row["phase"] in {"input", "transition", "observation"}
+            and _signed_int64(row.get("priority"))
+            and isinstance(row.get("enqueue_sequence"), int)
+            and not isinstance(row["enqueue_sequence"], bool)
+            and row["enqueue_sequence"] >= 0
+            and _signed_int64(row.get("state_delta"))
+            and isinstance(row.get("cancel_requested"), bool)
+            and row.get("status") in kind["target_states"]
+            and (
+                row.get("parent_id") is None
+                or (
+                    isinstance(row["parent_id"], str)
+                    and row["parent_id"] in event_ids
+                    and row["parent_id"] != row["id"]
+                )
+            )
+            for row in events
+        )
+    ):
+        return False
+    observations = expect.get("observations")
+    terminal_states = expect.get("terminal_states")
+    return (
+        expect.get("outcome") in {"admitted", "refused"}
+        and (expect.get("signal") is None or isinstance(expect.get("signal"), str))
+        and expect.get("terminal_reason")
+        in {None, "event-count-reached", "queue-drained"}
+        and isinstance(expect.get("event_order"), list)
+        and all(event_id in event_ids for event_id in expect["event_order"])
+        and isinstance(observations, list)
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["observation_members"])
+            and row.get("event_id") in event_ids
+            and row.get("scenario") in scenarios
+            and _signed_int64(row.get("state_before"))
+            and _signed_int64(row.get("state_after"))
+            for row in observations
+        )
+        and isinstance(terminal_states, list)
+        and [row.get("scenario") for row in terminal_states] == scenarios
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and _signed_int64(row.get("value"))
+            for row in terminal_states
         )
     )
 
@@ -798,6 +940,10 @@ def _package_evidence_vectors_are_closed(
                     )
                 )
             ):
+                return False
+            continue
+        if kind_id == "scheduler-scenario":
+            if not _scheduler_scenario_vector_is_closed(vector, kind):
                 return False
             continue
         operation = operations.get(vector.get("operation"))

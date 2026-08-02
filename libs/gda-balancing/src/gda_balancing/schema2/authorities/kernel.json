@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:a9ffe7be906e9433db5d51c054888f25c46c9d33b0a8bca6cb6c134dab60efde",
+  "content_identity": "sha256:cd360e13c5e55bc5127e2f02722cc307babbc67a8449665fdf5c654425b9638f",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3838,6 +3838,59 @@
             "id",
             "input",
             "kind"
+          ]
+        },
+        {
+          "id": "scheduler-scenario",
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind"
+          ],
+          "input_members": [
+            "events",
+            "initial_states",
+            "terminal_condition"
+          ],
+          "expect_members": [
+            "event_order",
+            "observations",
+            "outcome",
+            "signal",
+            "terminal_reason",
+            "terminal_states"
+          ],
+          "event_members": [
+            "cancel_requested",
+            "enqueue_sequence",
+            "id",
+            "logical_time",
+            "parent_id",
+            "phase",
+            "priority",
+            "scenario",
+            "state_delta",
+            "status"
+          ],
+          "observation_members": [
+            "event_id",
+            "scenario",
+            "state_after",
+            "state_before"
+          ],
+          "state_value_members": [
+            "scenario",
+            "value"
+          ],
+          "target_states": [
+            "active",
+            "canceled",
+            "completed",
+            "pending",
+            "provisional",
+            "unknown"
           ]
         }
       ],
