@@ -313,6 +313,19 @@ def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(combat, schema)
 
+    standard_runtime = deepcopy(
+        next(row for row in vector_sets if row["package_id"] == "standard.runtime")
+    )
+    jsonschema.validate(standard_runtime, schema)
+    scheduler_vector = next(
+        row
+        for row in standard_runtime["vector_definitions"]
+        if row["kind"] == "scheduler-scenario"
+    )
+    del scheduler_vector["input"]["events"][0]["phase"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(standard_runtime, schema)
+
     quantity = deepcopy(
         next(row for row in vector_sets if row["package_id"] == "core.quantity")
     )
@@ -1235,6 +1248,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "package-contract",
         "operation-contract",
         "runtime-scenario",
+        "scheduler-scenario",
         "value-program",
     }
 
