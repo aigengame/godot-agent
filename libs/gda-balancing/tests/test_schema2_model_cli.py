@@ -796,6 +796,80 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
     }
 
 
+def test_resolved_admission_includes_symbol_only_formula_modules(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "from-aux",
+            "parameters": [],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {
+                    "kind": "symbol",
+                    "module": "aux",
+                    "symbol": "external_value",
+                },
+            },
+            "expression": "aux.external_value",
+        }
+    ]
+    source_document["modules"].append(
+        {
+            "id": "aux",
+            "imports": deepcopy(source_document["modules"][0]["imports"]),
+            "symbols": [_quantity_symbol("external_value", "constant")],
+        }
+    )
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "from-aux"},
+            "arguments": [],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "symbol-only-formula-module.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    context = authority_module.packaged_authority_context()
+    admission = model_module.admit_resolved_model(
+        {
+            name: json.loads((published / f"{name}.json").read_text())
+            for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+        },
+        authority_context=context,
+    )
+    assert admission.admitted
+
+
 def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
     source_document = _model_source()
     quantity_contract = {

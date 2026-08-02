@@ -572,6 +572,16 @@ class _FormulaParser:
             )
         if module_id not in modules_by_id:
             raise ValueError("Formula current module is outside its module closure")
+        closure_module = modules_by_id[module_id]
+        for member in (
+            self.profile["imports_member"],
+            self.profile["symbols_member"],
+            self.policy["module_formulas_member"],
+        ):
+            if member in module and module[member] != closure_module.get(member, []):
+                raise ValueError(
+                    "Formula current module conflicts with its module closure"
+                )
         self.imports = imports_by_module[module_id]
         self.source_type_aliases = {
             (identity["package"], identity["version"], identity["symbol"]): alias

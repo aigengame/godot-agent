@@ -1168,6 +1168,51 @@ def test_formula_parse_requires_exact_schema_and_import_resolution(
     assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == expected_code
 
 
+def test_formula_parse_refuses_a_current_module_that_conflicts_with_its_closure(
+    tmp_path: Path, run_cli
+) -> None:
+    boolean = {
+        key: value for key, value in _boolean_contract("flag").items() if key != "id"
+    }
+    source = tmp_path / "conflicting-module-context.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "modules": [
+                    {**_quantity_module("main"), "symbols": [], "formulas": []}
+                ],
+                "module": {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "ghost",
+                            "package": "ghost.package",
+                            "version": "9.9.9",
+                            "symbol": "Fake",
+                        }
+                    ],
+                },
+                "formula": {
+                    "id": "identity",
+                    "parameters": [{"id": "flag", **boolean}],
+                    "result": boolean,
+                    "expression": "flag",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
+        "language.source_contract_mismatch"
+    )
+
+
 def test_formula_parse_resolves_cross_module_formula_calls(
     tmp_path: Path, run_cli
 ) -> None:
@@ -2250,6 +2295,56 @@ def test_independent_consumer_enforces_notation_resource_bounds() -> None:
     }
 
     assert not independently_admit_pair(request, context.language_bundle)
+
+
+def test_independent_consumer_requires_exact_context_and_algorithm(
+    pristine_authority_context,
+) -> None:
+    boolean = {
+        key: value for key, value in _boolean_contract("flag").items() if key != "id"
+    }
+    request = {
+        "schema_version": "999.0.0",
+        "package_requirements": [],
+        "module": {
+            "id": "main",
+            "imports": [
+                {
+                    "alias": "ghost",
+                    "package": "ghost.package",
+                    "version": "9.9.9",
+                    "symbol": "Fake",
+                }
+            ],
+        },
+        "formula": {
+            "id": "identity",
+            "parameters": [{"id": "flag", **boolean}],
+            "result": boolean,
+            "body": {"node": "parameter", "parameter": "flag"},
+            "expression": "flag",
+        },
+    }
+    assert not independently_admit_pair(
+        request, pristine_authority_context.language_bundle
+    )
+
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    profile = next(
+        row
+        for row in language_bundle["language"]["resolution_profiles"]
+        if row.get("default") is True
+    )
+    profile["extensions"]["standard.formula"]["notation_conversion"]["infix_parser"][
+        "algorithm"
+    ] = "ignored-host-algorithm"
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    request["schema_version"] = "2.0.0"
+    request["module"] = {"id": "main", "imports": []}
+
+    assert not independently_admit_pair(request, drifted.language_bundle)
 
 
 def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> None:

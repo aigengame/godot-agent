@@ -36,7 +36,7 @@ def _authority(
     )
 
 
-def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
+def _resolution_profile(language_bundle: dict[str, Any]) -> dict[str, Any]:
     profiles = [
         row
         for row in language_bundle["language"]["resolution_profiles"]
@@ -44,7 +44,15 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     ]
     if len(profiles) != 1:
         raise ValueError("independent consumer found no default resolution profile")
-    policy = profiles[0].get("extensions", {}).get("standard.formula")
+    return profiles[0]
+
+
+def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    policy = (
+        _resolution_profile(language_bundle)
+        .get("extensions", {})
+        .get("standard.formula")
+    )
     if not isinstance(policy, dict):
         raise ValueError("independent consumer found no Formula policy")
     return policy
@@ -52,9 +60,123 @@ def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
 
 def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     policy = _formula_policy(language_bundle).get("notation_conversion")
-    if not isinstance(policy, dict):
+    infix_parser = policy.get("infix_parser") if isinstance(policy, dict) else None
+    if (
+        not isinstance(policy, dict)
+        or not isinstance(infix_parser, dict)
+        or infix_parser.get("algorithm") != "shunting-yard"
+        or not isinstance(infix_parser.get("generated_local_separator"), str)
+        or not infix_parser["generated_local_separator"]
+    ):
         raise ValueError("independent consumer found no notation conversion policy")
     return policy
+
+
+def _validate_context(
+    request: dict[str, Any], language_bundle: dict[str, Any]
+) -> list[dict[str, Any]]:
+    language = language_bundle["language"]
+    profile = _resolution_profile(language_bundle)
+    schema_versions = [
+        definition.get("schema", {})
+        .get("properties", {})
+        .get("schema_version", {})
+        .get("const")
+        for package in language["packages"]
+        if package.get("id") == "standard.schema"
+        for closure in package["semantic_closure"]
+        if closure.get("authority_path") == "language.wire_schemas"
+        for definition in closure["definitions"]
+        if definition.get("artifact_kind") == "model-source-package"
+    ]
+    if len(schema_versions) != 1 or request.get("schema_version") != schema_versions[0]:
+        raise ValueError("independent Formula source schema version is unavailable")
+    requirements = request.get(profile["requirements_member"])
+    if not isinstance(requirements, list):
+        raise ValueError("independent Formula requirements are malformed")
+    requirement_keys: set[tuple[str, str]] = set()
+    for requirement in requirements:
+        if not isinstance(requirement, dict):
+            raise ValueError("independent Formula requirement is malformed")
+        key = (
+            requirement.get(profile["requirement_package_member"]),
+            requirement.get(profile["requirement_version_member"]),
+        )
+        if not all(isinstance(item, str) for item in key) or key in requirement_keys:
+            raise ValueError(
+                "independent Formula requirement is malformed or duplicate"
+            )
+        requirement_keys.add(cast(tuple[str, str], key))
+    packages = {(row["id"], row["version"]): row for row in language["packages"]}
+    if any(key not in packages for key in requirement_keys):
+        raise ValueError("independent Formula requirement is unresolved")
+    if len({package for package, _version in requirement_keys}) != len(
+        requirement_keys
+    ):
+        raise ValueError("independent Formula requirement version is ambiguous")
+    current_module = request.get("module")
+    modules = request.get("modules", [current_module])
+    if not isinstance(current_module, dict) or not isinstance(modules, list):
+        raise ValueError("independent Formula module closure is malformed")
+    modules_by_id: dict[str, dict[str, Any]] = {}
+    for module in modules:
+        module_id = (
+            module.get(profile["module_id_member"])
+            if isinstance(module, dict)
+            else None
+        )
+        if not isinstance(module_id, str) or module_id in modules_by_id:
+            raise ValueError("independent Formula module closure is ambiguous")
+        modules_by_id[module_id] = module
+    current_id = current_module.get(profile["module_id_member"])
+    if not isinstance(current_id, str) or current_id not in modules_by_id:
+        raise ValueError("independent current module is outside its closure")
+    closure_module = modules_by_id[current_id]
+    formula_member = _formula_policy(language_bundle)["module_formulas_member"]
+    for member in (
+        profile["imports_member"],
+        profile["symbols_member"],
+        formula_member,
+    ):
+        if member in current_module and current_module[member] != closure_module.get(
+            member, []
+        ):
+            raise ValueError("independent current module conflicts with its closure")
+    for module in modules:
+        imports = module.get(profile["imports_member"])
+        if not isinstance(imports, list):
+            raise ValueError("independent Formula imports are malformed")
+        aliases: set[str] = set()
+        for imported in imports:
+            if not isinstance(imported, dict):
+                raise ValueError("independent Formula import is malformed")
+            alias = imported.get(profile["import_alias_member"])
+            package_key = (
+                imported.get(profile["import_package_member"]),
+                imported.get(profile["import_version_member"]),
+            )
+            symbol = imported.get(profile["import_symbol_member"])
+            if (
+                not isinstance(alias, str)
+                or alias in aliases
+                or not all(isinstance(item, str) for item in package_key)
+                or not isinstance(symbol, str)
+            ):
+                raise ValueError("independent Formula import is malformed or ambiguous")
+            aliases.add(alias)
+            package = packages.get(cast(tuple[str, str], package_key))
+            exported_types = (
+                {
+                    row.get("id")
+                    for row in package.get("exports", {}).get("types", [])
+                    if isinstance(row, dict)
+                }
+                if isinstance(package, dict)
+                else set()
+            )
+            if package_key not in requirement_keys or symbol not in exported_types:
+                raise ValueError("independent Formula import is unresolved")
+    return modules
 
 
 def _identifier(value: Any, grammar: dict[str, Any]) -> str:
@@ -584,6 +706,7 @@ def parse_canonical(
     grammar, _operations = _authority(language_bundle)
     policy = _conversion_policy(language_bundle)
     formula_policy = _formula_policy(language_bundle)
+    modules = _validate_context(request, language_bundle)
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
     parameters = {
@@ -591,7 +714,6 @@ def parse_canonical(
     }
     module = request["module"]
     module_id = module["id"]
-    modules = request.get("modules", [module])
     imports_by_module = {
         row["id"]: {
             imported["alias"]: (

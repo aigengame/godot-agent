@@ -7187,6 +7187,12 @@ def _rir_formula_pairs_are_admitted(
         if not isinstance(formula, dict) or not isinstance(formula.get("module"), str):
             return False
         by_module.setdefault(cast(str, formula["module"]), []).append(formula)
+    declaration_modules = {
+        cast(str, declaration["resolved_symbol"]["module"])
+        for declaration in rir_declarations
+        if isinstance(declaration.get("resolved_symbol"), dict)
+        and isinstance(declaration["resolved_symbol"].get("module"), str)
+    }
     modules = [
         {
             "id": module_id,
@@ -7197,9 +7203,9 @@ def _rir_formula_pairs_are_admitted(
                 if isinstance(declaration.get("resolved_symbol"), dict)
                 and declaration["resolved_symbol"].get("module") == module_id
             ],
-            "formulas": module_formulas,
+            "formulas": by_module.get(module_id, []),
         }
-        for module_id, module_formulas in by_module.items()
+        for module_id in sorted(set(by_module) | declaration_modules)
     ]
     try:
         for module in modules:
