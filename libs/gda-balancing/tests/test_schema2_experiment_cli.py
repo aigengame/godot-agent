@@ -1404,6 +1404,31 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     assert result.state_after == result.state_before
 
 
+def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == "runtime.event_limit_exceeded"
+    assert [
+        event["ordering_key"]["phase"] for event in result.committed_trace_prefix
+    ] == ["transition", "observation"]
+    assert result.budget_counters["total_events"] == 2
+    assert result.refusing_operation == "observation"
+    assert result.refusing_event_index == 2
+    assert result.state_after == result.state_before
+
+
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
     tmp_path, run_cli
 ):
