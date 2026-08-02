@@ -3620,8 +3620,9 @@ def evaluate_experiment(
     for metric in checked.value["metrics"]:
         metric_identity = _metric_definition_identity(metric)
         observation = metric["observation"]
-        matched: list[tuple[str, int]] = []
+        matched_replications = 0
         for scenario in checked.value["scenarios"]:
+            matched: list[int] = []
             if observation["source"] == "event":
                 for event, _event_state, outcome in scenario_event_outputs[
                     scenario["id"]
@@ -3635,8 +3636,7 @@ def evaluate_experiment(
                     }
                     value = facts.get(observation["member"])
                     if isinstance(value, int):
-                        matched.append((scenario["id"], value))
-                continue
+                        matched.append(value)
             else:
                 expected_name = observation["name"]
                 if expected_name not in {"terminal", f"{scenario['id']}:terminal"}:
@@ -3644,9 +3644,55 @@ def evaluate_experiment(
                 value = scenario_terminal_states[scenario["id"]].get(
                     observation["member"]
                 )
-            if isinstance(value, int):
-                matched.append((scenario["id"], value))
-        if len(matched) != 1:
+                if isinstance(value, int):
+                    matched.append(value)
+            if len(matched) != 1:
+                return _refusal(
+                    stage="evaluation",
+                    code=_diagnostic_for_signal(
+                        checked, "observation-unavailable", "evaluation"
+                    ),
+                    identity=checked.content_identity,
+                    pointer=f"/metrics/{metric['id']}/observation",
+                    message=(
+                        "Metric observation did not resolve to exactly one value "
+                        f"for scenario {scenario['id']}"
+                    ),
+                )
+            matched_replications += 1
+            value = matched[0]
+            scenario_id = scenario["id"]
+            terminal_event_id, terminal_snapshot_identity, terminal_logical_time = (
+                scenario_observation_evidence[(scenario_id, metric["id"])]
+            )
+            target = metric["target"]
+            samples.append(
+                {
+                    "metric": metric["id"],
+                    "metric_definition_identity": metric_identity,
+                    "scenario": scenario_id,
+                    "status": "value",
+                    "value": value,
+                    "unit": metric["unit"],
+                    "logical_time": terminal_logical_time,
+                    "event_id": terminal_event_id,
+                    "snapshot_identity": terminal_snapshot_identity,
+                    "window": metric["window"]["name"],
+                    "dimensions": metric["dimensions"],
+                    "replication_identity": scenario_id,
+                    "source_kind": "simulated",
+                    "provenance": {
+                        "scenario": scenario_id,
+                        "observation_source": observation["source"],
+                        "observation_name": observation["name"],
+                        "observation_member": observation["member"],
+                    },
+                    "within_target": target["minimum"] <= value <= target["maximum"],
+                    "source": observation["source"],
+                    "member": observation["member"],
+                }
+            )
+        if matched_replications == 0:
             return _refusal(
                 stage="evaluation",
                 code=_diagnostic_for_signal(
@@ -3654,39 +3700,8 @@ def evaluate_experiment(
                 ),
                 identity=checked.content_identity,
                 pointer=f"/metrics/{metric['id']}/observation",
-                message="Metric observation did not resolve to exactly one value",
+                message="Metric observation did not select any scenario",
             )
-        scenario_id, value = matched[0]
-        terminal_event_id, terminal_snapshot_identity, terminal_logical_time = (
-            scenario_observation_evidence[(scenario_id, metric["id"])]
-        )
-        target = metric["target"]
-        samples.append(
-            {
-                "metric": metric["id"],
-                "metric_definition_identity": metric_identity,
-                "scenario": scenario_id,
-                "status": "value",
-                "value": value,
-                "unit": metric["unit"],
-                "logical_time": terminal_logical_time,
-                "event_id": terminal_event_id,
-                "snapshot_identity": terminal_snapshot_identity,
-                "window": metric["window"]["name"],
-                "dimensions": metric["dimensions"],
-                "replication_identity": scenario_id,
-                "source_kind": "simulated",
-                "provenance": {
-                    "scenario": scenario_id,
-                    "observation_source": observation["source"],
-                    "observation_name": observation["name"],
-                    "observation_member": observation["member"],
-                },
-                "within_target": target["minimum"] <= value <= target["maximum"],
-                "source": observation["source"],
-                "member": observation["member"],
-            }
-        )
 
     metric_definition_identities, samples = _canonical_metric_dataset(samples)
     trace = _artifact(
