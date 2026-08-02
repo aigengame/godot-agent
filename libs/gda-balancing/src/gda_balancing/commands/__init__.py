@@ -8,7 +8,7 @@ the tuple.
 
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
-from gda_balancing.commands.formula import FORMULA_RENDER
+from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.commands.model import (
     MODEL_BUILD,
     MODEL_CHECK,
@@ -31,6 +31,7 @@ REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     MANIFEST,
     EXPERIMENT_CHECK,
     EXPERIMENT_RUN,
+    FORMULA_PARSE,
     FORMULA_RENDER,
     MODEL_CHECK,
     MODEL_BUILD,

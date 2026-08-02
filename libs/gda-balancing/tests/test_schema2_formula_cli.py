@@ -279,3 +279,90 @@ def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -
 
     assert (exit_code, stderr) == (0, "")
     assert json.loads(stdout)["expression"] == "let same = identity(value);\nsame"
+
+
+def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    expected_body = {
+        "nodes": [
+            {
+                "id": "raw_damage",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.subtract",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {
+                            "kind": "parameter",
+                            "parameter": "damage_before_defense",
+                        },
+                    },
+                    {
+                        "port": "right",
+                        "operand": {
+                            "kind": "parameter",
+                            "parameter": "mitigation",
+                        },
+                    },
+                ],
+                "result": value_contract,
+            },
+            {
+                "id": "damage",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.floor-zero",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {"kind": "local", "local": "raw_damage"},
+                    }
+                ],
+                "result": value_contract,
+            },
+        ],
+        "result": {"kind": "local", "local": "damage"},
+    }
+    request = {
+        "schema_version": "2.0.0",
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "module": {"id": "combat", "imports": []},
+        "formula": {
+            "id": "mitigated-damage",
+            "parameters": [
+                _quantity_contract("damage_before_defense"),
+                _quantity_contract("mitigation"),
+            ],
+            "result": value_contract,
+            "expression": (
+                " let raw_damage = ((damage_before_defense - mitigation)); "
+                "let damage=floor_zero(((raw_damage))); damage "
+            ),
+        },
+    }
+    source = tmp_path / "mitigated-damage-parse.json"
+    source.write_text(json.dumps(request), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    result = json.loads(stdout)
+    assert result["body"] == expected_body
+    assert result["expression"] == (
+        "let raw_damage = damage_before_defense - mitigation;\n"
+        "let damage = floor_zero(raw_damage);\n"
+        "damage"
+    )

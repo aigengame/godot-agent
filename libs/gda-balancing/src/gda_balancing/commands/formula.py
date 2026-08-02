@@ -9,10 +9,19 @@ from pydantic import BaseModel, ConfigDict
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.envelope import UnreadableInputError
 from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.formula_notation import render_formula_body
+from gda_balancing.schema2.formula_notation import (
+    parse_formula_expression,
+    render_formula_body,
+)
 
 
 class FormulaRenderInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: str
+
+
+class FormulaParseInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: str
@@ -44,6 +53,18 @@ def run_formula_render(inp: FormulaRenderInput) -> FormulaConversionResult:
         raise ValueError("Formula render request has no structured body")
     authority_context = packaged_authority_context()
     body = formula["body"]
+    return FormulaConversionResult(
+        body=body,
+        expression=render_formula_body(body, authority_context),
+        kernel_identity=authority_context.kernel["content_identity"],
+        language_bundle_identity=authority_context.language_bundle["content_identity"],
+    )
+
+
+def run_formula_parse(inp: FormulaParseInput) -> FormulaConversionResult:
+    request = _read_request(inp.source)
+    authority_context = packaged_authority_context()
+    body = parse_formula_expression(request, authority_context)
     return FormulaConversionResult(
         body=body,
         expression=render_formula_body(body, authority_context),
@@ -96,6 +117,38 @@ _VALID_RENDER_REQUEST = """{
     "body": {"node": "parameter", "parameter": "value"}
   }
 }"""
+
+_VALID_PARSE_REQUEST = """{
+  "schema_version": "2.0.0",
+  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+  "module": {"id": "main", "imports": []},
+  "formula": {
+    "id": "identity",
+    "parameters": [{"id": "value"}],
+    "result": {},
+    "expression": "value"
+  }
+}"""
+
+
+FORMULA_PARSE = CommandDescriptor(
+    group="formula",
+    command="parse",
+    description="Parse mathematical notation into a canonical structured Formula body.",
+    input_model=FormulaParseInput,
+    output_model=FormulaConversionResult,
+    handler=run_formula_parse,
+    fixtures=ConformanceFixtures(valid_document=_VALID_PARSE_REQUEST),
+    positional_field="source",
+    schema_major=2,
+    structured_params=True,
+    success_schema=_formula_conversion_result_schema,
+    usage_codes=(
+        "invalid_argument",
+        "unknown_argument",
+        "unreadable_input",
+    ),
+)
 
 
 FORMULA_RENDER = CommandDescriptor(
