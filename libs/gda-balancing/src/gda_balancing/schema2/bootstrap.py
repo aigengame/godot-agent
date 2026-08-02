@@ -20,6 +20,7 @@ from gda_balancing.schema2.authority_graph import (
     canonical_graph_members,
     derive_language_index,
 )
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 from gda_balancing.schema2.template_contract import (
     TEMPLATE_ARGUMENT_TYPES,
     TEMPLATE_PRIMITIVE_CHARGES,
@@ -50,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:1a013468b0fbbbec15cf89b20fb5bbbe16c8a3a9302ace9fac270f3b96487914"
+    "sha256:3d8492a7fb38aef990a4c09b8281c0cb28186188d8c116f4bc9f80bc6fcd6a5c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1022,9 +1023,17 @@ def _package_semantic_closure_is_closed(
     if (
         not isinstance(semantic_projection, dict)
         or set(semantic_projection)
-        != {"domain", "path_inventory_member", "source_member", "path_member"}
+        != {
+            "domain",
+            "extension_inventory_member",
+            "path_inventory_member",
+            "source_member",
+            "path_member",
+        }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
+        or semantic_projection.get("extension_inventory_member")
+        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -1039,10 +1048,10 @@ def _package_semantic_closure_is_closed(
         or not set(runtime_paths) <= set(closure_paths)
     ):
         return False
-    runtime_closure = [
-        entry for entry in closure if entry["authority_path"] in set(runtime_paths)
-    ]
     try:
+        runtime_closure = package_runtime_semantic_closure(
+            package, semantic_projection
+        )
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )

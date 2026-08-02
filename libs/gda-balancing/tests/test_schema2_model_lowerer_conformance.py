@@ -255,13 +255,32 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 ]
             )
         runtime_paths = set(package["runtime_semantic_paths"])
-        package["semantic_identity"] = _reference_content_identity(
-            "domain-package-semantic-closure-v2",
+        excluded_extensions = set(package["runtime_semantic_excluded_extensions"])
+        runtime_closure = deepcopy(
             [
                 entry
                 for entry in package["semantic_closure"]
                 if entry["authority_path"] in runtime_paths
-            ],
+            ]
+        )
+        for entry in runtime_closure:
+            for definition in entry["definitions"]:
+                if not isinstance(definition, dict) or not isinstance(
+                    definition.get("extensions"), dict
+                ):
+                    continue
+                retained = {
+                    key: value
+                    for key, value in definition["extensions"].items()
+                    if key not in excluded_extensions
+                }
+                if retained:
+                    definition["extensions"] = retained
+                else:
+                    definition.pop("extensions")
+        package["semantic_identity"] = _reference_content_identity(
+            "domain-package-semantic-closure-v2",
+            runtime_closure,
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
         existing_vectors = {

@@ -29,6 +29,7 @@ from gda_balancing.schema2.authority_graph import (
     derive_language_index,
 )
 from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -3589,16 +3590,14 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                     in owners
                 ]
             )
-        runtime_paths = set(package["runtime_semantic_paths"])
+        semantic_projection = kernel["meta_format"]["package_release"][
+            "semantic_identity_projection"
+        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
             cast(
                 JsonValue,
-                [
-                    entry
-                    for entry in package["semantic_closure"]
-                    if entry["authority_path"] in runtime_paths
-                ],
+                package_runtime_semantic_closure(package, semantic_projection),
             ),
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
@@ -5360,6 +5359,7 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
         if row["id"] == "core.quantity"
     )
     assert original_core["content_identity"] != mutated_core["content_identity"]
+    assert original_core["semantic_identity"] == mutated_core["semantic_identity"]
     baseline_ldb = cast(LanguageBundleIndex, baseline.language_bundle)
     assert (
         baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]

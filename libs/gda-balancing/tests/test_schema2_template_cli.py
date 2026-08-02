@@ -35,6 +35,7 @@ from gda_balancing.schema2.model import (
     checked_model_template_facts,
 )
 from gda_balancing.schema2.projections import wire_schema_projection
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 from gda_balancing.schema2.wire_schema import (
     artifact_wire_schema_identity,
     wire_schema_identity as schema_definition_identity,
@@ -114,14 +115,12 @@ def _reidentify_language_bundle(kernel, language_bundle):
                     in owners
                 ]
             )
-        runtime_paths = set(package["runtime_semantic_paths"])
+        semantic_projection = kernel["meta_format"]["package_release"][
+            "semantic_identity_projection"
+        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
-            [
-                entry
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] in runtime_paths
-            ],
+            package_runtime_semantic_closure(package, semantic_projection),
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
         vector_set["content_identity"] = content_identity(

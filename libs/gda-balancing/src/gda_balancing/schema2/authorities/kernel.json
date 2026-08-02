@@ -843,7 +843,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          "\u007f"
+          ""
         ]
       },
       {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:1a013468b0fbbbec15cf89b20fb5bbbe16c8a3a9302ace9fac270f3b96487914",
+  "content_identity": "sha256:3d8492a7fb38aef990a4c09b8281c0cb28186188d8c116f4bc9f80bc6fcd6a5c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3354,6 +3354,9 @@
         "version": {
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
           "type": "non-empty-string"
+        },
+        "runtime_semantic_excluded_extensions": {
+          "type": "string-list"
         }
       },
       "nested_field_types": {
@@ -3545,6 +3548,7 @@
         "exports",
         "id",
         "profiles",
+        "runtime_semantic_excluded_extensions",
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
@@ -3683,7 +3687,8 @@
         "domain": "domain-package-semantic-closure-v2",
         "path_inventory_member": "runtime_semantic_paths",
         "path_member": "authority_path",
-        "source_member": "semantic_closure"
+        "source_member": "semantic_closure",
+        "extension_inventory_member": "runtime_semantic_excluded_extensions"
       },
       "type_export": {
         "field_types": {
