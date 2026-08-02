@@ -395,6 +395,12 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
                 "facts",
             ],
         }
+        or scheduler.get("external_input_admission")
+        != {
+            "ordering": ["source_identity", "source_sequence"],
+            "sequence_origin": 0,
+            "continuity": "contiguous-per-source",
+        }
         or scheduler.get("terminal_status")
         != {
             "members": [
@@ -524,6 +530,43 @@ def _ordered_root_events(
         for sequence, event in enumerate(_scenario_root_events(scenario))
     ]
     return sorted(admitted, key=lambda event: _scheduler_ordering_key(scheduler, event))
+
+
+def _external_input_plan_is_admitted(
+    scenario: dict[str, Any], admission: dict[str, Any]
+) -> bool:
+    if admission != {
+        "ordering": ["source_identity", "source_sequence"],
+        "sequence_origin": 0,
+        "continuity": "contiguous-per-source",
+    }:
+        raise ValueError("Kernel external-input admission contract is incomplete")
+    external_events = [
+        event
+        for event in _scenario_root_events(scenario)
+        if event["kind"] == "external-input"
+    ]
+    boundaries = sorted({cast(int, event["logical_time"]) for event in external_events})
+    for logical_time in boundaries:
+        boundary_keys = [
+            (cast(str, event["source_identity"]), cast(int, event["source_sequence"]))
+            for event in external_events
+            if event["logical_time"] == logical_time
+        ]
+        if boundary_keys != sorted(boundary_keys):
+            return False
+    source_identities = sorted(
+        {cast(str, event["source_identity"]) for event in external_events}
+    )
+    for source_identity in source_identities:
+        sequences = [
+            cast(int, event["source_sequence"])
+            for event in external_events
+            if event["source_identity"] == source_identity
+        ]
+        if sequences != list(range(len(sequences))):
+            return False
+    return True
 
 
 def _root_event_id(
@@ -788,6 +831,9 @@ def check_experiment(
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
         terminal_condition = scenario["terminal_condition"]
+        external_input_admission = kernel["meta_format"]["runtime_program"][
+            "scheduler"
+        ]["external_input_admission"]
         event_count_too_small = terminal_condition[
             "kind"
         ] == "event-count" and terminal_condition["maximum"] < len(event_plan)
@@ -799,6 +845,9 @@ def check_experiment(
                 not _unique_canonical_rows(event["facts"], "target")
                 for event in event_plan
                 if event["kind"] == "external-input"
+            )
+            or not _external_input_plan_is_admitted(
+                scenario, cast(dict[str, Any], external_input_admission)
             )
             or event_count_too_small
         ):
@@ -2096,10 +2145,13 @@ def evaluate_experiment(
     total_steps = 0
     runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
-    for scenario_index, scenario in enumerate(checked.value["scenarios"]):
+    scheduler = _scheduler_contract(checked)
+    root_events_by_scenario: dict[str, list[dict[str, Any]]] = {}
+    for scenario in checked.value["scenarios"]:
         ordered_events = _ordered_root_events(checked, scenario)
         for root_event in ordered_events:
             root_event["event_id"] = _root_event_id(checked, scenario["id"], root_event)
+        root_events_by_scenario[scenario["id"]] = ordered_events
         root_event_map.extend(
             {
                 "scenario": scenario["id"],
@@ -2110,6 +2162,44 @@ def evaluate_experiment(
                 ordered_events, key=lambda event: event["enqueue_sequence"]
             )
         )
+    admitted_event_count = sum(
+        len(events_for_scenario)
+        for events_for_scenario in root_events_by_scenario.values()
+    )
+    for scenario_index, scenario in enumerate(checked.value["scenarios"]):
+        ordered_events = root_events_by_scenario[scenario["id"]]
+        if len(ordered_events) > runtime_bounds["max_queue_events"]:
+            return _refusal(
+                stage="runtime",
+                variant="pre-event",
+                code=_diagnostic_for_signal(checked, "queue-limit", "runtime"),
+                identity=checked.content_identity,
+                pointer=f"/scenarios/{scenario_index}/event_plan",
+                message="Authored root Events exceed the Runtime queue bound",
+            )
+        if any(
+            event["logical_time"] > runtime_bounds["max_logical_time"]
+            for event in ordered_events
+        ):
+            return _refusal(
+                stage="runtime",
+                variant="pre-event",
+                code=_diagnostic_for_signal(checked, "logical-time-limit", "runtime"),
+                identity=checked.content_identity,
+                pointer=f"/scenarios/{scenario_index}/event_plan",
+                message="Authored root Event exceeds the Runtime logical-time bound",
+            )
+    if admitted_event_count > runtime_bounds["max_total_events"]:
+        return _refusal(
+            stage="runtime",
+            variant="pre-event",
+            code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
+            identity=checked.content_identity,
+            pointer="/scenarios",
+            message="Authored root Events exceed the Runtime total-Event bound",
+        )
+    for scenario_index, scenario in enumerate(checked.value["scenarios"]):
+        ordered_events = root_events_by_scenario[scenario["id"]]
         scenario_entrypoints = [
             entrypoints[event["entrypoint"]]
             for event in ordered_events
@@ -2640,7 +2730,6 @@ def evaluate_experiment(
             return cast(str, outcome), result
 
         pending_events = list(ordered_events)
-        admitted_event_count = len(ordered_events)
         event_position = 0
         terminal_condition = scenario["terminal_condition"]
         terminal_maximum = (
@@ -2649,7 +2738,6 @@ def evaluate_experiment(
             else None
         )
         last_logical_time: int | None = None
-        scheduler = _scheduler_contract(checked)
         while pending_events and (
             terminal_maximum is None or event_position < terminal_maximum
         ):

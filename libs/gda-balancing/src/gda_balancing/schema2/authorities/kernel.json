@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:cd360e13c5e55bc5127e2f02722cc307babbc67a8449665fdf5c654425b9638f",
+  "content_identity": "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6443,6 +6443,14 @@
             "source_sequence",
             "facts"
           ]
+        },
+        "external_input_admission": {
+          "ordering": [
+            "source_identity",
+            "source_sequence"
+          ],
+          "sequence_origin": 0,
+          "continuity": "contiguous-per-source"
         },
         "terminal_status": {
           "members": [

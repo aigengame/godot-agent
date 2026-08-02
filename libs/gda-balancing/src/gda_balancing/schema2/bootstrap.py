@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:cd360e13c5e55bc5127e2f02722cc307babbc67a8449665fdf5c654425b9638f"
+    "sha256:688547c6e7f8376279f88907ca63f3ea41643aea69d12a8548a297dc0326c194"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7641,6 +7641,11 @@ def _runtime_authority_is_closed(
                     "source_sequence",
                     "facts",
                 ],
+            },
+            "external_input_admission": {
+                "ordering": ["source_identity", "source_sequence"],
+                "sequence_origin": 0,
+                "continuity": "contiguous-per-source",
             },
             "terminal_status": {
                 "members": [
