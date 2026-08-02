@@ -1330,6 +1330,84 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     assert sample["logical_time"] == events[-1]["ordering_key"]["logical_time"]
 
 
+def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    assert snapshot_contract["projection"] == [
+        "experiment_identity",
+        "scenario_id",
+        "index",
+        "logical_time",
+        "event_id",
+        "values",
+        "continuation",
+    ]
+    assert snapshot_contract["runtime_configuration_projection"] == {
+        "lifecycle_state": "continuation.lifecycle_state",
+        "scenario_cursor": "continuation.scenario_cursor",
+        "pending_events": "continuation.pending_events",
+        "completed_events": "continuation.completed_events",
+        "current_snapshot": "continuation.current_snapshot",
+        "state": "values",
+        "rng": "continuation.rng",
+        "resource_ledger": "continuation.resource_ledger",
+        "next_enqueue_sequence": "continuation.next_enqueue_sequence",
+        "root_event_map": "continuation.root_event_map",
+    }
+    snapshots = artifacts.members["snapshot-series"].value["snapshots"]
+    events = artifacts.members["event-trace"].value["events"]
+    runtime_members = {
+        "lifecycle_state",
+        "scenario_cursor",
+        "pending_events",
+        "completed_events",
+        "current_snapshot",
+        "rng",
+        "resource_ledger",
+        "next_enqueue_sequence",
+        "root_event_map",
+    }
+    assert all(set(snapshot["continuation"]) == runtime_members for snapshot in snapshots)
+    assert [
+        event["event_id"]
+        for event in snapshots[0]["continuation"]["pending_events"]
+    ] == [events[0]["event_id"]]
+    assert snapshots[0]["continuation"]["completed_events"] == []
+    assert [
+        event["event_id"]
+        for event in snapshots[1]["continuation"]["pending_events"]
+    ] == [events[1]["event_id"]]
+    assert snapshots[1]["continuation"]["completed_events"] == [
+        events[0]["event_id"]
+    ]
+    assert snapshots[2]["continuation"]["completed_events"] == [
+        events[0]["event_id"],
+        events[1]["event_id"],
+    ]
+    altered = deepcopy(snapshots[1]["continuation"])
+    altered["pending_events"] = []
+    assert experiment_runtime_module._projected_runtime_identity(
+        snapshot_contract,
+        {
+            "experiment_identity": checked.content_identity,
+            "scenario_id": snapshots[1]["scenario"],
+            "index": snapshots[1]["index"],
+            "logical_time": snapshots[1]["logical_time"],
+            "event_id": snapshots[1]["event_id"],
+            "values": snapshots[1]["values"],
+            "continuation": altered,
+        },
+    ) != snapshots[1]["snapshot_identity"]
+
+
 def test_kernel_closes_runtime_configuration_transition_and_public_step():
     kernel, _language_bundle = authority_module.load_authorities()
     runtime_program = kernel["meta_format"]["runtime_program"]
@@ -1342,6 +1420,7 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
             "terminated",
         ],
         "members": [
+            "lifecycle_state",
             "scenario_cursor",
             "pending_events",
             "completed_events",
@@ -1371,6 +1450,110 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
         ],
         "result": "committed-boundary",
     }
+
+
+def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    second = deepcopy(specification["scenarios"][0])
+    second["id"] = "second-cast"
+    specification["scenarios"].append(second)
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first-terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "one-cast:terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_events = [
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    ]
+    assert len(runtime_events) == 2
+    assert runtime_events[0]["rng_draws"] == runtime_events[1]["rng_draws"]
+
+
+def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    second = deepcopy(scenario["event_plan"][0])
+    second["root_event_ref"] = "second-cast"
+    second["logical_time"] = 1
+    scenario["event_plan"].append(second)
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    operation = operations[entrypoint["operation"]["id"]]
+    runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
+    per_event_steps = sum(
+        runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
+        for instruction in experiment_runtime_module._expanded_operation_body(
+            operation, operations
+        )
+    )
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_event_steps"] = per_event_steps
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    assert len(
+        [
+            event
+            for event in artifacts.members["event-trace"].value["events"]
+            if event["operation"] is not None
+        ]
+    ) == 2
 
 
 def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
