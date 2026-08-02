@@ -401,11 +401,19 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
             "algorithm": rng_algorithm,
             "value": runtime_vector["input"]["seed"],
         },
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": runtime_vector["id"],
-                "entrypoint": entrypoint["id"],
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "conformance-entrypoint",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": entrypoint["id"],
+                        "payload": [],
+                    }
+                ],
                 "assignments": assignments,
                 "named_streams": named_streams,
                 "terminal_condition": {"kind": "event-count", "maximum": 1},

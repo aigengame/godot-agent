@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:7bebd3e828f26d15611ff4afe2543967d727c29325b5db8c9471d652a7df87c0",
+  "content_identity": "sha256:a9ffe7be906e9433db5d51c054888f25c46c9d33b0a8bca6cb6c134dab60efde",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6275,6 +6275,15 @@
               "phase",
               "priority",
               "enqueue_sequence"
+            ],
+            "observation": [
+              "experiment_identity",
+              "scenario_id",
+              "metric_definition_identity",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
             ]
           }
         },
@@ -6395,6 +6404,13 @@
             "event-count-reached",
             "queue-drained"
           ]
+        },
+        "observation": {
+          "derivation": "exact-metric-array-order-at-terminal-boundary",
+          "entrypoint": "forbidden",
+          "phase": "observation",
+          "priority": 0,
+          "state_effects": "forbidden"
         }
       }
     },

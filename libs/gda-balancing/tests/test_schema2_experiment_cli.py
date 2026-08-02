@@ -33,6 +33,7 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "snapshot_before_identity",
     "snapshot_after_identity",
     "external_input_identity",
+    "observation",
 }
 
 
@@ -1041,13 +1042,14 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
             event["ordering_key"]["enqueue_sequence"],
         )
         for event in events
+        if "root_event_ref" in event
     ] == [
         ("high-priority-cast", 0, "transition", 10, 1),
         ("low-priority-cast", 0, "transition", 0, 0),
     ]
-    assert len({event["event_id"] for event in events}) == 2
+    assert len({event["event_id"] for event in events}) == 3
     assert events[1]["state_before"] == events[0]["state_after"]
-    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 4
 
 
 def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
@@ -1155,6 +1157,7 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     assert [event["operation"] for event in events] == [
         "game.combat.plan-casts-v1",
         "game.combat.cast-v1",
+        None,
     ]
     schedules = events[0]["schedules"]
     assert len(schedules) == 2
@@ -1162,9 +1165,7 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     assert events[1]["parent_event_id"] == events[0]["event_id"]
     assert events[0]["cancellations"] == [
         {
-            "call_site_identity": events[0]["cancellations"][0][
-                "call_site_identity"
-            ],
+            "call_site_identity": events[0]["cancellations"][0]["call_site_identity"],
             "event_id": schedules[1]["event_id"],
             "outcome": "canceled",
         }
@@ -1179,13 +1180,16 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     ]
     assert trace["root_event_map"] == root_map
     snapshots = _member(receipt, "snapshot-series")["snapshots"]
-    assert all(snapshot["snapshot_identity"].startswith("sha256:") for snapshot in snapshots)
+    assert all(
+        snapshot["snapshot_identity"].startswith("sha256:") for snapshot in snapshots
+    )
     assert [
         (event["snapshot_before_identity"], event["snapshot_after_identity"])
         for event in events
     ] == [
         (snapshots[0]["snapshot_identity"], snapshots[1]["snapshot_identity"]),
         (snapshots[1]["snapshot_identity"], snapshots[2]["snapshot_identity"]),
+        (snapshots[2]["snapshot_identity"], snapshots[3]["snapshot_identity"]),
     ]
     terminal_status = {
         "scenario": "one-cast",
@@ -1224,9 +1228,7 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     )
     first_schedule["logical_time"] = -1
 
-    result = experiment_runtime_module.evaluate_experiment(
-        replace(checked, rir=rir)
-    )
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
 
     assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
     assert result.report.diagnostics[0].code == "runtime.schedule_backward"
@@ -1288,9 +1290,7 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
         )
         cancel["event"]["local"] = "missing_event"
 
-    result = experiment_runtime_module.evaluate_experiment(
-        replace(checked, rir=rir)
-    )
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
 
     assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
     assert result.report.diagnostics[0].code == expected_code
@@ -1401,11 +1401,14 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
             "input_identity": input_identity,
         }
     ]
-    assert next(
-        fact["integer"]
-        for fact in events[1]["facts"]
-        if fact["name"] == "target_defense"
-    ) == 200
+    assert (
+        next(
+            fact["integer"]
+            for fact in events[1]["facts"]
+            if fact["name"] == "target_defense"
+        )
+        == 200
+    )
     assert events[1]["state_after"] == [
         {"name": "actor_mana", "value": 30},
         {"name": "target_health", "value": 100},
@@ -2076,14 +2079,15 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
     events = artifacts.members["event-trace"].value["events"]
     snapshots = artifacts.members["snapshot-series"].value["snapshots"]
-    terminal_snapshots = [
-        snapshot for snapshot in snapshots if snapshot["name"].endswith(":terminal")
+    observation_input_snapshots = [
+        snapshot for snapshot in snapshots if ":event:" in snapshot["name"]
     ]
     assert observation_frames == [
-        snapshot["snapshot_identity"] for snapshot in terminal_snapshots
+        snapshot["snapshot_identity"] for snapshot in observation_input_snapshots
     ]
     assert len(set(observation_frames)) == 2
     assert observation_cache_growth == [1, 1]
+    runtime_events = [event for event in events if event["operation"] is not None]
     for event in events:
         facts = {row["name"]: row["integer"] for row in event["facts"]}
         assert facts["target_health"] == 82
@@ -2091,24 +2095,27 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     positive_evidence = _observation_evidence(
         site="runtime.lifecycle-observation.positive",
         cache_entries=observation_cache_growth[0],
-        events=events[:1],
+        events=runtime_events[:1],
         outcome="admitted",
         post_state_committed=(
-            terminal_snapshots[0]["values"] == events[0]["state_after"]
+            observation_input_snapshots[0]["values"] == runtime_events[0]["state_after"]
         ),
         snapshot_identities=cast(list[str], observation_frames[:1]),
-        snapshot_indices=[terminal_snapshots[0]["index"]],
+        snapshot_indices=[observation_input_snapshots[0]["index"]],
     )
     boundary_evidence = _observation_evidence(
         site="runtime.lifecycle-observation.boundary",
         cache_entries=sum(observation_cache_growth),
-        events=events,
+        events=runtime_events,
         outcome="admitted",
         post_state_committed=(
-            terminal_snapshots[-1]["values"] == events[-1]["state_after"]
+            observation_input_snapshots[-1]["values"]
+            == runtime_events[-1]["state_after"]
         ),
         snapshot_identities=cast(list[str], observation_frames),
-        snapshot_indices=[snapshot["index"] for snapshot in terminal_snapshots],
+        snapshot_indices=[
+            snapshot["index"] for snapshot in observation_input_snapshots
+        ],
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -2175,11 +2182,21 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
         },
         {
             "index": 1,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
+        {
+            "index": 2,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
+        {
+            "index": 3,
             "operation": "game.combat.cast-v1",
             "outcome": {"id": "cast-resolved", "kind": "success"},
         },
     )
-    assert outcome.refusing_event_index == 2
+    assert outcome.refusing_event_index == 4
     assert outcome.last_state["target_health"] == 82
     assert outcome.state_before == outcome.state_after == outcome.last_state
     evidence = _observation_evidence(
@@ -2191,7 +2208,7 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
             outcome.state_before == outcome.state_after == outcome.last_state
         ),
         snapshot_identities=observation_frames,
-        snapshot_indices=[1, 3],
+        snapshot_indices=[1, 5],
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -2252,11 +2269,9 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
         }
     )
     requirements, _named_streams = (
-            experiment_runtime_module.derive_scenario_program_requirements(
-                _member(build_receipt, "rir-semantic-payload"),
-                entrypoint_id=specification["scenarios"][0]["event_plan"][0][
-                    "entrypoint"
-                ],
+        experiment_runtime_module.derive_scenario_program_requirements(
+            _member(build_receipt, "rir-semantic-payload"),
+            entrypoint_id=specification["scenarios"][0]["event_plan"][0]["entrypoint"],
             runtime_profile=specification["runtime"]["profile"],
             rng_algorithm=specification["seed"]["algorithm"],
         )
@@ -2842,11 +2857,9 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "rir_identity": edited_build_record["rir_identity"],
     }
     tuned_requirements, _named_streams = (
-            experiment_runtime_module.derive_scenario_program_requirements(
-                _member(edited_build_receipt, "rir-semantic-payload"),
-                entrypoint_id=tuned_spec["scenarios"][0]["event_plan"][0][
-                    "entrypoint"
-                ],
+        experiment_runtime_module.derive_scenario_program_requirements(
+            _member(edited_build_receipt, "rir-semantic-payload"),
+            entrypoint_id=tuned_spec["scenarios"][0]["event_plan"][0]["entrypoint"],
             runtime_profile=tuned_spec["runtime"]["profile"],
             rng_algorithm=tuned_spec["seed"]["algorithm"],
         )
@@ -4625,7 +4638,13 @@ def test_operation_step_budget_is_scoped_per_event_not_across_scenarios(
 
     assert (exit_code, stderr) == (0, "")
     trace = _member(json.loads(stdout), "event-trace")
-    assert len(trace["events"]) == 5
+    assert (
+        len([event for event in trace["events"] if event["operation"] is not None]) == 5
+    )
+    assert (
+        len([event for event in trace["events"] if event["observation"] is not None])
+        == 5
+    )
 
 
 def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_cli):
@@ -4691,7 +4710,17 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
             "index": 0,
             "operation": "game.combat.cast-v1",
             "outcome": {"id": "cast-resolved", "kind": "success"},
-        }
+        },
+        {
+            "index": 1,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
+        {
+            "index": 2,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
     ]
 
 

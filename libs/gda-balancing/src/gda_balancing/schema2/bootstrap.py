@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7bebd3e828f26d15611ff4afe2543967d727c29325b5db8c9471d652a7df87c0"
+    "sha256:a9ffe7be906e9433db5d51c054888f25c46c9d33b0a8bca6cb6c134dab60efde"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7400,6 +7400,15 @@ def _runtime_authority_is_closed(
                         "priority",
                         "enqueue_sequence",
                     ],
+                    "observation": [
+                        "experiment_identity",
+                        "scenario_id",
+                        "metric_definition_identity",
+                        "logical_time",
+                        "phase",
+                        "priority",
+                        "enqueue_sequence",
+                    ],
                 },
             },
             "ordering": [
@@ -7497,6 +7506,13 @@ def _runtime_authority_is_closed(
                     "logical_time",
                 ],
                 "reasons": ["event-count-reached", "queue-drained"],
+            },
+            "observation": {
+                "derivation": "exact-metric-array-order-at-terminal-boundary",
+                "entrypoint": "forbidden",
+                "phase": "observation",
+                "priority": 0,
+                "state_effects": "forbidden",
             },
             "step_boundary": "next-observation-or-logical-boundary",
         }
