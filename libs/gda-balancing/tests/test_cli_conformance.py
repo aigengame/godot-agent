@@ -45,10 +45,39 @@ def _assert_envelope(stderr_text: str, category: str) -> dict:
     return payload["error"]
 
 
-_IDS = [" ".join(_command_path(d)) for d in REGISTRY]
+_FORMULA_INAPPLICABLE_ROWS = frozenset(
+    {
+        "test_artifact_sink_row",
+        "test_out_aliasing_input_is_argument_conflict",
+        "test_receipt_forbidden_without_out",
+        "test_unwritable_sink_is_usage_error",
+        "test_verdict_row",
+    }
+)
 
 
-@pytest.mark.parametrize("descriptor", REGISTRY, ids=_IDS)
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Collect Formula only for descriptor rows that apply to conversion commands."""
+    if (
+        metafunc.cls is not TestPerDescriptorRows
+        or "descriptor" not in metafunc.fixturenames
+    ):
+        return
+    descriptors = tuple(
+        descriptor
+        for descriptor in REGISTRY
+        if not (
+            descriptor.group == "formula"
+            and metafunc.function.__name__ in _FORMULA_INAPPLICABLE_ROWS
+        )
+    )
+    metafunc.parametrize(
+        "descriptor",
+        descriptors,
+        ids=[" ".join(_command_path(descriptor)) for descriptor in descriptors],
+    )
+
+
 class TestPerDescriptorRows:
     def test_success_row(self, descriptor, run_cli, invocation):
         exit_code, stdout, stderr = run_cli(invocation(descriptor))
