@@ -870,7 +870,16 @@ def _experiment(
         "scenarios": [
             {
                 "id": "one-cast",
-                "entrypoint": "combat.cast",
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "cast",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": "combat.cast",
+                        "payload": [],
+                    }
+                ],
                 "assignments": [
                     {
                         "target": {
@@ -962,7 +971,6 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
-    scenario.pop("entrypoint")
     scenario["event_plan"] = [
         {
             "kind": "transition-invocation",
@@ -1865,9 +1873,11 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
         }
     )
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
-            _member(build_receipt, "rir-semantic-payload"),
-            entrypoint_id=specification["scenarios"][0]["entrypoint"],
+            experiment_runtime_module.derive_scenario_program_requirements(
+                _member(build_receipt, "rir-semantic-payload"),
+                entrypoint_id=specification["scenarios"][0]["event_plan"][0][
+                    "entrypoint"
+                ],
             runtime_profile=specification["runtime"]["profile"],
             rng_algorithm=specification["seed"]["algorithm"],
         )
@@ -1977,7 +1987,16 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
     specification["scenarios"] = [
         {
             "id": "one-cast",
-            "entrypoint": "combat.cast",
+            "event_plan": [
+                {
+                    "kind": "transition-invocation",
+                    "root_event_ref": "cast",
+                    "logical_time": 0,
+                    "priority": 0,
+                    "entrypoint": "combat.cast",
+                    "payload": [],
+                }
+            ],
             "assignments": [
                 {"target": resolved_target(name), "value": value}
                 for name, value in (
@@ -2107,9 +2126,9 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
 def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
-    scenario = value["scenarios"][0]
-    scenario.pop("entrypoint")
-    scenario["operation"] = "game.combat.cast-v1"
+    root_event = value["scenarios"][0]["event_plan"][0]
+    root_event.pop("entrypoint")
+    root_event["operation"] = "game.combat.cast-v1"
     specification.write_text(json.dumps(value), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
@@ -2119,8 +2138,8 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     assert error["stage"] == "static"
     pointer = error["diagnostics"][0]["primary"]["pointer"]
     assert pointer in {
-        "/scenarios/0/entrypoint",
-        "/scenarios/0/operation",
+        "/scenarios/0/event_plan/0/entrypoint",
+        "/scenarios/0/event_plan/0/operation",
     }
 
 
@@ -2320,7 +2339,9 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in first_trace["events"][0].items() if key != "index"
+        key: value
+        for key, value in first_trace["events"][0].items()
+        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
     } == reference_event
     assert (
         next(
@@ -2442,9 +2463,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "rir_identity": edited_build_record["rir_identity"],
     }
     tuned_requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
-            _member(edited_build_receipt, "rir-semantic-payload"),
-            entrypoint_id=tuned_spec["scenarios"][0]["entrypoint"],
+            experiment_runtime_module.derive_scenario_program_requirements(
+                _member(edited_build_receipt, "rir-semantic-payload"),
+                entrypoint_id=tuned_spec["scenarios"][0]["event_plan"][0][
+                    "entrypoint"
+                ],
             runtime_profile=tuned_spec["runtime"]["profile"],
             rng_algorithm=tuned_spec["seed"]["algorithm"],
         )
@@ -3381,8 +3404,9 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
         for scenario in checked.value["scenarios"]
+        for event in scenario["event_plan"]
         for instruction in experiment_runtime_module._expanded_operation_body(
-            operations[entrypoints[scenario["entrypoint"]]["operation"]["id"]],
+            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
     }
@@ -3795,7 +3819,9 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: item for key, item in production_event.items() if key != "index"
+        key: item
+        for key, item in production_event.items()
+        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
     } == reference_event
     assert (
         next(
@@ -3855,7 +3881,9 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in production_event.items() if key != "index"
+        key: value
+        for key, value in production_event.items()
+        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
     } == reference_event
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},
@@ -3918,7 +3946,9 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in production_event.items() if key != "index"
+        key: value
+        for key, value in production_event.items()
+        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
     } == reference_event
     assert (
         next(
@@ -4017,7 +4047,9 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: item for key, item in production_event.items() if key != "index"
+        key: item
+        for key, item in production_event.items()
+        if key not in {"index", "event_id", "root_event_ref", "ordering_key"}
     } == reference_event
     assert production_event["outcome"]["id"] == "miss"
     assert production_event["state_after"] == [
