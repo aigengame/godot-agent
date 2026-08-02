@@ -9,8 +9,15 @@ from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.envelope import UnreadableInputError
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
+)
+from gda_balancing.schema2.canonical import (
+    JsonValue,
+    content_identity,
+    parse_canonical_object,
+)
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     RefusalStage,
@@ -49,23 +56,51 @@ class FormulaConversionResult(BaseModel):
     language_bundle_identity: str
 
 
-def _read_request(path: str) -> dict[str, Any]:
+def _read_request(
+    path: str,
+    authority_context: AdmittedAuthorityContext,
+) -> dict[str, Any]:
+    max_bytes = cast(
+        int, authority_context.language_bundle["resources"]["max_source_bytes"]
+    )
     try:
-        value = json.loads(Path(path).read_bytes())
+        with Path(path).open("rb") as stream:
+            data = stream.read(max_bytes + 1)
     except OSError as err:
         raise UnreadableInputError from err
-    if not isinstance(value, dict):
-        raise ValueError("Formula conversion request must be an object")
-    return value
+    if len(data) > max_bytes:
+        raise FormulaNotationRefusal(
+            "model.reason.source-too-large",
+            "Formula conversion request exceeds the admitted ingress bound",
+        )
+    try:
+        return parse_canonical_object(
+            data,
+            artifact_name="Formula conversion request",
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as err:
+        raise FormulaNotationRefusal(
+            "model.reason.source-parse-failure",
+            f"Formula conversion request is outside canonical JSON: {err}",
+        ) from err
 
 
 def run_formula_render(
     inp: FormulaRenderInput,
 ) -> FormulaConversionResult | Schema2RefusalReport:
-    request = _read_request(inp.source)
+    authority_context = packaged_authority_context()
+    try:
+        request = _read_request(inp.source, authority_context)
+    except FormulaNotationRefusal as err:
+        return _formula_refusal_report(
+            {},
+            authority_context.language_bundle,
+            err,
+            identity_domain=formula_notation_request_identity_domain(authority_context),
+            pointer="",
+        )
     formula = request.get("formula")
     if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
-        authority_context = packaged_authority_context()
         return _formula_refusal_report(
             request,
             authority_context.language_bundle,
@@ -76,7 +111,6 @@ def run_formula_render(
             identity_domain=formula_notation_request_identity_domain(authority_context),
             pointer="/formula/body",
         )
-    authority_context = packaged_authority_context()
     body = formula["body"]
     try:
         expression = render_formula_body(body, authority_context)
@@ -103,8 +137,17 @@ def run_formula_render(
 def run_formula_parse(
     inp: FormulaParseInput,
 ) -> FormulaConversionResult | Schema2RefusalReport:
-    request = _read_request(inp.source)
     authority_context = packaged_authority_context()
+    try:
+        request = _read_request(inp.source, authority_context)
+    except FormulaNotationRefusal as err:
+        return _formula_refusal_report(
+            {},
+            authority_context.language_bundle,
+            err,
+            identity_domain=formula_notation_request_identity_domain(authority_context),
+            pointer="",
+        )
     try:
         body = parse_formula_expression(request, authority_context)
     except FormulaNotationRefusal as err:
@@ -184,12 +227,12 @@ _VALID_RENDER_REQUEST = """{
   "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
   "module": {
     "id": "main",
-    "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.1.0", "symbol": "Quantity"}]
+    "imports": []
   },
   "formula": {
     "id": "identity",
-    "parameters": [{"id": "value"}],
-    "result": {},
+    "parameters": [{"id": "value", "type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}],
+    "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"},
     "body": {"node": "parameter", "parameter": "value"}
   }
 }"""
@@ -200,8 +243,8 @@ _VALID_PARSE_REQUEST = """{
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "identity",
-    "parameters": [{"id": "value"}],
-    "result": {},
+    "parameters": [{"id": "value", "type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}],
+    "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"},
     "expression": "value"
   }
 }"""
@@ -212,8 +255,8 @@ _REFUSING_PARSE_REQUEST = """{
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "identity",
-    "parameters": [{"id": "value"}],
-    "result": {},
+    "parameters": [{"id": "value", "type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}],
+    "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"},
     "expression": "identity(value"
   }
 }"""
@@ -224,15 +267,15 @@ _REFUSING_RENDER_REQUEST = """{
   "module": {"id": "main", "imports": []},
   "formula": {
     "id": "unknown-operation",
-    "parameters": [{"id": "value"}],
-    "result": {},
+    "parameters": [{"id": "value", "type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}],
+    "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"},
     "body": {
       "nodes": [{
         "id": "result",
         "node": "operation-call",
         "operation": {"package": "core.quantity", "version": "2.1.0", "id": "quantity.unknown"},
         "arguments": [{"port": "value", "operand": {"kind": "parameter", "parameter": "value"}}],
-        "result": {}
+        "result": {"type": "Boolean", "representation": "Bool", "kind": "boolean", "unit": "1", "domain": {"kind": "boolean"}, "numeric_policy": "exact-bool"}
       }],
       "result": {"kind": "local", "local": "result"}
     }
@@ -262,6 +305,8 @@ FORMULA_PARSE = CommandDescriptor(
             "model.reason.unresolved-name",
             "model.reason.name-ambiguity",
             "model.reason.formula-type-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
             "model.reason.source-contract-mismatch",
         )
     ),
@@ -294,6 +339,8 @@ FORMULA_RENDER = CommandDescriptor(
             "model.reason.name-ambiguity",
             "model.reason.formula-notation-mismatch",
             "model.reason.formula-type-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
             "model.reason.source-contract-mismatch",
         )
     ),

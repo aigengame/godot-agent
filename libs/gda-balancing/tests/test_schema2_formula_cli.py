@@ -760,6 +760,54 @@ def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"{",
+        b"[]",
+        b'{"formula":{},"formula":{}}',
+        b'{"value":"\\ud800"}',
+    ),
+    ids=("malformed", "non-object", "duplicate-key", "lone-surrogate"),
+)
+def test_formula_conversion_refuses_noncanonical_json_ingress(
+    tmp_path: Path, run_cli, payload: bytes
+) -> None:
+    source = tmp_path / "invalid-request.json"
+    source.write_bytes(payload)
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.source_parse_failure"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == ""
+
+
+def test_formula_conversion_refuses_request_bytes_above_the_ingress_bound(
+    tmp_path: Path, run_cli
+) -> None:
+    context = authority_module.packaged_authority_context()
+    source = tmp_path / "oversized-request.json"
+    source.write_bytes(
+        b"{"
+        + b" " * cast(int, context.language_bundle["resources"]["max_source_bytes"])
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "ingress"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.source_too_large"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == ""
+
+
 def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
     tmp_path: Path, run_cli
 ) -> None:
