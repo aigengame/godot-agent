@@ -738,6 +738,129 @@ def _reference_evaluate_value_program_vector(
     }
 
 
+def _reference_evaluate_scheduler_vector(
+    kernel: dict[str, Any],
+    vector: dict[str, Any],
+    *,
+    mutation: str | None = None,
+) -> dict[str, Any]:
+    scheduler = kernel["meta_format"]["runtime_program"]["scheduler"]
+    events = deepcopy(vector["input"]["events"])
+    initial_states = vector["input"]["initial_states"]
+    scenario_order = {
+        row["scenario"]: index for index, row in enumerate(initial_states)
+    }
+    states = {row["scenario"]: row["value"] for row in initial_states}
+    by_id = {event["id"]: event for event in events}
+
+    def refused(signal: str) -> dict[str, Any]:
+        return {
+            "event_order": [],
+            "observations": [],
+            "outcome": "refused",
+            "signal": signal,
+            "terminal_reason": None,
+            "terminal_states": deepcopy(initial_states),
+        }
+
+    for event in events:
+        if not event["cancel_requested"]:
+            continue
+        status = event["status"]
+        if status not in scheduler["cancel"]["admitted_target_states"]:
+            return refused(scheduler["cancel"]["refusal_signals"][status])
+    for event in events:
+        parent_id = event["parent_id"]
+        if parent_id is None:
+            continue
+        parent = by_id[parent_id]
+        if event["phase"] != scheduler["schedule"]["child_phase"]:
+            return refused(scheduler["schedule"]["refusal_signals"]["hidden_input"])
+        if (
+            mutation != "backward-scheduling"
+            and event["logical_time"] < parent["logical_time"]
+        ):
+            return refused(scheduler["schedule"]["refusal_signals"]["backward"])
+        if (
+            event["logical_time"] == parent["logical_time"]
+            and event["priority"] > parent["priority"]
+        ):
+            return refused(
+                scheduler["schedule"]["refusal_signals"][
+                    "illegal_same_time_priority"
+                ]
+            )
+
+    phase_rank = {
+        phase: index
+        for index, phase in enumerate(scheduler["ordering"][1]["rank"])
+    }
+
+    def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
+        if mutation == "host-assigned-ordering":
+            return (event["id"],)
+        key: tuple[Any, ...] = (
+            scenario_order[event["scenario"]],
+            event["logical_time"],
+            phase_rank[event["phase"]],
+            -event["priority"],
+        )
+        if mutation != "omitted-key":
+            key = (*key, event["enqueue_sequence"])
+        return key
+
+    admitted = sorted(
+        (
+            event
+            for event in events
+            if event["status"] not in {"canceled", "completed"}
+            and not event["cancel_requested"]
+        ),
+        key=ordering_key,
+    )
+    observations = []
+    shared_state = next(iter(states.values()))
+    for event in admitted:
+        scenario = event["scenario"]
+        before = (
+            shared_state
+            if mutation == "scenario-as-timestep"
+            else states[scenario]
+        )
+        if mutation == "pre-commit-visibility":
+            before = next(
+                row["value"]
+                for row in initial_states
+                if row["scenario"] == scenario
+            )
+        after = before + event["state_delta"]
+        if mutation == "scenario-as-timestep":
+            shared_state = after
+        elif mutation != "pre-commit-visibility":
+            states[scenario] = after
+        observations.append(
+            {
+                "event_id": event["id"],
+                "scenario": scenario,
+                "state_after": after,
+                "state_before": before,
+            }
+        )
+    if mutation == "scenario-as-timestep":
+        states = {scenario: shared_state for scenario in states}
+    return {
+        "event_order": [event["id"] for event in admitted],
+        "observations": observations,
+        "outcome": "admitted",
+        "signal": None,
+        "terminal_reason": vector["input"]["terminal_condition"],
+        "terminal_states": [
+            {"scenario": row["scenario"], "value": states[row["scenario"]]}
+            for row in initial_states
+        ],
+    }
+
+
 def _observation_evidence(
     *,
     site: str,
@@ -3450,6 +3573,46 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
+    kernel, ldb = authority_module.load_authorities()
+    vectors = {
+        vector["id"]: vector
+        for vector in next(
+            vector_set["vector_definitions"]
+            for vector_set in ldb.package_conformance_vector_sets
+            if vector_set["package_id"] == "standard.runtime"
+            and vector_set["package_version"] == "1.1.0"
+        )
+        if vector.get("kind") == "scheduler-scenario"
+    }
+    mutation_vectors = {
+        "runtime.scheduler.mutation.omitted-key": "omitted-key",
+        "runtime.scheduler.mutation.host-ordering": "host-assigned-ordering",
+        "runtime.scheduler.mutation.precommit": "pre-commit-visibility",
+        "runtime.scheduler.mutation.backward": "backward-scheduling",
+        "runtime.scheduler.mutation.scenario-timestep": "scenario-as-timestep",
+    }
+    assert set(vectors) == {
+        "runtime.scheduler.accept.total-order-visibility-cancellation",
+        "runtime.scheduler.refuse.cancel-active",
+        "runtime.scheduler.refuse.cancel-completed",
+        *mutation_vectors,
+    }
+    for vector in vectors.values():
+        production = experiment_runtime_module._evaluate_scheduler_vector(
+            kernel, vector
+        )
+        reference = _reference_evaluate_scheduler_vector(kernel, vector)
+        assert production == reference == vector["expect"]
+    for vector_id, mutation in mutation_vectors.items():
+        mutated = _reference_evaluate_scheduler_vector(
+            kernel,
+            vectors[vector_id],
+            mutation=mutation,
+        )
+        assert mutated != vectors[vector_id]["expect"]
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():
