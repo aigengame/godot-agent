@@ -295,7 +295,9 @@ structured pure body. Formula names resolve statically, calls form an acyclic gr
 are neither first-class values nor dynamic callbacks. Every Formula declaration data instance
 carries adjacent `body` and canonical human-readable `expression` members. The body is the pair's
 authoritative source member; the expression is a package-owned reversible projection, never a peer
-semantic authority. bADR-0024 owns the exact grammar, admission, and identity rules.
+semantic authority. Inline expression syntax, if admitted, remains only Authoring-AST sugar
+normalized to the same named Formula declaration-and-binding form before Typed HIR; it creates no
+alternative typing, identity, evaluation, or explanation rules. bADR-0022/0024 own the detail.
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible

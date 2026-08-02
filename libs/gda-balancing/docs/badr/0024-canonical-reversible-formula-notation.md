@@ -37,8 +37,9 @@ making presentation wording part of semantic equivalence.
   equivalence, and HIR normalization. A host parser or renderer consumes those authorities and
   cannot hard-code an operation catalog.
 
-  The first RPG vertical requires `core.quantity@2.1.0` to declare these exact conventional
-  mappings: `quantity.subtract` is infix `-` with ordered ports `left`, `right`;
+  The first RPG vertical requires the exact `core.quantity` Package Release selected by the
+  committed example to declare these conventional mappings: `quantity.subtract` is infix `-` with
+  ordered ports `left`, `right`;
   `quantity.floor-zero` is `floor_zero(value)`; `quantity.maximum` is `max(left, right)`; and
   `quantity.identity` is `identity(value)`. The list is the initial conformance witness, not a
   complete or host-owned Operation catalog.
@@ -93,29 +94,34 @@ making presentation wording part of semantic equivalence.
 
 - **Formula-notation identities derive from orthogonal projections.** Every notation-content
   mutation reidentifies its owning Package Release and whole LDB; Resolved Model consequently
-  changes because it binds the exact whole LDB. Package Lock changes if and only if the owning
-  Package Release is selected. RIR `content_identity` is the hash of the complete canonical RIR JSON
-  and changes if and only if any covered canonical byte changes. Holding every other RIR member
-  fixed, a notation-only mutation changes it if and only if at least one canonical `expression` byte
-  sequence in the selected reachable Formula projection changes. RIR `semantic_identity` covers
-  only the executable semantic projection, excludes `expression`, and never changes for a
-  notation-only mutation. Package selection and expression projection effect are therefore
-  separate; RIR never embeds a notation catalog merely because a release is selected.
+  changes because it binds the exact whole LDB. Package Lock changes if and only if its complete
+  canonical projection changes. Mutating a selected Package Release is sufficient because the Lock
+  binds its exact identity, but selection is not necessary: the Lock also embeds its normative
+  Resolution profile even when that profile's owning Package Release is otherwise unselected. RIR
+  `content_identity` is the hash of the complete canonical RIR JSON and changes if and only if any
+  covered canonical byte changes. Holding every other RIR member fixed, a notation-only mutation
+  changes it if and only if at least one canonical `expression` byte sequence in the selected
+  reachable Formula projection changes. RIR `semantic_identity` covers only the executable semantic
+  projection, excludes `expression`, and never changes for a notation-only mutation. Package
+  selection, Lock projection, and expression projection are therefore separate; RIR never embeds a
+  notation catalog merely because a release is selected.
 
-  | Owning Package Release selected | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
+  | Canonical Package Lock bytes change | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
   | --- | --- | --- | --- | --- | --- | --- |
   | yes | yes | change | change | change | unchanged | change |
   | yes | no | change | change | unchanged | unchanged | change |
   | no | yes | change | unchanged | change | unchanged | change |
   | no | no | change | unchanged | unchanged | unchanged | change |
 
-  The `no`/`yes` row is required when an unlocked generic notation authority that the renderer still
-  consumes, such as `standard.schema` grammar or escaping, changes canonical expression bytes
-  without changing selection or ambiguity closure. In contrast, an unselected pure-Operation
-  notation declaration cannot affect the current projection while selected grammar, resolution,
-  candidate, and ambiguity closures remain fixed. A Formula semantic-body mutation within a fixed
-  dependency closure is the control case: it changes both RIR identities and downstream exact
-  bindings while Package/LDB/Lock identities remain unchanged.
+  The Lock-`yes` rows include both selected-release mutations and mutations to a Lock-bound
+  Resolution profile owned by an otherwise unselected release. The Lock-`no`/expression-`yes` row is
+  required when an unlocked generic notation authority that the renderer still consumes, such as
+  `standard.schema` grammar or escaping, changes canonical expression bytes without changing
+  selection or ambiguity closure. In contrast, an unselected pure-Operation notation declaration
+  cannot affect the current projection while selected grammar, resolution, candidate, and ambiguity
+  closures remain fixed. A Formula semantic-body mutation within a fixed dependency closure is the
+  control case: it changes both RIR identities and downstream exact bindings while
+  Package/LDB/Lock identities remain unchanged.
 
 - **The unreleased 2.0 baseline changes clean-forward.** Formula-bearing 2.0 data without the
   canonical expression is refused. Repository-owned authorities, identities, schemas, vectors,
@@ -192,8 +198,13 @@ making presentation wording part of semantic equivalence.
   identities while preserving Package Lock and RIR semantic identity. Separately prove that an
   unselected pure-Operation notation declaration cannot produce this projection effect while the
   selected grammar, resolution, candidate, and ambiguity closures remain fixed.
-- For all four notation-only vectors, require the same executable semantic projection and the same
-  controlled observations without claiming Replay or Evidence across different exact wrappers.
+- Mutate a notation-relevant member of the exact Resolution profile embedded in Package Lock while
+  its owning Package Release is absent from the selected package closure and no reachable Formula
+  expression bytes change. Require new Package Release, whole-LDB, Package Lock, Resolved Model, and
+  downstream exact-wrapper identities while preserving both RIR identities; package selection must
+  not be used as the Lock-change oracle.
+- For every notation-only identity vector, require the same executable semantic projection and the
+  same controlled observations without claiming Replay or Evidence across different exact wrappers.
   Mutate Formula semantics within a fixed dependency closure as a control and require both RIR
   identities plus downstream exact bindings to change while Package/LDB/Lock identities remain
   fixed.
