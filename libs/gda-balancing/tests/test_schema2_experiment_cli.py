@@ -956,6 +956,82 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     return spec_path
 
 
+def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    scenario.pop("entrypoint")
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "low-priority-cast",
+            "logical_time": 0,
+            "priority": 0,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "high-priority-cast",
+            "logical_time": 0,
+            "priority": 10,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "same-time-root-events"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    receipt = json.loads(stdout)
+    events = _member(receipt, "event-trace")["events"]
+    assert [
+        (
+            event["root_event_ref"],
+            event["ordering_key"]["logical_time"],
+            event["ordering_key"]["phase"],
+            event["ordering_key"]["priority"],
+            event["ordering_key"]["enqueue_sequence"],
+        )
+        for event in events
+    ] == [
+        ("high-priority-cast", 0, "transition", 10, 1),
+        ("low-priority-cast", 0, "transition", 0, 0),
+    ]
+    assert len({event["event_id"] for event in events}) == 2
+    assert events[1]["state_before"] == events[0]["state_after"]
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 3
+
+
 def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
     tmp_path, run_cli
 ):
