@@ -178,18 +178,21 @@ operation bodies/signatures/effects/results, resolved Model entrypoints, exact O
 formal-to-actual operand identities, the generated Scenario Input Contract, state and event
 semantics, and other admitted runtime fragments. Source order, aliases, comments, spans, AST/HIR
 identities, lowering traces, diagnostic provenance, and unselected Language Definition Bundle
-inventory are excluded. If an unused package is added to the bundle without changing resolution
-ambiguity or the selected closure, this payload and its content identity remain byte-identical
-(bADR-0013/0016).
+inventory are excluded. Its `semantic_identity` hashes that executable semantic projection and
+excludes Formula `expression` text. The separate RIR `content_identity` hashes the complete
+canonical RIR JSON, including validated expressions, for exact wire integrity. If an unused package
+is added to the bundle without changing resolution ambiguity, the selected closure, or the RIR JSON,
+both identities remain unchanged (bADR-0013/0016/0024).
 _Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
 
 **Resolved Model**:
 The immutable, content-addressed public execution-authority artifact for one exact build. Its
 identity binds the exact Schema-major Kernel Specification, exact whole `Language Definition
-Bundle`, canonical selected-closure `Package Lock`, and one `RIR semantic payload`. The wrapper
-therefore changes when the exact bundle changes even when an unused-package edit leaves the Lock
-and RIR payload byte-identical. It is the normative cross-evaluator boundary for that exact build,
-not an authored authority or editable interchange format (bADR-0012/0013).
+Bundle`, canonical selected-closure `Package Lock`, RIR `semantic_identity`, and exact RIR
+`content_identity`. The wrapper therefore changes when the exact bundle changes even when an
+unused-package edit leaves the Lock and both RIR identities unchanged. It is the normative
+cross-evaluator boundary for that exact build, not an authored authority or editable interchange
+format (bADR-0012/0013/0024).
 _Avoid_: RIR semantic payload (unqualified), authored model, normalized source
 
 **Debug Map**:
