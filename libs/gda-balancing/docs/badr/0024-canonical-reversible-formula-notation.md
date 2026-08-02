@@ -106,12 +106,15 @@ making presentation wording part of semantic equivalence.
   | --- | --- | --- | --- | --- | --- | --- |
   | yes | yes | change | change | change | unchanged | change |
   | yes | no | change | change | unchanged | unchanged | change |
+  | no | yes | change | unchanged | change | unchanged | change |
   | no | no | change | unchanged | unchanged | unchanged | change |
 
-  Under unchanged candidate and ambiguity closure, an unselected release cannot change the current
-  model's canonical RIR expression bytes; observing the excluded `no`/`yes` combination exposes an
-  invalid selection, ambiguity, or projection closure. A Formula semantic-body mutation within a
-  fixed dependency closure is the control case: it changes both RIR identities and downstream exact
+  The `no`/`yes` row is required when an unlocked generic notation authority that the renderer still
+  consumes, such as `standard.schema` grammar or escaping, changes canonical expression bytes
+  without changing selection or ambiguity closure. In contrast, an unselected pure-Operation
+  notation declaration cannot affect the current projection while selected grammar, resolution,
+  candidate, and ambiguity closures remain fixed. A Formula semantic-body mutation within a fixed
+  dependency closure is the control case: it changes both RIR identities and downstream exact
   bindings while Package/LDB/Lock identities remain unchanged.
 
 - **The unreleased 2.0 baseline changes clean-forward.** Formula-bearing 2.0 data without the
@@ -180,10 +183,16 @@ making presentation wording part of semantic equivalence.
   use an Operation outside the selected reachable Formula projection as the required witness.
   Require new Package Release, whole-LDB, Package Lock, Resolved Model, and downstream exact-wrapper
   identities while preserving both RIR identities.
-- Mutate notation in an unselected Package Release without changing candidate or ambiguity closure.
-  Require new Package Release, whole-LDB, Resolved Model, and downstream exact-wrapper identities
-  while preserving Package Lock and both RIR identities.
-- For all three notation-only vectors, require the same executable semantic projection and the same
+- Mutate notation in an unselected Package Release without changing candidate or ambiguity closure
+  or canonical RIR expression bytes. Require new Package Release, whole-LDB, Resolved Model, and
+  downstream exact-wrapper identities while preserving Package Lock and both RIR identities.
+- Mutate an unlocked generic notation authority, such as `standard.schema` grammar or escaping, so
+  canonical RIR expression bytes change without changing selection or ambiguity closure. Require
+  new Package Release, whole-LDB, RIR content, Resolved Model, and downstream exact-wrapper
+  identities while preserving Package Lock and RIR semantic identity. Separately prove that an
+  unselected pure-Operation notation declaration cannot produce this projection effect while the
+  selected grammar, resolution, candidate, and ambiguity closures remain fixed.
+- For all four notation-only vectors, require the same executable semantic projection and the same
   controlled observations without claiming Replay or Evidence across different exact wrappers.
   Mutate Formula semantics within a fixed dependency closure as a control and require both RIR
   identities plus downstream exact bindings to change while Package/LDB/Lock identities remain
