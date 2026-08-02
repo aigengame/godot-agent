@@ -810,6 +810,7 @@ def _formula_pair_diagnostics(
                     {
                         "schema_version": source.get("schema_version"),
                         "package_requirements": requirements,
+                        "modules": modules,
                         "module": module_context,
                         "formula": formula,
                     },
@@ -7186,20 +7187,23 @@ def _rir_formula_pairs_are_admitted(
         if not isinstance(formula, dict) or not isinstance(formula.get("module"), str):
             return False
         by_module.setdefault(cast(str, formula["module"]), []).append(formula)
-    try:
-        for module_id, module_formulas in by_module.items():
-            module_symbols = [
+    modules = [
+        {
+            "id": module_id,
+            "imports": [],
+            "symbols": [
                 declaration
                 for declaration in rir_declarations
                 if isinstance(declaration.get("resolved_symbol"), dict)
                 and declaration["resolved_symbol"].get("module") == module_id
-            ]
-            module = {
-                "id": module_id,
-                "imports": [],
-                "symbols": module_symbols,
-                "formulas": module_formulas,
-            }
+            ],
+            "formulas": module_formulas,
+        }
+        for module_id, module_formulas in by_module.items()
+    ]
+    try:
+        for module in modules:
+            module_formulas = cast(list[dict[str, Any]], module["formulas"])
             for formula in module_formulas:
                 body = formula.get("body")
                 if not isinstance(body, dict):
@@ -7208,6 +7212,7 @@ def _rir_formula_pairs_are_admitted(
                     {
                         "schema_version": "2.0.0",
                         "package_requirements": requirements,
+                        "modules": modules,
                         "module": module,
                         "formula": formula,
                     },

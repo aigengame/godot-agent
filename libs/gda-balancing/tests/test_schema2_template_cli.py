@@ -27,7 +27,7 @@ from gda_balancing.schema2.authority import (
     authority_set,
 )
 from gda_balancing.schema2.authority_graph import derive_language_index
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
     CheckedModel,
@@ -120,7 +120,10 @@ def _reidentify_language_bundle(kernel, language_bundle):
         ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
-            package_runtime_semantic_closure(package, semantic_projection),
+            cast(
+                JsonValue,
+                package_runtime_semantic_closure(package, semantic_projection),
+            ),
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
         vector_set["content_identity"] = content_identity(

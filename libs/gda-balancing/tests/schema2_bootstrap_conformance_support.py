@@ -1074,9 +1074,7 @@ def _consumer_b_package_semantic_closure_is_closed(
         or not set(runtime_paths) <= set(closure_paths)
     ):
         return False
-    excluded_extensions = package.get(
-        semantic_projection["extension_inventory_member"]
-    )
+    excluded_extensions = package.get(semantic_projection["extension_inventory_member"])
     if (
         not isinstance(excluded_extensions, list)
         or not all(isinstance(item, str) and item for item in excluded_extensions)

@@ -36,7 +36,7 @@ def _authority(
     )
 
 
-def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
+def _formula_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     profiles = [
         row
         for row in language_bundle["language"]["resolution_profiles"]
@@ -44,12 +44,14 @@ def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
     ]
     if len(profiles) != 1:
         raise ValueError("independent consumer found no default resolution profile")
-    policy = (
-        profiles[0]
-        .get("extensions", {})
-        .get("standard.formula", {})
-        .get("notation_conversion")
-    )
+    policy = profiles[0].get("extensions", {}).get("standard.formula")
+    if not isinstance(policy, dict):
+        raise ValueError("independent consumer found no Formula policy")
+    return policy
+
+
+def _conversion_policy(language_bundle: dict[str, Any]) -> dict[str, Any]:
+    policy = _formula_policy(language_bundle).get("notation_conversion")
     if not isinstance(policy, dict):
         raise ValueError("independent consumer found no notation conversion policy")
     return policy
@@ -313,6 +315,130 @@ def _operation_contract_matches(
     )
 
 
+def _formula_contract_matches(
+    actual: dict[str, Any] | None,
+    actual_imports: dict[str, tuple[str, str, str]],
+    expected: dict[str, Any],
+    expected_imports: dict[str, tuple[str, str, str]],
+) -> bool:
+    return (
+        actual is not None
+        and _contract_type_identity(actual, actual_imports)
+        == _contract_type_identity(expected, expected_imports)
+        and all(
+            actual.get(member) == expected.get(member)
+            for member in (
+                "representation",
+                "kind",
+                "unit",
+                "domain_kind",
+                "domain",
+                "numeric_policy",
+            )
+        )
+    )
+
+
+def _rebase_contract(
+    contract: dict[str, Any],
+    source_imports: dict[str, tuple[str, str, str]],
+    target_imports: dict[str, tuple[str, str, str]],
+) -> dict[str, Any]:
+    identity = _contract_type_identity(contract, source_imports)
+    if identity == ("kernel", "2.0.0", "Boolean"):
+        alias = "Boolean"
+    else:
+        aliases = [
+            name
+            for name, coordinate in target_imports.items()
+            if coordinate == identity
+        ]
+        if len(aliases) != 1:
+            raise ValueError("independent Formula result type is unresolved")
+        alias = aliases[0]
+    rebased = deepcopy(contract)
+    rebased["type"] = alias
+    return rebased
+
+
+def _notation_resource_usage(
+    expression: str,
+    grammar: dict[str, Any],
+    request: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> tuple[int, int]:
+    punctuation = {
+        *cast(list[str], grammar["group_delimiters"]),
+        cast(str, grammar["named_argument_operator"]),
+        cast(str, grammar["binding_terminator"]),
+        cast(str, grammar["argument_separator"]),
+        cast(str, grammar["coordinate_separator"]),
+    }
+    quote = cast(str, grammar["identifier_quote"])
+    escape = cast(str, grammar["escape_character"])
+    operators = sorted(
+        (
+            cast(str, notation["token"])
+            for _operation, notation in _selected_notations(request, language_bundle)
+            if notation.get("kind") == "infix"
+        ),
+        key=len,
+        reverse=True,
+    )
+    whitespace = re.compile(cast(str, grammar["whitespace_pattern"]))
+    identifier = re.compile(cast(str, grammar["identifier_token_pattern"]))
+    integer = re.compile(cast(str, grammar["integer_literal_pattern"]))
+    open_group, close_group = cast(list[str], grammar["group_delimiters"])
+    index = 0
+    count = 0
+    depth = 0
+    maximum_depth = 0
+    while index < len(expression):
+        skipped = whitespace.match(expression, index)
+        if skipped is not None:
+            index = skipped.end()
+            continue
+        character = expression[index]
+        if character == quote:
+            index += 1
+            while index < len(expression) and expression[index] != quote:
+                if expression[index] == escape:
+                    index += 1
+                index += 1
+            if index >= len(expression):
+                raise ValueError("independent quoted identifier is malformed")
+            index += 1
+        elif character in punctuation:
+            index += 1
+            if character == open_group:
+                depth += 1
+                maximum_depth = max(maximum_depth, depth)
+            elif character == close_group:
+                depth -= 1
+        else:
+            matched = integer.match(expression, index) or identifier.match(
+                expression, index
+            )
+            if matched is not None:
+                index = matched.end()
+            else:
+                operator = next(
+                    (
+                        token
+                        for token in operators
+                        if expression.startswith(token, index)
+                    ),
+                    None,
+                )
+                if operator is None:
+                    raise ValueError("independent Formula token is unresolved")
+                index += len(operator)
+        count += 1
+    if depth != 0:
+        raise ValueError("independent Formula grouping is unbalanced")
+    return count, maximum_depth
+
+
 def _declared_result_contract(
     operation: dict[str, Any],
     imports: dict[str, tuple[str, str, str]],
@@ -457,6 +583,7 @@ def parse_canonical(
 ) -> dict[str, Any]:
     grammar, _operations = _authority(language_bundle)
     policy = _conversion_policy(language_bundle)
+    formula_policy = _formula_policy(language_bundle)
     quote = cast(str, grammar["identifier_quote"])
     escape = cast(str, grammar["escape_character"])
     parameters = {
@@ -464,26 +591,54 @@ def parse_canonical(
     }
     module = request["module"]
     module_id = module["id"]
-    imports = {
-        row["alias"]: (row["package"], row["version"], row["symbol"])
-        for row in module["imports"]
+    modules = request.get("modules", [module])
+    imports_by_module = {
+        row["id"]: {
+            imported["alias"]: (
+                imported["package"],
+                imported["version"],
+                imported["symbol"],
+            )
+            for imported in row["imports"]
+        }
+        for row in modules
     }
+    imports = imports_by_module[module_id]
     symbols: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in module.get("symbols", []):
-        resolved = row.get("resolved_symbol")
-        coordinate = (
-            (resolved["module"], resolved["name"])
-            if isinstance(resolved, dict)
-            else (module_id, row["symbol"])
-        )
-        symbols[coordinate] = _source_contract(row)
-    declarations = {(module_id, row["id"]): row for row in module.get("formulas", [])}
+    declarations: dict[
+        tuple[str, str], tuple[dict[str, Any], dict[str, tuple[str, str, str]]]
+    ] = {}
+    for module_row in modules:
+        declaration_module = module_row["id"]
+        for row in module_row.get("symbols", []):
+            resolved = row.get("resolved_symbol")
+            coordinate = (
+                (resolved["module"], resolved["name"])
+                if isinstance(resolved, dict)
+                else (declaration_module, row["symbol"])
+            )
+            symbols[coordinate] = _rebase_contract(
+                _source_contract(row),
+                imports_by_module[declaration_module],
+                imports,
+            )
+        for row in module_row.get("formulas", []):
+            declarations[(declaration_module, row["id"])] = (
+                row,
+                imports_by_module[declaration_module],
+            )
     lines = expression.split("\n")
-    if len(lines) == 1:
-        operand = _parse_operand(lines[0], grammar, set(), set(parameters))
-        if operand.get("kind") == "parameter":
-            return {"node": "parameter", "parameter": operand["parameter"]}
-        return {"nodes": [], "result": operand}
+    if len(expression.encode("utf-8")) > grammar["max_expression_bytes"]:
+        raise ValueError("independent Formula expression exceeds its byte bound")
+    token_count, group_depth = _notation_resource_usage(
+        expression, grammar, request, language_bundle
+    )
+    if token_count > grammar["max_tokens"]:
+        raise ValueError("independent Formula expression exceeds its token bound")
+    if group_depth > grammar["max_group_depth"]:
+        raise ValueError("independent Formula expression exceeds its group-depth bound")
+    if len(lines) - 1 > formula_policy["max_nodes_per_formula"]:
+        raise ValueError("independent Formula expression exceeds its node bound")
     notations = _selected_notations(request, language_bundle)
     functions = {
         notation["name"]: (operation, notation)
@@ -556,6 +711,28 @@ def parse_canonical(
             result,
         )
 
+    if len(lines) == 1:
+        operand, result_contract = typed_operand(lines[0])
+        expected = _source_contract(request["formula"]["result"])
+        if result_contract is None and operand.get("kind") == "literal":
+            value = operand.get("value")
+            domain = expected.get("domain")
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not isinstance(domain, dict)
+                or not isinstance(domain.get("minimum"), int)
+                or not isinstance(domain.get("maximum"), int)
+                or not domain["minimum"] <= value <= domain["maximum"]
+            ):
+                raise ValueError("independent literal result is incompatible")
+            result_contract = expected
+        if result_contract != expected:
+            raise ValueError("independent Formula result contract is incompatible")
+        if operand.get("kind") == "parameter":
+            return {"node": "parameter", "parameter": operand["parameter"]}
+        return {"nodes": [], "result": operand}
+
     for line in lines[:-1]:
         if not line.startswith("let ") or not line.endswith(";"):
             raise ValueError("canonical binding line is malformed")
@@ -613,11 +790,12 @@ def parse_canonical(
                 named = [
                     _split_outside(value, " = ", quote, escape) for value in arguments
                 ]
-                declaration = declarations.get(
+                resolved_declaration = declarations.get(
                     (_unquote(coordinate[0], grammar), _unquote(coordinate[1], grammar))
                 )
-                if declaration is None:
+                if resolved_declaration is None:
                     raise ValueError("independent Formula coordinate is unresolved")
+                declaration, declaration_imports = resolved_declaration
                 expected_parameters = {
                     row["id"]: _source_contract(row)
                     for row in declaration["parameters"]
@@ -628,7 +806,12 @@ def parse_canonical(
                     if len(value) == 2
                 }
                 if set(parsed_arguments) != set(expected_parameters) or any(
-                    contract != expected_parameters[parameter]
+                    not _formula_contract_matches(
+                        contract,
+                        imports,
+                        expected_parameters[parameter],
+                        declaration_imports,
+                    )
                     for parameter, (_operand, contract) in parsed_arguments.items()
                 ):
                     raise ValueError("independent Formula argument is incompatible")
@@ -653,7 +836,11 @@ def parse_canonical(
                         key=lambda row: cast(str, row["parameter"]),
                     ),
                 }
-                result_contract = _source_contract(declaration["result"])
+                result_contract = _rebase_contract(
+                    _source_contract(declaration["result"]),
+                    declaration_imports,
+                    imports,
+                )
         else:
             matches = [
                 token

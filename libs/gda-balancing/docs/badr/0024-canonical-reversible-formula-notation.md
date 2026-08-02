@@ -77,7 +77,10 @@ making presentation wording part of semantic equivalence.
 - **Reverse conversion is contextual.** A complete notation-to-body conversion requires the
   Formula's module/import scope, parameter and result contracts, and exact Kernel/LDB. Resolution
   selects exact package/version/Operation coordinates, constructs total named port bindings, and
-  infers only local-binding results under the existing typing rules. A bare expression may receive
+  infers only local-binding results under the existing typing rules. A conversion request supplies
+  `module` for the declaration being converted and, when Formula or Symbol coordinates cross that
+  boundary, `modules` for the model-wide resolution closure; every import must bind an exact declared
+  requirement and an exported type. A bare expression may receive
   lexical or syntax Diagnostics, but it cannot claim a resolved Formula body.
 
 - **The CLI exposes `formula parse` and `formula render`.** Both are non-executing, structured,

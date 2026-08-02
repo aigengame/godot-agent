@@ -1049,9 +1049,7 @@ def _package_semantic_closure_is_closed(
     ):
         return False
     try:
-        runtime_closure = package_runtime_semantic_closure(
-            package, semantic_projection
-        )
+        runtime_closure = package_runtime_semantic_closure(package, semantic_projection)
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )

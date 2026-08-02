@@ -451,6 +451,104 @@ def test_formula_parse_obeys_mutated_package_owned_precedence(
     ]
 
 
+def test_formula_render_refuses_infix_tokens_that_collide_with_grammar(
+    tmp_path: Path,
+    run_cli,
+    pristine_authority_context,
+    monkeypatch,
+) -> None:
+    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == "quantity.subtract"
+    )
+    operation["extensions"]["standard.formula-notation"]["token"] = "="
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == "formula.notation.quantity.subtract"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+    child_vector = next(
+        row
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "core.quantity"
+        for row in vector_set["vector_definitions"]
+        if row["id"] == vector["id"]
+    )
+    child_vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(language_bundle)
+    drifted = authority_module.admit_authority_context(kernel, language_bundle)
+    assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
+    monkeypatch.setattr(
+        formula_command_module,
+        "packaged_authority_context",
+        lambda: drifted,
+    )
+    result_contract = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    result_contract["domain"] = {"minimum": -1000, "maximum": 1000}
+    source = tmp_path / "colliding-infix.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": _quantity_module("main"),
+                "formula": {
+                    "id": "colliding-infix",
+                    "parameters": [
+                        _quantity_contract("left"),
+                        _quantity_contract("right"),
+                    ],
+                    "result": result_contract,
+                    "body": {
+                        "nodes": [
+                            {
+                                "id": "result",
+                                "node": "operation-call",
+                                "operation": {
+                                    "package": "core.quantity",
+                                    "version": "2.1.0",
+                                    "id": "quantity.subtract",
+                                },
+                                "arguments": [
+                                    {
+                                        "port": "left",
+                                        "operand": {
+                                            "kind": "parameter",
+                                            "parameter": "left",
+                                        },
+                                    },
+                                    {
+                                        "port": "right",
+                                        "operand": {
+                                            "kind": "parameter",
+                                            "parameter": "right",
+                                        },
+                                    },
+                                ],
+                                "result": result_contract,
+                            }
+                        ],
+                        "result": {"kind": "local", "local": "result"},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
+        "language.source_contract_mismatch"
+    )
+
+
 def test_formula_render_quotes_non_bare_locals_and_renders_literals(
     tmp_path: Path, run_cli
 ) -> None:
@@ -1012,6 +1110,113 @@ def test_standard_compiler_owns_formula_notation_contextual_policy(run_cli) -> N
         "maximum": "closed-interval-maximum",
         "subtract": "closed-interval-subtract",
     }
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "requirements", "expected_code"),
+    [
+        ("999.0.0", [], "language.source_contract_mismatch"),
+        ("2.0.0", [], "language.unresolved_name"),
+    ],
+)
+def test_formula_parse_requires_exact_schema_and_import_resolution(
+    tmp_path: Path,
+    run_cli,
+    schema_version: str,
+    requirements: list[dict[str, str]],
+    expected_code: str,
+) -> None:
+    contract = {
+        **{
+            key: value
+            for key, value in _quantity_contract("value").items()
+            if key != "id"
+        },
+        "type": "ghost",
+    }
+    source = tmp_path / "unresolved-formula-context.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": schema_version,
+                "package_requirements": requirements,
+                "module": {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "ghost",
+                            "package": "ghost.package",
+                            "version": "9.9.9",
+                            "symbol": "Fake",
+                        }
+                    ],
+                },
+                "formula": {
+                    "id": "identity",
+                    "parameters": [{"id": "value", **contract}],
+                    "result": contract,
+                    "expression": "value",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == expected_code
+
+
+def test_formula_parse_resolves_cross_module_formula_calls(
+    tmp_path: Path, run_cli
+) -> None:
+    contract = {
+        key: value for key, value in _quantity_contract("value").items() if key != "id"
+    }
+    inner = {
+        "id": "inner",
+        "parameters": [{"id": "value", **contract}],
+        "result": contract,
+        "body": {"node": "parameter", "parameter": "value"},
+        "expression": "value",
+    }
+    modules = [
+        {**_quantity_module("aux"), "symbols": [], "formulas": [inner]},
+        {**_quantity_module("main"), "symbols": [], "formulas": []},
+    ]
+    source = tmp_path / "cross-module-formula.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "modules": modules,
+                "module": modules[1],
+                "formula": {
+                    "id": "outer",
+                    "parameters": [{"id": "value", **contract}],
+                    "result": contract,
+                    "expression": "let result = aux.inner(value = value);\nresult",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    result = json.loads(stdout)
+    assert result["body"]["nodes"][0]["formula"] == {
+        "module": "aux",
+        "id": "inner",
+    }
+    pair = json.loads(source.read_text(encoding="utf-8"))
+    pair["formula"]["body"] = result["body"]
+    pair["formula"]["expression"] = result["expression"]
+    context = authority_module.packaged_authority_context()
+    assert independently_admit_pair(pair, context.language_bundle)
 
 
 def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
@@ -1940,6 +2145,7 @@ def test_independent_consumer_mutually_admits_production_formula_pairs() -> None
             request = {
                 "schema_version": source["schema_version"],
                 "package_requirements": source["package_requirements"],
+                "modules": source["modules"],
                 "module": module,
                 "formula": formula,
             }
@@ -1965,6 +2171,7 @@ def test_independent_consumer_reconstructs_results_without_body_guidance() -> No
     request = {
         "schema_version": source["schema_version"],
         "package_requirements": source["package_requirements"],
+        "modules": source["modules"],
         "module": module,
         "formula": deepcopy(formula),
     }
@@ -1972,6 +2179,74 @@ def test_independent_consumer_reconstructs_results_without_body_guidance() -> No
     request["formula"]["body"]["nodes"][0]["result"]["domain"] = {
         "minimum": 0,
         "maximum": 0,
+    }
+
+    assert not independently_admit_pair(request, context.language_bundle)
+
+
+def test_independent_consumer_types_zero_node_results() -> None:
+    context = authority_module.packaged_authority_context()
+    quantity = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    wrong_parameter = {
+        "schema_version": "2.0.0",
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "module": _quantity_module("main"),
+        "formula": {
+            "id": "wrong-parameter-result",
+            "parameters": [_boolean_contract("flag")],
+            "result": quantity,
+            "body": {"node": "parameter", "parameter": "flag"},
+            "expression": "flag",
+        },
+    }
+    missing_symbol = {
+        "schema_version": "2.0.0",
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "module": {**_quantity_module("main"), "symbols": []},
+        "formula": {
+            "id": "missing-symbol-result",
+            "parameters": [],
+            "result": quantity,
+            "body": {
+                "nodes": [],
+                "result": {"kind": "symbol", "module": "ghost", "symbol": "missing"},
+            },
+            "expression": "ghost.missing",
+        },
+    }
+
+    assert not independently_admit_pair(wrong_parameter, context.language_bundle)
+    assert not independently_admit_pair(missing_symbol, context.language_bundle)
+
+
+def test_independent_consumer_enforces_notation_resource_bounds() -> None:
+    context = authority_module.packaged_authority_context()
+    grammar = next(
+        definition["schema"]["$defs"]["formulaNotationGrammar"]["const"]
+        for package in context.language_bundle["language"]["packages"]
+        if package["id"] == "standard.schema"
+        for closure in package["semantic_closure"]
+        if closure["authority_path"] == "language.wire_schemas"
+        for definition in closure["definitions"]
+        if definition["artifact_kind"] == "model-source-package"
+    )
+    identifier = "a" * (grammar["max_expression_bytes"] + 1)
+    result = {
+        key: value for key, value in _quantity_contract("result").items() if key != "id"
+    }
+    request = {
+        "schema_version": "2.0.0",
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "module": _quantity_module("main"),
+        "formula": {
+            "id": "oversized",
+            "parameters": [{"id": identifier, **result}],
+            "result": result,
+            "body": {"node": "parameter", "parameter": identifier},
+            "expression": identifier,
+        },
     }
 
     assert not independently_admit_pair(request, context.language_bundle)

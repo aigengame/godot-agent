@@ -375,7 +375,9 @@ _Avoid_: host expression dialect, display-only operation table, fully qualified 
 The public, non-executing transformation exposed by `formula parse` and `formula render`. `parse`
 binds notation to one exact Formula context and returns canonical `body`/`expression`; `render`
 validates a body under the same context and returns the same pair. Conversion publishes no semantic
-artifact. Production paths share one implementation; an independent conformance consumer derives
+artifact. Cross-module coordinates require the request's model-wide `modules` resolution closure;
+imports remain bound to exact declared requirements and exported types. Production paths share one
+implementation; an independent conformance consumer derives
 the contract separately from sealed Kernel/LDB authority (bADR-0024).
 _Avoid_: formula evaluation, context-free expression conversion, model inspection alias
 

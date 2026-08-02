@@ -696,14 +696,14 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
     }
+    inner = {
+        "id": "inner",
+        "parameters": [{"id": "value", **quantity_contract}],
+        "result": quantity_contract,
+        "body": {"node": "parameter", "parameter": "value"},
+        "expression": "value",
+    }
     source_document["modules"][0]["formulas"] = [
-        {
-            "id": "inner",
-            "parameters": [{"id": "value", **quantity_contract}],
-            "result": quantity_contract,
-            "body": {"node": "parameter", "parameter": "value"},
-            "expression": "value",
-        },
         {
             "id": "outer",
             "parameters": [{"id": "value", **quantity_contract}],
@@ -713,7 +713,7 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
                     {
                         "id": "inner-call",
                         "node": "formula-call",
-                        "formula": {"module": "main", "id": "inner"},
+                        "formula": {"module": "aux", "id": "inner"},
                         "arguments": [
                             {
                                 "parameter": "value",
@@ -728,10 +728,18 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
                 "result": {"kind": "local", "local": "inner-call"},
             },
             "expression": (
-                "let `inner-call` = main.inner(value = value);\n`inner-call`"
+                "let `inner-call` = aux.inner(value = value);\n`inner-call`"
             ),
         },
     ]
+    source_document["modules"].append(
+        {
+            "id": "aux",
+            "imports": deepcopy(source_document["modules"][0]["imports"]),
+            "symbols": [_quantity_symbol("aux_value", "constant")],
+            "formulas": [inner],
+        }
+    )
     source_document["formula_bindings"] = [
         {
             "site": {
@@ -774,7 +782,7 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
     formulas = {formula["id"]: formula for formula in rir["formulas"]}
     assert set(formulas) == {"inner", "outer"}
     assert formulas["outer"]["body"]["nodes"][0]["formula"] == {
-        "module": "main",
+        "module": "aux",
         "id": "inner",
         "identity": formulas["inner"]["identity"],
     }

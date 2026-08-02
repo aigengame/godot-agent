@@ -192,6 +192,52 @@ def _operation_catalog(
     return catalog
 
 
+def _validated_operation_notation(
+    operation: dict[str, Any],
+    grammar: dict[str, Any],
+    notation_schema: dict[str, Any],
+) -> dict[str, Any] | None:
+    extensions = operation.get("extensions")
+    notation = (
+        extensions.get("standard.formula-notation")
+        if isinstance(extensions, dict)
+        else None
+    )
+    if not isinstance(notation, dict):
+        return None
+    if list(jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)):
+        raise ValueError("Formula Operation notation declaration is malformed")
+    kind = notation.get("kind")
+    spelling = notation.get("token" if kind == "infix" else "name")
+    if not isinstance(spelling, str) or not spelling:
+        raise ValueError("Formula Operation notation spelling is malformed")
+    if kind == "function":
+        if (
+            re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), spelling)
+            is None
+            or spelling in grammar["reserved_identifiers"]
+        ):
+            raise ValueError("Formula function notation spelling is ambiguous")
+        return notation
+    structural_tokens = {
+        *cast(list[str], grammar["group_delimiters"]),
+        cast(str, grammar["named_argument_operator"]),
+        cast(str, grammar["binding_terminator"]),
+        cast(str, grammar["argument_separator"]),
+        cast(str, grammar["coordinate_separator"]),
+        cast(str, grammar["identifier_quote"]),
+        cast(str, grammar["escape_character"]),
+    }
+    if (
+        any(spelling.startswith(token) for token in structural_tokens if token)
+        or re.match(cast(str, grammar["identifier_token_pattern"]), spelling)
+        or re.match(cast(str, grammar["integer_literal_pattern"]), spelling)
+        or re.match(cast(str, grammar["whitespace_pattern"]), spelling)
+    ):
+        raise ValueError("Formula infix notation collides with grammar tokenization")
+    return notation
+
+
 def _selected_operation_notations(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
@@ -209,37 +255,24 @@ def _selected_operation_notations(
     for coordinate, operation in _operation_catalog(authority_context).items():
         if coordinate[:2] not in selected or operation.get("purity") != "pure":
             continue
-        extensions = operation.get("extensions")
-        notation = (
-            extensions.get("standard.formula-notation")
-            if isinstance(extensions, dict)
-            else None
-        )
-        if isinstance(notation, dict) and not list(
-            jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)
-        ):
-            spelling = notation.get(
-                "token" if notation.get("kind") == "infix" else "name"
-            )
-            if not isinstance(spelling, str) or not spelling:
-                raise ValueError("Formula Operation notation spelling is malformed")
-            if notation.get("kind") == "function" and (
-                re.fullmatch(cast(str, grammar["bare_identifier_pattern"]), spelling)
-                is None
-                or spelling in grammar["reserved_identifiers"]
-            ):
-                raise ValueError("Formula function notation spelling is ambiguous")
-            if notation.get("kind") == "infix" and re.fullmatch(
-                cast(str, grammar["bare_identifier_pattern"]), f"a{spelling}b"
-            ):
-                raise ValueError(
-                    "Formula infix notation collides with bare identifiers"
-                )
+        notation = _validated_operation_notation(operation, grammar, notation_schema)
+        if notation is not None:
             declarations.append(_OperationNotation(coordinate, operation, notation))
+    spellings = [
+        (
+            item.notation["kind"],
+            item.notation.get("token" if item.notation["kind"] == "infix" else "name"),
+        )
+        for item in declarations
+    ]
+    if len(set(spellings)) != len(spellings):
+        raise ValueError("Formula Operation notation spelling is ambiguous")
     return tuple(declarations)
 
 
-def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
+def _formula_resolution_profile(
+    authority_context: AdmittedAuthorityContext,
+) -> dict[str, Any]:
     language = cast(dict[str, Any], authority_context.language_bundle["language"])
     profiles = [
         profile
@@ -257,6 +290,11 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     ]
     if len(lowerings) != 1:
         raise ValueError("Formula conversion has no selected Model lowering")
+    return profile
+
+
+def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
+    profile = _formula_resolution_profile(authority_context)
     extensions = profile.get("extensions")
     policy = (
         extensions.get("standard.formula") if isinstance(extensions, dict) else None
@@ -286,24 +324,102 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     return policy
 
 
-def _module_imports(module: dict[str, Any]) -> dict[str, dict[str, str]]:
-    imports = module.get("imports")
+def _formula_schema_version(
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    packages = cast(
+        list[dict[str, Any]], authority_context.language_bundle["language"]["packages"]
+    )
+    versions = [
+        definition.get("schema", {})
+        .get("properties", {})
+        .get("schema_version", {})
+        .get("const")
+        for package in packages
+        if package.get("id") == "standard.schema"
+        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
+        if closure.get("authority_path") == "language.wire_schemas"
+        for definition in cast(list[dict[str, Any]], closure["definitions"])
+        if definition.get("artifact_kind") == "model-source-package"
+    ]
+    if len(versions) != 1 or not isinstance(versions[0], str):
+        raise ValueError("Formula conversion has no exact source schema version")
+    return versions[0]
+
+
+def _module_imports(
+    module: dict[str, Any],
+    request: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+    profile: dict[str, Any],
+) -> dict[str, dict[str, str]]:
+    requirements = request.get(profile["requirements_member"])
+    if not isinstance(requirements, list):
+        raise ValueError("Formula context has no package requirements")
+    requirement_keys: set[tuple[str, str]] = set()
+    for requirement in requirements:
+        if not isinstance(requirement, dict) or not all(
+            isinstance(requirement.get(profile[member]), str)
+            for member in ("requirement_package_member", "requirement_version_member")
+        ):
+            raise ValueError("Formula package requirement is malformed")
+        key = (
+            cast(str, requirement[profile["requirement_package_member"]]),
+            cast(str, requirement[profile["requirement_version_member"]]),
+        )
+        if key in requirement_keys:
+            raise ValueError("Formula package requirement is duplicate")
+        requirement_keys.add(key)
+    packages = {
+        (cast(str, item["id"]), cast(str, item["version"])): item
+        for item in cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        )
+    }
+    if any(key not in packages for key in requirement_keys):
+        raise ValueError("Formula package requirement is unresolved")
+    if len({package for package, _version in requirement_keys}) != len(
+        requirement_keys
+    ):
+        raise ValueError("Formula package requirement version is ambiguous")
+    imports = module.get(profile["imports_member"])
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
     resolved: dict[str, dict[str, str]] = {}
     for item in imports:
         if not isinstance(item, dict) or not all(
-            isinstance(item.get(member), str)
-            for member in ("alias", "package", "version", "symbol")
+            isinstance(item.get(profile[member]), str)
+            for member in (
+                "import_alias_member",
+                "import_package_member",
+                "import_version_member",
+                "import_symbol_member",
+            )
         ):
             raise ValueError("Formula module import is malformed")
-        alias = cast(str, item["alias"])
+        alias = cast(str, item[profile["import_alias_member"]])
         if alias in resolved:
             raise ValueError("Formula module import alias is ambiguous")
+        package_key = (
+            cast(str, item[profile["import_package_member"]]),
+            cast(str, item[profile["import_version_member"]]),
+        )
+        package = packages.get(package_key)
+        if package_key not in requirement_keys or package is None:
+            raise ValueError(f"Formula import {alias!r} is unresolved")
+        exported_types = {
+            exported.get("id")
+            for exported in cast(list[dict[str, Any]], package["exports"]["types"])
+            if isinstance(exported, dict)
+        }
+        symbol = cast(str, item[profile["import_symbol_member"]])
+        if symbol not in exported_types:
+            raise ValueError(f"Formula import {alias!r} is unresolved")
         resolved[alias] = {
-            "package": cast(str, item["package"]),
-            "version": cast(str, item["version"]),
-            "symbol": cast(str, item["symbol"]),
+            "package": package_key[0],
+            "version": package_key[1],
+            "symbol": symbol,
         }
     return resolved
 
@@ -432,11 +548,31 @@ class _FormulaParser:
         if not isinstance(module_id, str) or not isinstance(declarations, list):
             raise ValueError("Formula module context is malformed")
         self.authority_context = authority_context
+        if request.get("schema_version") != _formula_schema_version(authority_context):
+            raise ValueError("Formula conversion source schema version is unavailable")
+        self.profile = _formula_resolution_profile(authority_context)
         self.policy = _formula_policy(authority_context)
         self.conversion_policy = cast(
             dict[str, Any], self.policy["notation_conversion"]
         )
-        self.imports = _module_imports(module)
+        modules = request.get("modules", [module])
+        if not isinstance(modules, list) or not modules:
+            raise ValueError("Formula conversion has no module closure")
+        modules_by_id: dict[str, dict[str, Any]] = {}
+        imports_by_module: dict[str, dict[str, dict[str, str]]] = {}
+        for candidate in modules:
+            if not isinstance(candidate, dict):
+                raise ValueError("Formula module closure is malformed or ambiguous")
+            candidate_id = candidate.get("id")
+            if not isinstance(candidate_id, str) or candidate_id in modules_by_id:
+                raise ValueError("Formula module closure is malformed or ambiguous")
+            modules_by_id[candidate_id] = candidate
+            imports_by_module[candidate_id] = _module_imports(
+                candidate, request, authority_context, self.profile
+            )
+        if module_id not in modules_by_id:
+            raise ValueError("Formula current module is outside its module closure")
+        self.imports = imports_by_module[module_id]
         self.source_type_aliases = {
             (identity["package"], identity["version"], identity["symbol"]): alias
             for alias, identity in self.imports.items()
@@ -458,11 +594,24 @@ class _FormulaParser:
                         cast(str, fixed_type["id"]),
                     )
                 ] = row["alias"]
-        self.formula_declarations = {
-            (module_id, cast(str, item["id"])): item
-            for item in declarations
-            if isinstance(item, dict) and isinstance(item.get("id"), str)
-        }
+        self.formula_declarations: dict[
+            tuple[str, str], tuple[dict[str, Any], dict[str, dict[str, str]]]
+        ] = {}
+        for declaration_module, candidate in modules_by_id.items():
+            candidate_formulas = candidate.get("formulas", [])
+            if not isinstance(candidate_formulas, list):
+                raise ValueError("Formula module declarations are malformed")
+            for item in candidate_formulas:
+                formula_id = item.get("id") if isinstance(item, dict) else None
+                if not isinstance(formula_id, str):
+                    raise ValueError("Formula declaration coordinate is ambiguous")
+                key = (declaration_module, formula_id)
+                if key in self.formula_declarations:
+                    raise ValueError("Formula declaration coordinate is ambiguous")
+                self.formula_declarations[key] = (
+                    item,
+                    imports_by_module[declaration_module],
+                )
         parameters = formula.get("parameters")
         if not isinstance(parameters, list):
             raise ValueError("Formula declaration has no parameter context")
@@ -482,32 +631,34 @@ class _FormulaParser:
             raise ValueError("Formula declaration has no result contract")
         self.result_contract = deepcopy(result_contract)
         self.resolve_contract(self.result_contract)
-        symbols = module.get("symbols", [])
-        if not isinstance(symbols, list):
-            raise ValueError("Formula module Symbol context is malformed")
         self.symbol_contracts: dict[tuple[str, str], dict[str, Any]] = {}
-        for symbol in symbols:
-            if not isinstance(symbol, dict):
-                raise ValueError("Formula module Symbol declaration is malformed")
-            resolved_symbol = symbol.get("resolved_symbol")
-            if isinstance(resolved_symbol, dict):
-                coordinate = (
-                    resolved_symbol.get("module"),
-                    resolved_symbol.get("name"),
-                )
-            else:
-                coordinate = (module_id, symbol.get("symbol"))
-            if not all(isinstance(item, str) for item in coordinate):
-                raise ValueError("Formula module Symbol coordinate is malformed")
-            key = cast(tuple[str, str], coordinate)
-            if key in self.symbol_contracts:
-                raise ValueError("Formula module Symbol coordinate is ambiguous")
-            self.resolve_contract(symbol)
-            self.symbol_contracts[key] = {
-                member: deepcopy(value)
-                for member, value in symbol.items()
-                if member not in {"resolved_symbol", "role", "symbol", "value_policy"}
-            }
+        for symbol_module, candidate in modules_by_id.items():
+            symbols = candidate.get("symbols", [])
+            if not isinstance(symbols, list):
+                raise ValueError("Formula module Symbol context is malformed")
+            for symbol in symbols:
+                if not isinstance(symbol, dict):
+                    raise ValueError("Formula module Symbol declaration is malformed")
+                resolved_symbol = symbol.get("resolved_symbol")
+                if isinstance(resolved_symbol, dict):
+                    coordinate = (
+                        resolved_symbol.get("module"),
+                        resolved_symbol.get("name"),
+                    )
+                else:
+                    coordinate = (symbol_module, symbol.get("symbol"))
+                if not all(isinstance(item, str) for item in coordinate):
+                    raise ValueError("Formula module Symbol coordinate is malformed")
+                key = cast(tuple[str, str], coordinate)
+                if key in self.symbol_contracts:
+                    raise ValueError("Formula module Symbol coordinate is ambiguous")
+                self.resolve_contract(symbol, imports_by_module[symbol_module])
+                self.symbol_contracts[key] = {
+                    member: deepcopy(value)
+                    for member, value in symbol.items()
+                    if member
+                    not in {"resolved_symbol", "role", "symbol", "value_policy"}
+                }
         fixed_contracts = cast(
             dict[str, dict[str, Any]],
             authority_context.kernel["meta_format"]["runtime_program"][
@@ -640,12 +791,16 @@ class _FormulaParser:
             self.take(self.close_group)
         return parsed
 
-    def resolve_contract(self, contract: dict[str, Any]) -> dict[str, Any]:
+    def resolve_contract(
+        self,
+        contract: dict[str, Any],
+        imports: dict[str, dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         return cast(
             dict[str, Any],
             resolve_formula_contract(
                 contract,
-                self.imports,
+                imports if imports is not None else self.imports,
                 self.authority_context.kernel,
                 self.policy,
             ),
@@ -750,9 +905,10 @@ class _FormulaParser:
             module = self.take("identifier").value
             self.take(cast(str, self.grammar["coordinate_separator"]))
             formula_id = self.take("identifier").value
-            declaration = self.formula_declarations.get((module, formula_id))
-            if declaration is None:
+            resolved_declaration = self.formula_declarations.get((module, formula_id))
+            if resolved_declaration is None:
                 raise ValueError("Formula call coordinate is unresolved")
+            declaration, declaration_imports = resolved_declaration
             self.take(self.open_group)
             arguments: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
             if self.current().kind != self.close_group:
@@ -778,7 +934,7 @@ class _FormulaParser:
                 if isinstance(item, dict) and isinstance(item.get("id"), str)
             }
             for contract in resolved_parameters.values():
-                self.resolve_contract(contract)
+                self.resolve_contract(contract, declaration_imports)
             parameter_ids = list(resolved_parameters)
             if set(arguments) != set(parameter_ids) or len(parameter_ids) != len(
                 parameters
@@ -788,7 +944,9 @@ class _FormulaParser:
                 self.operand_against_formula_contract(
                     operand,
                     contract,
-                    resolved_parameters[parameter],
+                    self.resolve_contract(
+                        resolved_parameters[parameter], declaration_imports
+                    ),
                 )
             return [
                 (
@@ -801,7 +959,7 @@ class _FormulaParser:
                             for parameter in sorted(arguments)
                         ],
                     },
-                    deepcopy(result),
+                    self.resolve_contract(deepcopy(result), declaration_imports),
                 )
             ]
         if (
@@ -1161,15 +1319,8 @@ def _render_operation_call(
             "model.reason.unresolved-name",
             "Formula operation call is unresolved or effectful",
         )
-    extensions = operation.get("extensions")
-    notation = (
-        extensions.get("standard.formula-notation")
-        if isinstance(extensions, dict)
-        else None
-    )
-    if not isinstance(notation, dict) or list(
-        jsonschema.Draft202012Validator(notation_schema).iter_errors(notation)
-    ):
+    notation = _validated_operation_notation(operation, grammar, notation_schema)
+    if notation is None:
         raise ValueError("Formula operation has no admitted notation declaration")
     arguments = node.get("arguments")
     ordered_ports = notation.get("ordered_ports")
