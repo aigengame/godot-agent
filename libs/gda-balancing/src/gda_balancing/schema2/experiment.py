@@ -2290,6 +2290,9 @@ def evaluate_experiment(
                             evaluation_site_identity=evaluation_site_identity,
                         )
 
+                    child_phase = cast(str, scheduler["schedule"]["child_phase"])
+                    if instruction.get("phase", child_phase) != child_phase:
+                        refuse_schedule(cast(str, refusal_signals["hidden_input"]))
                     if scheduled_logical_time < active_logical_time:
                         refuse_schedule(cast(str, refusal_signals["backward"]))
                     if (
@@ -2330,7 +2333,7 @@ def evaluate_experiment(
                         "operation": child_operation["id"],
                         "operation_ref": instruction["operation"],
                         "parent_event_id": event_id,
-                        "phase": "transition",
+                        "phase": child_phase,
                         "priority": scheduled_priority,
                         "schedule_sequence": len(schedule_trace),
                         "state_references": child_state_references,
