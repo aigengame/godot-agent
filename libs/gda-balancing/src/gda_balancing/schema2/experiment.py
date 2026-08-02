@@ -976,6 +976,14 @@ class _NamedRng:
         self._states: dict[str, int] = {}
         self._indices: dict[str, int] = {}
 
+    def snapshot(self) -> tuple[dict[str, int], dict[str, int]]:
+        return dict(self._states), dict(self._indices)
+
+    def restore(self, snapshot: tuple[dict[str, int], dict[str, int]]) -> None:
+        states, indices = snapshot
+        self._states = dict(states)
+        self._indices = dict(indices)
+
     def encode_candidate(self, candidate: int) -> str:
         width = self._contract["candidate_encoding"]["width_bits"] // 4
         return f"{candidate:0{width}x}"
@@ -1780,6 +1788,12 @@ def evaluate_experiment(
     if capability_refusal is not None:
         return capability_refusal
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+    runtime_profile = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == checked.value["runtime"]["profile"]
+    )
+    runtime_bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
     snapshot_identity_domain = _formula_snapshot_identity_domain(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -1809,7 +1823,7 @@ def evaluate_experiment(
     snapshots: list[dict[str, JsonValue]] = []
     scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
     total_steps = 0
-    runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
+    runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = _ordered_root_events(checked, scenario)
@@ -1907,9 +1921,7 @@ def evaluate_experiment(
         event_id = ""
         next_enqueue_sequence = len(ordered_events)
         event_steps = 0
-        root_step_limit = (
-            operation["resource_bounds"]["max_steps"] if operation is not None else 0
-        )
+        root_step_limit = runtime_bounds["max_event_steps"]
 
         def instruction_evaluation_sites(
             selected_operation: dict[str, Any],
@@ -1938,6 +1950,7 @@ def evaluate_experiment(
             call_path: tuple[str, ...],
             call_site_identity: str | None,
         ) -> tuple[str, Any]:
+            nonlocal admitted_event_count
             nonlocal event_steps, next_enqueue_sequence, total_steps
             operation_before: dict[bytes, int] = dict(state)
             variables: dict[str, Any] = dict(arguments)
@@ -2082,20 +2095,69 @@ def evaluate_experiment(
                         cast(str, schedule_identity["domain"]),
                         cast(JsonValue, schedule_identity_body),
                     )
+                    scheduled_logical_time = cast(int, instruction["logical_time"])
+                    scheduled_priority = cast(int, instruction["priority"])
+                    active_logical_time = cast(int, event_spec["logical_time"])
+                    active_priority = cast(int, event_spec["priority"])
+                    refusal_signals = scheduler["schedule"]["refusal_signals"]
+
+                    def refuse_schedule(signal: str) -> None:
+                        raise _RuntimeExecutionFault(
+                            signal=signal,
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=schedule_call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
+                        )
+
+                    if scheduled_logical_time < active_logical_time:
+                        refuse_schedule(cast(str, refusal_signals["backward"]))
+                    if (
+                        scheduled_logical_time == active_logical_time
+                        and scheduled_priority > active_priority
+                    ):
+                        refuse_schedule(
+                            cast(
+                                str,
+                                refusal_signals["illegal_same_time_priority"],
+                            )
+                        )
+                    if scheduled_logical_time > runtime_bounds["max_logical_time"]:
+                        refuse_schedule("logical-time-limit")
+                    zero_time_depth = (
+                        cast(int, event_spec.get("zero_time_depth", 0)) + 1
+                        if scheduled_logical_time == active_logical_time
+                        else 0
+                    )
+                    if zero_time_depth > runtime_bounds["max_zero_time_depth"]:
+                        refuse_schedule("zero-time-depth-limit")
+                    if admitted_event_count + 1 > runtime_bounds["max_total_events"]:
+                        refuse_schedule("event-limit")
+                    provisional_count = sum(
+                        child["event_id"] not in canceled_event_ids
+                        for child in buffered_children
+                    )
+                    if (
+                        len(pending_events) + provisional_count + 1
+                        > runtime_bounds["max_queue_events"]
+                    ):
+                        refuse_schedule("queue-limit")
                     child_event: dict[str, Any] = {
                         "arguments": child_arguments,
                         "call_site_identity": schedule_call_site_identity,
                         "enqueue_sequence": next_enqueue_sequence,
-                        "logical_time": instruction["logical_time"],
+                        "logical_time": scheduled_logical_time,
                         "operation": child_operation["id"],
                         "operation_ref": instruction["operation"],
                         "parent_event_id": event_id,
                         "phase": "transition",
-                        "priority": instruction["priority"],
+                        "priority": scheduled_priority,
                         "schedule_sequence": len(schedule_trace),
                         "state_references": child_state_references,
+                        "zero_time_depth": zero_time_depth,
                     }
                     next_enqueue_sequence += 1
+                    admitted_event_count += 1
                     child_event["event_id"] = _scheduled_event_id(
                         checked, scenario["id"], child_event
                     )
@@ -2128,7 +2190,18 @@ def evaluate_experiment(
                         child["event_id"] == target_event_id
                         for child in buffered_children
                     ):
-                        raise ValueError("admitted cancel target is not pending")
+                        raise _RuntimeExecutionFault(
+                            signal=cast(
+                                str,
+                                _scheduler_contract(checked)["cancel"][
+                                    "refusal_signals"
+                                ]["unknown"],
+                            ),
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
+                        )
                     cancel_identity = _scheduler_contract(checked)[
                         "call_site_identity"
                     ]["cancel"]
@@ -2239,6 +2312,7 @@ def evaluate_experiment(
             return cast(str, outcome), result
 
         pending_events = list(ordered_events)
+        admitted_event_count = len(ordered_events)
         event_position = 0
         terminal_condition = scenario["terminal_condition"]
         terminal_maximum = (
@@ -2289,12 +2363,9 @@ def evaluate_experiment(
             buffered_children = []
             canceled_event_ids = set()
             event_steps = 0
-            root_step_limit = (
-                operation["resource_bounds"]["max_steps"]
-                if operation is not None
-                else 0
-            )
+            root_step_limit = runtime_bounds["max_event_steps"]
             before = dict(state)
+            rng_before = rng.snapshot()
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
             if external_input:
@@ -2347,11 +2418,18 @@ def evaluate_experiment(
                         None,
                     )
             except _RuntimeExecutionFault as fault:
+                state.clear()
+                state.update(before)
+                rng.restore(rng_before)
                 code = _diagnostic_for_signal(checked, fault.signal, "runtime")
-                message = (
-                    "Runtime program exhausted its exact step bound"
-                    if fault.signal == "step-limit"
-                    else "Exact-int64 operation overflowed its numeric domain"
+                message = {
+                    "step-limit": "Runtime program exhausted its exact step bound",
+                    "numeric-overflow": (
+                        "Exact-int64 operation overflowed its numeric domain"
+                    ),
+                }.get(
+                    fault.signal,
+                    f"Runtime scheduler refused {fault.signal}",
                 )
                 return _runtime_refusal_outcome(
                     checked,

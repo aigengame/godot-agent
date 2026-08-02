@@ -1186,7 +1186,7 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
 
     assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
     assert result.report.diagnostics[0].code == "runtime.schedule_backward"
-    assert result.committed_events == ()
+    assert result.committed_trace_prefix == ()
     assert result.state_before == {"actor_mana": 30, "target_health": 100}
     assert result.state_after == result.state_before
 
@@ -2879,7 +2879,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "rng": runtime_definition["rng"],
         "budget_scopes": runtime_definition["budget_scopes"],
         "effects": runtime_definition["effects"],
-        "max_steps": runtime_definition["resource_bounds"]["max_steps"],
+        "resource_bounds": runtime_definition["resource_bounds"],
     }
     identity_nodes = {
         runtime_definition_identity,
