@@ -1373,6 +1373,32 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     ]
     assert events[0]["operation"] is None
     assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
+    reproduction = _member(receipt, "reproduction-receipt")
+    kernel, _language_bundle = authority_module.load_authorities()
+    input_contract = kernel["meta_format"]["runtime_program"]["scheduler"][
+        "external_input_identity"
+    ]
+    input_identity = content_identity(
+        input_contract["domain"],
+        {
+            "experiment_identity": reproduction["experiment_identity"],
+            "scenario_id": "one-cast",
+            "root_event_ref": "raise-defense",
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "facts": scenario["event_plan"][0]["facts"],
+        },
+    )
+    assert events[0]["external_input_identity"] == input_identity
+    assert reproduction["external_input_identities"] == [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "raise-defense",
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "input_identity": input_identity,
+        }
+    ]
     assert next(
         fact["integer"]
         for fact in events[1]["facts"]
