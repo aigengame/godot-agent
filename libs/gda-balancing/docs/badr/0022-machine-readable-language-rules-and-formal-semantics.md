@@ -17,6 +17,15 @@ and requiring a full theorem prover would block a practical reference implementa
 therefore chooses a small non-self-hosted Kernel Specification, a closed bootstrapped meta-format,
 structured formal judgments, and an honest proof/conformance boundary.
 
+> **Amendment (2026-08-02, bADR-0024):** Formula language content includes a closed canonical
+> notation grammar and package-owned pure-Operation notation declarations. `standard.schema` owns
+> their wire/parse contracts and required `body`/`expression` pair; `standard.compiler` owns
+> contextual resolution, local result inference, exact pair equivalence, and normalization. Every
+> Package Release exporting a pure Operation owns that Operation's notation declaration; mechanic
+> releases continue to own only their additional Formula-slot and Operation-integration contracts.
+> The anonymous/inline Authoring-AST sugar retained below is unchanged. Model Source, RIR, and Model
+> explanation carry the pair without making expression text an alternative semantic authority.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle

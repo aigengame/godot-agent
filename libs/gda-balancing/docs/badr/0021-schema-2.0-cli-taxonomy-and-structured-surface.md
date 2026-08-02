@@ -24,6 +24,12 @@ structured-params adapter part of the first vertical tracer.
 > and never regenerates, edits, or executes it. bADR-0022 owns the explanation's Formula and
 > Operation contents.
 
+> **Amendment (2026-08-02, bADR-0024):** The 2.x noun taxonomy additionally requires the non-executing
+> `formula parse` and `formula render` transformations. Both bind their structured inputs to one
+> exact Kernel/LDB and Formula declaration context, return a complete structured body plus canonical
+> expression, and publish no semantic artifact. Their live Command descriptors remain the only CLI,
+> structured-input, outcome, schema, manifest, and help authority.
+
 ## Decision
 
 - **The binary remains `gda-balancing` with noun-group commands.** Registered domain commands use

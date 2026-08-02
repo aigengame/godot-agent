@@ -19,6 +19,12 @@ monolith retains the size limit, while treating fragments as independent peer au
 bADR-0012's single LDB authority. The LDB therefore needs one closed multi-member identity and
 admission boundary.
 
+> **Amendment (2026-08-02, bADR-0024):** Formula notation grammar, pure-Operation notation
+> declarations, diagnostics, rules, and vectors are ordinary sealed package content. Changing any
+> of them reidentifies its normal vector/release/root graph and exact wrappers that bind the whole
+> LDB. bADR-0024 owns the separate Package-Lock and RIR projection effects. No notation catalog enters
+> RIR, and no host notation registry or peer grammar authority is introduced.
+
 ## Decision
 
 - **The LDB is one sealed multi-member artifact graph.** One canonical root manifest binds the

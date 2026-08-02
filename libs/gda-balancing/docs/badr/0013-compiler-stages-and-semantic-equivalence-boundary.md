@@ -25,6 +25,14 @@ an explicit boundary for lowering equivalence.
 > from committing, while post-commit recovery returns the same bytes without regeneration. Neither
 > companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
 
+> **Amendment (2026-08-02, bADR-0024):** Reachable RIR Formula declarations additionally carry the
+> canonical `expression` paired with their structured `body`. The retained RIR payload identity below
+> is now named `semantic_identity`; a separate `content_identity` hashes the complete canonical RIR
+> JSON for exact wire integrity. The current Resolved Model identity is
+> `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR
+> semantic_identity, exact RIR content_identity)`, superseding the shorter tuple retained below.
+> bADR-0024 owns pair validation, expression projection, and the notation-only identity matrix.
+
 ## Decision
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**

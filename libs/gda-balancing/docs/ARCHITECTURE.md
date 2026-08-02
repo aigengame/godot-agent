@@ -26,7 +26,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-cutting invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0023](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0024](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -292,9 +292,12 @@ implementation-defined iteration are outside the language.
 
 Model Source owns module-level named **Formula declarations** with typed parameters, result, and a
 structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
-are neither first-class values nor dynamic callbacks. Inline expression syntax, if admitted, is
-only Authoring-AST sugar normalized to the same declaration-and-binding form before HIR; infix text
-is never a peer semantic authority.
+are neither first-class values nor dynamic callbacks. Every Formula declaration data instance
+carries adjacent `body` and canonical human-readable `expression` members. The body is the pair's
+authoritative source member; the expression is a package-owned reversible projection, never a peer
+semantic authority. Inline expression syntax, if admitted, remains only Authoring-AST sugar
+normalized to the same named Formula declaration-and-binding form before Typed HIR; it creates no
+alternative typing, identity, evaluation, or explanation rules. bADR-0022/0024 own the detail.
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
@@ -390,10 +393,13 @@ The public compilation pipeline is:
 - The **Authoring AST** preserves source structure after parsing.
 - **Typed HIR** resolves names, types, units, package symbols, and static effects while retaining
   enough structure for useful diagnostics.
-- The **RIR semantic payload** is the canonical, public semantic normal form. Equivalent admitted
-  source must lower to identical RIR payload bytes under the same selected semantic dependencies.
+- The **RIR semantic payload** is the canonical, public semantic normal form. Its
+  `semantic_identity` excludes Formula `expression` text; the complete canonical RIR JSON has a
+  separate `content_identity` for wire integrity. Equivalent admitted source must lower to the same
+  semantic projection under the same selected semantic dependencies (bADR-0013/0024).
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
-  selected Package Lock, and all other required build identities.
+  selected Package Lock, RIR semantic identity, exact RIR content identity, and all other required
+  build identities.
 - **EIR** is an evaluator-private execution representation. It may contain schedules, bytecode,
   layouts, or optimized kernels, but it is neither portable Standard Schema bytecode nor an
   interchange authority.
@@ -404,8 +410,8 @@ obtained; they are not part of the RIR semantic payload.
 
 Every successful build also publishes a mandatory, separately identified **Model explanation**
 derived from the exact RIR and Debug Map. Its closed `formula_explanations` section renders
-Formula declarations, bindings, parameter-to-operand mappings, result contracts/types, and
-evaluation contexts; its closed
+Formula declarations with their structured bodies and canonical expressions, bindings,
+parameter-to-operand mappings, result contracts/types, and evaluation contexts; its closed
 `operation_explanations` section renders Operation control/effect/outcome/commit boundaries and
 references the exact Formula binding identities instead of restating their expression semantics.
 It is inspection data, not execution authority. Model explanation generation, validation, and
@@ -799,6 +805,7 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 | --- | --- | --- |
 | `schema` | `get language-bundle`, `get wire-schema`, `get diagnostic-catalog` | Retrieve language authority or generated projections |
 | `package` | `list`, `get` | Inspect LDB package inventory |
+| `formula` | `parse`, `render` | Convert contextual Formula notation and structured bodies without execution |
 | `model` | `check`, `build`, `inspect`, `diff`, `migrate` | Validate and resolve model artifacts |
 | `template` | `list`, `get`, `instantiate` | Distribute and instantiate starter sources |
 | `experiment` | `check`, `run`, `replay`, `compare` | Validate and execute evaluation intent |
