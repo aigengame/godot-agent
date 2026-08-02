@@ -60,26 +60,21 @@ class _FormulaNotationResourceError(ValueError):
     """A deterministic notation resource bound was exceeded."""
 
 
+class _FormulaContextError(ValueError):
+    """A contextual failure with an explicit LDB-owned machine reason."""
+
+    def __init__(self, reason_id: str, message: str) -> None:
+        super().__init__(message)
+        self.reason_id = reason_id
+
+
 def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
     message = str(error)
-    lowered = message.lower()
-    if "unresolved" in lowered:
-        reason = "model.reason.unresolved-name"
-    elif "ambiguous" in lowered or "duplicate" in lowered or "repeats" in lowered:
-        reason = "model.reason.name-ambiguity"
-    elif any(
-        marker in lowered
-        for marker in (
-            "contract",
-            "infer",
-            "incompatible",
-            "ports",
-            "totally bind",
-        )
-    ):
-        reason = "model.reason.formula-type-mismatch"
-    else:
-        reason = "model.reason.source-contract-mismatch"
+    reason = (
+        error.reason_id
+        if isinstance(error, _FormulaContextError)
+        else "model.reason.source-contract-mismatch"
+    )
     return FormulaNotationRefusal(reason, message)
 
 
@@ -217,7 +212,10 @@ def _validated_operation_notation(
             is None
             or spelling in grammar["reserved_identifiers"]
         ):
-            raise ValueError("Formula function notation spelling is ambiguous")
+            raise _FormulaContextError(
+                "model.reason.name-ambiguity",
+                "Formula function notation spelling is ambiguous",
+            )
         return notation
     structural_tokens = {
         *cast(list[str], grammar["group_delimiters"]),
@@ -266,7 +264,10 @@ def _selected_operation_notations(
         for item in declarations
     ]
     if len(set(spellings)) != len(spellings):
-        raise ValueError("Formula Operation notation spelling is ambiguous")
+        raise _FormulaContextError(
+            "model.reason.name-ambiguity",
+            "Formula Operation notation spelling is ambiguous",
+        )
     return tuple(declarations)
 
 
@@ -324,7 +325,7 @@ def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, An
     return policy
 
 
-def _formula_schema_version(
+def formula_schema_version(
     authority_context: AdmittedAuthorityContext,
 ) -> str:
     packages = cast(
@@ -368,7 +369,10 @@ def _module_imports(
             cast(str, requirement[profile["requirement_version_member"]]),
         )
         if key in requirement_keys:
-            raise ValueError("Formula package requirement is duplicate")
+            raise _FormulaContextError(
+                "model.reason.name-ambiguity",
+                "Formula package requirement is duplicate",
+            )
         requirement_keys.add(key)
     packages = {
         (cast(str, item["id"]), cast(str, item["version"])): item
@@ -378,11 +382,17 @@ def _module_imports(
         )
     }
     if any(key not in packages for key in requirement_keys):
-        raise ValueError("Formula package requirement is unresolved")
+        raise _FormulaContextError(
+            "model.reason.unresolved-name",
+            "Formula package requirement is unresolved",
+        )
     if len({package for package, _version in requirement_keys}) != len(
         requirement_keys
     ):
-        raise ValueError("Formula package requirement version is ambiguous")
+        raise _FormulaContextError(
+            "model.reason.name-ambiguity",
+            "Formula package requirement version is ambiguous",
+        )
     imports = module.get(profile["imports_member"])
     if not isinstance(imports, list):
         raise ValueError("Formula module context has no imports")
@@ -400,14 +410,20 @@ def _module_imports(
             raise ValueError("Formula module import is malformed")
         alias = cast(str, item[profile["import_alias_member"]])
         if alias in resolved:
-            raise ValueError("Formula module import alias is ambiguous")
+            raise _FormulaContextError(
+                "model.reason.name-ambiguity",
+                "Formula module import alias is ambiguous",
+            )
         package_key = (
             cast(str, item[profile["import_package_member"]]),
             cast(str, item[profile["import_version_member"]]),
         )
         package = packages.get(package_key)
         if package_key not in requirement_keys or package is None:
-            raise ValueError(f"Formula import {alias!r} is unresolved")
+            raise _FormulaContextError(
+                "model.reason.unresolved-name",
+                f"Formula import {alias!r} is unresolved",
+            )
         exported_types = {
             exported.get("id")
             for exported in cast(list[dict[str, Any]], package["exports"]["types"])
@@ -415,7 +431,10 @@ def _module_imports(
         }
         symbol = cast(str, item[profile["import_symbol_member"]])
         if symbol not in exported_types:
-            raise ValueError(f"Formula import {alias!r} is unresolved")
+            raise _FormulaContextError(
+                "model.reason.unresolved-name",
+                f"Formula import {alias!r} is unresolved",
+            )
         resolved[alias] = {
             "package": package_key[0],
             "version": package_key[1],
@@ -548,7 +567,7 @@ class _FormulaParser:
         if not isinstance(module_id, str) or not isinstance(declarations, list):
             raise ValueError("Formula module context is malformed")
         self.authority_context = authority_context
-        if request.get("schema_version") != _formula_schema_version(authority_context):
+        if request.get("schema_version") != formula_schema_version(authority_context):
             raise ValueError("Formula conversion source schema version is unavailable")
         self.profile = _formula_resolution_profile(authority_context)
         self.policy = _formula_policy(authority_context)
@@ -562,10 +581,16 @@ class _FormulaParser:
         imports_by_module: dict[str, dict[str, dict[str, str]]] = {}
         for candidate in modules:
             if not isinstance(candidate, dict):
-                raise ValueError("Formula module closure is malformed or ambiguous")
+                raise _FormulaContextError(
+                    "model.reason.name-ambiguity",
+                    "Formula module closure is malformed or ambiguous",
+                )
             candidate_id = candidate.get("id")
             if not isinstance(candidate_id, str) or candidate_id in modules_by_id:
-                raise ValueError("Formula module closure is malformed or ambiguous")
+                raise _FormulaContextError(
+                    "model.reason.name-ambiguity",
+                    "Formula module closure is malformed or ambiguous",
+                )
             modules_by_id[candidate_id] = candidate
             imports_by_module[candidate_id] = _module_imports(
                 candidate, request, authority_context, self.profile
@@ -614,10 +639,16 @@ class _FormulaParser:
             for item in candidate_formulas:
                 formula_id = item.get("id") if isinstance(item, dict) else None
                 if not isinstance(formula_id, str):
-                    raise ValueError("Formula declaration coordinate is ambiguous")
+                    raise _FormulaContextError(
+                        "model.reason.name-ambiguity",
+                        "Formula declaration coordinate is ambiguous",
+                    )
                 key = (declaration_module, formula_id)
                 if key in self.formula_declarations:
-                    raise ValueError("Formula declaration coordinate is ambiguous")
+                    raise _FormulaContextError(
+                        "model.reason.name-ambiguity",
+                        "Formula declaration coordinate is ambiguous",
+                    )
                 self.formula_declarations[key] = (
                     item,
                     imports_by_module[declaration_module],
@@ -633,7 +664,10 @@ class _FormulaParser:
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         }
         if len(self.contracts) != len(parameters):
-            raise ValueError("Formula parameter context is malformed or duplicate")
+            raise _FormulaContextError(
+                "model.reason.name-ambiguity",
+                "Formula parameter context is malformed or duplicate",
+            )
         for contract in self.contracts.values():
             self.resolve_contract(contract)
         result_contract = formula.get("result")
@@ -661,7 +695,10 @@ class _FormulaParser:
                     raise ValueError("Formula module Symbol coordinate is malformed")
                 key = cast(tuple[str, str], coordinate)
                 if key in self.symbol_contracts:
-                    raise ValueError("Formula module Symbol coordinate is ambiguous")
+                    raise _FormulaContextError(
+                        "model.reason.name-ambiguity",
+                        "Formula module Symbol coordinate is ambiguous",
+                    )
                 self.resolve_contract(symbol, imports_by_module[symbol_module])
                 self.symbol_contracts[key] = {
                     member: deepcopy(value)
@@ -669,12 +706,6 @@ class _FormulaParser:
                     if member
                     not in {"resolved_symbol", "role", "symbol", "value_policy"}
                 }
-        fixed_contracts = cast(
-            dict[str, dict[str, Any]],
-            authority_context.kernel["meta_format"]["runtime_program"][
-                "fixed_value_contracts"
-            ],
-        )
         boolean_contract = fixed_contracts.get("kernel-boolean")
         if not isinstance(boolean_contract, dict):
             raise ValueError("Formula conversion has no Kernel Boolean contract")
@@ -833,13 +864,19 @@ class _FormulaParser:
                 or not isinstance(domain.get("maximum"), int)
                 or not domain["minimum"] <= value <= domain["maximum"]
             ):
-                raise ValueError("Formula literal is outside its contextual contract")
+                raise _FormulaContextError(
+                    "model.reason.formula-type-mismatch",
+                    "Formula literal is outside its contextual contract",
+                )
             contract = expected
         if contract is None or not formula_contract_matches(
             self.resolve_contract(contract),
             self.resolve_contract(expected),
         ):
-            raise ValueError("Formula operand is incompatible with its formal contract")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula operand is incompatible with its formal contract",
+            )
         return contract
 
     def operand_against_operation_contract(
@@ -856,14 +893,18 @@ class _FormulaParser:
                 self.literal_semantics,
             )
             if literal_contract is None:
-                raise ValueError(
-                    "Formula operand is incompatible with its Operation port"
+                raise _FormulaContextError(
+                    "model.reason.formula-type-mismatch",
+                    "Formula operand is incompatible with its Operation port",
                 )
             return None
         if contract is None or not formula_contract_matches_operation(
             self.resolve_contract(contract), expected
         ):
-            raise ValueError("Formula operand is incompatible with its Operation port")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula operand is incompatible with its Operation port",
+            )
         return contract
 
     def right_hand_side(
@@ -886,14 +927,18 @@ class _FormulaParser:
             self.take("identifier", conditional_keywords[2])
             when_false, false_contract = self.parenthesized_operand()
             if true_contract is None or false_contract is None:
-                raise ValueError(
-                    "Formula conditional branch contract cannot be inferred"
+                raise _FormulaContextError(
+                    "model.reason.formula-type-mismatch",
+                    "Formula conditional branch contract cannot be inferred",
                 )
             if not formula_contract_matches(
                 self.resolve_contract(true_contract),
                 self.resolve_contract(false_contract),
             ):
-                raise ValueError("Formula conditional branches are incompatible")
+                raise _FormulaContextError(
+                    "model.reason.formula-type-mismatch",
+                    "Formula conditional branches are incompatible",
+                )
             return [
                 (
                     {
@@ -917,7 +962,10 @@ class _FormulaParser:
             formula_id = self.take("identifier").value
             resolved_declaration = self.formula_declarations.get((module, formula_id))
             if resolved_declaration is None:
-                raise ValueError("Formula call coordinate is unresolved")
+                raise _FormulaContextError(
+                    "model.reason.unresolved-name",
+                    "Formula call coordinate is unresolved",
+                )
             declaration, declaration_imports = resolved_declaration
             self.take(self.open_group)
             arguments: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
@@ -926,7 +974,10 @@ class _FormulaParser:
                     parameter = self.take("identifier").value
                     self.take(cast(str, self.grammar["named_argument_operator"]))
                     if parameter in arguments:
-                        raise ValueError("Formula call repeats a named argument")
+                        raise _FormulaContextError(
+                            "model.reason.name-ambiguity",
+                            "Formula call repeats a named argument",
+                        )
                     arguments[parameter] = self.parenthesized_operand()
                     if self.current().kind != self.grammar["argument_separator"]:
                         break
@@ -949,7 +1000,10 @@ class _FormulaParser:
             if set(arguments) != set(parameter_ids) or len(parameter_ids) != len(
                 parameters
             ):
-                raise ValueError("Formula call does not totally bind its parameters")
+                raise _FormulaContextError(
+                    "model.reason.formula-type-mismatch",
+                    "Formula call does not totally bind its parameters",
+                )
             for parameter, (operand, contract) in arguments.items():
                 self.operand_against_formula_contract(
                     operand,
@@ -1099,7 +1153,10 @@ class _FormulaParser:
                 else f"{local}{separator}{reduction}"
             )
             if target != local and (target in self.locals or target in self.contracts):
-                raise ValueError("Formula generated local identity is ambiguous")
+                raise _FormulaContextError(
+                    "model.reason.name-ambiguity",
+                    "Formula generated local identity is ambiguous",
+                )
             node, contract = self.operation_node(target, item, [left, right])
             bindings.append((node, contract))
             values.append(({"kind": "local", "local": target}, contract))
@@ -1115,17 +1172,26 @@ class _FormulaParser:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         ports = operation.notation.get("ordered_ports")
         if not isinstance(ports, list) or len(ports) != len(operands):
-            raise ValueError("Formula call does not totally bind notation ports")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula call does not totally bind notation ports",
+            )
         inputs = operation.declaration.get("inputs")
         if not isinstance(inputs, list):
-            raise ValueError("Formula Operation has no formal port contracts")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula Operation has no formal port contracts",
+            )
         formals = {
             item.get("id"): item
             for item in inputs
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         }
         if set(ports) != set(formals) or len(formals) != len(inputs):
-            raise ValueError("Formula notation ports do not close Operation inputs")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula notation ports do not close Operation inputs",
+            )
         typed_operands = [
             (
                 operand,
@@ -1162,7 +1228,10 @@ class _FormulaParser:
     ) -> dict[str, Any]:
         fallback = self.formula.get("result")
         if not isinstance(fallback, dict):
-            raise ValueError("Formula local result cannot be inferred")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula local result cannot be inferred",
+            )
         anchor = next(
             (contract for _operand, contract in operands if isinstance(contract, dict)),
             self.resolve_contract(fallback),
@@ -1171,18 +1240,27 @@ class _FormulaParser:
             self.conversion_policy.get("literal_result_inference")
             != "contextual-anchor"
         ):
-            raise ValueError("Formula literal result-inference policy is malformed")
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                "Formula literal result-inference policy is malformed",
+            )
         contracts = [
             cast(dict[str, Any], contract or anchor) for _operand, contract in operands
         ]
-        return infer_formula_operation_result(
-            operation.declaration,
-            [cast(str, port) for port in ports],
-            contracts,
-            self.resolve_contract(fallback),
-            self.conversion_policy,
-            self.source_type_aliases,
-        )
+        try:
+            return infer_formula_operation_result(
+                operation.declaration,
+                [cast(str, port) for port in ports],
+                contracts,
+                self.resolve_contract(fallback),
+                self.conversion_policy,
+                self.source_type_aliases,
+            )
+        except ValueError as err:
+            raise _FormulaContextError(
+                "model.reason.formula-type-mismatch",
+                str(err),
+            ) from err
 
     def parse(self) -> dict[str, Any]:
         nodes: list[dict[str, Any]] = []
@@ -1193,8 +1271,9 @@ class _FormulaParser:
             self.index += 1
             local = self.take("identifier").value
             if local in self.locals or local in self.contracts:
-                raise ValueError(
-                    "Formula local identity is duplicate or captures a parameter"
+                raise _FormulaContextError(
+                    "model.reason.name-ambiguity",
+                    "Formula local identity is duplicate or captures a parameter",
                 )
             self.take(cast(str, self.grammar["named_argument_operator"]))
             bindings = self.right_hand_side(local)
@@ -1335,14 +1414,20 @@ def _render_operation_call(
     arguments = node.get("arguments")
     ordered_ports = notation.get("ordered_ports")
     if not isinstance(arguments, list) or not isinstance(ordered_ports, list):
-        raise ValueError("Formula notation has no total ordered port mapping")
+        raise _FormulaContextError(
+            "model.reason.formula-type-mismatch",
+            "Formula notation has no total ordered port mapping",
+        )
     by_port = {
         argument.get("port"): argument.get("operand")
         for argument in arguments
         if isinstance(argument, dict)
     }
     if set(by_port) != set(ordered_ports) or len(by_port) != len(arguments):
-        raise ValueError("Formula operation arguments do not match notation ports")
+        raise _FormulaContextError(
+            "model.reason.formula-type-mismatch",
+            "Formula operation arguments do not match notation ports",
+        )
     rendered = [_render_operand(by_port[port], grammar) for port in ordered_ports]
     if notation.get("kind") == "infix" and len(rendered) == 2:
         token = notation.get("token")
@@ -1385,8 +1470,10 @@ def _render_formula_call(node: dict[str, Any], grammar: dict[str, Any]) -> str:
     separator = cast(str, grammar["argument_separator"]) + " "
     assignment = f" {grammar['named_argument_operator']} "
     delimiters = cast(list[str], grammar["group_delimiters"])
-    arguments = separator.join(key + assignment + value for key, value in normalized)
-    return f"{name}{delimiters[0]}{arguments}{delimiters[1]}"
+    rendered_arguments = separator.join(
+        key + assignment + value for key, value in normalized
+    )
+    return f"{name}{delimiters[0]}{rendered_arguments}{delimiters[1]}"
 
 
 def _render_formula_body(

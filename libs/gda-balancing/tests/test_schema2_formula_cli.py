@@ -9,6 +9,7 @@ import pytest
 
 import gda_balancing.commands.formula as formula_command_module
 import gda_balancing.schema2.authority as authority_module
+import gda_balancing.schema2.formula_notation as formula_notation_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import JsonValue, content_identity
 from gda_balancing.schema2.formula_notation import admit_formula_pair
@@ -30,6 +31,17 @@ def _quantity_contract(identifier: str) -> dict[str, object]:
         "domain": {"minimum": 0, "maximum": 1000},
         "numeric_policy": "exact-int64",
     }
+
+
+def test_contextual_reason_is_independent_of_human_message_wording() -> None:
+    error = formula_notation_module._FormulaContextError(
+        "model.reason.formula-type-mismatch",
+        "This reworded message says unresolved, ambiguous, and duplicate.",
+    )
+
+    refusal = formula_notation_module._contextual_refusal(error)
+
+    assert refusal.reason_id == "model.reason.formula-type-mismatch"
 
 
 def _boolean_contract(identifier: str) -> dict[str, object]:
@@ -745,6 +757,33 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
         "let damage = floor_zero(raw_damage);\n"
         "damage"
     )
+
+
+def test_formula_parse_reverse_admits_its_canonical_pair(
+    tmp_path: Path, run_cli, monkeypatch
+) -> None:
+    source = tmp_path / "parse-request.json"
+    source.write_text(formula_command_module._VALID_PARSE_REQUEST, encoding="utf-8")
+    admitted_pairs: list[dict] = []
+    real_admit = formula_command_module.admit_formula_pair
+
+    def observe_admission(request, authority_context, **kwargs):
+        admitted_pairs.append(deepcopy(request))
+        return real_admit(request, authority_context, **kwargs)
+
+    monkeypatch.setattr(
+        formula_command_module,
+        "admit_formula_pair",
+        observe_admission,
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    result = json.loads(stdout)
+    assert len(admitted_pairs) == 1
+    assert admitted_pairs[0]["formula"]["body"] == result["body"]
+    assert admitted_pairs[0]["formula"]["expression"] == result["expression"]
 
 
 def test_formula_render_then_parse_preserves_the_committed_formula_bodies(
@@ -2175,6 +2214,14 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
         },
         authority_context=context,
     ).admitted
+    tampered_explanation = deepcopy(explanation)
+    tampered_explanation["formula_explanations"][0]["expression"] += " "
+    assert not model_module._model_explanation_pairs_are_admitted(
+        tampered_explanation,
+        rir,
+        json.loads(locators["package-lock"].read_text(encoding="utf-8")),
+        context,
+    )
 
 
 def test_independent_consumer_mutually_admits_production_formula_pairs() -> None:

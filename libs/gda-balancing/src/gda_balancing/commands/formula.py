@@ -150,6 +150,12 @@ def run_formula_parse(
         )
     try:
         body = parse_formula_expression(request, authority_context)
+        expression = render_formula_body(body, authority_context)
+        paired_request = deepcopy(request)
+        paired_formula = cast(dict[str, Any], paired_request["formula"])
+        paired_formula["body"] = body
+        paired_formula["expression"] = expression
+        admit_formula_pair(paired_request, authority_context)
     except FormulaNotationRefusal as err:
         return _formula_refusal_report(
             request,
@@ -160,7 +166,7 @@ def run_formula_parse(
         )
     return FormulaConversionResult(
         body=body,
-        expression=render_formula_body(body, authority_context),
+        expression=expression,
         kernel_identity=authority_context.kernel["content_identity"],
         language_bundle_identity=authority_context.language_bundle["content_identity"],
     )

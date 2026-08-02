@@ -24,6 +24,10 @@ import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.schema2.formula_notation import (
+    parse_formula_expression,
+    render_formula_body,
+)
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
     derive_language_index,
@@ -322,7 +326,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         assert program["refusals"] == []
 
 
-def test_formula_parameter_program_refuses_noncanonical_sugar_pair():
+def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conversion():
     program_source = _model_source()
     quantity_contract = {
         "type": "quantity",
@@ -391,6 +395,34 @@ def test_formula_parameter_program_refuses_noncanonical_sugar_pair():
             "result_kind": "parameter",
         }
     ]
+    context = checked_sugar.authority_context
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    program_body = program_source["modules"][0]["formulas"][0]["body"]
+    rendered = render_formula_body(program_body, context)
+    conversion_request = {
+        "schema_version": sugar_source["schema_version"],
+        "package_requirements": sugar_source["package_requirements"],
+        "modules": sugar_source["modules"],
+        "module": sugar_source["modules"][0],
+        "formula": {
+            **sugar_source["modules"][0]["formulas"][0],
+            "expression": f"({rendered})",
+        },
+    }
+    converted_body = parse_formula_expression(conversion_request, context)
+    converted_source = deepcopy(sugar_source)
+    converted_formula = converted_source["modules"][0]["formulas"][0]
+    converted_formula["body"] = converted_body
+    converted_formula["expression"] = render_formula_body(converted_body, context)
+    checked_converted = model_module.check_model_source_value(converted_source)
+    assert isinstance(checked_converted, model_module.CheckedModel)
+
+    sugar_rir = model_module.lower_checked_model(checked_sugar)["rir-semantic-payload"]
+    converted_rir = model_module.lower_checked_model(checked_converted)[
+        "rir-semantic-payload"
+    ]
+    assert converted_body == sugar_source["modules"][0]["formulas"][0]["body"]
+    assert converted_rir == sugar_rir
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
@@ -519,6 +551,33 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     }
 
 
+def test_model_explanation_generation_uses_shared_formula_pair_admission(
+    monkeypatch,
+):
+    checked = model_module.check_model_source_value(_model_source())
+    assert isinstance(checked, model_module.CheckedModel)
+    real_admit = model_module._model_explanation_pairs_are_admitted
+    admitted_explanations: list[dict[str, Any]] = []
+
+    def observe_admission(explanation, rir, lock, authority_context):
+        admitted_explanations.append(deepcopy(explanation))
+        return real_admit(explanation, rir, lock, authority_context)
+
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation_pairs_are_admitted",
+        observe_admission,
+    )
+
+    artifacts = model_module.lower_checked_model(checked)
+
+    assert len(admitted_explanations) == 1
+    assert (
+        admitted_explanations[0]["formula_explanations"]
+        == artifacts["model-explanation"]["formula_explanations"]
+    )
+
+
 def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     tmp_path, run_cli, monkeypatch
 ):
@@ -559,6 +618,42 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     assert inspect_stdout.startswith("{\n  ")
     assert json.loads(inspect_stdout) == json.loads(expected_bytes)
     assert explanation_path.read_bytes() == expected_bytes
+
+
+def test_model_inspect_rejects_explanation_formula_pair_admission_failure(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt_path = (
+        _artifact_directory(json.loads(build_stdout)) / "artifact-set-receipt.json"
+    )
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation_pairs_are_admitted",
+        lambda *_args, **_kwargs: False,
+    )
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt_path)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (2, "")
+    diagnostic = json.loads(inspect_stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "kernel.binding_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/model-explanation"
 
 
 def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, run_cli):
@@ -3062,10 +3157,10 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
     out = tmp_path / "published-model"
     explanation = model_module._model_explanation
 
-    def generate_invalid_explanation(language_bundle, rir, debug_map):
-        valid = explanation(language_bundle, rir, debug_map)
+    def generate_invalid_explanation(authority_context, lock, rir, debug_map):
+        valid = explanation(authority_context, lock, rir, debug_map)
         return model_module._identified_artifact(
-            language_bundle,
+            authority_context.language_bundle,
             "model-explanation",
             {
                 "rir_identity": valid["rir_identity"],
@@ -5412,6 +5507,16 @@ def _locked_package_ids(lowered: dict[str, Any]) -> set[str]:
     return {cast(str, row["id"]) for row in packages}
 
 
+def _package_release(
+    language_bundle: LanguageBundleIndex, package_id: str
+) -> dict[str, Any]:
+    return next(
+        row
+        for row in language_bundle["language"]["packages"]
+        if row["id"] == package_id
+    )
+
+
 def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     source = _rpg_source_value()
     baseline = model_module.check_model_source_value(source)
@@ -5462,6 +5567,37 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     assert original["build-receipt"] != mutated["build-receipt"]
 
 
+def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
+    contract = next(
+        row
+        for row in candidate_ldb["language"]["artifact_contracts"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
+        "excluded_members"
+    ] = ["closure"]
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        != mutated["rir-semantic-payload"]["semantic_identity"]
+    )
+    projection = model_module._rir_semantic_projection(
+        candidate_ldb,
+        cast(dict[str, JsonValue], mutated["rir-semantic-payload"]),
+    )
+    formula = cast(list[dict[str, Any]], projection["formulas"])[0]
+    assert "expression" in formula
+    assert "closure" not in formula
+
+
 def test_selected_unreachable_notation_preserves_both_rir_identities():
     source = _rpg_source_value()
     baseline = model_module.check_model_source_value(source)
@@ -5479,6 +5615,15 @@ def test_selected_unreachable_notation_preserves_both_rir_identities():
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
     mutated = model_module.lower_checked_model(candidate)
 
+    original_package = _package_release(
+        cast(LanguageBundleIndex, baseline.language_bundle), "core.quantity"
+    )
+    mutated_package = _package_release(candidate_ldb, "core.quantity")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        cast(LanguageBundleIndex, baseline.language_bundle).root["content_identity"]
+        != candidate_ldb.root["content_identity"]
+    )
     assert original["package-lock"] != mutated["package-lock"]
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["resolved-model"] != mutated["resolved-model"]
@@ -5519,6 +5664,12 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
     mutated = model_module.lower_checked_model(candidate)
 
+    original_package = _package_release(baseline_ldb, "standard.schema")
+    mutated_package = _package_release(candidate_ldb, "standard.schema")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
     assert original["package-lock"] != mutated["package-lock"]
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["resolved-model"] != mutated["resolved-model"]
@@ -5612,6 +5763,15 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
     mutated = model_module.lower_checked_model(candidate)
 
+    original_package = _package_release(
+        cast(LanguageBundleIndex, baseline.language_bundle), "standard.schema"
+    )
+    mutated_package = _package_release(candidate_ldb, "standard.schema")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        cast(LanguageBundleIndex, baseline.language_bundle).root["content_identity"]
+        != candidate_ldb.root["content_identity"]
+    )
     assert original["package-lock"] == mutated["package-lock"]
     assert (
         original["rir-semantic-payload"]["content_identity"]

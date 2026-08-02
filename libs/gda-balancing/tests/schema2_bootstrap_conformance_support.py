@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3d8492a7fb38aef990a4c09b8281c0cb28186188d8c116f4bc9f80bc6fcd6a5c"
+    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
 )
 
 
@@ -3994,6 +3994,84 @@ def _consumer_b_language_definitions_are_closed(
     return True
 
 
+def _consumer_b_artifact_semantic_projections_are_closed(
+    ldb: dict[str, Any],
+) -> bool:
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return False
+    contracts = language.get("artifact_contracts")
+    schemas = language.get("artifact_wire_schemas")
+    if not isinstance(contracts, list) or not isinstance(schemas, list):
+        return False
+    schemas_by_kind = {
+        row.get("artifact_kind"): row.get("schema")
+        for row in schemas
+        if isinstance(row, dict)
+        and isinstance(row.get("artifact_kind"), str)
+        and isinstance(row.get("schema"), dict)
+    }
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            return False
+        projection = contract.get("semantic_identity_projection")
+        if projection is None:
+            continue
+        schema = schemas_by_kind.get(contract.get("schema_kind"))
+        root_exclusions = (
+            projection.get("excluded_root_members")
+            if isinstance(projection, dict)
+            else None
+        )
+        collection_exclusions = (
+            projection.get("collection_member_exclusions")
+            if isinstance(projection, dict)
+            else None
+        )
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if (
+            not isinstance(contract.get("semantic_identity_domain"), str)
+            or not isinstance(properties, dict)
+            or not isinstance(root_exclusions, list)
+            or not set(root_exclusions) <= set(properties)
+            or not {"content_identity", "semantic_identity"} <= set(root_exclusions)
+            or not isinstance(collection_exclusions, list)
+            or len(
+                {
+                    row.get("collection_member")
+                    for row in collection_exclusions
+                    if isinstance(row, dict)
+                }
+            )
+            != len(collection_exclusions)
+        ):
+            return False
+        for row in collection_exclusions:
+            collection_member = (
+                row.get("collection_member") if isinstance(row, dict) else None
+            )
+            excluded_members = (
+                row.get("excluded_members") if isinstance(row, dict) else None
+            )
+            collection_schema = properties.get(collection_member)
+            item_schema = (
+                collection_schema.get("items")
+                if isinstance(collection_schema, dict)
+                else None
+            )
+            item_properties = (
+                item_schema.get("properties") if isinstance(item_schema, dict) else None
+            )
+            if (
+                not isinstance(collection_member, str)
+                or not isinstance(excluded_members, list)
+                or not isinstance(item_properties, dict)
+                or not set(excluded_members) <= set(item_properties)
+            ):
+                return False
+    return True
+
+
 def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
     language = ldb.get("language")
     if not isinstance(language, dict):
@@ -6568,6 +6646,10 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
     definitions_are_closed = _consumer_b_language_definitions_are_closed(ldb, meta)
+    artifact_semantic_projections_are_closed = (
+        definitions_are_closed
+        and _consumer_b_artifact_semantic_projections_are_closed(ldb)
+    )
     literal_typing_profiles_are_closed = (
         definitions_are_closed
         and _consumer_b_literal_typing_profiles_are_closed(kernel, ldb)
@@ -6718,6 +6800,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     meta = kernel["meta_format"]
     if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if definitions_are_closed and not artifact_semantic_projections_are_closed:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.definitions.artifact-semantic-projections",
+        )
     if not _consumer_b_assignment_policy_is_total(ldb):
         refuse(
             "kernel.vector_mismatch",

@@ -17,6 +17,21 @@ let-bound program into an expression tree would lose local identities, sharing, 
 and deterministic resource charges. RIR also needs to carry the paired representation without
 making presentation wording part of semantic equivalence.
 
+> **Amendment (2026-08-03, #606):** Implementation closed the generic grammar authority over
+> identifier, integer, and whitespace token patterns; signed-literal context; token, byte, and
+> group-depth bounds. The selected compiler profile owns exact contract-comparison modes,
+> Operation-body transfer/member mappings, generated-local policy, and the infix algorithm, so
+> precedence and associativity normalize multi-operator input into deterministic additional `let`
+> nodes. A conversion request supplies its current `module` plus a model-wide `modules` resolution
+> closure when Formula or Symbol coordinates cross that boundary; every import binds one exact
+> declared requirement and exported type.
+>
+> The same implementation made both semantic projections declarative. Package Release semantics
+> use the Kernel-owned package projection. RIR semantics use the sealed
+> `rir-semantic-payload` artifact contract, which declares root-envelope exclusions and removes
+> `expression` from each Formula before hashing. Production and the independent consumer interpret
+> that contract separately; host code owns neither member inventory.
+
 ## Decision
 
 - **The required wire pair is `body` plus `expression`.** Every Formula declaration data instance
@@ -36,12 +51,6 @@ making presentation wording part of semantic equivalence.
   `standard.compiler` owns contextual resolution, local result inference, exact canonical-body
   equivalence, and HIR normalization. A host parser or renderer consumes those authorities and
   cannot hard-code an operation catalog.
-
-  The grammar authority also owns identifier, integer, and whitespace token patterns, signed-literal
-  context, token/byte limits, and a group-depth bound. The selected compiler profile declares the
-  exact contract-comparison modes, Operation-body transfer rules and member mappings, generated-local
-  policy, and infix algorithm. Precedence and associativity therefore normalize multi-operator
-  authored bindings into deterministic additional `let` nodes instead of remaining inert metadata.
 
   The first RPG vertical requires the exact `core.quantity` Package Release selected by the
   committed example to declare these conventional mappings: `quantity.subtract` is infix `-` with
@@ -77,10 +86,7 @@ making presentation wording part of semantic equivalence.
 - **Reverse conversion is contextual.** A complete notation-to-body conversion requires the
   Formula's module/import scope, parameter and result contracts, and exact Kernel/LDB. Resolution
   selects exact package/version/Operation coordinates, constructs total named port bindings, and
-  infers only local-binding results under the existing typing rules. A conversion request supplies
-  `module` for the declaration being converted and, when Formula or Symbol coordinates cross that
-  boundary, `modules` for the model-wide resolution closure; every import must bind an exact declared
-  requirement and an exported type. A bare expression may receive
+  infers only local-binding results under the existing typing rules. A bare expression may receive
   lexical or syntax Diagnostics, but it cannot claim a resolved Formula body.
 
 - **The CLI exposes `formula parse` and `formula render`.** Both are non-executing, structured,
@@ -114,14 +120,6 @@ making presentation wording part of semantic equivalence.
   projection, excludes `expression`, and never changes for a notation-only mutation. Package
   selection, Lock projection, and expression projection are therefore separate; RIR never embeds a
   notation catalog merely because a release is selected.
-
-  Package Release `content_identity` covers notation declarations. Its `semantic_identity` is the
-  Kernel-declared runtime projection: a release inventories non-runtime definition extensions, and
-  the projection removes `standard.formula-notation` before hashing executable Operation semantics.
-  A mutation confined to that Operation extension therefore preserves its Package Release semantic
-  identity as well as RIR semantic identity; the exact Package Release and downstream wrappers still
-  reidentify. Grammar or compiler-policy changes remain semantic when their owning release inventories
-  no corresponding exclusion.
 
   | Canonical Package Lock bytes change | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
   | --- | --- | --- | --- | --- | --- | --- |

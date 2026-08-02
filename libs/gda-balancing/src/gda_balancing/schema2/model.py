@@ -25,6 +25,7 @@ from gda_balancing.schema2.authority import (
     admit_authority_context,
     packaged_authority_context,
 )
+from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
 from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
@@ -48,6 +49,7 @@ from gda_balancing.schema2.formula_notation import (
     FormulaNotationRefusal,
     FormulaPairRefusal,
     admit_formula_pair,
+    formula_schema_version,
 )
 from gda_balancing.schema2.formula_types import (
     formula_contract_matches as _formula_contract_matches,
@@ -1580,33 +1582,15 @@ def _identified_artifact(
 
 
 def _rir_semantic_projection(
+    language_bundle: dict[str, Any],
     rir: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Project an RIR artifact or payload to executable semantics only."""
-    envelope_members = {
-        "artifact_kind",
-        "artifact_version",
-        "wire_schema_identity",
-        "content_identity",
-        "semantic_identity",
-    }
-    projection = {
-        key: value for key, value in rir.items() if key not in envelope_members
-    }
-    formulas = projection.get("formulas")
-    if isinstance(formulas, list):
-        projection["formulas"] = cast(
-            JsonValue,
-            [
-                {
-                    key: value
-                    for key, value in cast(dict[str, JsonValue], formula).items()
-                    if key != "expression"
-                }
-                for formula in formulas
-            ],
-        )
-    return projection
+    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    projection = contract.get("semantic_identity_projection")
+    if not isinstance(projection, dict):
+        raise ValueError("RIR artifact contract has no semantic identity projection")
+    return artifact_semantic_projection(rir, projection)
 
 
 def _rir_semantic_identity(
@@ -1616,7 +1600,10 @@ def _rir_semantic_identity(
     domain = contract.get("semantic_identity_domain")
     if not isinstance(domain, str) or not domain:
         raise ValueError("RIR artifact contract has no semantic identity domain")
-    return content_identity(domain, cast(JsonValue, _rir_semantic_projection(rir)))
+    return content_identity(
+        domain,
+        cast(JsonValue, _rir_semantic_projection(language_bundle, rir)),
+    )
 
 
 def _identified_rir_artifact(
@@ -7168,17 +7155,15 @@ def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
     }
 
 
-def _rir_formula_pairs_are_admitted(
-    rir: dict[str, Any],
-    lock: dict[str, Any],
+def _formula_pairs_are_admitted(
+    formulas: object,
+    declarations: object,
+    requirements: object,
     authority_context: AdmittedAuthorityContext,
 ) -> bool:
-    formulas = rir.get("formulas")
-    rir_declarations = rir.get("declarations")
-    requirements = lock.get("root_requirements")
     if (
         not isinstance(formulas, list)
-        or not isinstance(rir_declarations, list)
+        or not isinstance(declarations, list)
         or not isinstance(requirements, list)
     ):
         return False
@@ -7189,8 +7174,9 @@ def _rir_formula_pairs_are_admitted(
         by_module.setdefault(cast(str, formula["module"]), []).append(formula)
     declaration_modules = {
         cast(str, declaration["resolved_symbol"]["module"])
-        for declaration in rir_declarations
-        if isinstance(declaration.get("resolved_symbol"), dict)
+        for declaration in declarations
+        if isinstance(declaration, dict)
+        and isinstance(declaration.get("resolved_symbol"), dict)
         and isinstance(declaration["resolved_symbol"].get("module"), str)
     }
     modules = [
@@ -7199,8 +7185,9 @@ def _rir_formula_pairs_are_admitted(
             "imports": [],
             "symbols": [
                 declaration
-                for declaration in rir_declarations
-                if isinstance(declaration.get("resolved_symbol"), dict)
+                for declaration in declarations
+                if isinstance(declaration, dict)
+                and isinstance(declaration.get("resolved_symbol"), dict)
                 and declaration["resolved_symbol"].get("module") == module_id
             ],
             "formulas": by_module.get(module_id, []),
@@ -7216,7 +7203,7 @@ def _rir_formula_pairs_are_admitted(
                     return False
                 admit_formula_pair(
                     {
-                        "schema_version": "2.0.0",
+                        "schema_version": formula_schema_version(authority_context),
                         "package_requirements": requirements,
                         "modules": modules,
                         "module": module,
@@ -7236,6 +7223,39 @@ def _rir_formula_pairs_are_admitted(
     ):
         return False
     return True
+
+
+def _rir_formula_pairs_are_admitted(
+    rir: dict[str, Any],
+    lock: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    output_member = _model_lowering(authority_context.language_bundle).get(
+        "output_member"
+    )
+    return _formula_pairs_are_admitted(
+        rir.get("formulas"),
+        rir.get(output_member) if isinstance(output_member, str) else None,
+        lock.get("root_requirements"),
+        authority_context,
+    )
+
+
+def _model_explanation_pairs_are_admitted(
+    explanation: dict[str, Any],
+    rir: dict[str, Any],
+    lock: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    output_member = _model_lowering(authority_context.language_bundle).get(
+        "output_member"
+    )
+    return _formula_pairs_are_admitted(
+        explanation.get("formula_explanations"),
+        rir.get(output_member) if isinstance(output_member, str) else None,
+        lock.get("root_requirements"),
+        authority_context,
+    )
 
 
 def admit_resolved_model(
@@ -7452,11 +7472,13 @@ def _lowering_inputs(
 
 
 def _model_explanation(
-    language_bundle: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+    lock: dict[str, JsonValue],
     rir: dict[str, JsonValue],
     debug_map: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Project the immutable human inspection companion from exact build data."""
+    language_bundle = authority_context.language_bundle
     formulas = cast(list[dict[str, Any]], rir["formulas"])
     bindings = cast(list[dict[str, Any]], rir["formula_bindings"])
     selected_semantics = cast(dict[str, Any], rir["selected_semantics"])
@@ -7563,16 +7585,20 @@ def _model_explanation(
             cast(str, row["id"]),
         )
     )
-    return _identified_artifact(
-        language_bundle,
-        "model-explanation",
-        {
-            "rir_identity": rir["content_identity"],
-            "debug_map_identity": debug_map["content_identity"],
-            "formula_explanations": cast(JsonValue, formula_explanations),
-            "operation_explanations": cast(JsonValue, operation_explanations),
-        },
-    )
+    payload = {
+        "rir_identity": rir["content_identity"],
+        "debug_map_identity": debug_map["content_identity"],
+        "formula_explanations": cast(JsonValue, formula_explanations),
+        "operation_explanations": cast(JsonValue, operation_explanations),
+    }
+    if not _model_explanation_pairs_are_admitted(
+        cast(dict[str, Any], payload),
+        cast(dict[str, Any], rir),
+        cast(dict[str, Any], lock),
+        authority_context,
+    ):
+        raise ValueError("Model explanation Formula pairs failed admission")
+    return _identified_artifact(language_bundle, "model-explanation", payload)
 
 
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
@@ -7687,7 +7713,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         },
     )
     model_explanation = _model_explanation(
-        checked.language_bundle,
+        context,
+        lock,
         rir,
         debug_map,
     )
@@ -8073,6 +8100,17 @@ def read_model_explanation(
             "build-receipt",
             "committed Model build members have inconsistent bindings",
         )
+    if not _model_explanation_pairs_are_admitted(
+        explanation,
+        rir,
+        lock,
+        context,
+    ):
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "model-explanation",
+            "committed Model explanation Formula pairs failed admission",
+        )
     return cast(dict[str, JsonValue], explanation)
 
 
@@ -8387,6 +8425,9 @@ def _recover_publication(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     authentication_key: bytes,
 ) -> dict[str, JsonValue]:
+    authority_context = admit_authority_context(kernel, language_bundle)
+    if isinstance(authority_context, BootstrapAdmission):
+        raise RuntimeError("committed publication authorities failed admission")
     member_files = {
         member.logical_name: f"{member.logical_name}.json" for member in artifact_set
     }
@@ -8493,7 +8534,8 @@ def _recover_publication(
     ):
         raise RuntimeError("committed Capability manifest is not an exact projection")
     if artifacts["model-explanation"] != _model_explanation(
-        language_bundle,
+        authority_context,
+        cast(dict[str, JsonValue], lock),
         cast(dict[str, JsonValue], rir),
         cast(dict[str, JsonValue], artifacts["debug-map"]),
     ):

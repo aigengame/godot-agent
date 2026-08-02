@@ -45,39 +45,10 @@ def _assert_envelope(stderr_text: str, category: str) -> dict:
     return payload["error"]
 
 
-_FORMULA_INAPPLICABLE_ROWS = frozenset(
-    {
-        "test_artifact_sink_row",
-        "test_out_aliasing_input_is_argument_conflict",
-        "test_receipt_forbidden_without_out",
-        "test_unwritable_sink_is_usage_error",
-        "test_verdict_row",
-    }
-)
+_IDS = [" ".join(_command_path(descriptor)) for descriptor in REGISTRY]
 
 
-def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Collect Formula only for descriptor rows that apply to conversion commands."""
-    if (
-        metafunc.cls is not TestPerDescriptorRows
-        or "descriptor" not in metafunc.fixturenames
-    ):
-        return
-    descriptors = tuple(
-        descriptor
-        for descriptor in REGISTRY
-        if not (
-            descriptor.group == "formula"
-            and metafunc.function.__name__ in _FORMULA_INAPPLICABLE_ROWS
-        )
-    )
-    metafunc.parametrize(
-        "descriptor",
-        descriptors,
-        ids=[" ".join(_command_path(descriptor)) for descriptor in descriptors],
-    )
-
-
+@pytest.mark.parametrize("descriptor", REGISTRY, ids=_IDS)
 class TestPerDescriptorRows:
     def test_success_row(self, descriptor, run_cli, invocation):
         exit_code, stdout, stderr = run_cli(invocation(descriptor))
@@ -93,7 +64,7 @@ class TestPerDescriptorRows:
             descriptor.verdict_model is None
             or descriptor.fixtures.prepare_verdict_document is None
         ):
-            pytest.skip("no descriptor-owned Verdict fixture")
+            return
         exit_code, stdout, stderr = run_cli(invocation(descriptor, verdicting=True))
         assert (exit_code, stderr) == (1, "")
         payload = json.loads(stdout)
@@ -251,7 +222,7 @@ class TestPerDescriptorRows:
         # on stdout; the sink's bytes equal the no-`--out` stdout of the same
         # invocation, and the receipt names the resolved sink and its byte size.
         if not descriptor.artifact_sink:
-            pytest.skip("not an artifact-sink command")
+            return
         argv = invocation(descriptor)
         _, body, _ = run_cli(argv)
         sink = tmp_path / "artifact.json"
@@ -269,7 +240,7 @@ class TestPerDescriptorRows:
         # bADR-0009: the receipt member is present exactly when `--out` was used,
         # forbidden otherwise — so a no-`--out` object body carries no `artifact`.
         if not descriptor.artifact_sink:
-            pytest.skip("not an artifact-sink command")
+            return
         _, stdout, _ = run_cli(invocation(descriptor))
         parsed = json.loads(stdout)
         if isinstance(parsed, dict):
@@ -281,7 +252,7 @@ class TestPerDescriptorRows:
         # No command writes to its input path (bADR-0009): `--out <the input
         # path>` is a usage `argument_conflict`, and the input file is untouched.
         if not descriptor.artifact_sink or not descriptor.fixtures.has_valid_document:
-            pytest.skip("not an artifact-sink command with a document input")
+            return
         argv = invocation(descriptor)
         input_path = argv[-1]  # the positional path is appended last
         before = Path(input_path).read_bytes()
@@ -294,7 +265,7 @@ class TestPerDescriptorRows:
         # An unwritable sink is a usage `unwritable_output` (bADR-0008/0009); the
         # write precedes stdout, so exit 3 keeps stdout empty.
         if not descriptor.artifact_sink:
-            pytest.skip("not an artifact-sink command")
+            return
         argv = [*invocation(descriptor), "--out", "/nonexistent-dir/x.json"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")

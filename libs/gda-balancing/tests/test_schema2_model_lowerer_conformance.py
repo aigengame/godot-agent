@@ -95,6 +95,33 @@ def _reference_content_identity(domain: str, value: Any) -> str:
     )
 
 
+def _reference_rir_semantic_projection(
+    language_bundle: dict[str, Any], artifact: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    contract = next(
+        item
+        for item in language_bundle["language"]["artifact_contracts"]
+        if item["artifact_kind"] == "rir-semantic-payload"
+    )
+    projection = contract["semantic_identity_projection"]
+    result = {
+        key: deepcopy(value)
+        for key, value in artifact.items()
+        if key not in set(projection["excluded_root_members"])
+    }
+    seen: set[str] = set()
+    for row in projection["collection_member_exclusions"]:
+        collection_member = row["collection_member"]
+        assert collection_member not in seen
+        excluded = set(row["excluded_members"])
+        result[collection_member] = [
+            {key: value for key, value in item.items() if key not in excluded}
+            for item in result[collection_member]
+        ]
+        seen.add(collection_member)
+    return contract["semantic_identity_domain"], result
+
+
 def _symbol(name: str, role: str) -> dict[str, Any]:
     return {
         "symbol": name,
@@ -2444,18 +2471,12 @@ def _reference_rir(
         ),
         "selected_semantics": selected_semantics,
     }
-    semantic_projection = deepcopy(payload)
-    semantic_projection["formulas"] = [
-        {key: value for key, value in formula.items() if key != "expression"}
-        for formula in formulas
-    ]
-    contract = next(
-        item
-        for item in language["artifact_contracts"]
-        if item["artifact_kind"] == "rir-semantic-payload"
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        checked.language_bundle,
+        payload,
     )
     payload["semantic_identity"] = _reference_content_identity(
-        contract["semantic_identity_domain"],
+        semantic_domain,
         semantic_projection,
     )
     return _reference_artifact(
@@ -4171,24 +4192,12 @@ def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_
         if entry["authority_path"] == "language.quantity.units"
     )
     unit_definitions[0]["dimension"] = "reidentified-dimension"
-    semantic_projection = {
-        key: value
-        for key, value in rir.items()
-        if key
-        not in {
-            "artifact_kind",
-            "artifact_version",
-            "wire_schema_identity",
-            "content_identity",
-            "semantic_identity",
-        }
-    }
-    semantic_projection["formulas"] = [
-        {key: value for key, value in formula.items() if key != "expression"}
-        for formula in rir["formulas"]
-    ]
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        checked.language_bundle,
+        rir,
+    )
     rir["semantic_identity"] = _reference_content_identity(
-        "rir-semantic-projection-v2",
+        semantic_domain,
         semantic_projection,
     )
     rir["content_identity"] = _reference_content_identity(
@@ -4736,24 +4745,12 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
     }
     rir = semantic_artifacts["rir-semantic-payload"]
     cast(list[dict[str, Any]], rir["declarations"])[0]["role"] = "host-defined-role"
-    semantic_projection = {
-        key: value
-        for key, value in rir.items()
-        if key
-        not in {
-            "artifact_kind",
-            "artifact_version",
-            "wire_schema_identity",
-            "content_identity",
-            "semantic_identity",
-        }
-    }
-    semantic_projection["formulas"] = [
-        {key: value for key, value in formula.items() if key != "expression"}
-        for formula in rir["formulas"]
-    ]
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        candidate_ldb,
+        rir,
+    )
     rir["semantic_identity"] = _reference_content_identity(
-        "rir-semantic-projection-v2",
+        semantic_domain,
         semantic_projection,
     )
     semantic_artifacts["rir-semantic-payload"]["content_identity"] = (
