@@ -23,6 +23,7 @@ import jsonschema
 import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
     derive_language_index,
@@ -202,10 +203,8 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
             },
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -322,7 +321,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         assert program["refusals"] == []
 
 
-def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
+def test_formula_parameter_program_refuses_noncanonical_sugar_pair():
     program_source = _model_source()
     quantity_contract = {
         "type": "quantity",
@@ -342,6 +341,7 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
                 "nodes": [],
                 "result": {"kind": "parameter", "parameter": "base"},
             },
+            "expression": "base",
         }
     ]
     program_source["formula_bindings"] = [
@@ -373,17 +373,15 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
 
     checked_program = model_module.check_model_source_value(program_source)
     checked_sugar = model_module.check_model_source_value(sugar_source)
-    assert isinstance(checked_program, model_module.CheckedModel)
-    assert isinstance(checked_sugar, model_module.CheckedModel)
-    program_artifacts = model_module.lower_checked_model(checked_program)
-    sugar_artifacts = model_module.lower_checked_model(checked_sugar)
-    program_rir = cast(dict[str, Any], program_artifacts["rir-semantic-payload"])
-    sugar_rir = cast(dict[str, Any], sugar_artifacts["rir-semantic-payload"])
-
-    assert program_rir == sugar_rir
+    assert isinstance(checked_program, Schema2RefusalReport)
+    assert checked_program.stage == "static"
+    assert checked_program.diagnostics[0].code == "language.formula_notation_mismatch"
+    assert isinstance(checked_program.diagnostics[0].primary, ArtifactLocation)
     assert (
-        program_rir["formulas"][0]["identity"] == sugar_rir["formulas"][0]["identity"]
+        checked_program.diagnostics[0].primary.pointer
+        == "/modules/0/formulas/0/expression"
     )
+    assert isinstance(checked_sugar, model_module.CheckedModel)
     policy = model_module._formula_policy(checked_sugar.language_bundle)
     assert policy["inline_body_normalizations"] == [
         {
@@ -434,10 +432,8 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
             "id": "derive-value",
             "parameters": [{"id": "base", **quantity_contract}],
             "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -704,10 +700,8 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
             "id": "inner",
             "parameters": [{"id": "value", **quantity_contract}],
             "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "value"},
-            },
+            "body": {"node": "parameter", "parameter": "value"},
+            "expression": "value",
         },
         {
             "id": "outer",
@@ -732,6 +726,9 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
                 ],
                 "result": {"kind": "local", "local": "inner-call"},
             },
+            "expression": (
+                "let `inner-call` = main.inner(value = value);\n`inner-call`"
+            ),
         },
     ]
     source_document["formula_bindings"] = [
@@ -826,13 +823,15 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "recursive-call"},
             },
+            "expression": (
+                f"let `recursive-call` = main.{target}(value = value);\n"
+                "`recursive-call`"
+            ),
         }
 
     first = formula("alpha", "beta")
-    first["body"] = {
-        "nodes": [],
-        "result": {"kind": "parameter", "parameter": "value"},
-    }
+    first["body"] = {"node": "parameter", "parameter": "value"}
+    first["expression"] = "value"
     source_document["modules"][0]["formulas"] = [
         first,
         formula("beta", "beta"),
@@ -908,6 +907,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
                 ],
                 "result": {"kind": "local", "local": "identity-call"},
             },
+            "expression": "let `identity-call` = identity(value);\n`identity-call`",
         }
     ]
     source_document["formula_bindings"] = [
@@ -1010,6 +1010,10 @@ def test_model_check_refuses_scalar_formula_conditionals(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "choice"},
             },
+            "expression": (
+                "let choice = if condition then `when-true` else `when-false`;\n"
+                "choice"
+            ),
         }
     ]
     source_document["formula_bindings"] = [
@@ -1141,6 +1145,11 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "damage"},
             },
+            "expression": (
+                "let raw_damage = damage_before_defense - mitigation;\n"
+                "let damage = floor_zero(raw_damage);\n"
+                "damage"
+            ),
         }
     ]
     source_document["formula_bindings"] = [
@@ -1238,12 +1247,10 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
         if row["id"] == "mitigated-damage"
     )
     formula["body"] = {
-        "nodes": [],
-        "result": {
-            "kind": "parameter",
-            "parameter": "damage_before_defense",
-        },
+        "node": "parameter",
+        "parameter": "damage_before_defense",
     }
+    formula["expression"] = "damage_before_defense"
     source = tmp_path / "direct-result-slot-formula.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1363,6 +1370,12 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
             "kind": "local",
             "local": "over-budget-copy",
         }
+        formula["expression"] = (
+            "let raw_damage = damage_before_defense - mitigation;\n"
+            "let damage = floor_zero(raw_damage);\n"
+            "let `over-budget-copy` = identity(damage);\n"
+            "`over-budget-copy`"
+        )
     source = tmp_path / f"{mutation}.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1469,10 +1482,8 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
             },
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -1680,6 +1691,7 @@ def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
             "symbol": "damage_dealt",
         },
     }
+    formula["expression"] = "combat.damage_dealt"
     source = tmp_path / "event-formula-output-symbol.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -3795,10 +3807,8 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
                 {"id": "when-true", **quantity_contract},
             ],
             "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "when-true"},
-            },
+            "body": {"node": "parameter", "parameter": "when-true"},
+            "expression": "`when-true`",
         }
     ]
     source_value["formula_bindings"] = [

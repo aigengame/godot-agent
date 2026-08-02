@@ -1257,11 +1257,7 @@ def _check_model_source_bytes(
     try:
         source = _strict_object(data)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as err:
-        parse_reason = _unique_reason(
-            ldb,
-            stage="parse",
-            operation="not-equal",
-        )
+        parse_reason = reason_by_id(ldb, "model.reason.source-parse-failure")
         return _refusal(
             cast(str, parse_reason["diagnostic"]),
             "unidentified",
@@ -1290,15 +1286,10 @@ def _check_model_source_bytes(
         for error in errors
         for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
-    formula_pair_diagnostics = (
-        []
-        if structural_diagnostics
-        else _formula_pair_diagnostics(source, source_identity, authority_context)
-    )
+    model_diagnostics = _model_check_diagnostics(source, source_identity, ldb)
     static_diagnostics = [
         *structural_diagnostics,
-        *formula_pair_diagnostics,
-        *_model_check_diagnostics(source, source_identity, ldb),
+        *model_diagnostics,
     ]
     resolution_contract = cast(
         dict[str, Any],
@@ -1387,6 +1378,12 @@ def _check_model_source_bytes(
             f"Model Formula resolution failed: {message}",
             ldb,
         )
+    formula_pair_refusal = _bounded_refusal(
+        _formula_pair_diagnostics(source, source_identity, authority_context),
+        ldb,
+    )
+    if formula_pair_refusal is not None:
+        return formula_pair_refusal
     try:
         lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
         selected_semantics = _runtime_projection(

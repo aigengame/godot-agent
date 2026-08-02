@@ -545,7 +545,10 @@ class _FormulaParser:
         ) -> dict[str, Any]:
             inferred = deepcopy(contract)
             inferred["domain_kind"] = "closed-interval"
-            inferred["domain"] = {"minimum": bounds[0], "maximum": bounds[1]}
+            inferred["domain"] = {
+                "minimum": max(bounds[0], -(2**63)),
+                "maximum": min(bounds[1], 2**63 - 1),
+            }
             return inferred
 
         body = operation.declaration.get("body")
@@ -588,6 +591,30 @@ class _FormulaParser:
                             max(left_interval[1], right_interval[1]),
                         ),
                     )
+            elif node == "less-than":
+                result_declaration = operation.declaration.get("result")
+                result_type = (
+                    result_declaration.get("type")
+                    if isinstance(result_declaration, dict)
+                    else None
+                )
+                if (
+                    not isinstance(result_declaration, dict)
+                    or not isinstance(result_type, dict)
+                    or result_type.get("package") != "kernel"
+                    or not isinstance(result_type.get("id"), str)
+                ):
+                    raise ValueError(
+                        "Formula comparison result contract is unresolved"
+                    )
+                values[target] = {
+                    "type": result_type["id"],
+                    "representation": result_declaration["representation"],
+                    "kind": result_declaration["kind"],
+                    "unit": result_declaration["unit"],
+                    "domain": deepcopy(result_declaration["domain"]),
+                    "numeric_policy": result_declaration["numeric_policy"],
+                }
             else:
                 raise ValueError("Formula operation body has no admitted type inference")
         result_declaration = operation.declaration.get("result")
