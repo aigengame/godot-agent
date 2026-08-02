@@ -4,7 +4,11 @@ This tutorial walks through the first bounded Standard Schema 2.0 RPG example fr
 numeric design to an evaluated combat result:
 
 ```text
-Model Source Package
+Human-readable Formula expression <-> structured Formula body
+    |
+    |  formula parse / formula render
+    v
+Paired Model Source Package
     + Kernel Specification and Language Definition Bundle
     |
     |  model build
@@ -27,8 +31,9 @@ pure Formulas in Model Source: `effective-accuracy` initializes a game-owned der
 still owns Event control, RNG, state changes, outcomes, and commit/rollback. The files are:
 
 - [`model-source.json`](model-source.json): the editable numeric model. It declares symbols,
-  structured pure Formulas, static Formula bindings, package requirements, and the `combat.cast`
-  entrypoint that explicitly binds game-owned symbols to Operation ports.
+  pure Formulas as exact adjacent `body`/`expression` pairs, static Formula bindings, package
+  requirements, and the `combat.cast` entrypoint that explicitly binds game-owned symbols to
+  Operation ports.
 - [`experiment.json`](experiment.json): one exact scenario and evaluation policy. It binds the
   built Model artifacts, selects `combat.cast`, assigns its generated Scenario Input Contract,
   supplies a seed, and defines the Metrics and acceptance targets.
@@ -124,11 +129,12 @@ All nine values use exact signed-64-bit integer semantics and an admitted range 
 The Model Source owns these definitions; it does not contain a scenario, seed, Metric target, or
 runtime result.
 
-The Formula bodies are structured expression graphs rather than infix strings or host scripts.
-`effective-accuracy` calls the pure `quantity.maximum` Operation to enforce a minimum accuracy of
-one, then binds that result to the `effective_accuracy` derived Symbol in the immutable
-Initialization frame. `mitigated-damage` calls `quantity.subtract` and `quantity.floor-zero`, then
-binds exactly once to the
+Each Formula carries one authoritative structured `body` beside its exact canonical human-readable
+`expression`. The expression is a reversible contextual projection, not a second execution
+authority or an independent host script. `effective-accuracy` calls the pure `quantity.maximum`
+Operation to enforce a minimum accuracy of one, then binds that result to the
+`effective_accuracy` derived Symbol in the immutable Initialization frame. `mitigated-damage`
+calls `quantity.subtract` and `quantity.floor-zero`, then binds exactly once to the
 `game.combat.damage-v1` Operation's `damage-policy` slot for Event evaluation. Formula calls may
 only reach statically resolved pure Formulas and pure Operations; the compiler closes their
 refusal, resource-charge, and termination contracts before Typed HIR.
@@ -160,7 +166,79 @@ LDB Operation formal ports
             -> Experiment assigns only those contract members
 ```
 
-## 3. Build the Resolved Model and RIR
+## 3. Round-trip Formula notation
+
+`formula render` starts from a structured body and returns the admitted canonical pair. Build a
+request for the committed two-binding damage Formula without duplicating its context:
+
+```sh
+export FORMULA_RENDER_REQUEST="$GDA_BALANCING_TUTORIAL_ROOT/formula-render.json"
+export RENDERED_FORMULA_PAIR="$GDA_BALANCING_TUTORIAL_ROOT/formula-rendered-pair.json"
+
+jq '{
+  schema_version,
+  package_requirements,
+  module: (.modules[0] | {id, imports}),
+  formula: (.modules[0].formulas[]
+    | select(.id == "mitigated-damage")
+    | del(.expression))
+}' examples/schema2/rpg-combat-cast/model-source.json > "$FORMULA_RENDER_REQUEST"
+
+uv run gda-balancing formula render "$FORMULA_RENDER_REQUEST" \
+  | tee "$RENDERED_FORMULA_PAIR"
+
+jq '{body, expression}' "$RENDERED_FORMULA_PAIR"
+```
+
+The canonical expression is:
+
+```text
+let raw_damage = damage_before_defense - mitigation;
+let damage = floor_zero(raw_damage);
+damage
+```
+
+`formula parse` runs the reverse direction. It accepts grammar-valid extra whitespace and redundant
+parentheses, resolves package-owned notation under the same module and exact LDB, and returns the
+same canonical pair:
+
+```sh
+export FORMULA_PARSE_REQUEST="$GDA_BALANCING_TUTORIAL_ROOT/formula-parse.json"
+export PARSED_FORMULA_PAIR="$GDA_BALANCING_TUTORIAL_ROOT/formula-parsed-pair.json"
+
+jq '{
+  schema_version,
+  package_requirements,
+  module: (.modules[0] | {id, imports}),
+  formula: ((.modules[0].formulas[]
+    | select(.id == "mitigated-damage")
+    | del(.body))
+    | .expression = " let raw_damage = ((damage_before_defense - mitigation)); let damage = floor_zero(((raw_damage))); damage ")
+}' examples/schema2/rpg-combat-cast/model-source.json > "$FORMULA_PARSE_REQUEST"
+
+uv run gda-balancing formula parse "$FORMULA_PARSE_REQUEST" \
+  | tee "$PARSED_FORMULA_PAIR"
+
+test "$(jq -cS '.body' "$PARSED_FORMULA_PAIR")" = \
+  "$(jq -cS '.body' "$RENDERED_FORMULA_PAIR")"
+test "$(jq -r '.expression' "$PARSED_FORMULA_PAIR")" = \
+  "$(jq -r '.expression' "$RENDERED_FORMULA_PAIR")"
+```
+
+The second committed Formula also demonstrates literal `1` and exact identifier quoting:
+
+```sh
+jq '.modules[0].formulas[]
+  | select(.id == "effective-accuracy")
+  | {body, expression}' examples/schema2/rpg-combat-cast/model-source.json
+```
+
+Its local `minimum-accuracy` must appear as `` `minimum-accuracy` ``. The unquoted spelling is
+parsed as subtraction and never resolves as that local. Operation spelling and ordered ports come
+from the selected package releases: `-`, `floor_zero(...)`, `max(...)`, and the `identity(...)`
+witness used in section 7 below. Host code owns no parallel operation-notation table.
+
+## 4. Build the Resolved Model and RIR
 
 Build the model and save the returned artifact-set receipt:
 
@@ -209,6 +287,8 @@ uv run gda-balancing model inspect \
 jq '{
   formulas: [.formula_explanations[] | {
     id,
+    body,
+    expression,
     closure,
     evaluation_sites
   }],
@@ -222,7 +302,7 @@ jq '{
 ```
 
 `formula_explanations` preserves the selected Formula declarations, bindings, operands, contexts,
-results, refusals, and resource charges. `operation_explanations` preserves control/effect/RNG/
+results, canonical expressions, refusals, and resource charges. `operation_explanations` preserves control/effect/RNG/
 outcome/commit boundaries and refers to Formula-site identities without copying Formula semantics.
 The explanation, Debug Map, RIR, and receipts are generated immutable artifacts: inspect them, but
 edit `model-source.json` and rebuild instead of editing anything in the artifact store.
@@ -235,6 +315,18 @@ export RIR_PATH="$(
     | select(.logical_name == "rir-semantic-payload")
     | .locator' "$MODEL_SET_RECEIPT"
 )"
+
+jq '{
+  content_identity,
+  semantic_identity,
+  formulas: [.formulas[] | {id, body, expression}]
+}' "$RIR_PATH"
+
+jq '{
+  content_identity,
+  rir_content_identity,
+  rir_semantic_identity
+}' "$GDA_BALANCING_TUTORIAL_ROOT/resolved-model.json"
 
 jq '.selected_semantics.operations[]
   | select(.definition.id == "game.combat.cast-v1")
@@ -252,7 +344,45 @@ target_health = target_health - damage
 actor_mana = actor_mana - action_cost
 ```
 
-## 4. Check the Experiment Specification
+The three JSON surfaces now show the same paired data:
+
+- authored Model Source: `.modules[].formulas[].body` beside `.expression`;
+- stored RIR: `.formulas[].body` beside `.expression`;
+- authenticated Model explanation: `.formula_explanations[].body` beside `.expression`.
+
+RIR `content_identity` covers the complete canonical RIR, including expression bytes. RIR
+`semantic_identity` excludes the notation-only projection and represents executable behavior.
+Resolved Model binds both, so notation-only changes cannot masquerade as the same exact wrapper,
+while behavior-equivalence checks do not treat spelling as new semantics.
+
+### Demonstrate AST/expression drift refusal
+
+An admitted Model Source must already contain the exact canonical pair. Make only the expression
+bytes drift and check through the public boundary:
+
+```sh
+export DRIFTED_MODEL_SOURCE="$GDA_BALANCING_TUTORIAL_ROOT/model-source-drifted.json"
+export DRIFT_REFUSAL="$GDA_BALANCING_TUTORIAL_ROOT/model-source-drift-refusal.json"
+
+jq '(.modules[0].formulas[]
+  | select(.id == "mitigated-damage")
+  | .expression) += " "' \
+  examples/schema2/rpg-combat-cast/model-source.json > "$DRIFTED_MODEL_SOURCE"
+
+set +e
+uv run gda-balancing model check "$DRIFTED_MODEL_SOURCE" > "$DRIFT_REFUSAL"
+export DRIFT_EXIT="$?"
+set -e
+
+test "$DRIFT_EXIT" -eq 2
+jq '.error.diagnostics[0] | {code, primary}' "$DRIFT_REFUSAL"
+```
+
+The exact Diagnostic is `language.formula_notation_mismatch` at the Formula's `expression`
+pointer. Admission neither chooses a side nor repairs it; use `formula parse` or `formula render`
+to produce a pair, then replace both adjacent members together.
+
+## 5. Check the Experiment Specification
 
 The companion [`experiment.json`](experiment.json) binds the exact source, Build receipt,
 Resolved Model, Package Lock, and RIR identities produced by the build. Its `one-cast` scenario
@@ -288,7 +418,7 @@ This stage verifies structure, exact authority and Model bindings, entrypoint se
 Scenario Input assignment, Named streams, Runtime profile requirements, and Metric definitions. It
 does not execute the combat Event and does not publish an artifact set.
 
-## 5. Run and inspect the Experiment
+## 6. Run and inspect the Experiment
 
 Execute the admitted Experiment and save its artifact-set receipt:
 
@@ -401,7 +531,7 @@ exercise different critical outcomes and different terminal states while keeping
 scenario assignments, and Metric policy unchanged. A different seed can still produce the same
 result when its draws remain on the same modeled branches.
 
-## 6. Edit a Formula and run again
+## 7. Edit a Formula and run again
 
 An Experiment assignment tunes one run without changing model semantics. This time, change the
 game's numeric policy itself: replace the existing `mitigated-damage` Formula with a pure identity
@@ -437,7 +567,8 @@ jq '
         "kind": "local",
         "local": "unmitigated-damage"
       }
-    })
+    }
+    | .expression = "let `unmitigated-damage` = identity(damage_before_defense);\n`unmitigated-damage`")
 ' examples/schema2/rpg-combat-cast/model-source.json > "$EDITED_MODEL_SOURCE"
 ```
 
@@ -458,12 +589,13 @@ uv run gda-balancing model inspect \
   --format indented \
   | jq '.formula_explanations[]
     | select(.id == "mitigated-damage")
-    | {id, body, closure, evaluation_sites}'
+    | {id, body, expression, closure, evaluation_sites}'
 ```
 
-The Formula, RIR, Resolved Model, Build receipt, and Model explanation identities change. The
-Kernel, LDB, selected package releases, Package Lock, compiler build, and evaluator build stay
-fixed: the edit uses the already admitted Formula language and pure `quantity.identity` Operation.
+The Formula, both RIR identities, Resolved Model, Build receipt, and Model explanation identities
+change because this is a semantic body edit, not a notation-only edit. The Kernel, LDB, selected
+package releases, Package Lock, compiler build, and evaluator build stay fixed: the edit uses the
+already admitted Formula language and pure `quantity.identity` Operation.
 
 An exact Experiment cannot silently follow that new model. First make a deliberately stale
 specification by changing only its source identity; `experiment check` refuses because the old
@@ -546,7 +678,7 @@ from `40` to `10`. Edit Model Source when changing a game's numeric policy. Publ
 package only when changing reusable mechanic contracts such as Operation ports, Formula slots,
 control/effects, permitted refusals, or resource budgets.
 
-## 7. Exercise a rejected Verdict
+## 8. Exercise a rejected Verdict
 
 An admitted and fully executed Experiment can still fail its declared Metric targets. Create a
 copy whose damage target is impossible for this scenario:
@@ -579,7 +711,7 @@ Exit status `1` is a completed negative Verdict, not a usage or runtime refusal.
 the trace, snapshots, Metrics, reproduction receipt, Runtime profile, and evaluator manifest. It
 does not publish a false `evaluation-run` success artifact.
 
-## 8. Understand the artifact store
+## 9. Understand the artifact store
 
 `GDA_BALANCING_STORE_DIR` is the durable local publication store. If it is unset, the default is
 `$XDG_STATE_HOME/gda-balancing/store-v2`, or
@@ -673,7 +805,7 @@ jq . "$EVENT_TRACE_PATH"
 jq -C . "$EVENT_TRACE_PATH" | less -R
 ```
 
-## 9. How the architecture fits together
+## 10. How the architecture fits together
 
 The tutorial crosses several Standard Schema 2.0 boundaries:
 
@@ -681,10 +813,10 @@ The tutorial crosses several Standard Schema 2.0 boundaries:
 |---|---|
 | Schema-major Kernel Specification | The small, versioned foundation: canonical identity, irreducible numeric/RNG laws, Event-transition primitives, and rules for admitting an LDB |
 | Language Definition Bundle (LDB) | The complete language content under that Kernel: schemas, types, packages, operations, profiles, diagnostics, and machine-readable rules |
-| Model Source Package | Your editable game numeric definitions and dependency requirements |
+| Model Source Package | Your editable game numeric definitions, exact Formula `body`/`expression` pairs, and dependency requirements |
 | Package Lock | The exact selected package dependency closure and the capability, operation, and profile bindings recorded for this build |
-| RIR semantic payload | The canonical executable meaning of the selected, reachable model semantics |
-| Resolved Model | The immutable execution authority binding Kernel, LDB, Lock, and RIR identities |
+| RIR semantic payload | The selected reachable Formula pairs and executable semantics, with distinct exact-content and behavior identities |
+| Resolved Model | The immutable execution authority binding Kernel, LDB, Lock, and both RIR identities |
 | Experiment Specification | The scenario and evaluation authority: exact Model bindings, inputs, seed, Metrics, targets, and acceptance |
 | Runtime profile definition | The LDB-owned execution policy for scheduler/effects, numeric behavior, RNG, and budgets |
 | Resolved Runtime profile | That policy bound to the exact Model/RIR, evaluator build, platform, and concrete execution scope |
@@ -735,3 +867,10 @@ jq . path/to/artifact.json
 
 Do not replace a committed store member with the formatted copy; recovery requires canonical
 bytes.
+
+### `language.formula_notation_mismatch`
+
+The adjacent `body` and `expression` are not the same canonical Formula. Run `formula render` from
+the body or `formula parse` from the expression under the exact module/package context, then use
+both members from that successful output. Adding whitespace directly to an admitted pair is still
+drift because artifact admission requires canonical expression bytes.

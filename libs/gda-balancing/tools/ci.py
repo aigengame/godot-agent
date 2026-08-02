@@ -44,6 +44,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "language": (
         "test_schema2_bootstrap_language.py",
+        "test_schema2_formula_cli.py",
         "test_schema2_model_cli.py",
     ),
     "composition": (
@@ -296,18 +297,27 @@ def verify_outcomes(
     report_path: Path,
     baseline_path: Path = BASELINE_PATH,
 ) -> dict[str, object]:
-    """Reject new skips and every xfail while reporting allowed historical skips."""
+    """Reject new skips/xfails and report explicit capability-inapplicable passes."""
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     migration = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
     allowed_skips = set(baseline["allowed_skipped_test_ids"])
     skipped: set[str] = set()
     xfailed: set[str] = set()
+    not_applicable: dict[str, str] = {}
     root = ElementTree.parse(junit_path).getroot()
     for testcase in root.iter("testcase"):
+        node_id = normalized_node_id(junit_node_id(testcase), migration)
+        properties = {
+            row.attrib.get("name"): row.attrib.get("value", "")
+            for row in testcase.findall("./properties/property")
+        }
+        if properties.get("gda-balancing.applicability") == "not-applicable":
+            not_applicable[node_id] = properties.get(
+                "gda-balancing.applicability-reason", ""
+            )
         outcome = testcase.find("skipped")
         if outcome is None:
             continue
-        node_id = normalized_node_id(junit_node_id(testcase), migration)
         if outcome.attrib.get("type") == "pytest.xfail":
             xfailed.add(node_id)
         else:
@@ -315,6 +325,7 @@ def verify_outcomes(
     unexpected_skips = skipped - allowed_skips
     report: dict[str, object] = {
         "allowed_baseline_skip_count": len(allowed_skips),
+        "not_applicable_tests": dict(sorted(not_applicable.items())),
         "skipped_tests": sorted(skipped),
         "xfailed_tests": sorted(xfailed),
         "unexpected_skipped_tests": sorted(unexpected_skips),

@@ -23,6 +23,8 @@ extends `gda`; its CLI follows the family's interface conventions.
 gda-balancing schema get language-bundle   # admitted Kernel/LDB authority pair
 gda-balancing schema get wire-schema       # exact generated wire-schema projection
 gda-balancing schema get diagnostic-catalog # exact generated Diagnostic projection
+gda-balancing formula parse <source>       # parse notation into a canonical Formula pair
+gda-balancing formula render <source>      # render a structured body as canonical notation
 gda-balancing model check <source>         # admit a Schema 2.0 Model Source
 gda-balancing model build <source> [...]   # build and atomically publish a Model
 gda-balancing model inspect <receipt> [...] # render a stored Model explanation

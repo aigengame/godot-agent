@@ -298,7 +298,8 @@
               "kind": "local",
               "local": "damage"
             }
-          }
+          },
+          "expression": "let raw_damage = damage_before_defense - mitigation;\nlet damage = floor_zero(raw_damage);\ndamage"
         },
         {
           "id": "effective-accuracy",
@@ -373,7 +374,8 @@
               "kind": "local",
               "local": "minimum-accuracy"
             }
-          }
+          },
+          "expression": "let `minimum-accuracy` = max(base, 1);\n`minimum-accuracy`"
         }
       ]
     }

@@ -21,13 +21,20 @@ import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest
+from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.schema2.formula_notation import (
+    parse_formula_expression,
+    render_formula_body,
+)
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
 from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -35,6 +42,21 @@ def _inject_authority_context(monkeypatch, kernel, language_bundle):
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
     monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
     return context
+
+
+def test_artifact_semantic_projection_treats_empty_root_exclusion_as_noop():
+    artifact = {"member": {"value": 1}}
+
+    projection = artifact_semantic_projection(
+        artifact,
+        {
+            "excluded_root_members": [],
+            "collection_member_exclusions": [],
+        },
+    )
+
+    assert projection == artifact
+    assert projection is not artifact
 
 
 def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
@@ -202,10 +224,8 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
             },
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -322,7 +342,7 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         assert program["refusals"] == []
 
 
-def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
+def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conversion():
     program_source = _model_source()
     quantity_contract = {
         "type": "quantity",
@@ -342,6 +362,7 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
                 "nodes": [],
                 "result": {"kind": "parameter", "parameter": "base"},
             },
+            "expression": "base",
         }
     ]
     program_source["formula_bindings"] = [
@@ -373,17 +394,15 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
 
     checked_program = model_module.check_model_source_value(program_source)
     checked_sugar = model_module.check_model_source_value(sugar_source)
-    assert isinstance(checked_program, model_module.CheckedModel)
-    assert isinstance(checked_sugar, model_module.CheckedModel)
-    program_artifacts = model_module.lower_checked_model(checked_program)
-    sugar_artifacts = model_module.lower_checked_model(checked_sugar)
-    program_rir = cast(dict[str, Any], program_artifacts["rir-semantic-payload"])
-    sugar_rir = cast(dict[str, Any], sugar_artifacts["rir-semantic-payload"])
-
-    assert program_rir == sugar_rir
+    assert isinstance(checked_program, Schema2RefusalReport)
+    assert checked_program.stage == "static"
+    assert checked_program.diagnostics[0].code == "language.formula_notation_mismatch"
+    assert isinstance(checked_program.diagnostics[0].primary, ArtifactLocation)
     assert (
-        program_rir["formulas"][0]["identity"] == sugar_rir["formulas"][0]["identity"]
+        checked_program.diagnostics[0].primary.pointer
+        == "/modules/0/formulas/0/expression"
     )
+    assert isinstance(checked_sugar, model_module.CheckedModel)
     policy = model_module._formula_policy(checked_sugar.language_bundle)
     assert policy["inline_body_normalizations"] == [
         {
@@ -392,6 +411,34 @@ def test_formula_parameter_sugar_normalizes_to_the_same_formula_and_rir():
             "result_kind": "parameter",
         }
     ]
+    context = checked_sugar.authority_context
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    program_body = program_source["modules"][0]["formulas"][0]["body"]
+    rendered = render_formula_body(program_body, context)
+    conversion_request = {
+        "schema_version": sugar_source["schema_version"],
+        "package_requirements": sugar_source["package_requirements"],
+        "modules": sugar_source["modules"],
+        "module": sugar_source["modules"][0],
+        "formula": {
+            **sugar_source["modules"][0]["formulas"][0],
+            "expression": f"({rendered})",
+        },
+    }
+    converted_body = parse_formula_expression(conversion_request, context)
+    converted_source = deepcopy(sugar_source)
+    converted_formula = converted_source["modules"][0]["formulas"][0]
+    converted_formula["body"] = converted_body
+    converted_formula["expression"] = render_formula_body(converted_body, context)
+    checked_converted = model_module.check_model_source_value(converted_source)
+    assert isinstance(checked_converted, model_module.CheckedModel)
+
+    sugar_rir = model_module.lower_checked_model(checked_sugar)["rir-semantic-payload"]
+    converted_rir = model_module.lower_checked_model(checked_converted)[
+        "rir-semantic-payload"
+    ]
+    assert converted_body == sugar_source["modules"][0]["formulas"][0]["body"]
+    assert converted_rir == sugar_rir
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
@@ -434,10 +481,8 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
             "id": "derive-value",
             "parameters": [{"id": "base", **quantity_contract}],
             "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -522,6 +567,33 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     }
 
 
+def test_model_explanation_generation_uses_shared_formula_pair_admission(
+    monkeypatch,
+):
+    checked = model_module.check_model_source_value(_model_source())
+    assert isinstance(checked, model_module.CheckedModel)
+    real_admit = model_module._model_explanation_pairs_are_admitted
+    admitted_explanations: list[dict[str, Any]] = []
+
+    def observe_admission(explanation, rir, lock, authority_context):
+        admitted_explanations.append(deepcopy(explanation))
+        return real_admit(explanation, rir, lock, authority_context)
+
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation_pairs_are_admitted",
+        observe_admission,
+    )
+
+    artifacts = model_module.lower_checked_model(checked)
+
+    assert len(admitted_explanations) == 1
+    assert (
+        admitted_explanations[0]["formula_explanations"]
+        == artifacts["model-explanation"]["formula_explanations"]
+    )
+
+
 def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     tmp_path, run_cli, monkeypatch
 ):
@@ -562,6 +634,42 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     assert inspect_stdout.startswith("{\n  ")
     assert json.loads(inspect_stdout) == json.loads(expected_bytes)
     assert explanation_path.read_bytes() == expected_bytes
+
+
+def test_model_inspect_rejects_explanation_formula_pair_admission_failure(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    receipt_path = (
+        _artifact_directory(json.loads(build_stdout)) / "artifact-set-receipt.json"
+    )
+    monkeypatch.setattr(
+        model_module,
+        "_model_explanation_pairs_are_admitted",
+        lambda *_args, **_kwargs: False,
+    )
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(receipt_path)]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (2, "")
+    diagnostic = json.loads(inspect_stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "kernel.binding_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/model-explanation"
 
 
 def test_model_inspect_accepts_the_public_build_receipt_presentation(tmp_path, run_cli):
@@ -699,16 +807,14 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
     }
+    inner = {
+        "id": "inner",
+        "parameters": [{"id": "value", **quantity_contract}],
+        "result": quantity_contract,
+        "body": {"node": "parameter", "parameter": "value"},
+        "expression": "value",
+    }
     source_document["modules"][0]["formulas"] = [
-        {
-            "id": "inner",
-            "parameters": [{"id": "value", **quantity_contract}],
-            "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "value"},
-            },
-        },
         {
             "id": "outer",
             "parameters": [{"id": "value", **quantity_contract}],
@@ -718,7 +824,7 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
                     {
                         "id": "inner-call",
                         "node": "formula-call",
-                        "formula": {"module": "main", "id": "inner"},
+                        "formula": {"module": "aux", "id": "inner"},
                         "arguments": [
                             {
                                 "parameter": "value",
@@ -732,8 +838,19 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
                 ],
                 "result": {"kind": "local", "local": "inner-call"},
             },
+            "expression": (
+                "let `inner-call` = aux.inner(value = value);\n`inner-call`"
+            ),
         },
     ]
+    source_document["modules"].append(
+        {
+            "id": "aux",
+            "imports": deepcopy(source_document["modules"][0]["imports"]),
+            "symbols": [_quantity_symbol("aux_value", "constant")],
+            "formulas": [inner],
+        }
+    )
     source_document["formula_bindings"] = [
         {
             "site": {
@@ -776,7 +893,7 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
     formulas = {formula["id"]: formula for formula in rir["formulas"]}
     assert set(formulas) == {"inner", "outer"}
     assert formulas["outer"]["body"]["nodes"][0]["formula"] == {
-        "module": "main",
+        "module": "aux",
         "id": "inner",
         "identity": formulas["inner"]["identity"],
     }
@@ -788,6 +905,80 @@ def test_model_build_closes_reachable_formula_calls_before_rir(tmp_path, run_cli
         "resource_charge": {"max_steps": 2},
         "termination_measure": 2,
     }
+
+
+def test_resolved_admission_includes_symbol_only_formula_modules(tmp_path, run_cli):
+    source_document = _model_source()
+    quantity_contract = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    source_document["modules"][0]["formulas"] = [
+        {
+            "id": "from-aux",
+            "parameters": [],
+            "result": quantity_contract,
+            "body": {
+                "nodes": [],
+                "result": {
+                    "kind": "symbol",
+                    "module": "aux",
+                    "symbol": "external_value",
+                },
+            },
+            "expression": "aux.external_value",
+        }
+    ]
+    source_document["modules"].append(
+        {
+            "id": "aux",
+            "imports": deepcopy(source_document["modules"][0]["imports"]),
+            "symbols": [_quantity_symbol("external_value", "constant")],
+        }
+    )
+    source_document["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "from-aux"},
+            "arguments": [],
+        }
+    ]
+    _use_derived_value(source_document)
+    source = tmp_path / "symbol-only-formula-module.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    published = _artifact_directory(json.loads(stdout))
+    context = authority_module.packaged_authority_context()
+    admission = model_module.admit_resolved_model(
+        {
+            name: json.loads((published / f"{name}.json").read_text())
+            for name in ("package-lock", "rir-semantic-payload", "resolved-model")
+        },
+        authority_context=context,
+    )
+    assert admission.admitted
 
 
 def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
@@ -826,13 +1017,15 @@ def test_model_check_refuses_a_formula_call_cycle_before_hir(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "recursive-call"},
             },
+            "expression": (
+                f"let `recursive-call` = main.{target}(value = value);\n"
+                "`recursive-call`"
+            ),
         }
 
     first = formula("alpha", "beta")
-    first["body"] = {
-        "nodes": [],
-        "result": {"kind": "parameter", "parameter": "value"},
-    }
+    first["body"] = {"node": "parameter", "parameter": "value"}
+    first["expression"] = "value"
     source_document["modules"][0]["formulas"] = [
         first,
         formula("beta", "beta"),
@@ -908,6 +1101,7 @@ def test_model_build_closes_a_pure_operation_call_in_a_formula(tmp_path, run_cli
                 ],
                 "result": {"kind": "local", "local": "identity-call"},
             },
+            "expression": "let `identity-call` = identity(value);\n`identity-call`",
         }
     ]
     source_document["formula_bindings"] = [
@@ -1010,6 +1204,9 @@ def test_model_check_refuses_scalar_formula_conditionals(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "choice"},
             },
+            "expression": (
+                "let choice = if condition then `when-true` else `when-false`;\nchoice"
+            ),
         }
     ]
     source_document["formula_bindings"] = [
@@ -1141,6 +1338,11 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 ],
                 "result": {"kind": "local", "local": "damage"},
             },
+            "expression": (
+                "let raw_damage = damage_before_defense - mitigation;\n"
+                "let damage = floor_zero(raw_damage);\n"
+                "damage"
+            ),
         }
     ]
     source_document["formula_bindings"] = [
@@ -1238,12 +1440,10 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
         if row["id"] == "mitigated-damage"
     )
     formula["body"] = {
-        "nodes": [],
-        "result": {
-            "kind": "parameter",
-            "parameter": "damage_before_defense",
-        },
+        "node": "parameter",
+        "parameter": "damage_before_defense",
     }
+    formula["expression"] = "damage_before_defense"
     source = tmp_path / "direct-result-slot-formula.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1363,6 +1563,12 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
             "kind": "local",
             "local": "over-budget-copy",
         }
+        formula["expression"] = (
+            "let raw_damage = damage_before_defense - mitigation;\n"
+            "let damage = floor_zero(raw_damage);\n"
+            "let `over-budget-copy` = identity(damage);\n"
+            "`over-budget-copy`"
+        )
     source = tmp_path / f"{mutation}.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1469,10 +1675,8 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
             },
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "base"},
-            },
+            "body": {"node": "parameter", "parameter": "base"},
+            "expression": "base",
         }
     ]
     source_document["formula_bindings"] = [
@@ -1680,6 +1884,7 @@ def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
             "symbol": "damage_dealt",
         },
     }
+    formula["expression"] = "combat.damage_dealt"
     source = tmp_path / "event-formula-output-symbol.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -2968,10 +3173,10 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
     out = tmp_path / "published-model"
     explanation = model_module._model_explanation
 
-    def generate_invalid_explanation(language_bundle, rir, debug_map):
-        valid = explanation(language_bundle, rir, debug_map)
+    def generate_invalid_explanation(authority_context, lock, rir, debug_map):
+        valid = explanation(authority_context, lock, rir, debug_map)
         return model_module._identified_artifact(
-            language_bundle,
+            authority_context.language_bundle,
             "model-explanation",
             {
                 "rir_identity": valid["rir_identity"],
@@ -3578,16 +3783,14 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                     in owners
                 ]
             )
-        runtime_paths = set(package["runtime_semantic_paths"])
+        semantic_projection = kernel["meta_format"]["package_release"][
+            "semantic_identity_projection"
+        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
             cast(
                 JsonValue,
-                [
-                    entry
-                    for entry in package["semantic_closure"]
-                    if entry["authority_path"] in runtime_paths
-                ],
+                package_runtime_semantic_closure(package, semantic_projection),
             ),
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
@@ -3795,10 +3998,8 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
                 {"id": "when-true", **quantity_contract},
             ],
             "result": quantity_contract,
-            "body": {
-                "nodes": [],
-                "result": {"kind": "parameter", "parameter": "when-true"},
-            },
+            "body": {"node": "parameter", "parameter": "when-true"},
+            "expression": "`when-true`",
         }
     ]
     source_value["formula_bindings"] = [
@@ -5256,6 +5457,427 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert original_rir["content_identity"] != mutated_rir["content_identity"]
     assert "package_lock_semantic_identity" not in original_rir
     assert "semantic_identity" not in original_closures[0]
+
+
+def _rewrite_formula_expressions(value: Any, old: str, new: str) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "expression" and isinstance(child, str):
+                value[key] = child.replace(old, new)
+            else:
+                _rewrite_formula_expressions(child, old, new)
+    elif isinstance(value, list):
+        for child in value:
+            _rewrite_formula_expressions(child, old, new)
+
+
+def _rpg_source_value() -> dict[str, Any]:
+    return json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+
+
+def _check_with_candidate_ldb(
+    source: dict[str, Any],
+    kernel: dict[str, Any],
+    language_bundle: LanguageBundleIndex,
+) -> model_module.CheckedModel:
+    admission = admit_authorities(kernel, language_bundle)
+    assert admission.admitted is True, admission
+    checked = model_module.check_model_source_value(
+        source,
+        kernel=kernel,
+        language_bundle=language_bundle,
+        authority_admission=admission,
+    )
+    assert isinstance(checked, model_module.CheckedModel), checked
+    return checked
+
+
+def _mutate_operation_notation(
+    language_bundle: LanguageBundleIndex,
+    operation_id: str,
+    member: str,
+    value: Any,
+) -> None:
+    operation = next(
+        row
+        for row in language_bundle["language"]["operations"]
+        if row["id"] == operation_id
+    )
+    operation["extensions"]["standard.formula-notation"][member] = value
+    vector = next(
+        row
+        for row in language_bundle["vectors"]
+        if row["id"] == f"formula.notation.{operation_id}"
+    )
+    vector["expect"] = deepcopy(operation["extensions"])
+
+
+def _locked_package_ids(lowered: dict[str, Any]) -> set[str]:
+    lock = cast(dict[str, Any], lowered["package-lock"])
+    packages = cast(list[dict[str, Any]], lock["packages"])
+    return {cast(str, row["id"]) for row in packages}
+
+
+def _package_release(
+    language_bundle: LanguageBundleIndex, package_id: str
+) -> dict[str, Any]:
+    return next(
+        row
+        for row in language_bundle["language"]["packages"]
+        if row["id"] == package_id
+    )
+
+
+def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
+    _mutate_operation_notation(
+        candidate_ldb,
+        "quantity.subtract",
+        "token",
+        "−",
+    )
+    _rewrite_formula_expressions(candidate_ldb["vectors"], " - ", " − ")
+    _rewrite_formula_expressions(source, " - ", " − ")
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_core = next(
+        row
+        for row in baseline.language_bundle["language"]["packages"]
+        if row["id"] == "core.quantity"
+    )
+    mutated_core = next(
+        row
+        for row in candidate_ldb["language"]["packages"]
+        if row["id"] == "core.quantity"
+    )
+    assert original_core["content_identity"] != mutated_core["content_identity"]
+    assert original_core["semantic_identity"] == mutated_core["semantic_identity"]
+    baseline_ldb = cast(LanguageBundleIndex, baseline.language_bundle)
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
+    assert (
+        original["package-lock"]["content_identity"]
+        != mutated["package-lock"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        == mutated["rir-semantic-payload"]["semantic_identity"]
+    )
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
+    contract = next(
+        row
+        for row in candidate_ldb["language"]["artifact_contracts"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
+        "excluded_members"
+    ] = ["closure"]
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        != mutated["rir-semantic-payload"]["semantic_identity"]
+    )
+    projection = model_module._rir_semantic_projection(
+        candidate_ldb,
+        cast(dict[str, JsonValue], mutated["rir-semantic-payload"]),
+    )
+    formula = cast(list[dict[str, Any]], projection["formulas"])[0]
+    assert "expression" in formula
+    assert "closure" not in formula
+
+
+def test_selected_unreachable_notation_preserves_both_rir_identities():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
+    _mutate_operation_notation(
+        candidate_ldb,
+        "quantity.identity",
+        "name",
+        "copy_value",
+    )
+    _rewrite_formula_expressions(candidate_ldb["vectors"], "identity(", "copy_value(")
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = _package_release(
+        cast(LanguageBundleIndex, baseline.language_bundle), "core.quantity"
+    )
+    mutated_package = _package_release(candidate_ldb, "core.quantity")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        cast(LanguageBundleIndex, baseline.language_bundle).root["content_identity"]
+        != candidate_ldb.root["content_identity"]
+    )
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["capability-manifest"] != mutated["capability-manifest"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_unselected_resolution_profile_owner_still_reidentifies_lock():
+    source = _model_source()
+    packaged = model_module.check_model_source_value(source)
+    assert isinstance(packaged, model_module.CheckedModel)
+    baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
+    compiler = next(
+        row
+        for row in baseline_ldb["language"]["packages"]
+        if row["id"] == "standard.compiler"
+    )
+    schema = next(
+        row
+        for row in baseline_ldb["language"]["packages"]
+        if row["id"] == "standard.schema"
+    )
+    compiler["profiles"]["resolution"].remove("exact-import-resolution-v1")
+    schema["profiles"]["resolution"].append("exact-import-resolution-v1")
+    _reidentify_language_bundle(baseline_ldb)
+    baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
+    original = model_module.lower_checked_model(baseline)
+    assert "standard.schema" not in _locked_package_ids(original)
+
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
+    profile = next(
+        row
+        for row in candidate_ldb["language"]["resolution_profiles"]
+        if row["id"] == "exact-import-resolution-v1"
+    )
+    profile["extensions"]["standard.formula"]["max_nodes_per_formula"] += 1
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = _package_release(baseline_ldb, "standard.schema")
+    mutated_package = _package_release(candidate_ldb, "standard.schema")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
+    source = _model_source()
+    quantity = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+    local = "escaped`local"
+    source["modules"][0]["formulas"] = [
+        {
+            "id": "derive-value",
+            "parameters": [{"id": "base", **quantity}],
+            "result": quantity,
+            "body": {
+                "nodes": [
+                    {
+                        "id": local,
+                        "node": "operation-call",
+                        "operation": {
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "id": "quantity.identity",
+                        },
+                        "arguments": [
+                            {
+                                "port": "value",
+                                "operand": {
+                                    "kind": "parameter",
+                                    "parameter": "base",
+                                },
+                            }
+                        ],
+                        "result": quantity,
+                    }
+                ],
+                "result": {"kind": "local", "local": local},
+            },
+            "expression": (
+                "let `escaped\\`local` = identity(base);\n`escaped\\`local`"
+            ),
+        }
+    ]
+    source["formula_bindings"] = [
+        {
+            "site": {
+                "kind": "derived-symbol",
+                "module": "main",
+                "symbol": "derived_value",
+            },
+            "formula": {"module": "main", "id": "derive-value"},
+            "arguments": [
+                {
+                    "parameter": "base",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "input_value",
+                    },
+                }
+            ],
+        }
+    ]
+    _use_derived_value(source)
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel), baseline
+    original = model_module.lower_checked_model(baseline)
+
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
+    source_schema = next(
+        row["schema"]
+        for row in candidate_ldb["language"]["wire_schemas"]
+        if row["artifact_kind"] == "model-source-package"
+    )
+    grammar = source_schema["$defs"]["formulaNotationGrammar"]["const"]
+    grammar["escape_character"] = "/"
+    grammar["escapable_identifier_characters"] = ["`", "/"]
+    source["modules"][0]["formulas"][0]["expression"] = (
+        "let `escaped/`local` = identity(base);\n`escaped/`local`"
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = _package_release(
+        cast(LanguageBundleIndex, baseline.language_bundle), "standard.schema"
+    )
+    mutated_package = _package_release(candidate_ldb, "standard.schema")
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert (
+        cast(LanguageBundleIndex, baseline.language_bundle).root["content_identity"]
+        != candidate_ldb.root["content_identity"]
+    )
+    assert original["package-lock"] == mutated["package-lock"]
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        == mutated["rir-semantic-payload"]["semantic_identity"]
+    )
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_unselected_pure_operation_notation_preserves_lock_and_rir():
+    source = _model_source()
+    packaged = model_module.check_model_source_value(source)
+    assert isinstance(packaged, model_module.CheckedModel)
+    baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
+    operation = deepcopy(
+        next(
+            row
+            for row in baseline_ldb["language"]["operations"]
+            if row["id"] == "quantity.identity"
+        )
+    )
+    operation["id"] = "game.check.unused-identity"
+    operation["version"] = "1.0.1"
+    operation["vectors"] = []
+    operation["extensions"]["standard.formula-notation"]["name"] = "unused_identity"
+    baseline_ldb["language"]["operations"].append(operation)
+    baseline_ldb["language"]["operations"].sort(key=lambda row: row["id"])
+    game_check = next(
+        row for row in baseline_ldb["language"]["packages"] if row["id"] == "game.check"
+    )
+    game_check["exports"]["operations"].append(operation["id"])
+    game_check["exports"]["operations"].sort()
+    _reidentify_language_bundle(baseline_ldb)
+    baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
+    original = model_module.lower_checked_model(baseline)
+    assert "game.check" not in _locked_package_ids(original)
+
+    candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
+    mutated_operation = next(
+        row
+        for row in candidate_ldb["language"]["operations"]
+        if row["id"] == "game.check.unused-identity"
+    )
+    mutated_operation["extensions"]["standard.formula-notation"]["name"] = "unused_copy"
+    _reidentify_language_bundle(candidate_ldb)
+    candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert (
+        baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
+    )
+    assert original["package-lock"] == mutated["package-lock"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
+
+
+def test_formula_semantic_body_mutation_changes_both_rir_identities():
+    source = _rpg_source_value()
+    baseline = model_module.check_model_source_value(source)
+    assert isinstance(baseline, model_module.CheckedModel)
+    original = model_module.lower_checked_model(baseline)
+    formula = next(
+        row
+        for row in source["modules"][0]["formulas"]
+        if row["id"] == "mitigated-damage"
+    )
+    formula["body"] = {
+        "node": "parameter",
+        "parameter": "damage_before_defense",
+    }
+    formula["expression"] = "damage_before_defense"
+    candidate = model_module.check_model_source_value(source)
+    assert isinstance(candidate, model_module.CheckedModel), candidate
+    mutated = model_module.lower_checked_model(candidate)
+
+    assert original["package-lock"] == mutated["package-lock"]
+    assert (
+        original["rir-semantic-payload"]["content_identity"]
+        != mutated["rir-semantic-payload"]["content_identity"]
+    )
+    assert (
+        original["rir-semantic-payload"]["semantic_identity"]
+        != mutated["rir-semantic-payload"]["semantic_identity"]
+    )
+    assert original["resolved-model"] != mutated["resolved-model"]
+    assert original["build-receipt"] != mutated["build-receipt"]
 
 
 def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):

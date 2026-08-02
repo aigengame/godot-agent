@@ -20,6 +20,7 @@ from gda_balancing.schema2.authority_graph import (
     canonical_graph_members,
     derive_language_index,
 )
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 from gda_balancing.schema2.template_contract import (
     TEMPLATE_ARGUMENT_TYPES,
     TEMPLATE_PRIMITIVE_CHARGES,
@@ -50,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98"
+    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -432,6 +433,7 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "body",
             "default_outcome",
             "effects",
+            "extensions",
             "outcomes",
             "refusals",
             "resource_bounds",
@@ -1021,9 +1023,17 @@ def _package_semantic_closure_is_closed(
     if (
         not isinstance(semantic_projection, dict)
         or set(semantic_projection)
-        != {"domain", "path_inventory_member", "source_member", "path_member"}
+        != {
+            "domain",
+            "extension_inventory_member",
+            "path_inventory_member",
+            "source_member",
+            "path_member",
+        }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
+        or semantic_projection.get("extension_inventory_member")
+        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -1038,10 +1048,8 @@ def _package_semantic_closure_is_closed(
         or not set(runtime_paths) <= set(closure_paths)
     ):
         return False
-    runtime_closure = [
-        entry for entry in closure if entry["authority_path"] in set(runtime_paths)
-    ]
     try:
+        runtime_closure = package_runtime_semantic_closure(package, semantic_projection)
         expected = content_identity(
             semantic_projection["domain"], cast(JsonValue, runtime_closure)
         )
@@ -2969,6 +2977,7 @@ def _runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
+            "optional_members": ["excluded_extension_members"],
             "lock_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -3101,9 +3110,18 @@ def _runtime_projection_is_closed(
     collection_ids: list[str] = []
     authority_paths: set[str] = set()
     for collection in collections:
+        if not isinstance(collection, dict):
+            return False
+        expected_collection_members = {
+            "id",
+            "source",
+            "output_member",
+            "output_shape",
+        }
+        if "excluded_extension_members" in collection:
+            expected_collection_members.add("excluded_extension_members")
         if (
-            not isinstance(collection, dict)
-            or set(collection) != {"id", "source", "output_member", "output_shape"}
+            set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
@@ -3117,6 +3135,19 @@ def _runtime_projection_is_closed(
                 and (
                     not isinstance(collection.get("output_member"), str)
                     or not collection["output_member"]
+                )
+            )
+            or (
+                "excluded_extension_members" in collection
+                and (
+                    not isinstance(collection["excluded_extension_members"], list)
+                    or not collection["excluded_extension_members"]
+                    or not all(
+                        isinstance(member, str) and member
+                        for member in collection["excluded_extension_members"]
+                    )
+                    or len(collection["excluded_extension_members"])
+                    != len(set(collection["excluded_extension_members"]))
                 )
             )
         ):
@@ -4293,6 +4324,84 @@ def _language_definitions_are_closed(
             return False
         if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
             return False
+    return True
+
+
+def _artifact_semantic_identity_projections_are_closed(
+    language_bundle: dict[str, Any],
+) -> bool:
+    language = language_bundle.get("language")
+    if not isinstance(language, dict):
+        return False
+    contracts = language.get("artifact_contracts")
+    schemas = language.get("artifact_wire_schemas")
+    if not isinstance(contracts, list) or not isinstance(schemas, list):
+        return False
+    schemas_by_kind = {
+        row.get("artifact_kind"): row.get("schema")
+        for row in schemas
+        if isinstance(row, dict)
+        and isinstance(row.get("artifact_kind"), str)
+        and isinstance(row.get("schema"), dict)
+    }
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            return False
+        projection = contract.get("semantic_identity_projection")
+        if projection is None:
+            continue
+        schema = schemas_by_kind.get(contract.get("schema_kind"))
+        root_exclusions = (
+            projection.get("excluded_root_members")
+            if isinstance(projection, dict)
+            else None
+        )
+        collection_exclusions = (
+            projection.get("collection_member_exclusions")
+            if isinstance(projection, dict)
+            else None
+        )
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if (
+            not isinstance(contract.get("semantic_identity_domain"), str)
+            or not isinstance(properties, dict)
+            or not isinstance(root_exclusions, list)
+            or not set(root_exclusions) <= set(properties)
+            or not {"content_identity", "semantic_identity"} <= set(root_exclusions)
+            or not isinstance(collection_exclusions, list)
+            or len(
+                {
+                    row.get("collection_member")
+                    for row in collection_exclusions
+                    if isinstance(row, dict)
+                }
+            )
+            != len(collection_exclusions)
+        ):
+            return False
+        for row in collection_exclusions:
+            collection_member = (
+                row.get("collection_member") if isinstance(row, dict) else None
+            )
+            excluded_members = (
+                row.get("excluded_members") if isinstance(row, dict) else None
+            )
+            collection_schema = properties.get(collection_member)
+            item_schema = (
+                collection_schema.get("items")
+                if isinstance(collection_schema, dict)
+                else None
+            )
+            item_properties = (
+                item_schema.get("properties") if isinstance(item_schema, dict) else None
+            )
+            if (
+                not isinstance(collection_member, str)
+                or not isinstance(excluded_members, list)
+                or not isinstance(item_properties, dict)
+                or not set(excluded_members) <= set(item_properties)
+            ):
+                return False
     return True
 
 
@@ -6298,6 +6407,10 @@ def admit_authorities(
         language_bundle,
         raw_meta_format if isinstance(raw_meta_format, dict) else {},
     )
+    artifact_semantic_projections_are_closed = (
+        definitions_are_closed
+        and _artifact_semantic_identity_projections_are_closed(language_bundle)
+    )
     literal_typing_profiles_are_closed = (
         definitions_are_closed
         and _literal_typing_profiles_are_closed(kernel, language_bundle)
@@ -6445,6 +6558,12 @@ def admit_authorities(
     meta_format = cast(dict[str, Any], kernel.get("meta_format", {}))
     if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if definitions_are_closed and not artifact_semantic_projections_are_closed:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.definitions.artifact-semantic-projections",
+        )
     if not _assignment_policy_is_total(language_bundle):
         refuse(
             "kernel.vector_mismatch",

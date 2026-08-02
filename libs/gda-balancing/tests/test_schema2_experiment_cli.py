@@ -1002,6 +1002,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                     ],
                     "result": {"kind": "local", "local": "identity"},
                 },
+                "expression": "let identity = identity(base);\nidentity",
             },
             {
                 "id": "derived-damage",
@@ -1029,6 +1030,9 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
                     ],
                     "result": {"kind": "local", "local": "inner"},
                 },
+                "expression": (
+                    "let inner = combat.`derived-damage-inner`(base = base);\ninner"
+                ),
             },
         ]
     )
@@ -1297,6 +1301,12 @@ def test_public_build_and_run_reaches_a_boolean_conditional_formula(tmp_path, ru
         ],
         "result": {"kind": "local", "local": "bounded-damage"},
     }
+    formula["expression"] = (
+        "let `fully-mitigated` = damage_before_defense < mitigation;\n"
+        "let `bounded-damage` = if `fully-mitigated` then mitigation else "
+        "damage_before_defense;\n"
+        "`bounded-damage`"
+    )
     source = tmp_path / "conditional-formula-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -1411,6 +1421,7 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
         ],
         "result": {"kind": "local", "local": "underflow"},
     }
+    formula["expression"] = "let underflow = base - 1;\nunderflow"
     source = tmp_path / "initialization-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -1743,6 +1754,7 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
             "symbol": "formula_bonus",
         },
     }
+    formula["expression"] = "combat.formula_bonus"
     source = tmp_path / "event-symbol-formula-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -2284,6 +2296,10 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         ],
         "result": {"kind": "local", "local": "unmitigated-damage"},
     }
+    damage_formula["expression"] = (
+        "let `unmitigated-damage` = identity(damage_before_defense);\n"
+        "`unmitigated-damage`"
+    )
     edited_source = tmp_path / "rpg-model-edited.json"
     edited_source.write_text(json.dumps(edited_source_value), encoding="utf-8")
     edited_model_out = tmp_path / "resolved-model-edited.json"

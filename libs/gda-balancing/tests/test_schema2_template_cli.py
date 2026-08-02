@@ -27,7 +27,7 @@ from gda_balancing.schema2.authority import (
     authority_set,
 )
 from gda_balancing.schema2.authority_graph import derive_language_index
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
     CheckedModel,
@@ -35,6 +35,7 @@ from gda_balancing.schema2.model import (
     checked_model_template_facts,
 )
 from gda_balancing.schema2.projections import wire_schema_projection
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 from gda_balancing.schema2.wire_schema import (
     artifact_wire_schema_identity,
     wire_schema_identity as schema_definition_identity,
@@ -114,14 +115,15 @@ def _reidentify_language_bundle(kernel, language_bundle):
                     in owners
                 ]
             )
-        runtime_paths = set(package["runtime_semantic_paths"])
+        semantic_projection = kernel["meta_format"]["package_release"][
+            "semantic_identity_projection"
+        ]
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
-            [
-                entry
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] in runtime_paths
-            ],
+            cast(
+                JsonValue,
+                package_runtime_semantic_closure(package, semantic_projection),
+            ),
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
         vector_set["content_identity"] = content_identity(
@@ -905,7 +907,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:8583a39cbd3362e34a0a3f75b3f421ed792b20eee2a74fa4e3049c76612e9de0"
+                    "sha256:f9335fa07ac0d6af0d9cbd046607e6d685c234aeab9e75b0fa0669e1d3c875cb"
                 ),
             }
         ]
@@ -1404,6 +1406,7 @@ def test_template_starter_formula_is_ordinary_editable_model_source(tmp_path, ru
         ],
         "result": {"kind": "local", "local": "minimum"},
     }
+    formula["expression"] = "let minimum = max(base, 1);\nminimum"
     edited_path = tmp_path / "edited-template-formula.json"
     edited_path.write_text(json.dumps(edited), encoding="utf-8")
 
@@ -2376,6 +2379,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         ],
         "result": {"kind": "local", "local": "minimum"},
     }
+    inherited_formula["expression"] = "let minimum = max(base, 1);\nminimum"
     game_derived = deepcopy(
         next(row for row in baseline_symbols if row["symbol"] == "derived_value")
     )
@@ -2438,6 +2442,7 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
             ],
             "result": {"kind": "local", "local": "game-minimum"},
         },
+        "expression": "let `game-minimum` = max(base, 1);\n`game-minimum`",
     }
     slot_formula = deepcopy(
         next(row for row in game_module["formulas"] if row["id"] == "mitigated-damage")

@@ -95,6 +95,33 @@ def _reference_content_identity(domain: str, value: Any) -> str:
     )
 
 
+def _reference_rir_semantic_projection(
+    language_bundle: dict[str, Any], artifact: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    contract = next(
+        item
+        for item in language_bundle["language"]["artifact_contracts"]
+        if item["artifact_kind"] == "rir-semantic-payload"
+    )
+    projection = contract["semantic_identity_projection"]
+    result = {
+        key: deepcopy(value)
+        for key, value in artifact.items()
+        if key not in set(projection["excluded_root_members"])
+    }
+    seen: set[str] = set()
+    for row in projection["collection_member_exclusions"]:
+        collection_member = row["collection_member"]
+        assert collection_member not in seen
+        excluded = set(row["excluded_members"])
+        result[collection_member] = [
+            {key: value for key, value in item.items() if key not in excluded}
+            for item in result[collection_member]
+        ]
+        seen.add(collection_member)
+    return contract["semantic_identity_domain"], result
+
+
 def _symbol(name: str, role: str) -> dict[str, Any]:
     return {
         "symbol": name,
@@ -255,13 +282,32 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
                 ]
             )
         runtime_paths = set(package["runtime_semantic_paths"])
-        package["semantic_identity"] = _reference_content_identity(
-            "domain-package-semantic-closure-v2",
+        excluded_extensions = set(package["runtime_semantic_excluded_extensions"])
+        runtime_closure = deepcopy(
             [
                 entry
                 for entry in package["semantic_closure"]
                 if entry["authority_path"] in runtime_paths
-            ],
+            ]
+        )
+        for entry in runtime_closure:
+            for definition in entry["definitions"]:
+                if not isinstance(definition, dict) or not isinstance(
+                    definition.get("extensions"), dict
+                ):
+                    continue
+                retained = {
+                    key: value
+                    for key, value in definition["extensions"].items()
+                    if key not in excluded_extensions
+                }
+                if retained:
+                    definition["extensions"] = retained
+                else:
+                    definition.pop("extensions")
+        package["semantic_identity"] = _reference_content_identity(
+            "domain-package-semantic-closure-v2",
+            runtime_closure,
         )
         vector_set = vector_sets_by_coordinate[(package["id"], package["version"])]
         existing_vectors = {
@@ -776,6 +822,12 @@ def _renamed_reason_authorities(
     for profile in language["resolution_profiles"]:
         if profile["structural_reason"] == reason_id:
             profile["structural_reason"] = renamed_reason
+        source_boundary = profile.get("extensions", {}).get("standard.source-boundary")
+        if (
+            isinstance(source_boundary, dict)
+            and source_boundary.get("parse_reason") == reason_id
+        ):
+            source_boundary["parse_reason"] = renamed_reason
         for judgment in profile["judgment_chain"]:
             if judgment["reason"] == reason_id:
                 judgment["reason"] = renamed_reason
@@ -1319,6 +1371,7 @@ def _reference_formulas_and_bindings(
                 ),
                 "imports": imports,
                 "source_body": source_formula["body"],
+                "expression": source_formula["expression"],
             }
             dependencies[key] = [
                 (node["formula"]["module"], node["formula"]["id"])
@@ -1598,6 +1651,7 @@ def _reference_formulas_and_bindings(
         }
         resolved[key] = {
             **formula_body,
+            "expression": prototype["expression"],
             "identity": _reference_content_identity(
                 domains["declaration"],
                 formula_body,
@@ -2399,27 +2453,36 @@ def _reference_rir(
         formulas,
         formula_bindings,
     )
+    payload = {
+        lowering["output_member"]: declarations,
+        "formulas": formulas,
+        "formula_bindings": formula_bindings,
+        "initialization_programs": initialization_programs,
+        "entrypoints": _reference_entrypoints(
+            checked,
+            declarations,
+            selected_semantics,
+            formula_bindings,
+        ),
+        "call_sites": _reference_call_sites(
+            checked,
+            selected_semantics,
+            lowering,
+        ),
+        "selected_semantics": selected_semantics,
+    }
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        checked.language_bundle,
+        payload,
+    )
+    payload["semantic_identity"] = _reference_content_identity(
+        semantic_domain,
+        semantic_projection,
+    )
     return _reference_artifact(
         checked,
         "rir-semantic-payload",
-        {
-            lowering["output_member"]: declarations,
-            "formulas": formulas,
-            "formula_bindings": formula_bindings,
-            "initialization_programs": initialization_programs,
-            "entrypoints": _reference_entrypoints(
-                checked,
-                declarations,
-                selected_semantics,
-                formula_bindings,
-            ),
-            "call_sites": _reference_call_sites(
-                checked,
-                selected_semantics,
-                lowering,
-            ),
-            "selected_semantics": selected_semantics,
-        },
+        payload,
     )
 
 
@@ -3287,12 +3350,34 @@ def _reference_runtime_projection(
     }
     projection: dict[str, Any] = {}
     selected_closure_values: dict[tuple[str, str], list[Any]] = {}
+
+    def projected_runtime_value(specification: dict[str, Any], value: Any) -> Any:
+        excluded = specification.get("excluded_extension_members", [])
+        if not excluded or not isinstance(value, dict):
+            return value
+        extensions = value.get("extensions")
+        if not isinstance(extensions, dict):
+            return value
+        projected = deepcopy(value)
+        projected_extensions = projected["extensions"]
+        for member in excluded:
+            projected_extensions.pop(member, None)
+        if not projected_extensions:
+            projected.pop("extensions")
+        return projected
+
     for specification in profile["collections"]:
         rows = []
         for index, row in enumerate(catalogs[specification["id"]]):
             consume()
             if index in selected[specification["id"]]:
-                rows.append(row)
+                rows.append(
+                    (
+                        row[0],
+                        row[1],
+                        projected_runtime_value(specification, row[2]),
+                    )
+                )
         for package, authority_path, value in rows:
             if authority_path is not None:
                 selected_closure_values.setdefault(
@@ -3438,7 +3523,8 @@ def _reference_semantic_artifacts(
             "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
             "package_lock_identity": lock["content_identity"],
-            "rir_identity": rir["content_identity"],
+            "rir_content_identity": rir["content_identity"],
+            "rir_semantic_identity": rir["semantic_identity"],
         },
     )
     return {
@@ -3830,6 +3916,51 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     ).admitted
 
 
+def test_independent_lowerers_treat_empty_collection_exclusion_as_noop(monkeypatch):
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source = cast(
+        dict[str, Any],
+        json.loads(path.read_text(encoding="utf-8")),
+    )
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    contract = next(
+        row
+        for row in candidate_ldb["language"]["artifact_contracts"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
+        "excluded_members"
+    ] = []
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    _inject_authority_context(monkeypatch, kernel, candidate_ldb)
+
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, candidate_ldb)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    _domain, projection = _reference_rir_semantic_projection(
+        candidate_ldb,
+        production["rir-semantic-payload"],
+    )
+    assert "expression" in projection["formulas"][0]
+
+
 def test_nested_integer_literal_is_identical_across_lowerers(
     monkeypatch,
 ):
@@ -4106,12 +4237,21 @@ def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_
         if entry["authority_path"] == "language.quantity.units"
     )
     unit_definitions[0]["dimension"] = "reidentified-dimension"
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        checked.language_bundle,
+        rir,
+    )
+    rir["semantic_identity"] = _reference_content_identity(
+        semantic_domain,
+        semantic_projection,
+    )
     rir["content_identity"] = _reference_content_identity(
         "rir-semantic-payload-v2",
         {key: value for key, value in rir.items() if key != "content_identity"},
     )
     resolved = semantic_artifacts["resolved-model"]
-    resolved["rir_identity"] = rir["content_identity"]
+    resolved["rir_content_identity"] = rir["content_identity"]
+    resolved["rir_semantic_identity"] = rir["semantic_identity"]
     resolved["content_identity"] = _reference_content_identity(
         "resolved-model-v2",
         {key: value for key, value in resolved.items() if key != "content_identity"},
@@ -4650,6 +4790,14 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
     }
     rir = semantic_artifacts["rir-semantic-payload"]
     cast(list[dict[str, Any]], rir["declarations"])[0]["role"] = "host-defined-role"
+    semantic_domain, semantic_projection = _reference_rir_semantic_projection(
+        candidate_ldb,
+        rir,
+    )
+    rir["semantic_identity"] = _reference_content_identity(
+        semantic_domain,
+        semantic_projection,
+    )
     semantic_artifacts["rir-semantic-payload"]["content_identity"] = (
         _reference_content_identity(
             "rir-semantic-payload-v2",
@@ -4660,9 +4808,12 @@ def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_change
             },
         )
     )
-    semantic_artifacts["resolved-model"]["rir_identity"] = semantic_artifacts[
+    semantic_artifacts["resolved-model"]["rir_content_identity"] = semantic_artifacts[
         "rir-semantic-payload"
     ]["content_identity"]
+    semantic_artifacts["resolved-model"]["rir_semantic_identity"] = semantic_artifacts[
+        "rir-semantic-payload"
+    ]["semantic_identity"]
     semantic_artifacts["resolved-model"]["content_identity"] = (
         _reference_content_identity(
             "resolved-model-v2",

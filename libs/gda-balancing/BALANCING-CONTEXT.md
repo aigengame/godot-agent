@@ -363,6 +363,11 @@ The canonical human-readable mathematical `expression` paired with a Formula's s
 It preserves the body's ordered `let` bindings, local identities, sharing, and final result while
 using package-owned conventional Operation spelling. The body remains the pair's authoritative
 source member; the expression is a contextual, reversible projection under the exact Kernel/LDB.
+`standard.schema` owns the lexical patterns and grouping/token bounds; the selected
+`standard.compiler` Resolution profile owns contextual contract matching, local-result transfer
+rules, and infix normalization. Package Release content identity binds notation, while the
+Kernel-declared runtime-semantic projection excludes each release's explicitly inventoried
+non-runtime notation extensions.
 bADR-0024 owns its grammar, exact pair validation, identity effects, and conformance requirements.
 _Avoid_: host expression dialect, display-only operation table, fully qualified call dump
 
@@ -370,7 +375,9 @@ _Avoid_: host expression dialect, display-only operation table, fully qualified 
 The public, non-executing transformation exposed by `formula parse` and `formula render`. `parse`
 binds notation to one exact Formula context and returns canonical `body`/`expression`; `render`
 validates a body under the same context and returns the same pair. Conversion publishes no semantic
-artifact. Production paths share one implementation; an independent conformance consumer derives
+artifact. Cross-module coordinates require the request's model-wide `modules` resolution closure;
+imports remain bound to exact declared requirements and exported types. Production paths share one
+implementation; an independent conformance consumer derives
 the contract separately from sealed Kernel/LDB authority (bADR-0024).
 _Avoid_: formula evaluation, context-free expression conversion, model inspection alias
 

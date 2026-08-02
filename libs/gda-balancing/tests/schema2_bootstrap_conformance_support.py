@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98"
+    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
 )
 
 
@@ -55,11 +55,29 @@ def _identity(domain: str, artifact: dict[str, Any]) -> str:
 
 def _reidentify_package_release(package: dict[str, Any]) -> None:
     runtime_paths = set(package["runtime_semantic_paths"])
-    runtime_closure = [
-        entry
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] in runtime_paths
-    ]
+    excluded = set(package["runtime_semantic_excluded_extensions"])
+    runtime_closure = deepcopy(
+        [
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] in runtime_paths
+        ]
+    )
+    for entry in runtime_closure:
+        for definition in entry["definitions"]:
+            if not isinstance(definition, dict) or not isinstance(
+                definition.get("extensions"), dict
+            ):
+                continue
+            retained = {
+                key: value
+                for key, value in definition["extensions"].items()
+                if key not in excluded
+            }
+            if retained:
+                definition["extensions"] = retained
+            else:
+                definition.pop("extensions")
     package["semantic_identity"] = (
         "sha256:"
         + hashlib.sha256(
@@ -470,6 +488,7 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "body",
             "default_outcome",
             "effects",
+            "extensions",
             "outcomes",
             "refusals",
             "resource_bounds",
@@ -1030,9 +1049,17 @@ def _consumer_b_package_semantic_closure_is_closed(
     if (
         not isinstance(semantic_projection, dict)
         or set(semantic_projection)
-        != {"domain", "path_inventory_member", "source_member", "path_member"}
+        != {
+            "domain",
+            "extension_inventory_member",
+            "path_inventory_member",
+            "source_member",
+            "path_member",
+        }
         or semantic_projection.get("source_member") != "semantic_closure"
         or semantic_projection.get("path_member") != "authority_path"
+        or semantic_projection.get("extension_inventory_member")
+        != "runtime_semantic_excluded_extensions"
         or not isinstance(semantic_projection.get("domain"), str)
         or not isinstance(semantic_projection.get("path_inventory_member"), str)
     ):
@@ -1047,9 +1074,36 @@ def _consumer_b_package_semantic_closure_is_closed(
         or not set(runtime_paths) <= set(closure_paths)
     ):
         return False
-    runtime_closure = [
-        entry for entry in closure if entry["authority_path"] in set(runtime_paths)
-    ]
+    excluded_extensions = package.get(semantic_projection["extension_inventory_member"])
+    if (
+        not isinstance(excluded_extensions, list)
+        or not all(isinstance(item, str) and item for item in excluded_extensions)
+        or len(excluded_extensions) != len(set(excluded_extensions))
+    ):
+        return False
+    runtime_closure = deepcopy(
+        [entry for entry in closure if entry["authority_path"] in set(runtime_paths)]
+    )
+    found_extensions: set[str] = set()
+    excluded = set(excluded_extensions)
+    for entry in runtime_closure:
+        for definition in entry["definitions"]:
+            if not isinstance(definition, dict) or not isinstance(
+                definition.get("extensions"), dict
+            ):
+                continue
+            found_extensions.update(excluded & set(definition["extensions"]))
+            retained = {
+                key: value
+                for key, value in definition["extensions"].items()
+                if key not in excluded
+            }
+            if retained:
+                definition["extensions"] = retained
+            else:
+                definition.pop("extensions")
+    if found_extensions != excluded:
+        return False
     try:
         encoded = _encoded(runtime_closure)
     except (TypeError, ValueError, UnicodeEncodeError):
@@ -2571,6 +2625,7 @@ def _consumer_b_runtime_projection_is_closed(
         or contract.get("collection")
         != {
             "required_members": ["id", "source", "output_member", "output_shape"],
+            "optional_members": ["excluded_extension_members"],
             "lock_source_members": ["kind", "member", "package_path"],
             "closure_source_members": ["kind", "authority_path"],
         }
@@ -2692,13 +2747,35 @@ def _consumer_b_runtime_projection_is_closed(
     collection_names = []
     authority_paths = set()
     for collection in collections:
+        if not isinstance(collection, dict):
+            return False
+        expected_collection_members = {
+            "id",
+            "source",
+            "output_member",
+            "output_shape",
+        }
+        if "excluded_extension_members" in collection:
+            expected_collection_members.add("excluded_extension_members")
         if (
-            not isinstance(collection, dict)
-            or set(collection) != {"id", "source", "output_member", "output_shape"}
+            set(collection) != expected_collection_members
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
             or collection.get("output_shape") not in allowed_shapes
+            or (
+                "excluded_extension_members" in collection
+                and (
+                    not isinstance(collection["excluded_extension_members"], list)
+                    or not collection["excluded_extension_members"]
+                    or not all(
+                        isinstance(member, str) and member
+                        for member in collection["excluded_extension_members"]
+                    )
+                    or len(collection["excluded_extension_members"])
+                    != len(set(collection["excluded_extension_members"]))
+                )
+            )
         ):
             return False
         output_member = collection.get("output_member")
@@ -3914,6 +3991,84 @@ def _consumer_b_language_definitions_are_closed(
             return False
         if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
             return False
+    return True
+
+
+def _consumer_b_artifact_semantic_projections_are_closed(
+    ldb: dict[str, Any],
+) -> bool:
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return False
+    contracts = language.get("artifact_contracts")
+    schemas = language.get("artifact_wire_schemas")
+    if not isinstance(contracts, list) or not isinstance(schemas, list):
+        return False
+    schemas_by_kind = {
+        row.get("artifact_kind"): row.get("schema")
+        for row in schemas
+        if isinstance(row, dict)
+        and isinstance(row.get("artifact_kind"), str)
+        and isinstance(row.get("schema"), dict)
+    }
+    for contract in contracts:
+        if not isinstance(contract, dict):
+            return False
+        projection = contract.get("semantic_identity_projection")
+        if projection is None:
+            continue
+        schema = schemas_by_kind.get(contract.get("schema_kind"))
+        root_exclusions = (
+            projection.get("excluded_root_members")
+            if isinstance(projection, dict)
+            else None
+        )
+        collection_exclusions = (
+            projection.get("collection_member_exclusions")
+            if isinstance(projection, dict)
+            else None
+        )
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if (
+            not isinstance(contract.get("semantic_identity_domain"), str)
+            or not isinstance(properties, dict)
+            or not isinstance(root_exclusions, list)
+            or not set(root_exclusions) <= set(properties)
+            or not {"content_identity", "semantic_identity"} <= set(root_exclusions)
+            or not isinstance(collection_exclusions, list)
+            or len(
+                {
+                    row.get("collection_member")
+                    for row in collection_exclusions
+                    if isinstance(row, dict)
+                }
+            )
+            != len(collection_exclusions)
+        ):
+            return False
+        for row in collection_exclusions:
+            collection_member = (
+                row.get("collection_member") if isinstance(row, dict) else None
+            )
+            excluded_members = (
+                row.get("excluded_members") if isinstance(row, dict) else None
+            )
+            collection_schema = properties.get(collection_member)
+            item_schema = (
+                collection_schema.get("items")
+                if isinstance(collection_schema, dict)
+                else None
+            )
+            item_properties = (
+                item_schema.get("properties") if isinstance(item_schema, dict) else None
+            )
+            if (
+                not isinstance(collection_member, str)
+                or not isinstance(excluded_members, list)
+                or not isinstance(item_properties, dict)
+                or not set(excluded_members) <= set(item_properties)
+            ):
+                return False
     return True
 
 
@@ -6491,6 +6646,10 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         meta.get("package_conformance_vector_set") if isinstance(meta, dict) else None
     )
     definitions_are_closed = _consumer_b_language_definitions_are_closed(ldb, meta)
+    artifact_semantic_projections_are_closed = (
+        definitions_are_closed
+        and _consumer_b_artifact_semantic_projections_are_closed(ldb)
+    )
     literal_typing_profiles_are_closed = (
         definitions_are_closed
         and _consumer_b_literal_typing_profiles_are_closed(kernel, ldb)
@@ -6641,6 +6800,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     meta = kernel["meta_format"]
     if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if definitions_are_closed and not artifact_semantic_projections_are_closed:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.definitions.artifact-semantic-projections",
+        )
     if not _consumer_b_assignment_policy_is_total(ldb):
         refuse(
             "kernel.vector_mismatch",

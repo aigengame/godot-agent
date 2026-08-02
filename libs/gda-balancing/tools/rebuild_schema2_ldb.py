@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 
 
 def _identity(domain: str, artifact: dict[str, Any]) -> str:
@@ -18,16 +19,10 @@ def _identity(domain: str, artifact: dict[str, Any]) -> str:
     return content_identity(domain, cast(JsonValue, body))
 
 
-def _semantic_identity(package: dict[str, Any], domain: str) -> str:
-    runtime_paths = package.get("runtime_semantic_paths")
-    closure = package.get("semantic_closure")
-    if not isinstance(runtime_paths, list) or not isinstance(closure, list):
-        raise ValueError(f"{package.get('id', '<unknown>')} has no semantic closure")
-    selected = [
-        item
-        for item in closure
-        if isinstance(item, dict) and item.get("authority_path") in set(runtime_paths)
-    ]
+def _semantic_identity(
+    package: dict[str, Any], domain: str, projection: dict[str, Any]
+) -> str:
+    selected = package_runtime_semantic_closure(package, projection)
     return content_identity(domain, cast(JsonValue, selected))
 
 
@@ -156,6 +151,9 @@ def _build(
         raise ValueError("the LDB root has no package descriptors")
 
     package_dir = authority_dir / "packages"
+    semantic_projection = kernel["meta_format"]["package_release"][
+        "semantic_identity_projection"
+    ]
     coordinate_contracts = _coordinate_contracts(kernel)
     declared_coordinates = [
         _validate_coordinate(
@@ -252,7 +250,9 @@ def _build(
             "byte_size": len(vector_data),
             "content_identity": vector_set["content_identity"],
         }
-        package["semantic_identity"] = _semantic_identity(package, semantic_domain)
+        package["semantic_identity"] = _semantic_identity(
+            package, semantic_domain, semantic_projection
+        )
         package["content_identity"] = _identity(package_domain, package)
         packages.append(package)
         vector_sets_by_coordinate[(package["id"], package["version"])] = vector_set

@@ -25,6 +25,7 @@ from gda_balancing.schema2.authority import (
     admit_authority_context,
     packaged_authority_context,
 )
+from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
 from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
@@ -43,6 +44,18 @@ from gda_balancing.schema2.diagnostics import (
     bound_diagnostics,
     bootstrap_refusal,
     reason_by_id,
+)
+from gda_balancing.schema2.formula_notation import (
+    FormulaNotationRefusal,
+    FormulaPairRefusal,
+    admit_formula_pair,
+    formula_schema_version,
+)
+from gda_balancing.schema2.formula_types import (
+    formula_contract_matches as _formula_contract_matches,
+    formula_contract_matches_operation as _formula_contract_matches_operation,
+    literal_context_contract as _literal_context_contract,
+    resolve_formula_contract as _resolved_formula_contract,
 )
 from gda_balancing.schema2.wire_schema import (
     wire_schema_identity_for_kind,
@@ -168,6 +181,7 @@ _FORMULA_REASON = {
     "refusal-widening": "model.reason.formula-refusal-widening",
     "resource-exhausted": "model.reason.formula-resource-exhausted",
     "cycle": "model.reason.formula-cycle",
+    "notation-mismatch": "model.reason.formula-notation-mismatch",
 }
 
 
@@ -768,6 +782,60 @@ def _model_check_diagnostics(
     return diagnostics
 
 
+def _formula_pair_diagnostics(
+    source: dict[str, Any],
+    source_identity: str,
+    authority_context: AdmittedAuthorityContext,
+) -> list[Schema2Diagnostic]:
+    diagnostics: list[Schema2Diagnostic] = []
+    requirements = source.get("package_requirements")
+    modules = source.get("modules")
+    if not isinstance(requirements, list) or not isinstance(modules, list):
+        return diagnostics
+    for module_index, module in enumerate(modules):
+        if not isinstance(module, dict):
+            continue
+        formulas = module.get("formulas", [])
+        if not isinstance(formulas, list):
+            continue
+        module_context = {
+            "id": module.get("id"),
+            "imports": module.get("imports"),
+            "symbols": module.get("symbols"),
+            "formulas": formulas,
+        }
+        for formula_index, formula in enumerate(formulas):
+            if not isinstance(formula, dict):
+                continue
+            try:
+                admit_formula_pair(
+                    {
+                        "schema_version": source.get("schema_version"),
+                        "package_requirements": requirements,
+                        "modules": modules,
+                        "module": module_context,
+                        "formula": formula,
+                    },
+                    authority_context,
+                )
+            except FormulaPairRefusal as err:
+                reason = reason_by_id(authority_context.language_bundle, err.reason_id)
+                diagnostics.append(
+                    Schema2Diagnostic(
+                        code=cast(str, reason["diagnostic"]),
+                        message=err.message,
+                        primary=_location(
+                            source_identity,
+                            (
+                                f"/modules/{module_index}/formulas/"
+                                f"{formula_index}/{err.member}"
+                            ),
+                        ),
+                    )
+                )
+    return diagnostics
+
+
 def _schema_error_code(
     error: jsonschema.ValidationError, language_bundle: dict[str, Any]
 ) -> str:
@@ -1198,11 +1266,23 @@ def _check_model_source_bytes(
     try:
         source = _strict_object(data)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as err:
-        parse_reason = _unique_reason(
-            ldb,
-            stage="parse",
-            operation="not-equal",
+        default_profiles = [
+            profile
+            for profile in cast(
+                list[dict[str, Any]], _language(ldb)["resolution_profiles"]
+            )
+            if profile.get("default") is True
+        ]
+        if len(default_profiles) != 1:
+            raise ValueError("Model Source parsing requires one default profile")
+        source_boundary = cast(dict[str, Any], default_profiles[0]["extensions"]).get(
+            "standard.source-boundary"
         )
+        if not isinstance(source_boundary, dict) or not isinstance(
+            source_boundary.get("parse_reason"), str
+        ):
+            raise ValueError("default profile has no Model Source parse reason")
+        parse_reason = reason_by_id(ldb, cast(str, source_boundary["parse_reason"]))
         return _refusal(
             cast(str, parse_reason["diagnostic"]),
             "unidentified",
@@ -1231,9 +1311,10 @@ def _check_model_source_bytes(
         for error in errors
         for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
+    model_diagnostics = _model_check_diagnostics(source, source_identity, ldb)
     static_diagnostics = [
         *structural_diagnostics,
-        *_model_check_diagnostics(source, source_identity, ldb),
+        *model_diagnostics,
     ]
     resolution_contract = cast(
         dict[str, Any],
@@ -1322,6 +1403,12 @@ def _check_model_source_bytes(
             f"Model Formula resolution failed: {message}",
             ldb,
         )
+    formula_pair_refusal = _bounded_refusal(
+        _formula_pair_diagnostics(source, source_identity, authority_context),
+        ldb,
+    )
+    if formula_pair_refusal is not None:
+        return formula_pair_refusal
     try:
         lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
         selected_semantics = _runtime_projection(
@@ -1492,6 +1579,44 @@ def _identified_artifact(
         _artifact_schema(language_bundle, artifact_kind)
     ).validate(artifact)
     return artifact
+
+
+def _rir_semantic_projection(
+    language_bundle: dict[str, Any],
+    rir: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Project an RIR artifact or payload to executable semantics only."""
+    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    projection = contract.get("semantic_identity_projection")
+    if not isinstance(projection, dict):
+        raise ValueError("RIR artifact contract has no semantic identity projection")
+    return artifact_semantic_projection(rir, projection)
+
+
+def _rir_semantic_identity(
+    language_bundle: dict[str, Any], rir: dict[str, JsonValue]
+) -> str:
+    contract = _artifact_contract(language_bundle, "rir-semantic-payload")
+    domain = contract.get("semantic_identity_domain")
+    if not isinstance(domain, str) or not domain:
+        raise ValueError("RIR artifact contract has no semantic identity domain")
+    return content_identity(
+        domain,
+        cast(JsonValue, _rir_semantic_projection(language_bundle, rir)),
+    )
+
+
+def _identified_rir_artifact(
+    language_bundle: dict[str, Any], payload: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    return _identified_artifact(
+        language_bundle,
+        "rir-semantic-payload",
+        {
+            **payload,
+            "semantic_identity": _rir_semantic_identity(language_bundle, payload),
+        },
+    )
 
 
 def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
@@ -1795,47 +1920,6 @@ def _resolved_source_symbols(
     )
 
 
-def _formula_contract_matches(
-    actual: dict[str, Any],
-    expected: dict[str, Any],
-) -> bool:
-    return actual.get("type_identity") == expected.get("type_identity") and all(
-        actual.get(member) == expected.get(member)
-        for member in (
-            "representation",
-            "kind",
-            "unit",
-            "domain_kind",
-            "domain",
-            "numeric_policy",
-        )
-    )
-
-
-def _formula_contract_matches_operation(
-    formula_contract: dict[str, Any],
-    operation_contract: dict[str, Any],
-) -> bool:
-    formula_type = formula_contract.get("type_identity")
-    operation_type = operation_contract.get("type")
-    return (
-        isinstance(formula_type, dict)
-        and isinstance(operation_type, dict)
-        and formula_type.get("package") == operation_type.get("package")
-        and formula_type.get("version") == operation_type.get("version")
-        and formula_type.get("symbol") == operation_type.get("id")
-        and all(
-            formula_contract.get(member) == operation_contract.get(member)
-            for member in (
-                "representation",
-                "kind",
-                "unit",
-                "numeric_policy",
-            )
-        )
-    )
-
-
 def _formula_contract_mismatch_reason(
     formula_contract: dict[str, Any],
     target_contract: dict[str, Any],
@@ -1873,59 +1957,6 @@ def _formula_contract_mismatch_reason(
     if formula_contract.get("numeric_policy") != target_contract.get("numeric_policy"):
         return _FORMULA_REASON["numeric-profile-mismatch"]
     return None
-
-
-def _resolved_formula_contract(
-    source_contract: dict[str, Any],
-    imports: dict[str, dict[str, str]],
-    kernel: dict[str, Any],
-    policy: dict[str, Any],
-) -> dict[str, JsonValue]:
-    alias = source_contract.get("type")
-    imported = imports.get(alias) if isinstance(alias, str) else None
-    fixed_aliases = [
-        row
-        for row in cast(list[dict[str, Any]], policy["fixed_value_type_aliases"])
-        if row.get("alias") == alias
-    ]
-    if imported is not None and fixed_aliases:
-        raise ValueError("Formula value-contract type alias is ambiguous")
-    if imported is None and len(fixed_aliases) == 1:
-        fixed_contracts = cast(
-            dict[str, dict[str, JsonValue]],
-            kernel["meta_format"]["runtime_program"]["fixed_value_contracts"],
-        )
-        fixed = fixed_contracts.get(cast(str, fixed_aliases[0].get("contract")))
-        if fixed is None:
-            raise ValueError("Formula fixed value-contract alias is unresolved")
-        expected_members = {key: value for key, value in fixed.items() if key != "type"}
-        if any(
-            source_contract.get(member) != value
-            for member, value in expected_members.items()
-        ):
-            raise ValueError("Formula fixed value-contract does not match authority")
-        fixed_type = cast(dict[str, str], fixed["type"])
-        return {
-            **expected_members,
-            "type_identity": {
-                "package": fixed_type["package"],
-                "version": fixed_type["version"],
-                "symbol": fixed_type["id"],
-            },
-        }
-    if imported is None or fixed_aliases:
-        raise ValueError("Formula value-contract type alias is unresolved")
-    return cast(
-        dict[str, JsonValue],
-        {key: value for key, value in source_contract.items() if key != "type"}
-        | {
-            "type_identity": {
-                "package": imported["package"],
-                "version": imported["version"],
-                "symbol": imported["symbol"],
-            }
-        },
-    )
 
 
 def _formula_operation_identity(
@@ -2263,6 +2294,7 @@ def _resolved_formula_programs_and_bindings_impl(
                 ),
                 "imports": imports,
                 "source_body": body,
+                "source_expression": source_formula["expression"],
             }
             formula_pointers[key] = (
                 f"/modules/{module_index}/{formulas_member}/{formula_index}"
@@ -2686,6 +2718,7 @@ def _resolved_formula_programs_and_bindings_impl(
         )
         resolved_by_key[key] = {
             **formula_body,
+            "expression": cast(str, prototype["source_expression"]),
             "identity": content_identity(domains["declaration"], formula_body),
         }
 
@@ -3359,66 +3392,6 @@ def _value_contract_matches(
             for member in ("representation", "kind", "unit", "numeric_policy")
         )
     )
-
-
-_LITERAL_CONTEXT_MEMBERS = (
-    "id",
-    "type",
-    "representation",
-    "kind",
-    "unit",
-    "domain",
-    "numeric_policy",
-)
-
-
-def _literal_context_contract(
-    value: Any,
-    formal: dict[str, Any],
-    kernel: dict[str, Any],
-    selected_semantics: dict[str, Any],
-) -> dict[str, JsonValue] | None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
-    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
-    selected = selected_semantics.get("literal_typing_profiles")
-    if (
-        not isinstance(literal_contract, dict)
-        or literal_contract.get("selection") != "unique-formal-match"
-        or not isinstance(selected, list)
-    ):
-        return None
-    profiles = [
-        row["definition"]
-        for row in selected
-        if isinstance(row, dict) and isinstance(row.get("definition"), dict)
-    ]
-    matches = [
-        profile
-        for profile in profiles
-        if isinstance(profile, dict)
-        and profile.get("source_kind") == "integer"
-        and isinstance(profile.get("minimum"), int)
-        and not isinstance(profile["minimum"], bool)
-        and isinstance(profile.get("maximum"), int)
-        and not isinstance(profile["maximum"], bool)
-        and profile["minimum"] <= value <= profile["maximum"]
-        and profile.get("type") == formal.get("type")
-        and all(
-            profile.get(member) == formal.get(member)
-            for member in (
-                "representation",
-                "kind",
-                "unit",
-                "domain",
-                "numeric_policy",
-            )
-        )
-    ]
-    if len(matches) != 1:
-        return None
-    profile = cast(dict[str, JsonValue], matches[0])
-    return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
 
 
 def _inline_pure_expression_instruction(
@@ -5587,12 +5560,31 @@ def _runtime_projection(
     }
     projection: dict[str, Any] = {}
     closure_values: dict[tuple[str, str], list[Any]] = {}
+
+    def projected_runtime_value(collection: dict[str, Any], value: Any) -> Any:
+        excluded = collection.get("excluded_extension_members", [])
+        if not excluded:
+            return value
+        if not isinstance(value, dict) or not isinstance(value.get("extensions"), dict):
+            return value
+        projected_value = deepcopy(value)
+        extensions = cast(dict[str, Any], projected_value["extensions"])
+        for member in cast(list[str], excluded):
+            extensions.pop(member, None)
+        if not extensions:
+            projected_value.pop("extensions")
+        return projected_value
+
     for collection in cast(list[dict[str, Any]], profile["collections"]):
         collection_id = cast(str, collection["id"])
         rows = [
             row
             for index, row in enumerate(catalogs[collection_id])
             if budget.consume() is None and index in selected[collection_id]
+        ]
+        rows = [
+            {**row, "value": projected_runtime_value(collection, row["value"])}
+            for row in rows
         ]
         for row in rows:
             authority_path = row["authority_path"]
@@ -6264,6 +6256,7 @@ def _formula_program_graph_is_admitted(
                 "parameters",
                 "result",
                 "body",
+                "expression",
                 "closure",
                 "identity",
             }
@@ -6272,11 +6265,14 @@ def _formula_program_graph_is_admitted(
             or not isinstance(formula.get("parameters"), list)
             or not isinstance(formula.get("result"), dict)
             or not isinstance(formula.get("body"), dict)
+            or not isinstance(formula.get("expression"), str)
             or not isinstance(formula.get("closure"), dict)
         ):
             return False
         formula_body = {
-            key: value for key, value in formula.items() if key != "identity"
+            key: value
+            for key, value in formula.items()
+            if key not in {"identity", "expression"}
         }
         if formula.get("identity") != content_identity(
             domains["declaration"], cast(JsonValue, formula_body)
@@ -7066,6 +7062,202 @@ def _formula_graph_is_admitted(
     }
 
 
+def _notation_operand_projection(operand: dict[str, Any]) -> dict[str, JsonValue]:
+    kind = operand.get("kind")
+    if kind == "symbol" and isinstance(operand.get("resolved_symbol"), dict):
+        resolved = cast(dict[str, Any], operand["resolved_symbol"])
+        return {
+            "kind": "symbol",
+            "module": cast(str, resolved["module"]),
+            "symbol": cast(str, resolved["name"]),
+        }
+    members = {
+        "parameter": "parameter",
+        "local": "local",
+        "literal": "value",
+    }
+    member = members.get(cast(str, kind))
+    if member is None:
+        raise ValueError("RIR Formula operand has no notation projection")
+    return {"kind": cast(str, kind), member: cast(JsonValue, operand[member])}
+
+
+def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
+    nodes = body.get("nodes")
+    result = body.get("result")
+    if not isinstance(nodes, list) or not isinstance(result, dict):
+        raise ValueError("RIR Formula body has no program projection")
+    if (
+        not nodes
+        and result.get("kind") == "parameter"
+        and isinstance(result.get("parameter"), str)
+    ):
+        return {
+            "node": "parameter",
+            "parameter": cast(str, result["parameter"]),
+        }
+    projected_nodes: list[dict[str, JsonValue]] = []
+    for node in cast(list[dict[str, Any]], nodes):
+        kind = node.get("node")
+        projected: dict[str, JsonValue] = {
+            "id": cast(str, node["id"]),
+            "node": cast(str, kind),
+        }
+        if kind == "operation-call":
+            operation = cast(dict[str, Any], node["operation"])
+            projected["operation"] = {
+                "package": cast(str, operation["package"]),
+                "version": cast(str, operation["version"]),
+                "id": cast(str, operation["id"]),
+            }
+            projected["arguments"] = cast(
+                JsonValue,
+                [
+                    {
+                        "port": cast(str, argument["port"]),
+                        "operand": _notation_operand_projection(
+                            cast(dict[str, Any], argument["operand"])
+                        ),
+                    }
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
+                ],
+            )
+            projected["result"] = cast(JsonValue, node["result"])
+        elif kind == "formula-call":
+            formula = cast(dict[str, Any], node["formula"])
+            projected["formula"] = {
+                "module": cast(str, formula["module"]),
+                "id": cast(str, formula["id"]),
+            }
+            projected["arguments"] = cast(
+                JsonValue,
+                [
+                    {
+                        "parameter": cast(str, argument["parameter"]),
+                        "operand": _notation_operand_projection(
+                            cast(dict[str, Any], argument["operand"])
+                        ),
+                    }
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
+                ],
+            )
+        elif kind == "conditional":
+            for member in ("condition", "when_true", "when_false"):
+                projected[member] = _notation_operand_projection(
+                    cast(dict[str, Any], node[member])
+                )
+        else:
+            raise ValueError("RIR Formula node has no notation projection")
+        projected_nodes.append(projected)
+    return {
+        "nodes": cast(JsonValue, projected_nodes),
+        "result": _notation_operand_projection(result),
+    }
+
+
+def _formula_pairs_are_admitted(
+    formulas: object,
+    declarations: object,
+    requirements: object,
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    if (
+        not isinstance(formulas, list)
+        or not isinstance(declarations, list)
+        or not isinstance(requirements, list)
+    ):
+        return False
+    by_module: dict[str, list[dict[str, Any]]] = {}
+    for formula in formulas:
+        if not isinstance(formula, dict) or not isinstance(formula.get("module"), str):
+            return False
+        by_module.setdefault(cast(str, formula["module"]), []).append(formula)
+    declaration_modules = {
+        cast(str, declaration["resolved_symbol"]["module"])
+        for declaration in declarations
+        if isinstance(declaration, dict)
+        and isinstance(declaration.get("resolved_symbol"), dict)
+        and isinstance(declaration["resolved_symbol"].get("module"), str)
+    }
+    modules = [
+        {
+            "id": module_id,
+            "imports": [],
+            "symbols": [
+                declaration
+                for declaration in declarations
+                if isinstance(declaration, dict)
+                and isinstance(declaration.get("resolved_symbol"), dict)
+                and declaration["resolved_symbol"].get("module") == module_id
+            ],
+            "formulas": by_module.get(module_id, []),
+        }
+        for module_id in sorted(set(by_module) | declaration_modules)
+    ]
+    try:
+        for module in modules:
+            module_formulas = cast(list[dict[str, Any]], module["formulas"])
+            for formula in module_formulas:
+                body = formula.get("body")
+                if not isinstance(body, dict):
+                    return False
+                admit_formula_pair(
+                    {
+                        "schema_version": formula_schema_version(authority_context),
+                        "package_requirements": requirements,
+                        "modules": modules,
+                        "module": module,
+                        "formula": formula,
+                    },
+                    authority_context,
+                    canonical_body=cast(
+                        dict[str, Any], _rir_notation_body_projection(body)
+                    ),
+                )
+    except (
+        FormulaPairRefusal,
+        FormulaNotationRefusal,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        return False
+    return True
+
+
+def _rir_formula_pairs_are_admitted(
+    rir: dict[str, Any],
+    lock: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    output_member = _model_lowering(authority_context.language_bundle).get(
+        "output_member"
+    )
+    return _formula_pairs_are_admitted(
+        rir.get("formulas"),
+        rir.get(output_member) if isinstance(output_member, str) else None,
+        lock.get("root_requirements"),
+        authority_context,
+    )
+
+
+def _model_explanation_pairs_are_admitted(
+    explanation: dict[str, Any],
+    rir: dict[str, Any],
+    lock: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    output_member = _model_lowering(authority_context.language_bundle).get(
+        "output_member"
+    )
+    return _formula_pairs_are_admitted(
+        explanation.get("formula_explanations"),
+        rir.get(output_member) if isinstance(output_member, str) else None,
+        lock.get("root_requirements"),
+        authority_context,
+    )
+
+
 def admit_resolved_model(
     artifacts: dict[str, dict[str, Any]],
     *,
@@ -7095,6 +7287,13 @@ def admit_resolved_model(
     rir = artifacts["rir-semantic-payload"]
     resolved = artifacts["resolved-model"]
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
+        return ResolvedModelAdmission(False, diagnostic)
+    try:
+        if rir.get("semantic_identity") != _rir_semantic_identity(
+            ldb, cast(dict[str, JsonValue], rir)
+        ):
+            return ResolvedModelAdmission(False, diagnostic)
+    except (KeyError, TypeError, ValueError):
         return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
     output_member = cast(str, lowering["output_member"])
@@ -7206,6 +7405,8 @@ def admit_resolved_model(
             rir.get("selected_semantics"),
         ):
             return ResolvedModelAdmission(False, diagnostic)
+        if not _rir_formula_pairs_are_admitted(rir, lock, context):
+            return ResolvedModelAdmission(False, diagnostic)
         if not _resolved_entrypoint_graph_is_admitted(
             kernel,
             ldb,
@@ -7231,7 +7432,8 @@ def admit_resolved_model(
             "kernel_identity": cast(str, kernel["content_identity"]),
             "language_bundle_identity": cast(str, ldb["content_identity"]),
             "package_lock_identity": cast(str, lock["content_identity"]),
-            "rir_identity": cast(str, rir["content_identity"]),
+            "rir_content_identity": cast(str, rir["content_identity"]),
+            "rir_semantic_identity": cast(str, rir["semantic_identity"]),
         },
     )
     if resolved != expected_resolved:
@@ -7270,11 +7472,13 @@ def _lowering_inputs(
 
 
 def _model_explanation(
-    language_bundle: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+    lock: dict[str, JsonValue],
     rir: dict[str, JsonValue],
     debug_map: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     """Project the immutable human inspection companion from exact build data."""
+    language_bundle = authority_context.language_bundle
     formulas = cast(list[dict[str, Any]], rir["formulas"])
     bindings = cast(list[dict[str, Any]], rir["formula_bindings"])
     selected_semantics = cast(dict[str, Any], rir["selected_semantics"])
@@ -7302,6 +7506,7 @@ def _model_explanation(
                     "parameters": formula["parameters"],
                     "result": formula["result"],
                     "body": formula["body"],
+                    "expression": formula["expression"],
                     "closure": formula["closure"],
                     "evaluation_sites": evaluation_sites,
                 },
@@ -7380,16 +7585,20 @@ def _model_explanation(
             cast(str, row["id"]),
         )
     )
-    return _identified_artifact(
-        language_bundle,
-        "model-explanation",
-        {
-            "rir_identity": rir["content_identity"],
-            "debug_map_identity": debug_map["content_identity"],
-            "formula_explanations": cast(JsonValue, formula_explanations),
-            "operation_explanations": cast(JsonValue, operation_explanations),
-        },
-    )
+    payload = {
+        "rir_identity": rir["content_identity"],
+        "debug_map_identity": debug_map["content_identity"],
+        "formula_explanations": cast(JsonValue, formula_explanations),
+        "operation_explanations": cast(JsonValue, operation_explanations),
+    }
+    if not _model_explanation_pairs_are_admitted(
+        cast(dict[str, Any], payload),
+        cast(dict[str, Any], rir),
+        cast(dict[str, Any], lock),
+        authority_context,
+    ):
+        raise ValueError("Model explanation Formula pairs failed admission")
+    return _identified_artifact(language_bundle, "model-explanation", payload)
 
 
 def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
@@ -7453,9 +7662,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         selected_semantics,
         _composition_policy(lowering),
     )
-    rir = _identified_artifact(
+    rir = _identified_rir_artifact(
         checked.language_bundle,
-        "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
             "formulas": cast(JsonValue, formulas),
@@ -7473,7 +7681,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
             "package_lock_identity": lock["content_identity"],
-            "rir_identity": rir["content_identity"],
+            "rir_content_identity": rir["content_identity"],
+            "rir_semantic_identity": rir["semantic_identity"],
         },
     )
     debug_map = _identified_artifact(
@@ -7504,7 +7713,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         },
     )
     model_explanation = _model_explanation(
-        checked.language_bundle,
+        context,
+        lock,
         rir,
         debug_map,
     )
@@ -7890,6 +8100,17 @@ def read_model_explanation(
             "build-receipt",
             "committed Model build members have inconsistent bindings",
         )
+    if not _model_explanation_pairs_are_admitted(
+        explanation,
+        rir,
+        lock,
+        context,
+    ):
+        raise ModelInspectAdmissionError(
+            "kernel.binding_mismatch",
+            "model-explanation",
+            "committed Model explanation Formula pairs failed admission",
+        )
     return cast(dict[str, JsonValue], explanation)
 
 
@@ -8204,6 +8425,9 @@ def _recover_publication(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     authentication_key: bytes,
 ) -> dict[str, JsonValue]:
+    authority_context = admit_authority_context(kernel, language_bundle)
+    if isinstance(authority_context, BootstrapAdmission):
+        raise RuntimeError("committed publication authorities failed admission")
     member_files = {
         member.logical_name: f"{member.logical_name}.json" for member in artifact_set
     }
@@ -8310,7 +8534,8 @@ def _recover_publication(
     ):
         raise RuntimeError("committed Capability manifest is not an exact projection")
     if artifacts["model-explanation"] != _model_explanation(
-        language_bundle,
+        authority_context,
+        cast(dict[str, JsonValue], lock),
         cast(dict[str, JsonValue], rir),
         cast(dict[str, JsonValue], artifacts["debug-map"]),
     ):

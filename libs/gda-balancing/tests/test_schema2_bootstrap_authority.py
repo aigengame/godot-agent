@@ -21,6 +21,31 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
+def test_rir_semantic_projection_members_close_against_the_wire_schema():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    contract = next(
+        row
+        for row in ldb["language"]["artifact_contracts"]
+        if row["artifact_kind"] == "rir-semantic-payload"
+    )
+    contract["semantic_identity_projection"]["collection_member_exclusions"][0][
+        "excluded_members"
+    ] = ["host-invented-member"]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.definitions.artifact-semantic-projections",
+    ) in first["diagnostics"]
+
+
 def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
     authority = _authority_candidate()
     kernel = authority["kernel"]
@@ -108,6 +133,11 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "core.quantity": {
             "formula.quantity.accept.pure-operation-closure",
             "formula.quantity.accept.boolean-comparison",
+            "formula.notation.quantity.floor-zero",
+            "formula.notation.quantity.identity",
+            "formula.notation.quantity.less-than",
+            "formula.notation.quantity.maximum",
+            "formula.notation.quantity.subtract",
         },
         "game.combat": {
             "formula.combat.accept.damage-slot-binding",
@@ -188,6 +218,22 @@ def test_formula_semantics_are_owned_by_package_extensions_and_vectors():
         "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
         "unit": "1",
     }
+    quantity_vectors = {
+        vector["id"]: vector
+        for vector in vector_sets["core.quantity"]["vector_definitions"]
+    }
+    for operation_id, operation in quantity_operations.items():
+        vector_id = f"formula.notation.{operation_id}"
+        vector = quantity_vectors[vector_id]
+        assert vector == {
+            "category": "positive",
+            "expect": operation["extensions"],
+            "id": vector_id,
+            "kind": "operation-contract",
+            "operation": operation_id,
+            "probe": {"path": "extensions"},
+        }
+        assert vector_id in operation["vectors"]
 
 
 @pytest.mark.parametrize(

@@ -1471,6 +1471,7 @@ def _minimal_release(
                             ],
                             "result": {"kind": "local", "local": "value"},
                         },
+                        "expression": "let value = identity(base);\nvalue",
                     }
                 ],
             }

@@ -146,6 +146,38 @@ def test_outcome_closure_allows_only_declared_skips(tmp_path):
     assert report["xfailed_tests"] == []
 
 
+def test_outcome_closure_reports_capability_inapplicable_passes(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps({"allowed_skipped_test_ids": []}),
+        encoding="utf-8",
+    )
+    junit = tmp_path / "not-applicable.xml"
+    junit.write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one.TestRows" '
+        'name="test_sink[formula parse]"><properties>'
+        '<property name="gda-balancing.applicability" value="not-applicable"/>'
+        '<property name="gda-balancing.applicability-reason" '
+        'value="descriptor is not an artifact sink"/>'
+        "</properties></testcase></testsuite></testsuites>",
+        encoding="utf-8",
+    )
+
+    report = ci.verify_outcomes(
+        junit,
+        tmp_path / "not-applicable-report.json",
+        baseline,
+    )
+
+    assert report["not_applicable_tests"] == {
+        "tests/test_one.py::TestRows::test_sink[formula parse]": (
+            "descriptor is not an artifact sink"
+        )
+    }
+    assert report["skipped_tests"] == []
+    assert report["unexpected_skipped_tests"] == []
+
+
 def test_outcome_closure_reports_a_real_module_level_collection_skip(tmp_path):
     probe_root = tmp_path / "probe"
     probe = probe_root / "tests" / "test_zz_module_skip_probe.py"

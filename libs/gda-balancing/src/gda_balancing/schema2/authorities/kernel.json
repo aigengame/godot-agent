@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:356228d0f9c77cd96dd29d6cf84daf19d461bc846a7a88dc67f8903feaec7e98",
+  "content_identity": "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2234,6 +2234,39 @@
             },
             "identity_excluded_members": {
               "type": "string-list"
+            },
+            "semantic_identity_domain": {
+              "type": "non-empty-string"
+            },
+            "semantic_identity_projection": {
+              "field_types": {
+                "collection_member_exclusions": {
+                  "items": {
+                    "field_types": {
+                      "collection_member": {
+                        "type": "non-empty-string"
+                      },
+                      "excluded_members": {
+                        "type": "string-list"
+                      }
+                    },
+                    "required_members": [
+                      "collection_member",
+                      "excluded_members"
+                    ],
+                    "type": "closed-object"
+                  },
+                  "type": "list-of"
+                },
+                "excluded_root_members": {
+                  "type": "string-list"
+                }
+              },
+              "required_members": [
+                "excluded_root_members",
+                "collection_member_exclusions"
+              ],
+              "type": "closed-object"
             }
           },
           "required_members": [
@@ -2242,6 +2275,10 @@
             "identity_excluded_members",
             "schema_kind",
             "wire_schema_identity_domain"
+          ],
+          "optional_members": [
+            "semantic_identity_domain",
+            "semantic_identity_projection"
           ]
         },
         "artifact_wire_schemas": {
@@ -3128,16 +3165,22 @@
             },
             "schema": {
               "allowed_keywords": [
+                "$defs",
                 "$schema",
                 "const",
                 "enum",
                 "items",
+                "maxItems",
+                "maximum",
                 "minItems",
                 "minLength",
+                "minimum",
+                "pattern",
                 "properties",
                 "required",
                 "type",
                 "unevaluatedProperties",
+                "uniqueItems",
                 "oneOf"
               ],
               "dialect": "https://json-schema.org/draft/2020-12/schema",
@@ -3342,6 +3385,9 @@
         "version": {
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
           "type": "non-empty-string"
+        },
+        "runtime_semantic_excluded_extensions": {
+          "type": "string-list"
         }
       },
       "nested_field_types": {
@@ -3533,6 +3579,7 @@
         "exports",
         "id",
         "profiles",
+        "runtime_semantic_excluded_extensions",
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
@@ -3671,7 +3718,8 @@
         "domain": "domain-package-semantic-closure-v2",
         "path_inventory_member": "runtime_semantic_paths",
         "path_member": "authority_path",
-        "source_member": "semantic_closure"
+        "source_member": "semantic_closure",
+        "extension_inventory_member": "runtime_semantic_excluded_extensions"
       },
       "type_export": {
         "field_types": {
@@ -3805,6 +3853,7 @@
         "body",
         "default_outcome",
         "effects",
+        "extensions",
         "outcomes",
         "refusals",
         "resource_bounds"
@@ -4606,6 +4655,9 @@
         "closure_source_members": [
           "kind",
           "authority_path"
+        ],
+        "optional_members": [
+          "excluded_extension_members"
         ]
       },
       "seed": {

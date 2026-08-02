@@ -17,6 +17,21 @@ let-bound program into an expression tree would lose local identities, sharing, 
 and deterministic resource charges. RIR also needs to carry the paired representation without
 making presentation wording part of semantic equivalence.
 
+> **Amendment (2026-08-03, #606):** Implementation closed the generic grammar authority over
+> identifier, integer, and whitespace token patterns; signed-literal context; token, byte, and
+> group-depth bounds. The selected compiler profile owns exact contract-comparison modes,
+> Operation-body transfer/member mappings, generated-local policy, and the infix algorithm, so
+> precedence and associativity normalize multi-operator input into deterministic additional `let`
+> nodes. A conversion request supplies its current `module` plus a model-wide `modules` resolution
+> closure when Formula or Symbol coordinates cross that boundary; every import binds one exact
+> declared requirement and exported type.
+>
+> The same implementation made both semantic projections declarative. Package Release semantics
+> use the Kernel-owned package projection. RIR semantics use the sealed
+> `rir-semantic-payload` artifact contract, which declares root-envelope exclusions and removes
+> `expression` from each Formula before hashing. Production and the independent consumer interpret
+> that contract separately; host code owns neither member inventory.
+
 ## Decision
 
 - **The required wire pair is `body` plus `expression`.** Every Formula declaration data instance

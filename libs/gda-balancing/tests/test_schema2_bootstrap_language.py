@@ -229,6 +229,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "exports",
         "id",
         "profiles",
+        "runtime_semantic_excluded_extensions",
         "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
