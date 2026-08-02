@@ -25,14 +25,13 @@ an explicit boundary for lowering equivalence.
 > from committing, while post-commit recovery returns the same bytes without regeneration. Neither
 > companion can affect RIR, Resolved Model identity, execution, or semantic equivalence.
 
-> **Amendment (2026-08-02, bADR-0024):** RIR Formula declarations now carry their canonical,
-> reversibly validated expressions for the selected reachable Formula projection. The canonical RIR
-> JSON therefore has a `content_identity` for exact wire integrity and a distinct
-> `semantic_identity` over the executable projection that excludes expression text. Resolved Model
-> binds and validates both; semantic equivalence uses the latter. Package selection alone does not
-> place notation declarations in RIR: a notation-only mutation changes RIR content identity exactly
-> when canonical reachable expression bytes change, and never changes RIR semantic identity. The
-> paired representation does not make expression text a peer semantic authority.
+> **Amendment (2026-08-02, bADR-0024):** Reachable RIR Formula declarations additionally carry the
+> canonical `expression` paired with their structured `body`. The retained RIR payload identity below
+> is now named `semantic_identity`; a separate `content_identity` hashes the complete canonical RIR
+> JSON for exact wire integrity. The current Resolved Model identity is
+> `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR
+> semantic_identity, exact RIR content_identity)`, superseding the shorter tuple retained below.
+> bADR-0024 owns pair validation, expression projection, and the notation-only identity matrix.
 
 ## Decision
 
@@ -64,24 +63,18 @@ an explicit boundary for lowering equivalence.
 
 - **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
   sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an
-  immutable semantic normal form. Its `semantic_identity` is
-  `H(canonical reachable executable semantic projection)` and contains only facts that can affect
-  specified observable behavior. Its separately checked `content_identity` covers the complete
-  canonical RIR JSON, including bADR-0024's validated expressions for reachable Formula
-  declarations. Source spans, module ordering, aliases, comments, AST/HIR identities, lowering
-  traces, diagnostic provenance, LDB notation declarations, notation catalogs, and unselected bundle
-  inventory are excluded from the semantic projection. Only the validated Formula expressions, not
-  their declaration catalog, appear in canonical RIR JSON. A notation-only mutation that leaves
-  those expression bytes unchanged therefore leaves RIR content identity unchanged regardless of
-  whether its owning Package Release is selected.
+  immutable semantic normal form. Its identity is
+  `H(canonical reachable semantic payload)` and contains only facts that can affect specified
+  observable behavior. Source spans, module ordering, aliases, comments, AST/HIR identities,
+  lowering traces, diagnostic provenance, and unselected bundle inventory are excluded.
 
 - **Resolved Model is the exact-build execution-authority wrapper.** Its identity is
   `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR semantic
-  identity, exact RIR content identity)`. Compiler/tool identity remains non-semantic provenance in
-  a separate Build receipt. Independent conforming evaluators consume the Resolved Model and its RIR
-  payload rather than reinterpreting authored source. Two wrappers may therefore carry
-  semantically identical payloads without being the same exact build, runtime profile, Experiment
-  binding, or Replay subject.
+  payload identity)`. Compiler/tool identity remains non-semantic provenance in a separate Build
+  receipt. Independent conforming evaluators consume the Resolved Model and its RIR payload rather
+  than reinterpreting authored source. Two wrappers may therefore carry byte-identical semantic
+  payloads without being the same exact build, runtime profile, Experiment binding, or Replay
+  subject.
 
 - **Runtime-required selected LDB semantics are embedded as one canonical RIR projection.** RIR
   carries the normalized operation bodies, signatures, effects, variants, and other admitted

@@ -21,12 +21,9 @@ admission boundary.
 
 > **Amendment (2026-08-02, bADR-0024):** Formula notation grammar, pure-Operation notation
 > declarations, diagnostics, rules, and vectors are ordinary sealed package content. Changing any
-> of them reidentifies its vector/release/root graph according to the same content-versus-semantic
-> identity split and reidentifies exact wrappers that bind the whole LDB. Package Lock changes if and
-> only if the owning Package Release is selected. RIR contains canonical Formula expressions, never
-> the notation catalog: a notation-only mutation changes RIR content identity if and only if those
-> expression bytes change, and never changes RIR semantic identity. No host notation registry or
-> peer grammar authority is introduced.
+> of them reidentifies its normal vector/release/root graph and exact wrappers that bind the whole
+> LDB. bADR-0024 owns the separate Package-Lock and RIR projection effects. No notation catalog enters
+> RIR, and no host notation registry or peer grammar authority is introduced.
 
 ## Decision
 
@@ -112,7 +109,7 @@ admission boundary.
 
 - **The change is clean-forward.** The unpublished single-file Schema 2.0 form has no compatibility
   reader, fallback, dual authority, or migration path. Formula authoring remains owned by #590 and
-  canonical Formula notation by bADR-0024; neither is introduced by this decision.
+  is not introduced by this decision.
 
 ## Considered options
 

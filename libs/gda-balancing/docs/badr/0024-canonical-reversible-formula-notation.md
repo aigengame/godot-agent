@@ -17,24 +17,15 @@ let-bound program into an expression tree would lose local identities, sharing, 
 and deterministic resource charges. RIR also needs to carry the paired representation without
 making presentation wording part of semantic equivalence.
 
-> **Independent-review refinement (2026-08-02, `1c01b74`):** An audit of the fixed draft and live
-> #606 found four authority/verification ambiguities: source authority was conflated with public
-> semantics, pure-Operation notation ownership excluded non-mechanic packages, the proposed
-> conformance consumer reused the production implementation, and notation-identity mutation lacked
-> a reachability boundary. The human decision owner accepted all four as `refined-adopted`; the
-> decision and validation below incorporate them. An exact-head re-audit of `6ba2fc1` then found that
-> the reachability wording still conflated Package Release selection with canonical-expression
-> projection effect. The human decision owner accepted the orthogonal projection-derived identity
-> matrix below as a further `refined-adopted` correction. Both reviews are design evidence, not
-> conformance proof.
-
 ## Decision
 
-- **The structured Formula body is the pair's sole authoritative source member.** Every notation
-  string is a canonical, reversible projection of one body under one exact Kernel/LDB. When a
-  Formula data instance carries both, admission reparses the notation and requires structural
-  equivalence with the body. A missing or mismatched notation is a typed refusal; implementations
-  never silently choose, repair, or regenerate one side during admission. This source-level
+- **The required wire pair is `body` plus `expression`.** Every Formula declaration data instance
+  carries those adjacent members. `body` is the pair's sole authoritative source member;
+  `expression` is its canonical, reversible projection under one exact Kernel/LDB and Formula
+  context. Paired-artifact admission requires `expression` to be byte-identical to
+  `render(body).expression` and requires parsing it to produce the byte-identical Kernel-canonical
+  `body`. Missing members, non-canonical expression bytes, or body/expression drift produce a typed
+  refusal; admission never chooses, repairs, or regenerates either member. This source-level
   ownership does not replace Kernel/LDB language semantics, Typed HIR static semantics, or RIR as
   the public semantic boundary.
 
@@ -42,16 +33,39 @@ making presentation wording part of semantic equivalence.
   exports a pure Operation owns its notation, including tokens or call names, ordered port mapping,
   precedence, and associativity. The selected LDB closes collision and ambiguity rules. The
   `standard.schema` release owns the generic notation wire grammar and structural/parse Diagnostics;
-  `standard.compiler` owns contextual resolution, local result inference, AST-equivalence, and HIR
-  normalization. A host parser or renderer consumes those authorities and cannot hard-code an
-  operation catalog.
+  `standard.compiler` owns contextual resolution, local result inference, exact canonical-body
+  equivalence, and HIR normalization. A host parser or renderer consumes those authorities and
+  cannot hard-code an operation catalog.
+
+  The first RPG vertical requires `core.quantity@2.1.0` to declare these exact conventional
+  mappings: `quantity.subtract` is infix `-` with ordered ports `left`, `right`;
+  `quantity.floor-zero` is `floor_zero(value)`; `quantity.maximum` is `max(left, right)`; and
+  `quantity.identity` is `identity(value)`. The list is the initial conformance witness, not a
+  complete or host-owned Operation catalog.
 
 - **The canonical surface preserves the Formula program.** A sequence of
   `let <local> = <expression>;` bindings followed by one result expression preserves node order,
-  local identities, sharing, evaluation count, and final result. Operation bodies use the selected
-  conventional infix/function notation. Conditionals, Formula calls, module-qualified Symbols, and
-  identifiers that require quoting have one closed LDB-owned spelling. Whitespace and parentheses
+  local identities, sharing, evaluation count, and final result. Rendering emits one binding per
+  line and the result expression on the final line. A bare identifier matches
+  `[A-Za-z_][A-Za-z0-9_]*` and is not a reserved grammar word; every other identifier is enclosed in
+  backticks, with backtick and backslash escaping fixed by `standard.schema`. Each segment of a
+  module-qualified Symbol or Formula coordinate follows the same rule. Whitespace and parentheses
   are canonical; arbitrary authored layout is not round-tripped.
+
+  The committed `mitigated-damage` body therefore renders without flattening either local:
+
+  ```text
+  let raw_damage = damage_before_defense - mitigation;
+  let damage = floor_zero(raw_damage);
+  damage
+  ```
+
+  The committed kebab-case local in `effective-accuracy` demonstrates canonical quoting:
+
+  ```text
+  let `minimum-accuracy` = max(base, 1);
+  `minimum-accuracy`
+  ```
 
 - **Reverse conversion is contextual.** A complete notation-to-body conversion requires the
   Formula's module/import scope, parameter and result contracts, and exact Kernel/LDB. Resolution
@@ -60,29 +74,33 @@ making presentation wording part of semantic equivalence.
   lexical or syntax Diagnostics, but it cannot claim a resolved Formula body.
 
 - **The CLI exposes `formula parse` and `formula render`.** Both are non-executing, structured,
-  descriptor-owned transformations. `parse` accepts notation plus its Formula context and returns a
-  complete body plus canonical notation. `render` accepts a body plus the same context, validates
-  it, and returns the same paired result. They publish no Resolved Model or other semantic artifact.
-  Production commands, Model Source admission, RIR emission, and Model explanation share one parser,
-  renderer, and equivalence implementation. A conformance consumer independently implements the
-  same contracts from sealed Kernel/LDB authority and mutually consumes the production artifacts;
-  it cannot import or reuse the production parser, renderer, or equivalence implementation.
+  descriptor-owned transformations. `parse` accepts grammar-valid notation, including
+  non-canonical whitespace or redundant parentheses, plus its Formula context; it returns the
+  complete structured `body` and canonical `expression`. `render` accepts a `body` plus the same
+  context, validates it, and returns the same canonical pair. They publish no Resolved Model or
+  other semantic artifact. Paired-artifact admission remains stricter than conversion and refuses
+  an `expression` that is not already the exact renderer output. Production commands, Model Source
+  admission, RIR emission, and Model explanation share one parser, renderer, and equivalence
+  implementation. A conformance consumer independently implements the same contracts from sealed
+  Kernel/LDB authority and mutually consumes the production artifacts; it cannot import or reuse
+  the production parser, renderer, or equivalence implementation.
 
-- **Every Formula data instance carries the pair.** Model Source, RIR, and Model explanation require
-  an adjacent `expression` for every Formula declaration body. Embedded Model Sources, templates,
-  conformance vectors, examples, and fixtures inherit the rule. Schema/grammar definitions and
-  records carrying only a Formula identity, binding, or source pointer are meta/reference records,
-  not Formula data instances, and do not synthesize an expression.
+- **Every Formula data instance carries the same named pair.** Model Source, RIR, and Model
+  explanation require adjacent `body` and `expression` members for every Formula declaration.
+  Embedded Model Sources, templates, conformance vectors, examples, and fixtures inherit the rule.
+  Schema/grammar definitions and records carrying only a Formula identity, binding, or source
+  pointer are meta/reference records, not Formula data instances, and do not synthesize the pair.
 
 - **Formula-notation identities derive from orthogonal projections.** Every notation-content
   mutation reidentifies its owning Package Release and whole LDB; Resolved Model consequently
   changes because it binds the exact whole LDB. Package Lock changes if and only if the owning
-  Package Release is selected. RIR `content_identity` covers the complete canonical RIR JSON and
-  changes if and only if at least one canonical expression byte sequence in the selected reachable
-  Formula projection changes. RIR `semantic_identity` covers only the executable semantic
-  projection, excludes expression text, and never changes for a notation-only mutation. Package
-  selection and expression projection effect are therefore separate; RIR never embeds a notation
-  catalog merely because a release is selected.
+  Package Release is selected. RIR `content_identity` is the hash of the complete canonical RIR JSON
+  and changes if and only if any covered canonical byte changes. Holding every other RIR member
+  fixed, a notation-only mutation changes it if and only if at least one canonical `expression` byte
+  sequence in the selected reachable Formula projection changes. RIR `semantic_identity` covers
+  only the executable semantic projection, excludes `expression`, and never changes for a
+  notation-only mutation. Package selection and expression projection effect are therefore
+  separate; RIR never embeds a notation catalog merely because a release is selected.
 
   | Owning Package Release selected | Canonical RIR expression bytes change | Package Release / whole LDB | Package Lock | RIR content | RIR semantic | Resolved Model |
   | --- | --- | --- | --- | --- | --- | --- |
@@ -123,7 +141,8 @@ making presentation wording part of semantic equivalence.
 - Notation declarations become sealed LDB package content and must participate in package/vector/root
   reidentification and compatibility checks.
 - Model Source, RIR, Model explanation, their schemas, a separately implemented conformance
-  consumer, and every embedded Formula fixture must enforce the same pair and equivalence rule.
+  consumer, and every embedded Formula fixture must enforce the same `body`/`expression` pair and
+  exact canonical-equivalence rule.
 - RIR gains distinct content and semantic identities; callers must use the correct one for exact
   retrieval versus semantic comparison.
 - The command taxonomy, descriptor registry, manifest, `--schema`, help, diagnostics, and
@@ -134,13 +153,24 @@ making presentation wording part of semantic equivalence.
 ## Validation
 
 - Render every admitted Formula node/operand kind, parse the result under the same exact context,
-  and require byte-identical canonical body and notation. Repeat through a separately implemented
-  conformance consumer, then mutually consume each implementation's paired artifacts.
-- Cover precedence, associativity, required parentheses, quoted identifiers, named Formula-call
-  arguments, module-qualified Symbols, conditionals, local reuse, and zero-node parameter bodies.
-- Refuse missing notation, non-canonical notation, AST/notation drift, ambiguous package notation,
-  unresolved names, invalid port closure, incompatible types, and resource-limit boundaries with
-  exact stages, Diagnostics, and source locations.
+  and require byte-identical canonical `body` and `expression`. Repeat through a separately
+  implemented conformance consumer, then mutually consume each implementation's paired artifacts.
+- Cover integer and admitted Numeric literals; precedence; associativity; required parentheses;
+  bare, reserved, Unicode, and backtick-escaped identifiers; ordered Operation-port mappings; named
+  Formula-call arguments; module-qualified Symbols; conditionals; local reuse; and zero-node
+  parameter bodies.
+- Require the initial `core.quantity` witness to round-trip `quantity.subtract`,
+  `quantity.floor-zero`, `quantity.maximum`, and `quantity.identity`, including the committed
+  two-binding `mitigated-damage` body, the literal `1`, and the quoted `minimum-accuracy` local.
+  Mutating a declared token, call name, precedence, associativity, or ordered port mapping must
+  produce the exact owning refusal or new canonical pair rather than a host-dependent result.
+- Prove `formula parse` canonicalizes grammar-valid whitespace and redundant parentheses, while
+  paired Model Source/RIR/Model-explanation admission refuses those same non-canonical bytes unless
+  they already equal `render(body).expression`. An unquoted `minimum-accuracy` must never resolve as
+  the kebab-case local.
+- Refuse missing pair members, AST/expression drift, ambiguous package notation, unresolved names,
+  invalid port closure, incompatible types, invalid identifier escaping, and resource-limit
+  boundaries with exact stages, Diagnostics, and source locations.
 - Prove `formula parse` and `formula render` project from their live Command descriptors and agree
   for argv/structured input, success, refusal, usage, and internal outcomes.
 - Mutate notation in a selected Package Release so at least one canonical RIR Formula expression

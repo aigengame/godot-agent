@@ -292,13 +292,10 @@ implementation-defined iteration are outside the language.
 
 Model Source owns module-level named **Formula declarations** with typed parameters, result, and a
 structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
-are neither first-class values nor dynamic callbacks. Every Formula body carries one canonical,
-reversible human-readable expression using package-owned conventional notation and explicit `let`
-bindings. Within that paired declaration, the body is the sole authoritative source member:
-admission reparses the expression under the exact Formula context and LDB and refuses drift before
-HIR. Kernel/LDB retain language authority and typed RIR remains the public semantic boundary.
-Notation is Authoring-AST sugar and a validated projection, never a peer semantic authority or a
-host-owned operation table (bADR-0024).
+are neither first-class values nor dynamic callbacks. Every Formula declaration data instance
+carries adjacent `body` and canonical human-readable `expression` members. The body is the pair's
+authoritative source member; the expression is a package-owned reversible projection, never a peer
+semantic authority. bADR-0024 owns the exact grammar, admission, and identity rules.
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
@@ -395,15 +392,12 @@ The public compilation pipeline is:
 - **Typed HIR** resolves names, types, units, package symbols, and static effects while retaining
   enough structure for useful diagnostics.
 - The **RIR semantic payload** is the canonical, public semantic normal form. Its
-  `semantic_identity` excludes validated Formula expression text, while the enclosing canonical
-  RIR JSON `content_identity` covers every expression in that reachable projection for wire
-  integrity. Package selection alone never imports notation declarations or a notation catalog into
-  RIR: a notation-only mutation changes RIR content identity exactly when canonical RIR expression
-  bytes change, and never changes RIR semantic identity. Equivalent admitted source must lower to
-  the same semantic projection under the same selected semantic dependencies.
+  `semantic_identity` excludes Formula `expression` text; the complete canonical RIR JSON has a
+  separate `content_identity` for wire integrity. Equivalent admitted source must lower to the same
+  semantic projection under the same selected semantic dependencies (bADR-0013/0024).
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
-  selected Package Lock, and all other required build identities. A whole-LDB change therefore
-  reidentifies the wrapper even when Package Lock and both RIR identities remain unchanged.
+  selected Package Lock, RIR semantic identity, exact RIR content identity, and all other required
+  build identities.
 - **EIR** is an evaluator-private execution representation. It may contain schedules, bytecode,
   layouts, or optimized kernels, but it is neither portable Standard Schema bytecode nor an
   interchange authority.

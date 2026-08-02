@@ -2,7 +2,7 @@
 
 This directory holds acceptance artifacts for the Standard Schema 2.0 specification tracked by
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
-authority; bADR-0012…0023 own the binding detailed decisions; and PRD #534 owns requirements,
+authority; bADR-0012…0024 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
 language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
 #592 now supply the permanent authority, Model-build tracer, first minimal Template release,
