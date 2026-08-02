@@ -49,6 +49,12 @@ from gda_balancing.schema2.formula_notation import (
     FormulaPairRefusal,
     admit_formula_pair,
 )
+from gda_balancing.schema2.formula_types import (
+    formula_contract_matches as _formula_contract_matches,
+    formula_contract_matches_operation as _formula_contract_matches_operation,
+    literal_context_contract as _literal_context_contract,
+    resolve_formula_contract as _resolved_formula_contract,
+)
 from gda_balancing.schema2.wire_schema import (
     wire_schema_identity_for_kind,
 )
@@ -793,6 +799,7 @@ def _formula_pair_diagnostics(
         module_context = {
             "id": module.get("id"),
             "imports": module.get("imports"),
+            "symbols": module.get("symbols"),
             "formulas": formulas,
         }
         for formula_index, formula in enumerate(formulas):
@@ -1925,47 +1932,6 @@ def _resolved_source_symbols(
     )
 
 
-def _formula_contract_matches(
-    actual: dict[str, Any],
-    expected: dict[str, Any],
-) -> bool:
-    return actual.get("type_identity") == expected.get("type_identity") and all(
-        actual.get(member) == expected.get(member)
-        for member in (
-            "representation",
-            "kind",
-            "unit",
-            "domain_kind",
-            "domain",
-            "numeric_policy",
-        )
-    )
-
-
-def _formula_contract_matches_operation(
-    formula_contract: dict[str, Any],
-    operation_contract: dict[str, Any],
-) -> bool:
-    formula_type = formula_contract.get("type_identity")
-    operation_type = operation_contract.get("type")
-    return (
-        isinstance(formula_type, dict)
-        and isinstance(operation_type, dict)
-        and formula_type.get("package") == operation_type.get("package")
-        and formula_type.get("version") == operation_type.get("version")
-        and formula_type.get("symbol") == operation_type.get("id")
-        and all(
-            formula_contract.get(member) == operation_contract.get(member)
-            for member in (
-                "representation",
-                "kind",
-                "unit",
-                "numeric_policy",
-            )
-        )
-    )
-
-
 def _formula_contract_mismatch_reason(
     formula_contract: dict[str, Any],
     target_contract: dict[str, Any],
@@ -2003,59 +1969,6 @@ def _formula_contract_mismatch_reason(
     if formula_contract.get("numeric_policy") != target_contract.get("numeric_policy"):
         return _FORMULA_REASON["numeric-profile-mismatch"]
     return None
-
-
-def _resolved_formula_contract(
-    source_contract: dict[str, Any],
-    imports: dict[str, dict[str, str]],
-    kernel: dict[str, Any],
-    policy: dict[str, Any],
-) -> dict[str, JsonValue]:
-    alias = source_contract.get("type")
-    imported = imports.get(alias) if isinstance(alias, str) else None
-    fixed_aliases = [
-        row
-        for row in cast(list[dict[str, Any]], policy["fixed_value_type_aliases"])
-        if row.get("alias") == alias
-    ]
-    if imported is not None and fixed_aliases:
-        raise ValueError("Formula value-contract type alias is ambiguous")
-    if imported is None and len(fixed_aliases) == 1:
-        fixed_contracts = cast(
-            dict[str, dict[str, JsonValue]],
-            kernel["meta_format"]["runtime_program"]["fixed_value_contracts"],
-        )
-        fixed = fixed_contracts.get(cast(str, fixed_aliases[0].get("contract")))
-        if fixed is None:
-            raise ValueError("Formula fixed value-contract alias is unresolved")
-        expected_members = {key: value for key, value in fixed.items() if key != "type"}
-        if any(
-            source_contract.get(member) != value
-            for member, value in expected_members.items()
-        ):
-            raise ValueError("Formula fixed value-contract does not match authority")
-        fixed_type = cast(dict[str, str], fixed["type"])
-        return {
-            **expected_members,
-            "type_identity": {
-                "package": fixed_type["package"],
-                "version": fixed_type["version"],
-                "symbol": fixed_type["id"],
-            },
-        }
-    if imported is None or fixed_aliases:
-        raise ValueError("Formula value-contract type alias is unresolved")
-    return cast(
-        dict[str, JsonValue],
-        {key: value for key, value in source_contract.items() if key != "type"}
-        | {
-            "type_identity": {
-                "package": imported["package"],
-                "version": imported["version"],
-                "symbol": imported["symbol"],
-            }
-        },
-    )
 
 
 def _formula_operation_identity(
@@ -3491,66 +3404,6 @@ def _value_contract_matches(
             for member in ("representation", "kind", "unit", "numeric_policy")
         )
     )
-
-
-_LITERAL_CONTEXT_MEMBERS = (
-    "id",
-    "type",
-    "representation",
-    "kind",
-    "unit",
-    "domain",
-    "numeric_policy",
-)
-
-
-def _literal_context_contract(
-    value: Any,
-    formal: dict[str, Any],
-    kernel: dict[str, Any],
-    selected_semantics: dict[str, Any],
-) -> dict[str, JsonValue] | None:
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
-    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
-    selected = selected_semantics.get("literal_typing_profiles")
-    if (
-        not isinstance(literal_contract, dict)
-        or literal_contract.get("selection") != "unique-formal-match"
-        or not isinstance(selected, list)
-    ):
-        return None
-    profiles = [
-        row["definition"]
-        for row in selected
-        if isinstance(row, dict) and isinstance(row.get("definition"), dict)
-    ]
-    matches = [
-        profile
-        for profile in profiles
-        if isinstance(profile, dict)
-        and profile.get("source_kind") == "integer"
-        and isinstance(profile.get("minimum"), int)
-        and not isinstance(profile["minimum"], bool)
-        and isinstance(profile.get("maximum"), int)
-        and not isinstance(profile["maximum"], bool)
-        and profile["minimum"] <= value <= profile["maximum"]
-        and profile.get("type") == formal.get("type")
-        and all(
-            profile.get(member) == formal.get(member)
-            for member in (
-                "representation",
-                "kind",
-                "unit",
-                "domain",
-                "numeric_policy",
-            )
-        )
-    ]
-    if len(matches) != 1:
-        return None
-    profile = cast(dict[str, JsonValue], matches[0])
-    return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
 
 
 def _inline_pure_expression_instruction(
@@ -7320,8 +7173,13 @@ def _rir_formula_pairs_are_admitted(
     authority_context: AdmittedAuthorityContext,
 ) -> bool:
     formulas = rir.get("formulas")
+    rir_declarations = rir.get("declarations")
     requirements = lock.get("root_requirements")
-    if not isinstance(formulas, list) or not isinstance(requirements, list):
+    if (
+        not isinstance(formulas, list)
+        or not isinstance(rir_declarations, list)
+        or not isinstance(requirements, list)
+    ):
         return False
     by_module: dict[str, list[dict[str, Any]]] = {}
     for formula in formulas:
@@ -7329,9 +7187,20 @@ def _rir_formula_pairs_are_admitted(
             return False
         by_module.setdefault(cast(str, formula["module"]), []).append(formula)
     try:
-        for module_id, declarations in by_module.items():
-            module = {"id": module_id, "imports": [], "formulas": declarations}
-            for formula in declarations:
+        for module_id, module_formulas in by_module.items():
+            module_symbols = [
+                declaration
+                for declaration in rir_declarations
+                if isinstance(declaration.get("resolved_symbol"), dict)
+                and declaration["resolved_symbol"].get("module") == module_id
+            ]
+            module = {
+                "id": module_id,
+                "imports": [],
+                "symbols": module_symbols,
+                "formulas": module_formulas,
+            }
+            for formula in module_formulas:
                 body = formula.get("body")
                 if not isinstance(body, dict):
                     return False

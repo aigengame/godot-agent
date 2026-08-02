@@ -11,6 +11,13 @@ import jsonschema
 
 from gda_balancing.schema2.authority import AdmittedAuthorityContext
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
+from gda_balancing.schema2.formula_types import (
+    formula_contract_from_operation,
+    formula_contract_matches,
+    formula_contract_matches_operation,
+    literal_context_contract,
+    resolve_formula_contract,
+)
 
 
 @dataclass(frozen=True)
@@ -190,6 +197,55 @@ def _selected_operation_notations(
     return tuple(declarations)
 
 
+def _formula_policy(authority_context: AdmittedAuthorityContext) -> dict[str, Any]:
+    language = cast(dict[str, Any], authority_context.language_bundle["language"])
+    profiles = [
+        profile
+        for profile in cast(list[dict[str, Any]], language["resolution_profiles"])
+        if profile.get("default") is True
+    ]
+    if len(profiles) != 1:
+        raise ValueError("Formula conversion requires one default resolution profile")
+    profile = profiles[0]
+    lowerings = [
+        lowering
+        for lowering in cast(list[dict[str, Any]], language["model_lowerings"])
+        if lowering.get("id") == profile.get("model_lowering")
+        and lowering.get("resolution_profile") == profile.get("id")
+    ]
+    if len(lowerings) != 1:
+        raise ValueError("Formula conversion has no selected Model lowering")
+    extensions = profile.get("extensions")
+    policy = (
+        extensions.get("standard.formula") if isinstance(extensions, dict) else None
+    )
+    if not isinstance(policy, dict):
+        raise ValueError("Formula conversion has no selected Formula policy")
+    return policy
+
+
+def _module_imports(module: dict[str, Any]) -> dict[str, dict[str, str]]:
+    imports = module.get("imports")
+    if not isinstance(imports, list):
+        raise ValueError("Formula module context has no imports")
+    resolved: dict[str, dict[str, str]] = {}
+    for item in imports:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(member), str)
+            for member in ("alias", "package", "version", "symbol")
+        ):
+            raise ValueError("Formula module import is malformed")
+        alias = cast(str, item["alias"])
+        if alias in resolved:
+            raise ValueError("Formula module import alias is ambiguous")
+        resolved[alias] = {
+            "package": cast(str, item["package"]),
+            "version": cast(str, item["version"]),
+            "symbol": cast(str, item["symbol"]),
+        }
+    return resolved
+
+
 def _lex(
     expression: str,
     operator_tokens: tuple[str, ...],
@@ -295,6 +351,9 @@ class _FormulaParser:
         declarations = module.get("formulas", [])
         if not isinstance(module_id, str) or not isinstance(declarations, list):
             raise ValueError("Formula module context is malformed")
+        self.authority_context = authority_context
+        self.policy = _formula_policy(authority_context)
+        self.imports = _module_imports(module)
         self.formula_declarations = {
             (module_id, cast(str, item["id"])): item
             for item in declarations
@@ -304,12 +363,70 @@ class _FormulaParser:
         if not isinstance(parameters, list):
             raise ValueError("Formula declaration has no parameter context")
         self.contracts: dict[str, dict[str, Any]] = {
-            cast(str, item["id"]): deepcopy(item)
+            cast(str, item["id"]): {
+                key: deepcopy(value) for key, value in item.items() if key != "id"
+            }
             for item in parameters
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         }
+        if len(self.contracts) != len(parameters):
+            raise ValueError("Formula parameter context is malformed or duplicate")
         for contract in self.contracts.values():
-            contract.pop("id", None)
+            self.resolve_contract(contract)
+        result_contract = formula.get("result")
+        if not isinstance(result_contract, dict):
+            raise ValueError("Formula declaration has no result contract")
+        self.result_contract = deepcopy(result_contract)
+        self.resolve_contract(self.result_contract)
+        symbols = module.get("symbols", [])
+        if not isinstance(symbols, list):
+            raise ValueError("Formula module Symbol context is malformed")
+        self.symbol_contracts: dict[tuple[str, str], dict[str, Any]] = {}
+        for symbol in symbols:
+            if not isinstance(symbol, dict):
+                raise ValueError("Formula module Symbol declaration is malformed")
+            resolved_symbol = symbol.get("resolved_symbol")
+            if isinstance(resolved_symbol, dict):
+                coordinate = (
+                    resolved_symbol.get("module"),
+                    resolved_symbol.get("name"),
+                )
+            else:
+                coordinate = (module_id, symbol.get("symbol"))
+            if not all(isinstance(item, str) for item in coordinate):
+                raise ValueError("Formula module Symbol coordinate is malformed")
+            key = cast(tuple[str, str], coordinate)
+            if key in self.symbol_contracts:
+                raise ValueError("Formula module Symbol coordinate is ambiguous")
+            self.resolve_contract(symbol)
+            self.symbol_contracts[key] = {
+                member: deepcopy(value)
+                for member, value in symbol.items()
+                if member not in {"resolved_symbol", "role", "symbol", "value_policy"}
+            }
+        fixed_contracts = cast(
+            dict[str, dict[str, Any]],
+            authority_context.kernel["meta_format"]["runtime_program"][
+                "fixed_value_contracts"
+            ],
+        )
+        boolean_contract = fixed_contracts.get("kernel-boolean")
+        if not isinstance(boolean_contract, dict):
+            raise ValueError("Formula conversion has no Kernel Boolean contract")
+        self.boolean_contract = cast(
+            dict[str, Any], formula_contract_from_operation(boolean_contract)
+        )
+        self.literal_semantics = {
+            "literal_typing_profiles": [
+                {"definition": profile}
+                for profile in cast(
+                    list[dict[str, Any]],
+                    authority_context.language_bundle["language"][
+                        "literal_typing_profiles"
+                    ],
+                )
+            ]
+        }
         self.locals: dict[str, dict[str, Any]] = {}
         self.grammar, _notation_schema = _notation_authority(authority_context)
         group_delimiters = cast(list[str], self.grammar["group_delimiters"])
@@ -394,9 +511,15 @@ class _FormulaParser:
                 self.contracts[segments[0]],
             )
         if len(segments) == 2:
+            contract = self.symbol_contracts.get((segments[0], segments[1]))
+            if contract is None:
+                raise FormulaNotationRefusal(
+                    "model.reason.unresolved-name",
+                    f"Formula Symbol {'.'.join(segments)!r} is unresolved",
+                )
             return (
                 {"kind": "symbol", "module": segments[0], "symbol": segments[1]},
-                None,
+                contract,
             )
         raise FormulaNotationRefusal(
             "model.reason.unresolved-name",
@@ -411,6 +534,67 @@ class _FormulaParser:
         self.take(self.close_group)
         return parsed
 
+    def resolve_contract(self, contract: dict[str, Any]) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            resolve_formula_contract(
+                contract,
+                self.imports,
+                self.authority_context.kernel,
+                self.policy,
+            ),
+        )
+
+    def operand_against_formula_contract(
+        self,
+        operand: dict[str, Any],
+        contract: dict[str, Any] | None,
+        expected: dict[str, Any],
+    ) -> dict[str, Any]:
+        if contract is None and operand.get("kind") == "literal":
+            value = operand.get("value")
+            domain = expected.get("domain")
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not isinstance(domain, dict)
+                or not isinstance(domain.get("minimum"), int)
+                or not isinstance(domain.get("maximum"), int)
+                or not domain["minimum"] <= value <= domain["maximum"]
+            ):
+                raise ValueError("Formula literal is outside its contextual contract")
+            contract = expected
+        if contract is None or not formula_contract_matches(
+            self.resolve_contract(contract),
+            self.resolve_contract(expected),
+        ):
+            raise ValueError("Formula operand is incompatible with its formal contract")
+        return contract
+
+    def operand_against_operation_contract(
+        self,
+        operand: dict[str, Any],
+        contract: dict[str, Any] | None,
+        expected: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if contract is None and operand.get("kind") == "literal":
+            literal_contract = literal_context_contract(
+                operand.get("value"),
+                expected,
+                self.authority_context.kernel,
+                self.literal_semantics,
+            )
+            if literal_contract is None:
+                raise ValueError(
+                    "Formula operand is incompatible with its Operation port"
+                )
+            return None
+        if contract is None or not formula_contract_matches_operation(
+            self.resolve_contract(contract), expected
+        ):
+            raise ValueError("Formula operand is incompatible with its Operation port")
+        return contract
+
     def right_hand_side(self, local: str) -> tuple[dict[str, Any], dict[str, Any]]:
         conditional_keywords = cast(list[str], self.grammar["conditional_keywords"])
         if (
@@ -418,7 +602,12 @@ class _FormulaParser:
             and self.current().value == conditional_keywords[0]
         ):
             self.index += 1
-            condition, _condition_contract = self.parenthesized_operand()
+            condition, condition_contract = self.parenthesized_operand()
+            self.operand_against_formula_contract(
+                condition,
+                condition_contract,
+                self.boolean_contract,
+            )
             self.take("identifier", conditional_keywords[1])
             when_true, true_contract = self.parenthesized_operand()
             self.take("identifier", conditional_keywords[2])
@@ -427,7 +616,10 @@ class _FormulaParser:
                 raise ValueError(
                     "Formula conditional branch contract cannot be inferred"
                 )
-            if true_contract != false_contract:
+            if not formula_contract_matches(
+                self.resolve_contract(true_contract),
+                self.resolve_contract(false_contract),
+            ):
                 raise ValueError("Formula conditional branches are incompatible")
             return (
                 {
@@ -468,13 +660,26 @@ class _FormulaParser:
             result = declaration.get("result")
             if not isinstance(parameters, list) or not isinstance(result, dict):
                 raise ValueError("Formula call declaration is incomplete")
-            parameter_ids = [
-                item.get("id") for item in parameters if isinstance(item, dict)
-            ]
+            resolved_parameters = {
+                cast(str, item["id"]): {
+                    key: deepcopy(value) for key, value in item.items() if key != "id"
+                }
+                for item in parameters
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+            for contract in resolved_parameters.values():
+                self.resolve_contract(contract)
+            parameter_ids = list(resolved_parameters)
             if set(arguments) != set(parameter_ids) or len(parameter_ids) != len(
                 parameters
             ):
                 raise ValueError("Formula call does not totally bind its parameters")
+            for parameter, (operand, contract) in arguments.items():
+                self.operand_against_formula_contract(
+                    operand,
+                    contract,
+                    resolved_parameters[parameter],
+                )
             return (
                 {
                     "id": local,
@@ -532,7 +737,28 @@ class _FormulaParser:
         ports = operation.notation.get("ordered_ports")
         if not isinstance(ports, list) or len(ports) != len(operands):
             raise ValueError("Formula call does not totally bind notation ports")
-        result = self.infer_operation_result(operation, ports, operands)
+        inputs = operation.declaration.get("inputs")
+        if not isinstance(inputs, list):
+            raise ValueError("Formula Operation has no formal port contracts")
+        formals = {
+            item.get("id"): item
+            for item in inputs
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        if set(ports) != set(formals) or len(formals) != len(inputs):
+            raise ValueError("Formula notation ports do not close Operation inputs")
+        typed_operands = [
+            (
+                operand,
+                self.operand_against_operation_contract(
+                    operand,
+                    contract,
+                    cast(dict[str, Any], formals[port]),
+                ),
+            )
+            for port, (operand, contract) in zip(ports, operands, strict=True)
+        ]
+        result = self.infer_operation_result(operation, ports, typed_operands)
         node = {
             "id": local,
             "node": "operation-call",
@@ -693,8 +919,13 @@ class _FormulaParser:
             self.take(cast(str, self.grammar["binding_terminator"]))
             nodes.append(node)
             self.locals[local] = contract
-        result, _contract = self.parenthesized_operand()
+        result, contract = self.parenthesized_operand()
         self.take("eof")
+        self.operand_against_formula_contract(
+            result,
+            contract,
+            self.result_contract,
+        )
         if not nodes and result.get("kind") == "parameter":
             return {"node": "parameter", "parameter": result["parameter"]}
         return {"nodes": nodes, "result": result}

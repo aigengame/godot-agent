@@ -5,6 +5,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 import gda_balancing.commands.formula as formula_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.model as model_module
@@ -39,6 +41,20 @@ def _boolean_contract(identifier: str) -> dict[str, object]:
         "unit": "1",
         "domain": {"kind": "boolean"},
         "numeric_policy": "exact-bool",
+    }
+
+
+def _quantity_module(identifier: str) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "imports": [
+            {
+                "alias": "quantity",
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "symbol": "Quantity",
+            }
+        ],
     }
 
 
@@ -169,7 +185,7 @@ def test_formula_render_preserves_the_mitigated_damage_program(
     request = {
         "schema_version": "2.0.0",
         "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-        "module": {"id": "combat", "imports": []},
+        "module": _quantity_module("combat"),
         "formula": {
             "id": "mitigated-damage",
             "parameters": [
@@ -226,7 +242,7 @@ def test_formula_render_quotes_non_bare_locals_and_renders_literals(
     request = {
         "schema_version": "2.0.0",
         "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-        "module": {"id": "combat", "imports": []},
+        "module": _quantity_module("combat"),
         "formula": {
             "id": "effective-accuracy",
             "parameters": [_quantity_contract("base")],
@@ -278,7 +294,17 @@ def test_formula_render_covers_the_identity_operation(tmp_path: Path, run_cli) -
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "quantity",
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "symbol": "Quantity",
+                        }
+                    ],
+                },
                 "formula": {
                     "id": "identity",
                     "parameters": [_quantity_contract("value")],
@@ -354,7 +380,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
     request = {
         "schema_version": "2.0.0",
         "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-        "module": {"id": "combat", "imports": []},
+        "module": _quantity_module("combat"),
         "formula": {
             "id": "mitigated-damage",
             "parameters": [
@@ -445,7 +471,7 @@ def test_formula_render_projects_conditionals_without_losing_branch_identity(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "choose",
                     "parameters": [
@@ -493,7 +519,7 @@ def test_formula_parse_reconstructs_a_conditional_node(tmp_path: Path, run_cli) 
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "choose",
                     "parameters": [
@@ -547,8 +573,7 @@ def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {
-                    "id": "main",
-                    "imports": [],
+                    **_quantity_module("main"),
                     "formulas": [
                         {
                             "id": "inner",
@@ -612,8 +637,7 @@ def test_formula_parse_resolves_a_qualified_formula_call(
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
                 "module": {
-                    "id": "main",
-                    "imports": [],
+                    **_quantity_module("main"),
                     "formulas": [
                         {
                             "id": "inner",
@@ -711,7 +735,7 @@ def test_formula_parse_never_resolves_an_unquoted_kebab_case_local(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "bad-local-reference",
                     "parameters": [_quantity_contract("base")],
@@ -748,7 +772,7 @@ def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "malformed",
                     "parameters": [_quantity_contract("value")],
@@ -780,7 +804,7 @@ def test_formula_parse_reports_invalid_identifier_escape_at_the_parse_stage(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "invalid-escape",
                     "parameters": [_quantity_contract("value")],
@@ -816,7 +840,7 @@ def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatc
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "incompatible-conditional",
                     "parameters": [
@@ -844,6 +868,177 @@ def test_formula_parse_reports_incompatible_conditional_branches_as_type_mismatc
     assert error["stage"] == "static"
     assert [item["code"] for item in error["diagnostics"]] == [
         "language.formula_type_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_refuses_a_final_operand_outside_the_result_contract(
+    tmp_path: Path, run_cli
+) -> None:
+    source = tmp_path / "incompatible-result.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "quantity",
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "symbol": "Quantity",
+                        }
+                    ],
+                },
+                "formula": {
+                    "id": "incompatible-result",
+                    "parameters": [_boolean_contract("flag")],
+                    "result": {
+                        key: value
+                        for key, value in _quantity_contract("result").items()
+                        if key != "id"
+                    },
+                    "expression": "flag",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_type_mismatch"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+@pytest.mark.parametrize(
+    ("case", "parameters", "result", "expression", "formulas"),
+    (
+        (
+            "operation-port",
+            [_boolean_contract("flag")],
+            {
+                key: value
+                for key, value in _boolean_contract("result").items()
+                if key != "id"
+            },
+            "let result = identity(flag); result",
+            [],
+        ),
+        (
+            "formula-argument",
+            [_boolean_contract("flag")],
+            {
+                key: value
+                for key, value in _quantity_contract("result").items()
+                if key != "id"
+            },
+            "let result = main.helper(value = flag); result",
+            [
+                {
+                    "id": "helper",
+                    "parameters": [_quantity_contract("value")],
+                    "result": {
+                        key: value
+                        for key, value in _quantity_contract("result").items()
+                        if key != "id"
+                    },
+                    "body": {"node": "parameter", "parameter": "value"},
+                    "expression": "value",
+                }
+            ],
+        ),
+        (
+            "conditional-condition",
+            [_quantity_contract("amount")],
+            {
+                key: value
+                for key, value in _quantity_contract("result").items()
+                if key != "id"
+            },
+            "let result = if amount then amount else amount; result",
+            [],
+        ),
+        (
+            "unresolved-symbol",
+            [],
+            {
+                key: value
+                for key, value in _quantity_contract("result").items()
+                if key != "id"
+            },
+            "let result = identity(ghost.missing); result",
+            [],
+        ),
+        (
+            "literal-out-of-range",
+            [],
+            {
+                key: value
+                for key, value in _quantity_contract("result").items()
+                if key != "id"
+            },
+            "let result = identity(9223372036854775808); result",
+            [],
+        ),
+    ),
+)
+def test_formula_parse_refuses_contextual_type_or_resolution_mismatches(
+    tmp_path: Path,
+    run_cli,
+    case: str,
+    parameters: list[dict[str, object]],
+    result: dict[str, object],
+    expression: str,
+    formulas: list[dict[str, object]],
+) -> None:
+    source = tmp_path / f"{case}.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+                "module": {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "quantity",
+                            "package": "core.quantity",
+                            "version": "2.1.0",
+                            "symbol": "Quantity",
+                        }
+                    ],
+                    "formulas": formulas,
+                },
+                "formula": {
+                    "id": case,
+                    "parameters": parameters,
+                    "result": result,
+                    "expression": expression,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        (
+            "language.unresolved_name"
+            if case == "unresolved-symbol"
+            else "language.formula_type_mismatch"
+        )
     ]
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
 
@@ -891,7 +1086,7 @@ def test_formula_parse_reports_ambiguous_selected_package_notation(
                     {"id": "core.quantity", "version": "2.1.0"},
                     {"id": "game.check", "version": "1.0.1"},
                 ],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "ambiguous",
                     "parameters": [_quantity_contract("value")],
@@ -930,7 +1125,7 @@ def test_formula_render_reports_invalid_notation_port_closure_as_type_mismatch(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "invalid-port-closure",
                     "parameters": [_quantity_contract("value")],
@@ -1056,7 +1251,7 @@ def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "over-limit",
                     "parameters": [_quantity_contract("value")],
@@ -1091,7 +1286,7 @@ def test_formula_parse_refuses_tokens_above_the_admitted_limit(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "over-token-limit",
                     "parameters": [_quantity_contract("value")],
@@ -1123,7 +1318,7 @@ def test_formula_render_reports_an_unresolved_operation_at_the_body(
             {
                 "schema_version": "2.0.0",
                 "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-                "module": {"id": "main", "imports": []},
+                "module": _quantity_module("main"),
                 "formula": {
                     "id": "unresolved",
                     "parameters": [_quantity_contract("value")],
@@ -1455,7 +1650,26 @@ def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> No
             "forwarded"
         ),
     }
-    module = {"id": "combat", "imports": [], "formulas": [helper, formula]}
+    module = {
+        "id": "combat",
+        "imports": [
+            {
+                "alias": "quantity",
+                "package": "core.quantity",
+                "version": "2.1.0",
+                "symbol": "Quantity",
+            }
+        ],
+        "symbols": [
+            {
+                "symbol": "override",
+                "role": "parameter",
+                **quantity,
+                "value_policy": {"mode": "experiment-required"},
+            }
+        ],
+        "formulas": [helper, formula],
+    }
     request = {
         "schema_version": "2.0.0",
         "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
