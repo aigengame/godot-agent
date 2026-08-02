@@ -153,6 +153,18 @@ class _FormulaParser:
         if not isinstance(formula, dict):
             raise ValueError("Formula parse request has no declaration context")
         self.formula = formula
+        module = request.get("module")
+        if not isinstance(module, dict):
+            raise ValueError("Formula context has no module scope")
+        module_id = module.get("id")
+        declarations = module.get("formulas", [])
+        if not isinstance(module_id, str) or not isinstance(declarations, list):
+            raise ValueError("Formula module context is malformed")
+        self.formula_declarations = {
+            (module_id, cast(str, item["id"])): item
+            for item in declarations
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
         parameters = formula.get("parameters")
         if not isinstance(parameters, list):
             raise ValueError("Formula declaration has no parameter context")
@@ -236,6 +248,75 @@ class _FormulaParser:
         return parsed
 
     def right_hand_side(self, local: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.current().kind == "identifier" and self.current().value == "if":
+            self.index += 1
+            condition, _condition_contract = self.parenthesized_operand()
+            self.take("identifier", "then")
+            when_true, true_contract = self.parenthesized_operand()
+            self.take("identifier", "else")
+            when_false, false_contract = self.parenthesized_operand()
+            if true_contract is None or false_contract is None:
+                raise ValueError("Formula conditional branch contract cannot be inferred")
+            if true_contract != false_contract:
+                raise ValueError("Formula conditional branches are incompatible")
+            return (
+                {
+                    "id": local,
+                    "node": "conditional",
+                    "condition": condition,
+                    "when_true": when_true,
+                    "when_false": when_false,
+                },
+                deepcopy(true_contract),
+            )
+        if (
+            self.current().kind == "identifier"
+            and self.tokens[self.index + 1].kind == "."
+            and self.tokens[self.index + 2].kind == "identifier"
+            and self.tokens[self.index + 3].kind == "("
+        ):
+            module = self.take("identifier").value
+            self.take(".")
+            formula_id = self.take("identifier").value
+            declaration = self.formula_declarations.get((module, formula_id))
+            if declaration is None:
+                raise ValueError("Formula call coordinate is unresolved")
+            self.take("(")
+            arguments: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+            if self.current().kind != ")":
+                while True:
+                    parameter = self.take("identifier").value
+                    self.take("=")
+                    if parameter in arguments:
+                        raise ValueError("Formula call repeats a named argument")
+                    arguments[parameter] = self.parenthesized_operand()
+                    if self.current().kind != ",":
+                        break
+                    self.index += 1
+            self.take(")")
+            parameters = declaration.get("parameters")
+            result = declaration.get("result")
+            if not isinstance(parameters, list) or not isinstance(result, dict):
+                raise ValueError("Formula call declaration is incomplete")
+            parameter_ids = [
+                item.get("id") for item in parameters if isinstance(item, dict)
+            ]
+            if set(arguments) != set(parameter_ids) or len(parameter_ids) != len(
+                parameters
+            ):
+                raise ValueError("Formula call does not totally bind its parameters")
+            return (
+                {
+                    "id": local,
+                    "node": "formula-call",
+                    "formula": {"module": module, "id": formula_id},
+                    "arguments": [
+                        {"parameter": parameter, "operand": arguments[parameter][0]}
+                        for parameter in sorted(arguments)
+                    ],
+                },
+                deepcopy(result),
+            )
         if (
             self.current().kind == "identifier"
             and self.tokens[self.index + 1].kind == "("
@@ -281,10 +362,7 @@ class _FormulaParser:
         ports = operation.notation.get("ordered_ports")
         if not isinstance(ports, list) or len(ports) != len(operands):
             raise ValueError("Formula call does not totally bind notation ports")
-        inferred = next((contract for _operand, contract in operands if contract), None)
-        result = deepcopy(inferred or self.formula.get("result"))
-        if not isinstance(result, dict):
-            raise ValueError("Formula local result cannot be inferred")
+        result = self.infer_operation_result(operation, ports, operands)
         node = {
             "id": local,
             "node": "operation-call",
@@ -300,6 +378,94 @@ class _FormulaParser:
             "result": result,
         }
         return node, result
+
+    def infer_operation_result(
+        self,
+        operation: _OperationNotation,
+        ports: list[Any],
+        operands: list[tuple[dict[str, Any], dict[str, Any] | None]],
+    ) -> dict[str, Any]:
+        anchor = next((contract for _operand, contract in operands if contract), None)
+        fallback = self.formula.get("result")
+        if anchor is None and not isinstance(fallback, dict):
+            raise ValueError("Formula local result cannot be inferred")
+        contextual = cast(dict[str, Any], anchor or fallback)
+        values: dict[str, dict[str, Any]] = {
+            cast(str, port): deepcopy(contract or contextual)
+            for port, (_operand, contract) in zip(ports, operands, strict=True)
+        }
+
+        def interval(contract: dict[str, Any]) -> tuple[int, int] | None:
+            domain = contract.get("domain")
+            if (
+                contract.get("domain_kind") != "closed-interval"
+                or not isinstance(domain, dict)
+                or not isinstance(domain.get("minimum"), int)
+                or not isinstance(domain.get("maximum"), int)
+            ):
+                return None
+            return cast(int, domain["minimum"]), cast(int, domain["maximum"])
+
+        def with_interval(
+            contract: dict[str, Any], bounds: tuple[int, int]
+        ) -> dict[str, Any]:
+            inferred = deepcopy(contract)
+            inferred["domain_kind"] = "closed-interval"
+            inferred["domain"] = {"minimum": bounds[0], "maximum": bounds[1]}
+            return inferred
+
+        body = operation.declaration.get("body")
+        if not isinstance(body, list):
+            raise ValueError("Formula operation has no inferable body")
+        for instruction in body:
+            if not isinstance(instruction, dict):
+                raise ValueError("Formula operation body is malformed")
+            node = instruction.get("node")
+            target = instruction.get("target")
+            if not isinstance(target, str):
+                raise ValueError("Formula operation body has no target")
+            if node == "constant" and isinstance(instruction.get("literal"), int):
+                literal = cast(int, instruction["literal"])
+                values[target] = with_interval(contextual, (literal, literal))
+            elif node == "copy" and isinstance(instruction.get("value"), str):
+                values[target] = deepcopy(values[cast(str, instruction["value"])])
+            elif node in {"maximum", "subtract"}:
+                left = values.get(cast(str, instruction.get("left")))
+                right = values.get(cast(str, instruction.get("right")))
+                if left is None or right is None:
+                    raise ValueError("Formula operation body operand is unresolved")
+                left_interval = interval(left)
+                right_interval = interval(right)
+                if left_interval is None or right_interval is None:
+                    values[target] = deepcopy(left)
+                elif node == "subtract":
+                    values[target] = with_interval(
+                        left,
+                        (
+                            left_interval[0] - right_interval[1],
+                            left_interval[1] - right_interval[0],
+                        ),
+                    )
+                else:
+                    values[target] = with_interval(
+                        left,
+                        (
+                            max(left_interval[0], right_interval[0]),
+                            max(left_interval[1], right_interval[1]),
+                        ),
+                    )
+            else:
+                raise ValueError("Formula operation body has no admitted type inference")
+        result_declaration = operation.declaration.get("result")
+        source = (
+            result_declaration.get("source")
+            if isinstance(result_declaration, dict)
+            else None
+        )
+        result_name = source.get("name") if isinstance(source, dict) else None
+        if not isinstance(result_name, str) or result_name not in values:
+            raise ValueError("Formula operation result source is unresolved")
+        return values[result_name]
 
     def parse(self) -> dict[str, Any]:
         nodes: list[dict[str, Any]] = []
@@ -398,6 +564,26 @@ def _render_operation_call(
     raise ValueError("Formula notation declaration kind is not admitted")
 
 
+def _render_formula_call(node: dict[str, Any]) -> str:
+    coordinate = node.get("formula")
+    arguments = node.get("arguments")
+    if not isinstance(coordinate, dict) or not isinstance(arguments, list):
+        raise ValueError("Formula call has no coordinate or named arguments")
+    name = ".".join(
+        (_identifier(coordinate.get("module")), _identifier(coordinate.get("id")))
+    )
+    normalized: list[tuple[str, str]] = []
+    for argument in arguments:
+        if not isinstance(argument, dict):
+            raise ValueError("Formula call argument must be an object")
+        parameter = argument.get("parameter")
+        normalized.append(
+            (_identifier(parameter), _render_operand(argument.get("operand")))
+        )
+    normalized.sort(key=lambda item: item[0])
+    return f"{name}({', '.join(f'{key} = {value}' for key, value in normalized)})"
+
+
 def render_formula_body(
     body: object,
     authority_context: AdmittedAuthorityContext,
@@ -415,14 +601,24 @@ def render_formula_body(
     lines: list[str] = []
     seen_locals: set[str] = set()
     for node in nodes:
-        if not isinstance(node, dict) or node.get("node") != "operation-call":
+        if not isinstance(node, dict):
             raise ValueError("Formula node has no admitted renderer")
         local = node.get("id")
         if not isinstance(local, str) or local in seen_locals:
             raise ValueError("Formula local identities must be unique")
         seen_locals.add(local)
-        lines.append(
-            f"let {_identifier(local)} = {_render_operation_call(node, catalog)};"
-        )
+        if node.get("node") == "operation-call":
+            expression = _render_operation_call(node, catalog)
+        elif node.get("node") == "formula-call":
+            expression = _render_formula_call(node)
+        elif node.get("node") == "conditional":
+            expression = (
+                f"if {_render_operand(node.get('condition'))} "
+                f"then {_render_operand(node.get('when_true'))} "
+                f"else {_render_operand(node.get('when_false'))}"
+            )
+        else:
+            raise ValueError("Formula node has no admitted renderer")
+        lines.append(f"let {_identifier(local)} = {expression};")
     lines.append(_render_operand(result))
     return "\n".join(lines)

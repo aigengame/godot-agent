@@ -17,6 +17,18 @@ def _quantity_contract(identifier: str) -> dict[str, object]:
     }
 
 
+def _boolean_contract(identifier: str) -> dict[str, object]:
+    return {
+        "id": identifier,
+        "type": "Boolean",
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain": {"kind": "boolean"},
+        "numeric_policy": "exact-bool",
+    }
+
+
 def test_formula_render_projects_a_structured_subtraction_program(
     tmp_path: Path, run_cli
 ) -> None:
@@ -289,6 +301,8 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
         for key, value in _quantity_contract("result").items()
         if key != "id"
     }
+    raw_contract = json.loads(json.dumps(value_contract))
+    raw_contract["domain"] = {"minimum": -1000, "maximum": 1000}
     expected_body = {
         "nodes": [
             {
@@ -315,7 +329,7 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
                         },
                     },
                 ],
-                "result": value_contract,
+                "result": raw_contract,
             },
             {
                 "id": "damage",
@@ -366,3 +380,261 @@ def test_formula_parse_canonicalizes_whitespace_and_redundant_parentheses(
         "let damage = floor_zero(raw_damage);\n"
         "damage"
     )
+
+
+def test_formula_render_then_parse_preserves_the_committed_formula_bodies(
+    tmp_path: Path, run_cli
+) -> None:
+    model_source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    module = model_source["modules"][0]
+    for formula in module["formulas"]:
+        render_request = {
+            "schema_version": model_source["schema_version"],
+            "package_requirements": model_source["package_requirements"],
+            "module": {"id": module["id"], "imports": module["imports"]},
+            "formula": formula,
+        }
+        render_source = tmp_path / f"{formula['id']}-render.json"
+        render_source.write_text(json.dumps(render_request), encoding="utf-8")
+        render_exit, render_stdout, render_stderr = run_cli(
+            ["formula", "render", str(render_source)]
+        )
+        assert (render_exit, render_stderr) == (0, "")
+
+        parse_request = json.loads(json.dumps(render_request))
+        parse_request["formula"].pop("body")
+        parse_request["formula"]["expression"] = json.loads(render_stdout)["expression"]
+        parse_source = tmp_path / f"{formula['id']}-parse.json"
+        parse_source.write_text(json.dumps(parse_request), encoding="utf-8")
+
+        parse_exit, parse_stdout, parse_stderr = run_cli(
+            ["formula", "parse", str(parse_source)]
+        )
+
+        assert (parse_exit, parse_stderr) == (0, "")
+        assert json.loads(parse_stdout)["body"] == formula["body"]
+
+
+def test_formula_render_projects_conditionals_without_losing_branch_identity(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    body = {
+        "nodes": [
+            {
+                "id": "choice",
+                "node": "conditional",
+                "condition": {"kind": "parameter", "parameter": "condition"},
+                "when_true": {"kind": "parameter", "parameter": "when-true"},
+                "when_false": {"kind": "parameter", "parameter": "when-false"},
+            }
+        ],
+        "result": {"kind": "local", "local": "choice"},
+    }
+    source = tmp_path / "conditional-render.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "choose",
+                    "parameters": [
+                        _boolean_contract("condition"),
+                        _quantity_contract("when-false"),
+                        _quantity_contract("when-true"),
+                    ],
+                    "result": value_contract,
+                    "body": body,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    result = json.loads(stdout)
+    assert result["body"] == body
+    assert result["expression"] == (
+        "let choice = if condition then `when-true` else `when-false`;\nchoice"
+    )
+
+
+def test_formula_parse_reconstructs_a_conditional_node(tmp_path: Path, run_cli) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    expected_body = {
+        "nodes": [
+            {
+                "id": "choice",
+                "node": "conditional",
+                "condition": {"kind": "parameter", "parameter": "condition"},
+                "when_true": {"kind": "parameter", "parameter": "when-true"},
+                "when_false": {"kind": "parameter", "parameter": "when-false"},
+            }
+        ],
+        "result": {"kind": "local", "local": "choice"},
+    }
+    source = tmp_path / "conditional-parse.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "choose",
+                    "parameters": [
+                        _boolean_contract("condition"),
+                        _quantity_contract("when-false"),
+                        _quantity_contract("when-true"),
+                    ],
+                    "result": value_contract,
+                    "expression": (
+                        "let choice = if condition then `when-true` "
+                        "else `when-false`; choice"
+                    ),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["body"] == expected_body
+
+
+def test_formula_render_uses_qualified_formula_calls_and_named_arguments(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    body = {
+        "nodes": [
+            {
+                "id": "inner_call",
+                "node": "formula-call",
+                "formula": {"module": "main", "id": "inner"},
+                "arguments": [
+                    {
+                        "parameter": "value",
+                        "operand": {"kind": "parameter", "parameter": "value"},
+                    }
+                ],
+            }
+        ],
+        "result": {"kind": "local", "local": "inner_call"},
+    }
+    source = tmp_path / "formula-call-render.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "outer",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "body": body,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "render", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    result = json.loads(stdout)
+    assert result["body"] == body
+    assert result["expression"] == (
+        "let inner_call = main.inner(value = value);\ninner_call"
+    )
+
+
+def test_formula_parse_resolves_a_qualified_formula_call(tmp_path: Path, run_cli) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    expected_body = {
+        "nodes": [
+            {
+                "id": "inner_call",
+                "node": "formula-call",
+                "formula": {"module": "main", "id": "inner"},
+                "arguments": [
+                    {
+                        "parameter": "value",
+                        "operand": {"kind": "parameter", "parameter": "value"},
+                    }
+                ],
+            }
+        ],
+        "result": {"kind": "local", "local": "inner_call"},
+    }
+    source = tmp_path / "formula-call-parse.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {
+                    "id": "main",
+                    "imports": [],
+                    "formulas": [
+                        {
+                            "id": "inner",
+                            "parameters": [_quantity_contract("value")],
+                            "result": value_contract,
+                            "body": {"node": "parameter", "parameter": "value"},
+                        }
+                    ],
+                },
+                "formula": {
+                    "id": "outer",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": (
+                        "let inner_call = main.inner(value = value); inner_call"
+                    ),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["body"] == expected_body
