@@ -2583,8 +2583,12 @@ def evaluate_experiment(
                         child["event_id"] not in canceled_event_ids
                         for child in buffered_children
                     )
+                    pending_count = sum(
+                        pending["event_id"] not in canceled_event_ids
+                        for pending in pending_events
+                    )
                     if (
-                        len(pending_events) + provisional_count + 1
+                        pending_count + provisional_count + 1
                         > runtime_bounds["max_queue_events"]
                     ):
                         refuse_schedule("queue-limit")
@@ -2640,7 +2644,9 @@ def evaluate_experiment(
                         )
                     target_event_id = variables[target["local"]]
                     target_status = (
-                        "active"
+                        "unknown"
+                        if target_event_id in canceled_event_ids
+                        else "active"
                         if target_event_id == event_id
                         else "completed"
                         if any(
@@ -2684,11 +2690,6 @@ def evaluate_experiment(
                         cast(JsonValue, cancel_identity_body),
                     )
                     canceled_event_ids.add(cast(str, target_event_id))
-                    pending_events[:] = [
-                        pending
-                        for pending in pending_events
-                        if pending["event_id"] != target_event_id
-                    ]
                     for scheduled in schedule_trace:
                         if scheduled["event_id"] == target_event_id:
                             scheduled["outcome"] = "canceled"
@@ -2829,6 +2830,8 @@ def evaluate_experiment(
             root_step_limit = runtime_bounds["max_event_steps"]
             before = dict(state)
             rng_before = rng.snapshot()
+            admitted_event_count_before = admitted_event_count
+            next_enqueue_sequence_before = next_enqueue_sequence
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
             if external_input:
@@ -2884,6 +2887,8 @@ def evaluate_experiment(
                 state.clear()
                 state.update(before)
                 rng.restore(rng_before)
+                admitted_event_count = admitted_event_count_before
+                next_enqueue_sequence = next_enqueue_sequence_before
                 code = _diagnostic_for_signal(checked, fault.signal, "runtime")
                 message = {
                     "step-limit": "Runtime program exhausted its exact step bound",
@@ -2963,6 +2968,11 @@ def evaluate_experiment(
                     "id": outcome,
                     "kind": outcome_definition["kind"],
                 }
+            pending_events[:] = [
+                pending
+                for pending in pending_events
+                if pending["event_id"] not in canceled_event_ids
+            ]
             for child in buffered_children:
                 if child["event_id"] not in canceled_event_ids:
                     pending_events.append(child)
