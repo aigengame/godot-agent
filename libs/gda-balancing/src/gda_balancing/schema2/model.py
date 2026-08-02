@@ -45,6 +45,7 @@ from gda_balancing.schema2.diagnostics import (
     reason_by_id,
 )
 from gda_balancing.schema2.formula_notation import (
+    FormulaNotationRefusal,
     FormulaPairRefusal,
     admit_formula_pair,
 )
@@ -7187,6 +7188,137 @@ def _formula_graph_is_admitted(
     }
 
 
+def _notation_operand_projection(operand: dict[str, Any]) -> dict[str, JsonValue]:
+    kind = operand.get("kind")
+    if kind == "symbol" and isinstance(operand.get("resolved_symbol"), dict):
+        resolved = cast(dict[str, Any], operand["resolved_symbol"])
+        return {
+            "kind": "symbol",
+            "module": cast(str, resolved["module"]),
+            "symbol": cast(str, resolved["name"]),
+        }
+    members = {
+        "parameter": "parameter",
+        "local": "local",
+        "literal": "value",
+    }
+    member = members.get(cast(str, kind))
+    if member is None:
+        raise ValueError("RIR Formula operand has no notation projection")
+    return {"kind": cast(str, kind), member: cast(JsonValue, operand[member])}
+
+
+def _rir_notation_body_projection(body: dict[str, Any]) -> dict[str, JsonValue]:
+    nodes = body.get("nodes")
+    result = body.get("result")
+    if not isinstance(nodes, list) or not isinstance(result, dict):
+        raise ValueError("RIR Formula body has no program projection")
+    if (
+        not nodes
+        and result.get("kind") == "parameter"
+        and isinstance(result.get("parameter"), str)
+    ):
+        return {
+            "node": "parameter",
+            "parameter": cast(str, result["parameter"]),
+        }
+    projected_nodes: list[dict[str, JsonValue]] = []
+    for node in cast(list[dict[str, Any]], nodes):
+        kind = node.get("node")
+        projected: dict[str, JsonValue] = {
+            "id": cast(str, node["id"]),
+            "node": cast(str, kind),
+        }
+        if kind == "operation-call":
+            operation = cast(dict[str, Any], node["operation"])
+            projected["operation"] = {
+                "package": cast(str, operation["package"]),
+                "version": cast(str, operation["version"]),
+                "id": cast(str, operation["id"]),
+            }
+            projected["arguments"] = cast(
+                JsonValue,
+                [
+                    {
+                        "port": cast(str, argument["port"]),
+                        "operand": _notation_operand_projection(
+                            cast(dict[str, Any], argument["operand"])
+                        ),
+                    }
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
+                ],
+            )
+            projected["result"] = cast(JsonValue, node["result"])
+        elif kind == "formula-call":
+            formula = cast(dict[str, Any], node["formula"])
+            projected["formula"] = {
+                "module": cast(str, formula["module"]),
+                "id": cast(str, formula["id"]),
+            }
+            projected["arguments"] = cast(
+                JsonValue,
+                [
+                    {
+                        "parameter": cast(str, argument["parameter"]),
+                        "operand": _notation_operand_projection(
+                            cast(dict[str, Any], argument["operand"])
+                        ),
+                    }
+                    for argument in cast(list[dict[str, Any]], node["arguments"])
+                ],
+            )
+        elif kind == "conditional":
+            for member in ("condition", "when_true", "when_false"):
+                projected[member] = _notation_operand_projection(
+                    cast(dict[str, Any], node[member])
+                )
+        else:
+            raise ValueError("RIR Formula node has no notation projection")
+        projected_nodes.append(projected)
+    return {
+        "nodes": cast(JsonValue, projected_nodes),
+        "result": _notation_operand_projection(result),
+    }
+
+
+def _rir_formula_pairs_are_admitted(
+    rir: dict[str, Any],
+    lock: dict[str, Any],
+    authority_context: AdmittedAuthorityContext,
+) -> bool:
+    formulas = rir.get("formulas")
+    requirements = lock.get("root_requirements")
+    if not isinstance(formulas, list) or not isinstance(requirements, list):
+        return False
+    by_module: dict[str, list[dict[str, Any]]] = {}
+    for formula in formulas:
+        if not isinstance(formula, dict) or not isinstance(formula.get("module"), str):
+            return False
+        by_module.setdefault(cast(str, formula["module"]), []).append(formula)
+    try:
+        for module_id, declarations in by_module.items():
+            module = {"id": module_id, "imports": [], "formulas": declarations}
+            for formula in declarations:
+                body = formula.get("body")
+                if not isinstance(body, dict):
+                    return False
+                admit_formula_pair(
+                    {
+                        "schema_version": "2.0.0",
+                        "package_requirements": requirements,
+                        "module": module,
+                        "formula": formula,
+                    },
+                    authority_context,
+                    canonical_body=cast(
+                        dict[str, Any], _rir_notation_body_projection(body)
+                    ),
+                )
+    except (FormulaPairRefusal, FormulaNotationRefusal, KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
 def admit_resolved_model(
     artifacts: dict[str, dict[str, Any]],
     *,
@@ -7333,6 +7465,8 @@ def admit_resolved_model(
             rir.get("entrypoints"),
             rir.get("selected_semantics"),
         ):
+            return ResolvedModelAdmission(False, diagnostic)
+        if not _rir_formula_pairs_are_admitted(rir, lock, context):
             return ResolvedModelAdmission(False, diagnostic)
         if not _resolved_entrypoint_graph_is_admitted(
             kernel,

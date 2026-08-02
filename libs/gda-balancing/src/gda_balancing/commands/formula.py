@@ -63,7 +63,19 @@ def run_formula_render(
     request = _read_request(inp.source)
     formula = request.get("formula")
     if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
-        raise ValueError("Formula render request has no structured body")
+        authority_context = packaged_authority_context()
+        return _formula_refusal_report(
+            request,
+            authority_context.language_bundle,
+            FormulaNotationRefusal(
+                "model.reason.source-contract-mismatch",
+                "Formula render request has no structured body",
+            ),
+            identity_domain=formula_notation_request_identity_domain(
+                authority_context
+            ),
+            pointer="/formula/body",
+        )
     authority_context = packaged_authority_context()
     body = formula["body"]
     try:
@@ -246,6 +258,9 @@ FORMULA_PARSE = CommandDescriptor(
             "formula.reason.notation-parse-failure",
             "formula.reason.notation-resource-exhausted",
             "model.reason.unresolved-name",
+            "model.reason.name-ambiguity",
+            "model.reason.formula-type-mismatch",
+            "model.reason.source-contract-mismatch",
         )
     ),
     usage_codes=(
@@ -271,7 +286,14 @@ FORMULA_RENDER = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     success_schema=_formula_conversion_result_schema,
-    refusal_catalog=refusal_catalog_for_reasons(("model.reason.unresolved-name",)),
+    refusal_catalog=refusal_catalog_for_reasons(
+        (
+            "model.reason.unresolved-name",
+            "model.reason.name-ambiguity",
+            "model.reason.formula-type-mismatch",
+            "model.reason.source-contract-mismatch",
+        )
+    ),
     usage_codes=(
         "invalid_argument",
         "unknown_argument",

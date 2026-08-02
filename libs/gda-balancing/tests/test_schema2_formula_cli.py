@@ -1,7 +1,16 @@
 """Public Formula notation conversion for Standard Schema 2.0 (#606)."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
+from typing import cast
+
+import gda_balancing.schema2.authority as authority_module
+import gda_balancing.schema2.model as model_module
+from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.formula_notation import admit_formula_pair
+from schema2_formula_conformance_support import admit_pair as independently_admit_pair
+from schema2_formula_conformance_support import render_body as independently_render_body
 
 
 def _quantity_contract(identifier: str) -> dict[str, object]:
@@ -1034,3 +1043,183 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
     assert resolved["rir_content_identity"] == rir["content_identity"]
     assert resolved["rir_semantic_identity"] == rir["semantic_identity"]
     assert "rir_identity" not in resolved
+
+    context = authority_module.packaged_authority_context()
+    tampered_rir = deepcopy(rir)
+    tampered_rir["formulas"][0]["expression"] += " "
+    contract = model_module._artifact_contract(
+        context.language_bundle, "rir-semantic-payload"
+    )
+    tampered_rir["content_identity"] = content_identity(
+        cast(str, contract["identity_domain"]),
+        cast(
+            JsonValue,
+            {
+                key: value
+                for key, value in tampered_rir.items()
+                if key != "content_identity"
+            },
+        ),
+    )
+    tampered_resolved = model_module.identified_artifact(
+        context.language_bundle,
+        "resolved-model",
+        {
+            "kernel_identity": context.kernel["content_identity"],
+            "language_bundle_identity": context.language_bundle["content_identity"],
+            "package_lock_identity": json.loads(
+                locators["package-lock"].read_text(encoding="utf-8")
+            )["content_identity"],
+            "rir_content_identity": tampered_rir["content_identity"],
+            "rir_semantic_identity": tampered_rir["semantic_identity"],
+        },
+    )
+    assert not model_module.admit_resolved_model(
+        {
+            "package-lock": json.loads(
+                locators["package-lock"].read_text(encoding="utf-8")
+            ),
+            "rir-semantic-payload": tampered_rir,
+            "resolved-model": tampered_resolved,
+        },
+        authority_context=context,
+    ).admitted
+
+
+def test_independent_consumer_mutually_admits_production_formula_pairs() -> None:
+    context = authority_module.packaged_authority_context()
+    source = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    for module in source["modules"]:
+        for formula in module["formulas"]:
+            request = {
+                "schema_version": source["schema_version"],
+                "package_requirements": source["package_requirements"],
+                "module": module,
+                "formula": formula,
+            }
+            assert independently_admit_pair(request, context.language_bundle)
+            independent_expression = independently_render_body(
+                formula["body"], request, context.language_bundle
+            )
+            independent_pair = deepcopy(request)
+            independent_pair["formula"]["expression"] = independent_expression
+            admit_formula_pair(independent_pair, context)
+
+
+def test_independent_consumer_covers_every_formula_node_and_operand_kind() -> None:
+    context = authority_module.packaged_authority_context()
+    quantity = {
+        "type": "quantity",
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 1000},
+        "numeric_policy": "exact-int64",
+    }
+    boolean = {
+        "type": "Boolean",
+        "representation": "Bool",
+        "kind": "boolean",
+        "unit": "1",
+        "domain": {"kind": "boolean"},
+        "numeric_policy": "exact-bool",
+    }
+    helper = {
+        "id": "helper",
+        "parameters": [{"id": "value", **quantity}],
+        "result": quantity,
+        "body": {"node": "parameter", "parameter": "value"},
+        "expression": "value",
+    }
+    body = {
+        "nodes": [
+            {
+                "id": "is-small",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.less-than",
+                },
+                "arguments": [
+                    {
+                        "port": "left",
+                        "operand": {"kind": "parameter", "parameter": "damage"},
+                    },
+                    {"port": "right", "operand": {"kind": "literal", "value": 1}},
+                ],
+                "result": boolean,
+            },
+            {
+                "id": "choice",
+                "node": "conditional",
+                "condition": {"kind": "local", "local": "is-small"},
+                "when_true": {"kind": "parameter", "parameter": "damage"},
+                "when_false": {"kind": "parameter", "parameter": "fallback"},
+            },
+            {
+                "id": "observed",
+                "node": "operation-call",
+                "operation": {
+                    "package": "core.quantity",
+                    "version": "2.1.0",
+                    "id": "quantity.identity",
+                },
+                "arguments": [
+                    {
+                        "port": "value",
+                        "operand": {
+                            "kind": "symbol",
+                            "module": "combat",
+                            "symbol": "override",
+                        },
+                    }
+                ],
+                "result": quantity,
+            },
+            {
+                "id": "forwarded",
+                "node": "formula-call",
+                "formula": {"module": "combat", "id": "helper"},
+                "arguments": [
+                    {
+                        "parameter": "value",
+                        "operand": {"kind": "local", "local": "choice"},
+                    }
+                ],
+            },
+        ],
+        "result": {"kind": "local", "local": "forwarded"},
+    }
+    formula = {
+        "id": "all-kinds",
+        "parameters": [
+            {"id": "damage", **quantity},
+            {"id": "fallback", **quantity},
+        ],
+        "result": quantity,
+        "body": body,
+        "expression": (
+            "let `is-small` = damage < 1;\n"
+            "let choice = if `is-small` then damage else fallback;\n"
+            "let observed = identity(combat.override);\n"
+            "let forwarded = combat.helper(value = choice);\n"
+            "forwarded"
+        ),
+    }
+    module = {"id": "combat", "imports": [], "formulas": [helper, formula]}
+    request = {
+        "schema_version": "2.0.0",
+        "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
+        "module": module,
+        "formula": formula,
+    }
+
+    assert independently_admit_pair(request, context.language_bundle)
+    admit_formula_pair(request, context)

@@ -52,6 +52,29 @@ class _FormulaNotationResourceError(ValueError):
     """A deterministic notation resource bound was exceeded."""
 
 
+def _contextual_refusal(error: ValueError) -> FormulaNotationRefusal:
+    message = str(error)
+    lowered = message.lower()
+    if "unresolved" in lowered:
+        reason = "model.reason.unresolved-name"
+    elif "ambiguous" in lowered or "duplicate" in lowered or "repeats" in lowered:
+        reason = "model.reason.name-ambiguity"
+    elif any(
+        marker in lowered
+        for marker in (
+            "contract",
+            "infer",
+            "incompatible",
+            "ports",
+            "totally bind",
+        )
+    ):
+        reason = "model.reason.formula-type-mismatch"
+    else:
+        reason = "model.reason.source-contract-mismatch"
+    return FormulaNotationRefusal(reason, message)
+
+
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -329,8 +352,16 @@ class _FormulaParser:
             if item.notation.get("kind") == kind
             and item.notation.get("token" if kind == "infix" else "name") == spelling
         ]
+        if not matches:
+            raise FormulaNotationRefusal(
+                "model.reason.unresolved-name",
+                f"Formula notation {spelling!r} is unresolved",
+            )
         if len(matches) != 1:
-            raise ValueError(f"Formula notation {spelling!r} is unresolved or ambiguous")
+            raise FormulaNotationRefusal(
+                "model.reason.name-ambiguity",
+                f"Formula notation {spelling!r} is ambiguous",
+            )
         return matches[0]
 
     def operand(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -658,7 +689,10 @@ def parse_formula_expression(
     formula = request.get("formula")
     expression = formula.get("expression") if isinstance(formula, dict) else None
     if not isinstance(expression, str):
-        raise ValueError("Formula parse request has no expression")
+        raise FormulaNotationRefusal(
+            "formula.reason.notation-parse-failure",
+            "Formula parse request has no expression",
+        )
     try:
         return _FormulaParser(expression, request, authority_context).parse()
     except _FormulaNotationResourceError as err:
@@ -669,11 +703,17 @@ def parse_formula_expression(
         raise FormulaNotationRefusal(
             "formula.reason.notation-parse-failure", str(err)
         ) from err
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err) from err
 
 
 def admit_formula_pair(
     request: dict[str, Any],
     authority_context: AdmittedAuthorityContext,
+    *,
+    canonical_body: dict[str, Any] | None = None,
 ) -> None:
     """Require one Formula body/expression pair to be exact and reversible."""
     formula = request.get("formula")
@@ -698,7 +738,7 @@ def admit_formula_pair(
     except FormulaNotationRefusal as err:
         raise FormulaPairRefusal(err.reason_id, "expression", err.message) from err
     if canonical_bytes(cast(JsonValue, parsed)) != canonical_bytes(
-        cast(JsonValue, body)
+        cast(JsonValue, canonical_body if canonical_body is not None else body)
     ):
         raise FormulaPairRefusal(
             "model.reason.formula-notation-mismatch",
@@ -716,6 +756,14 @@ def _render_operand(operand: object, grammar: dict[str, Any]) -> str:
     if kind == "local":
         return _identifier(operand.get("local"), grammar)
     if kind == "symbol":
+        resolved_symbol = operand.get("resolved_symbol")
+        if isinstance(resolved_symbol, dict):
+            return cast(str, grammar["coordinate_separator"]).join(
+                (
+                    _identifier(resolved_symbol.get("module"), grammar),
+                    _identifier(resolved_symbol.get("name"), grammar),
+                )
+            )
         return cast(str, grammar["coordinate_separator"]).join(
             (
                 _identifier(operand.get("module"), grammar),
@@ -815,7 +863,7 @@ def _render_formula_call(node: dict[str, Any], grammar: dict[str, Any]) -> str:
     return f"{name}{delimiters[0]}{arguments}{delimiters[1]}"
 
 
-def render_formula_body(
+def _render_formula_body(
     body: object,
     authority_context: AdmittedAuthorityContext,
 ) -> str:
@@ -864,3 +912,16 @@ def render_formula_body(
         )
     lines.append(_render_operand(result, grammar))
     return "\n".join(lines)
+
+
+def render_formula_body(
+    body: object,
+    authority_context: AdmittedAuthorityContext,
+) -> str:
+    """Render one body and type every authority or contextual refusal."""
+    try:
+        return _render_formula_body(body, authority_context)
+    except FormulaNotationRefusal:
+        raise
+    except ValueError as err:
+        raise _contextual_refusal(err) from err
