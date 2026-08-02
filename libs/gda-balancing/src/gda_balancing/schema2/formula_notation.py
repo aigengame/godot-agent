@@ -39,6 +39,10 @@ class _FormulaNotationSyntaxError(ValueError):
     """A grammar-level failure before contextual Formula resolution."""
 
 
+class _FormulaNotationResourceError(ValueError):
+    """A deterministic notation resource bound was exceeded."""
+
+
 def _notation_authority(
     authority_context: AdmittedAuthorityContext,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -272,11 +276,17 @@ class _FormulaParser:
             if item.notation.get("kind") == "infix"
             and isinstance(item.notation.get("token"), str)
         )
-        self.tokens = _lex(expression, operators, self.grammar)
         if len(expression.encode("utf-8")) > cast(
             int, self.grammar["max_expression_bytes"]
-        ) or len(self.tokens) - 1 > cast(int, self.grammar["max_tokens"]):
-            raise ValueError("Formula expression exceeds its admitted resource bound")
+        ):
+            raise _FormulaNotationResourceError(
+                "Formula expression exceeds its admitted byte bound"
+            )
+        self.tokens = _lex(expression, operators, self.grammar)
+        if len(self.tokens) - 1 > cast(int, self.grammar["max_tokens"]):
+            raise _FormulaNotationResourceError(
+                "Formula expression exceeds its admitted token bound"
+            )
         self.index = 0
 
     def current(self) -> _Token:
@@ -604,6 +614,10 @@ def parse_formula_expression(
         raise ValueError("Formula parse request has no expression")
     try:
         return _FormulaParser(expression, request, authority_context).parse()
+    except _FormulaNotationResourceError as err:
+        raise FormulaNotationRefusal(
+            "formula.reason.notation-resource-exhausted", str(err)
+        ) from err
     except _FormulaNotationSyntaxError as err:
         raise FormulaNotationRefusal(
             "formula.reason.notation-parse-failure", str(err)

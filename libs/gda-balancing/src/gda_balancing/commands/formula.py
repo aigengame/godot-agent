@@ -178,6 +178,7 @@ FORMULA_PARSE = CommandDescriptor(
     refusal_catalog=refusal_catalog_for_reasons(
         (
             "formula.reason.notation-parse-failure",
+            "formula.reason.notation-resource-exhausted",
             "model.reason.unresolved-name",
         )
     ),

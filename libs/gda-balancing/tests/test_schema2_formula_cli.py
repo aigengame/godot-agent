@@ -775,3 +775,81 @@ def test_formula_parse_reports_malformed_notation_as_a_typed_parse_refusal(
         "language.formula_notation_parse_failure"
     ]
     assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_refuses_expression_bytes_above_the_admitted_limit(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    source = tmp_path / "over-limit-formula.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "over-limit",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": "value" + " " * 65532,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_resource_exhausted"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
+
+
+def test_formula_parse_refuses_tokens_above_the_admitted_limit(
+    tmp_path: Path, run_cli
+) -> None:
+    value_contract = {
+        key: value
+        for key, value in _quantity_contract("result").items()
+        if key != "id"
+    }
+    source = tmp_path / "over-token-limit-formula.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "package_requirements": [
+                    {"id": "core.quantity", "version": "2.1.0"}
+                ],
+                "module": {"id": "main", "imports": []},
+                "formula": {
+                    "id": "over-token-limit",
+                    "parameters": [_quantity_contract("value")],
+                    "result": value_contract,
+                    "expression": "(" * 2048 + "value" + ")" * 2048,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["formula", "parse", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.formula_notation_resource_exhausted"
+    ]
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/formula/expression"
