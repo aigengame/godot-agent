@@ -1312,6 +1312,152 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
     assert sample["logical_time"] == events[-1]["ordering_key"]["logical_time"]
 
 
+def test_kernel_closes_runtime_configuration_transition_and_public_step():
+    kernel, _language_bundle = authority_module.load_authorities()
+    runtime_program = kernel["meta_format"]["runtime_program"]
+
+    assert runtime_program["runtime_configuration"] == {
+        "lifecycle_states": [
+            "instantiated",
+            "initializing",
+            "event",
+            "terminated",
+        ],
+        "members": [
+            "scenario_cursor",
+            "pending_events",
+            "completed_events",
+            "current_snapshot",
+            "state",
+            "rng",
+            "resource_ledger",
+            "next_enqueue_sequence",
+            "root_event_map",
+        ],
+        "mutation": "internal-transition-only",
+    }
+    assert runtime_program["transition"] == {
+        "input": "runtime-configuration",
+        "dispatch_count": 1,
+        "event_selection": "scheduler-order-head",
+        "transaction": "event-atomicity",
+        "result": ["runtime-configuration", "runtime-refusal"],
+    }
+    assert runtime_program["step"] == {
+        "input": "runtime-configuration",
+        "advance": "repeat-transition",
+        "stop": [
+            "observation-boundary",
+            "logical-boundary",
+            "terminal",
+        ],
+        "result": "committed-boundary",
+    }
+
+
+def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    transition = scenario["event_plan"][0]
+    transition["logical_time"] = 0
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "raise-defense",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "e" * 64,
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "target_defense",
+                    },
+                    "value": 20,
+                }
+            ],
+        },
+        transition,
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+    observation_frames: list[str] = []
+
+    def record_formula_frame(*args, **kwargs):
+        result = evaluate_programs(*args, **kwargs)
+        if kwargs.get("phase") == "observation":
+            observation_frames.append(kwargs["frame_identity"])
+        return result
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        record_formula_frame,
+    )
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    events = artifacts.members["event-trace"].value["events"]
+    transition_event = next(event for event in events if event["operation"] is not None)
+    assert observation_frames == [transition_event["snapshot_after_identity"]]
+
+
+def test_event_metric_searches_the_complete_committed_scenario_trace(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    plan = scenario["event_plan"][0]
+    plan["logical_time"] = 1
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "cast-before-plan",
+            "logical_time": 0,
+            "priority": 0,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+        plan,
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first_cast_damage",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "event",
+                    "name": "cast-resolved",
+                    "member": "damage_dealt",
+                },
+                "target": {"minimum": 1, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    sample = artifacts.members["metric-dataset"].value["samples"][0]
+    assert sample["metric"] == "first_cast_damage"
+    assert sample["value"] > 0
+
+
 def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     tmp_path, run_cli
 ):
