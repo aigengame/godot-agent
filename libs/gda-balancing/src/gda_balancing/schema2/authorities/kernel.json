@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b",
+  "content_identity": "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6537,7 +6537,124 @@
           "state_effects": "forbidden"
         }
       },
+      "component_contract": {
+        "components": {
+          "runtime_configuration": {
+            "objects": {
+              "": {
+                "lifecycle_roles": "object",
+                "lifecycle_states": "string-list",
+                "members": "string-list",
+                "mutation": "string"
+              },
+              "lifecycle_roles": {
+                "active": "string",
+                "ready": "string",
+                "terminal": "string"
+              }
+            }
+          },
+          "scheduler": {
+            "objects": {
+              "": {
+                "budget_members": "object",
+                "call_site_identity": "object",
+                "cancel": "object",
+                "event_identity": "object",
+                "external_input_admission": "object",
+                "external_input_identity": "object",
+                "observation": "object",
+                "ordering": "array",
+                "root_admission_map": "object",
+                "root_enqueue_sequence": "string",
+                "root_phases": "object",
+                "runtime_journal": "object",
+                "schedule": "object",
+                "snapshot_identity": "object",
+                "step_boundary": "string",
+                "terminal_status": "object"
+              },
+              "observation": {
+                "derivation": "string",
+                "entrypoint": "string",
+                "phase": "string",
+                "priority": "integer",
+                "state_effects": "string"
+              },
+              "root_phases": {
+                "external-input": "string",
+                "transition-invocation": "string"
+              }
+            }
+          },
+          "step": {
+            "objects": {
+              "": {
+                "advance": "string",
+                "boundary_roles": "object",
+                "input": "string",
+                "result": "string",
+                "stop": "string-list"
+              },
+              "boundary_roles": {
+                "initial": "string",
+                "logical": "string",
+                "observation": "string",
+                "terminal": "string"
+              }
+            }
+          },
+          "transition": {
+            "objects": {
+              "": {
+                "dispatch_count": "integer",
+                "event_selection": "string",
+                "input": "string",
+                "result": "string-list",
+                "transaction": "string"
+              }
+            }
+          }
+        },
+        "relations": [
+          {
+            "component": "runtime_configuration",
+            "excluded_keys": [],
+            "kind": "mapping-values-in-list",
+            "list_path": "lifecycle_states",
+            "mapping_path": "lifecycle_roles"
+          },
+          {
+            "component": "step",
+            "excluded_keys": [
+              "initial"
+            ],
+            "kind": "mapping-values-in-list",
+            "list_path": "stop",
+            "mapping_path": "boundary_roles"
+          },
+          {
+            "component": "scheduler",
+            "kind": "mapping-values-in-ranked-ordering",
+            "mapping_path": "root_phases",
+            "ordering_member": "phase",
+            "ordering_path": "ordering"
+          },
+          {
+            "component": "scheduler",
+            "kind": "value-in-ranked-ordering",
+            "ordering_member": "phase",
+            "ordering_path": "ordering",
+            "value_path": "observation.phase"
+          }
+        ]
+      },
       "runtime_configuration": {
+        "lifecycle_roles": {
+          "active": "event",
+          "ready": "step",
+          "terminal": "terminated"
+        },
         "lifecycle_states": [
           "instantiated",
           "initializing",
@@ -6575,6 +6692,12 @@
       "step": {
         "input": "runtime-configuration",
         "advance": "repeat-transition",
+        "boundary_roles": {
+          "initial": "initial",
+          "logical": "logical-boundary",
+          "observation": "observation-boundary",
+          "terminal": "terminal"
+        },
         "stop": [
           "observation-boundary",
           "logical-boundary",

@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b"
+    "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178"
 )
 
 
@@ -684,7 +684,7 @@ def _consumer_b_value_program_instruction_is_closed(
 
 
 def _consumer_b_scheduler_scenario_vector_is_closed(
-    vector: dict[str, Any], kind: dict[str, Any]
+    vector: dict[str, Any], kind: dict[str, Any], phases: set[str]
 ) -> bool:
     inp = vector.get("input")
     expect = vector.get("expect")
@@ -728,7 +728,7 @@ def _consumer_b_scheduler_scenario_vector_is_closed(
             and row.get("scenario") in scenarios
             and _consumer_b_signed_int64(row.get("logical_time"))
             and isinstance(row.get("phase"), str)
-            and row["phase"] in {"input", "transition", "observation"}
+            and row["phase"] in phases
             and _consumer_b_signed_int64(row.get("priority"))
             and isinstance(row.get("enqueue_sequence"), int)
             and not isinstance(row["enqueue_sequence"], bool)
@@ -832,7 +832,22 @@ def _consumer_b_package_evidence_vectors_are_closed(
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
+    scheduler: Any,
 ) -> bool:
+    ordering = scheduler.get("ordering") if isinstance(scheduler, dict) else None
+    phase_row = (
+        next(
+            (
+                row
+                for row in ordering
+                if isinstance(row, dict) and row.get("member") == "phase"
+            ),
+            None,
+        )
+        if isinstance(ordering, list)
+        else None
+    )
+    phase_rank = phase_row.get("rank") if isinstance(phase_row, dict) else None
     if (
         not _consumer_b_package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -842,8 +857,12 @@ def _consumer_b_package_evidence_vectors_are_closed(
         or candidate_encoding["width_bits"] % 4 != 0
         or not isinstance(candidate_encoding.get("alphabet"), str)
         or not candidate_encoding["alphabet"]
+        or not isinstance(phase_rank, list)
+        or not phase_rank
+        or any(not isinstance(phase, str) or not phase for phase in phase_rank)
     ):
         return False
+    phases = set(phase_rank)
     candidate_width = candidate_encoding["width_bits"] // 4
     candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
@@ -986,7 +1005,9 @@ def _consumer_b_package_evidence_vectors_are_closed(
                 return False
             continue
         if kind_id == "scheduler-scenario":
-            if not _consumer_b_scheduler_scenario_vector_is_closed(vector, kind):
+            if not _consumer_b_scheduler_scenario_vector_is_closed(
+                vector, kind, phases
+            ):
                 return False
             continue
         operation = operations.get(vector.get("operation"))
@@ -5246,6 +5267,157 @@ def _consumer_b_active_profile_is_closed(
     )
 
 
+def _consumer_b_component_shape_matches(value: Any, declared_type: Any) -> bool:
+    checks = {
+        "object": lambda candidate: isinstance(candidate, dict),
+        "array": lambda candidate: isinstance(candidate, list),
+        "string": lambda candidate: isinstance(candidate, str) and bool(candidate),
+        "integer": lambda candidate: (
+            isinstance(candidate, int) and not isinstance(candidate, bool)
+        ),
+        "string-list": lambda candidate: (
+            isinstance(candidate, list)
+            and all(isinstance(item, str) and item for item in candidate)
+            and len(candidate) == len(set(candidate))
+        ),
+    }
+    predicate = checks.get(declared_type)
+    return predicate(value) if predicate is not None else False
+
+
+def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
+    declaration = runtime.get("component_contract")
+    if not isinstance(declaration, dict) or set(declaration) != {
+        "components",
+        "relations",
+    }:
+        return False
+    component_specs = declaration.get("components")
+    relation_specs = declaration.get("relations")
+    if not isinstance(component_specs, dict) or not isinstance(relation_specs, list):
+        return False
+    resolved_components: dict[str, dict[str, Any]] = {}
+    for name, spec in component_specs.items():
+        candidate = runtime.get(name)
+        object_specs = spec.get("objects") if isinstance(spec, dict) else None
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(candidate, dict)
+            or not isinstance(spec, dict)
+            or set(spec) != {"objects"}
+            or not isinstance(object_specs, dict)
+            or "" not in object_specs
+        ):
+            return False
+        resolved_components[name] = candidate
+        for coordinate, fields in object_specs.items():
+            observed = (
+                candidate
+                if coordinate == ""
+                else _consumer_b_path(candidate, coordinate)
+            )
+            if (
+                not isinstance(coordinate, str)
+                or not isinstance(fields, dict)
+                or not isinstance(observed, dict)
+                or set(observed) != set(fields)
+                or any(
+                    not isinstance(field, str)
+                    or not field
+                    or not _consumer_b_component_shape_matches(
+                        observed[field], declared_type
+                    )
+                    for field, declared_type in fields.items()
+                )
+            ):
+                return False
+    for relation in relation_specs:
+        if not isinstance(relation, dict):
+            return False
+        component = resolved_components.get(cast(str, relation.get("component")))
+        if component is None:
+            return False
+        kind = relation.get("kind")
+        if kind == "mapping-values-in-list":
+            if set(relation) != {
+                "component",
+                "excluded_keys",
+                "kind",
+                "list_path",
+                "mapping_path",
+            }:
+                return False
+            source = _consumer_b_path(
+                component, cast(str, relation.get("mapping_path"))
+            )
+            destination = _consumer_b_path(
+                component, cast(str, relation.get("list_path"))
+            )
+            excluded = relation.get("excluded_keys")
+            if (
+                not isinstance(source, dict)
+                or not isinstance(destination, list)
+                or not isinstance(excluded, list)
+                or any(not isinstance(item, str) for item in excluded)
+                or not set(excluded) <= set(source)
+                or not set(source[key] for key in source if key not in excluded)
+                <= set(destination)
+            ):
+                return False
+        elif kind in {
+            "mapping-values-in-ranked-ordering",
+            "value-in-ranked-ordering",
+        }:
+            coordinate_member = (
+                "mapping_path"
+                if kind == "mapping-values-in-ranked-ordering"
+                else "value_path"
+            )
+            if set(relation) != {
+                "component",
+                "kind",
+                "ordering_member",
+                "ordering_path",
+                coordinate_member,
+            }:
+                return False
+            ordering = _consumer_b_path(
+                component, cast(str, relation.get("ordering_path"))
+            )
+            ranked = (
+                next(
+                    (
+                        row.get("rank")
+                        for row in ordering
+                        if isinstance(row, dict)
+                        and row.get("member") == relation.get("ordering_member")
+                    ),
+                    None,
+                )
+                if isinstance(ordering, list)
+                else None
+            )
+            source = _consumer_b_path(
+                component, cast(str, relation.get(coordinate_member))
+            )
+            if (
+                not isinstance(ranked, list)
+                or (
+                    kind == "mapping-values-in-ranked-ordering"
+                    and (
+                        not isinstance(source, dict)
+                        or not set(source.values()) <= set(ranked)
+                    )
+                )
+                or (kind == "value-in-ranked-ordering" and source not in ranked)
+            ):
+                return False
+        else:
+            return False
+    return True
+
+
 def _consumer_b_runtime_authority_is_closed(
     kernel: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
@@ -5274,6 +5446,7 @@ def _consumer_b_runtime_authority_is_closed(
             "named_rng",
             "scheduler",
             "event_atomicity",
+            "component_contract",
             "runtime_configuration",
             "transition",
             "step",
@@ -5286,6 +5459,7 @@ def _consumer_b_runtime_authority_is_closed(
         or not isinstance(runtime.get("runtime_configuration"), dict)
         or not isinstance(runtime.get("transition"), dict)
         or not isinstance(runtime.get("step"), dict)
+        or not _consumer_b_component_contract_matches(runtime)
     ):
         return False
     nodes = runtime.get("nodes")
@@ -5595,6 +5769,7 @@ def _consumer_b_runtime_authority_is_closed(
             return None
         nested_stack = {*stack, operation_id}
         referenced: set[str] = set()
+        produced_locals: dict[str, str] = {}
         for instruction in body:
             if not isinstance(instruction, dict):
                 return None
@@ -5612,6 +5787,8 @@ def _consumer_b_runtime_authority_is_closed(
                     or target.get("kind") != target_contract["kind"]
                     or not isinstance(target.get(target_contract["value_member"]), str)
                     or not target[target_contract["value_member"]]
+                    or produced_locals.get(target[target_contract["value_member"]])
+                    != target_contract["producer_result_kind"]
                 ):
                     return None
             outcome = instruction.get("outcome")
@@ -5684,6 +5861,12 @@ def _consumer_b_runtime_authority_is_closed(
                 nested = referenced_outcomes(invoked, nested_stack)
                 if nested is None:
                     return None
+            binding = instruction.get("result")
+            if isinstance(binding, dict) and binding.get("kind") == "local":
+                name = binding.get("name")
+                if not isinstance(name, str) or not name or name in produced_locals:
+                    return None
+                produced_locals[name] = node["result"]["kind"]
         return referenced
 
     for operation in operations:
@@ -7051,6 +7234,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         meta.get("runtime_program", {})
                         .get("named_rng", {})
                         .get("candidate_encoding"),
+                        meta.get("runtime_program", {}).get("scheduler"),
                     )
                 )
             ):

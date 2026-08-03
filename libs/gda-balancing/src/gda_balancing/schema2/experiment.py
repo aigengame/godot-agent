@@ -331,6 +331,16 @@ def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
     }
 
 
+def _runtime_lifecycle_roles(checked: CheckedExperiment) -> dict[str, str]:
+    configuration = _runtime_execution_contract(checked)["runtime_configuration"]
+    return cast(dict[str, str], configuration["lifecycle_roles"])
+
+
+def _runtime_boundary_roles(checked: CheckedExperiment) -> dict[str, str]:
+    step = _runtime_execution_contract(checked)["step"]
+    return cast(dict[str, str], step["boundary_roles"])
+
+
 def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     return {
         row["id"]: row
@@ -1290,8 +1300,10 @@ def _event_catalog_records_are_authoritative(
                     enqueue_sequence=cast(int, ordering_key["enqueue_sequence"]),
                 )
                 != event_spec["event_id"]
-                or ordering_key["phase"] != "observation"
-                or ordering_key["priority"] != 0
+                or ordering_key["phase"]
+                != _scheduler_contract(checked)["observation"]["phase"]
+                or ordering_key["priority"]
+                != _scheduler_contract(checked)["observation"]["priority"]
             ):
                 return False
     return True
@@ -1364,8 +1376,10 @@ def _runtime_step_boundary(
 ) -> str | None:
     contract = _runtime_execution_contract(checked)["step"]
     stops = cast(list[str], contract["stop"])
+    boundary_roles = _runtime_boundary_roles(checked)
     if not pending_events:
-        return "terminal" if "terminal" in stops else None
+        terminal = boundary_roles["terminal"]
+        return terminal if terminal in stops else None
     scheduler = _scheduler_contract(checked)
     next_event = min(
         pending_events,
@@ -1377,9 +1391,11 @@ def _runtime_step_boundary(
         and event_position >= terminal_maximum
         and at_step_boundary
     ):
-        return "terminal" if "terminal" in stops else None
+        terminal = boundary_roles["terminal"]
+        return terminal if terminal in stops else None
     if next_event["logical_time"] != active_logical_time:
-        return "logical-boundary" if "logical-boundary" in stops else None
+        logical = boundary_roles["logical"]
+        return logical if logical in stops else None
     return None
 
 
@@ -3334,8 +3350,8 @@ def evaluate_experiment(
                 "values": cast(JsonValue, initial_values),
                 "continuation": _runtime_continuation(
                     checked,
-                    lifecycle_state="step",
-                    step_boundary="initial",
+                    lifecycle_state=_runtime_lifecycle_roles(checked)["ready"],
+                    step_boundary=_runtime_boundary_roles(checked)["initial"],
                     scenario_cursor=scenario_index,
                     event_catalog_count=len(scenario_event_catalog),
                     event_catalog_identity=event_catalog_identity,
@@ -4126,7 +4142,11 @@ def evaluate_experiment(
             snapshot_index = len(snapshots)
             continuation = _runtime_continuation(
                 checked,
-                lifecycle_state="step" if step_boundary is not None else "event",
+                lifecycle_state=(
+                    _runtime_lifecycle_roles(checked)["ready"]
+                    if step_boundary is not None
+                    else _runtime_lifecycle_roles(checked)["active"]
+                ),
                 step_boundary=step_boundary,
                 scenario_cursor=scenario_index,
                 event_catalog_count=len(scenario_event_catalog),
@@ -4260,7 +4280,7 @@ def evaluate_experiment(
                         for identity, value in state.items()
                     },
                 )
-            if step_boundary == "terminal":
+            if step_boundary == _runtime_boundary_roles(checked)["terminal"]:
                 break
         scenario_terminal_states[scenario["id"]] = {
             display_names[identity]: value for identity, value in state.items()
@@ -4401,14 +4421,14 @@ def evaluate_experiment(
             continuation = _runtime_continuation(
                 checked,
                 lifecycle_state=(
-                    "terminated"
+                    _runtime_lifecycle_roles(checked)["terminal"]
                     if metric_index + 1 == len(checked.value["metrics"])
-                    else "event"
+                    else _runtime_lifecycle_roles(checked)["active"]
                 ),
                 step_boundary=(
-                    "terminal"
+                    _runtime_boundary_roles(checked)["terminal"]
                     if metric_index + 1 == len(checked.value["metrics"])
-                    else "observation-boundary"
+                    else _runtime_boundary_roles(checked)["observation"]
                 ),
                 scenario_cursor=scenario_index,
                 event_catalog_count=len(scenario_event_catalog),

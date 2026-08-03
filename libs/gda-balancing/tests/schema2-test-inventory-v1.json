@@ -741,7 +741,7 @@
     "tests/test_schema2_experiment_cli.py::test_experiment_precommit_faults_leave_no_visible_or_partial_set[after-member-write]",
     "tests/test_schema2_experiment_cli.py::test_experiment_precommit_faults_leave_no_visible_or_partial_set[before-anchor-commit]",
     "tests/test_schema2_experiment_cli.py::test_experiment_precommit_faults_leave_no_visible_or_partial_set[before-commit]",
-    "tests/test_schema2_experiment_cli.py::test_experiment_refuses_nonempty_external_inputs_until_the_slice_consumes_them",
+    "tests/test_schema2_experiment_cli.py::test_experiment_refuses_removed_top_level_external_inputs_member",
     "tests/test_schema2_experiment_cli.py::test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal",
     "tests/test_schema2_experiment_cli.py::test_gameplay_outcomes_are_closed_and_exhaustively_typed",
     "tests/test_schema2_experiment_cli.py::test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator",

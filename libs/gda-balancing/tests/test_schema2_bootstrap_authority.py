@@ -69,6 +69,73 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
     }
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "arbitrary-runtime-configuration",
+        "invalid-lifecycle-role",
+        "invalid-observation-phase",
+        "missing-root-phase-map",
+    ),
+)
+def test_two_consumers_refuse_reidentified_runtime_component_drift(
+    monkeypatch, mutation
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    runtime = kernel["meta_format"]["runtime_program"]
+    if mutation == "arbitrary-runtime-configuration":
+        runtime["runtime_configuration"] = {"host": "invented"}
+    elif mutation == "invalid-lifecycle-role":
+        runtime["runtime_configuration"]["lifecycle_roles"]["active"] = "host-invented"
+    elif mutation == "invalid-observation-phase":
+        runtime["scheduler"]["observation"]["phase"] = "host-invented"
+    else:
+        del runtime["scheduler"]["root_phases"]
+    _reidentify(kernel, authority["language_bundle"])
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+    monkeypatch.setattr(
+        bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+
+    first = _consumer_a(kernel, authority["language_bundle"])
+    second = _consumer_b(kernel, authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.runtime",
+    ) in first["diagnostics"]
+
+
+def test_two_consumers_refuse_cancel_target_without_a_prior_schedule_producer():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.combat.plan-casts-v1"
+    )
+    cancel = next(row for row in operation["body"] if row["node"] == "cancel")
+    cancel["event"]["local"] = "host-invented-local"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.runtime",
+    ) in first["diagnostics"]
+
+
 def test_rir_semantic_projection_members_close_against_the_wire_schema():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]

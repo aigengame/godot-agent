@@ -437,6 +437,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         "named_rng",
         "scheduler",
         "event_atomicity",
+        "component_contract",
         "outcome_contract",
         "invocation_contract",
         "runtime_configuration",

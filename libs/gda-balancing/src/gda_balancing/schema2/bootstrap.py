@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b"
+    "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -642,7 +642,7 @@ def _value_program_instruction_is_closed(
 
 
 def _scheduler_scenario_vector_is_closed(
-    vector: dict[str, Any], kind: dict[str, Any]
+    vector: dict[str, Any], kind: dict[str, Any], phase_inventory: set[str]
 ) -> bool:
     inp = vector.get("input")
     expect = vector.get("expect")
@@ -686,7 +686,7 @@ def _scheduler_scenario_vector_is_closed(
             and row.get("scenario") in scenarios
             and _signed_int64(row.get("logical_time"))
             and isinstance(row.get("phase"), str)
-            and row["phase"] in {"input", "transition", "observation"}
+            and row["phase"] in phase_inventory
             and _signed_int64(row.get("priority"))
             and isinstance(row.get("enqueue_sequence"), int)
             and not isinstance(row["enqueue_sequence"], bool)
@@ -792,7 +792,25 @@ def _package_evidence_vectors_are_closed(
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
+    scheduler_contract: Any,
 ) -> bool:
+    ordering = (
+        scheduler_contract.get("ordering")
+        if isinstance(scheduler_contract, dict)
+        else None
+    )
+    phase_rank = (
+        next(
+            (
+                row.get("rank")
+                for row in ordering
+                if isinstance(row, dict) and row.get("member") == "phase"
+            ),
+            None,
+        )
+        if isinstance(ordering, list)
+        else None
+    )
     if (
         not _package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -802,8 +820,12 @@ def _package_evidence_vectors_are_closed(
         or candidate_encoding["width_bits"] % 4 != 0
         or not isinstance(candidate_encoding.get("alphabet"), str)
         or not candidate_encoding["alphabet"]
+        or not isinstance(phase_rank, list)
+        or not phase_rank
+        or not all(isinstance(phase, str) and phase for phase in phase_rank)
     ):
         return False
+    phase_inventory = set(phase_rank)
     candidate_width = candidate_encoding["width_bits"] // 4
     candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
@@ -943,7 +965,7 @@ def _package_evidence_vectors_are_closed(
                 return False
             continue
         if kind_id == "scheduler-scenario":
-            if not _scheduler_scenario_vector_is_closed(vector, kind):
+            if not _scheduler_scenario_vector_is_closed(vector, kind, phase_inventory):
                 return False
             continue
         operation = operations.get(vector.get("operation"))
@@ -6651,6 +6673,11 @@ def admit_authorities(
                         vector_set,
                         package_vector_contract,
                         candidate_encoding_contract,
+                        (
+                            runtime_program_contract.get("scheduler")
+                            if isinstance(runtime_program_contract, dict)
+                            else None
+                        ),
                     )
                 )
             ):
@@ -7605,6 +7632,160 @@ def _active_runtime_profile_matches_contract(
     )
 
 
+def _runtime_component_value_has_type(value: Any, expected: Any) -> bool:
+    return (
+        (expected == "object" and isinstance(value, dict))
+        or (expected == "array" and isinstance(value, list))
+        or (expected == "string" and isinstance(value, str) and bool(value))
+        or (
+            expected == "integer"
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        )
+        or (
+            expected == "string-list"
+            and isinstance(value, list)
+            and all(isinstance(item, str) and item for item in value)
+            and len(value) == len(set(value))
+        )
+    )
+
+
+def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
+    contract = runtime.get("component_contract")
+    if not isinstance(contract, dict) or set(contract) != {"components", "relations"}:
+        return False
+    components = contract.get("components")
+    relations = contract.get("relations")
+    if (
+        not isinstance(components, dict)
+        or not components
+        or not isinstance(relations, list)
+    ):
+        return False
+    for component_name, component_contract in components.items():
+        component = runtime.get(component_name)
+        objects = (
+            component_contract.get("objects")
+            if isinstance(component_contract, dict)
+            else None
+        )
+        if (
+            not isinstance(component_name, str)
+            or not component_name
+            or not isinstance(component, dict)
+            or not isinstance(component_contract, dict)
+            or set(component_contract) != {"objects"}
+            or not isinstance(objects, dict)
+            or "" not in objects
+        ):
+            return False
+        for path, member_types in objects.items():
+            value = component if path == "" else _runtime_contract_path(component, path)
+            if (
+                not isinstance(path, str)
+                or not isinstance(value, dict)
+                or not isinstance(member_types, dict)
+                or set(value) != set(member_types)
+                or not all(
+                    isinstance(member, str)
+                    and member
+                    and _runtime_component_value_has_type(value[member], expected)
+                    for member, expected in member_types.items()
+                )
+            ):
+                return False
+    for relation in relations:
+        if not isinstance(relation, dict):
+            return False
+        component_name = cast(str, relation.get("component"))
+        component = components.get(component_name)
+        runtime_component = runtime.get(component_name)
+        if not isinstance(component, dict) or not isinstance(runtime_component, dict):
+            return False
+        kind = relation.get("kind")
+        if kind == "mapping-values-in-list":
+            if set(relation) != {
+                "component",
+                "excluded_keys",
+                "kind",
+                "list_path",
+                "mapping_path",
+            }:
+                return False
+            mapping = _runtime_contract_path(
+                runtime_component, relation["mapping_path"]
+            )
+            values = _runtime_contract_path(runtime_component, relation["list_path"])
+            excluded = relation.get("excluded_keys")
+            if (
+                not isinstance(mapping, dict)
+                or not isinstance(values, list)
+                or not isinstance(excluded, list)
+                or not all(isinstance(key, str) for key in excluded)
+                or not set(excluded) <= set(mapping)
+                or any(
+                    value not in values
+                    for key, value in mapping.items()
+                    if key not in excluded
+                )
+            ):
+                return False
+            continue
+        if kind in {
+            "mapping-values-in-ranked-ordering",
+            "value-in-ranked-ordering",
+        }:
+            expected_members = {
+                "component",
+                "kind",
+                "ordering_member",
+                "ordering_path",
+                (
+                    "mapping_path"
+                    if kind == "mapping-values-in-ranked-ordering"
+                    else "value_path"
+                ),
+            }
+            ordering = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("ordering_path"))
+            )
+            rank_row = (
+                next(
+                    (
+                        row
+                        for row in ordering
+                        if isinstance(row, dict)
+                        and row.get("member") == relation.get("ordering_member")
+                    ),
+                    None,
+                )
+                if isinstance(ordering, list)
+                else None
+            )
+            rank = rank_row.get("rank") if isinstance(rank_row, dict) else None
+            if set(relation) != expected_members or not isinstance(rank, list):
+                return False
+            if kind == "mapping-values-in-ranked-ordering":
+                mapping = _runtime_contract_path(
+                    runtime_component, cast(str, relation.get("mapping_path"))
+                )
+                if not isinstance(mapping, dict) or any(
+                    value not in rank for value in mapping.values()
+                ):
+                    return False
+            elif (
+                _runtime_contract_path(
+                    runtime_component, cast(str, relation.get("value_path"))
+                )
+                not in rank
+            ):
+                return False
+            continue
+        return False
+    return True
+
+
 def _runtime_authority_is_closed(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -7635,6 +7816,7 @@ def _runtime_authority_is_closed(
             "named_rng",
             "scheduler",
             "event_atomicity",
+            "component_contract",
             "runtime_configuration",
             "transition",
             "step",
@@ -7649,6 +7831,7 @@ def _runtime_authority_is_closed(
         or not isinstance(runtime.get("runtime_configuration"), dict)
         or not isinstance(runtime.get("transition"), dict)
         or not isinstance(runtime.get("step"), dict)
+        or not _runtime_component_contract_is_closed(runtime)
     ):
         return False
     family_members = {
@@ -8022,6 +8205,7 @@ def _runtime_authority_is_closed(
             return None
         visiting.add(operation_id)
         referenced: set[str] = set()
+        local_result_kinds: dict[str, str] = {}
         body = operation.get("body")
         if not isinstance(body, list):
             visiting.remove(operation_id)
@@ -8043,6 +8227,8 @@ def _runtime_authority_is_closed(
                     or target.get("kind") != target_contract["kind"]
                     or not isinstance(target.get(target_contract["value_member"]), str)
                     or not target[target_contract["value_member"]]
+                    or local_result_kinds.get(target[target_contract["value_member"]])
+                    != target_contract["producer_result_kind"]
                 ):
                     visiting.remove(operation_id)
                     return None
@@ -8123,6 +8309,20 @@ def _runtime_authority_is_closed(
                         return None
                     if action["kind"] == "propagate":
                         referenced.add(action["outcome"])
+            result_binding = instruction.get("result")
+            if (
+                isinstance(result_binding, dict)
+                and result_binding.get("kind") == "local"
+            ):
+                local_name = result_binding.get("name")
+                if (
+                    not isinstance(local_name, str)
+                    or not local_name
+                    or local_name in local_result_kinds
+                ):
+                    visiting.remove(operation_id)
+                    return None
+                local_result_kinds[local_name] = node["result"]["kind"]
         visiting.remove(operation_id)
         return referenced
 

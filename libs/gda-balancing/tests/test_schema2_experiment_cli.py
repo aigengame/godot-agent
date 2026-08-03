@@ -1777,6 +1777,11 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
     runtime_program = kernel["meta_format"]["runtime_program"]
 
     assert runtime_program["runtime_configuration"] == {
+        "lifecycle_roles": {
+            "active": "event",
+            "ready": "step",
+            "terminal": "terminated",
+        },
         "lifecycle_states": [
             "instantiated",
             "initializing",
@@ -1829,6 +1834,12 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
     assert runtime_program["step"] == {
         "input": "runtime-configuration",
         "advance": "repeat-transition",
+        "boundary_roles": {
+            "initial": "initial",
+            "logical": "logical-boundary",
+            "observation": "observation-boundary",
+            "terminal": "terminal",
+        },
         "stop": [
             "observation-boundary",
             "logical-boundary",
