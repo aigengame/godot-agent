@@ -5191,8 +5191,10 @@ def _consumer_b_active_profile_is_closed(
         or not isinstance(bindings, dict)
         or not bindings
         or not set(bindings) <= set(required)
+        or not all(isinstance(path, str) and path for path in bindings.values())
         or not isinstance(rng_bindings, dict)
         or not rng_bindings
+        or not all(isinstance(path, str) and path for path in rng_bindings.values())
         or set(profile.get("rng", {})) != set(rng_bindings)
         or not isinstance(scopes, dict)
         or not scopes
@@ -5220,11 +5222,9 @@ def _consumer_b_active_profile_is_closed(
     return all(
         profile.get(member) == _consumer_b_path(runtime, path)
         for member, path in bindings.items()
-        if isinstance(path, str)
     ) and all(
         profile["rng"].get(member) == _consumer_b_path(runtime, path)
         for member, path in rng_bindings.items()
-        if isinstance(path, str)
     )
 
 
