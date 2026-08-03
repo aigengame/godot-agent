@@ -8841,6 +8841,8 @@ def publish_artifact_set(
     member_validator: Callable[[str, dict[str, Any]], bool],
     publication_fault: str | None = None,
     *,
+    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool]
+    | None = None,
     authentication_key: bytes | None = None,
 ) -> dict[str, JsonValue]:
     """Atomically publish a pre-admitted heterogeneous Schema 2.x artifact set.
@@ -8867,6 +8869,11 @@ def publish_artifact_set(
         raise RuntimeError("prepared output does not match the descriptor artifact set")
     if not all(member_validator(name, artifacts[name].value) for name in artifacts):
         raise RuntimeError("prepared output failed artifact-schema admission")
+    artifact_values = {name: member.value for name, member in artifacts.items()}
+    if artifact_set_validator is not None and not artifact_set_validator(
+        artifact_values
+    ):
+        raise RuntimeError("prepared output failed artifact-set semantic admission")
 
     out_path = _normalized_absolute_path(out)
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
@@ -8929,6 +8936,8 @@ def recover_committed_artifact_set(
     candidate_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     member_validator: Callable[[str, dict[str, Any]], bool],
     *,
+    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool]
+    | None = None,
     authentication_key: bytes | None = None,
 ) -> RecoveredArtifactSet | None:
     """Recover one committed producing outcome before its producer reruns."""
@@ -8988,6 +8997,10 @@ def recover_committed_artifact_set(
                 artifact_kind=member.artifact_kind,
                 wire_schema_identity=cast(str, artifact["wire_schema_identity"]),
                 content_identity=cast(str, artifact["content_identity"]),
+            )
+        if artifact_set_validator is not None and not artifact_set_validator(artifacts):
+            raise RuntimeError(
+                "committed artifact set failed semantic cross-revalidation"
             )
         receipt = _recover_generic_publication(
             invocation_path,

@@ -4055,6 +4055,350 @@ def validate_experiment_member(
     return verify_artifact(value, checked.language_bundle)
 
 
+def _expected_root_event_map(
+    checked: CheckedExperiment,
+) -> list[dict[str, JsonValue]]:
+    root_map: list[dict[str, JsonValue]] = []
+    for scenario in checked.value["scenarios"]:
+        for event in _ordered_root_events(checked, scenario):
+            root_map.append(
+                {
+                    "scenario": scenario["id"],
+                    "root_event_ref": event["root_event_ref"],
+                    "event_id": _root_event_id(checked, scenario["id"], event),
+                }
+            )
+    return root_map
+
+
+def _artifact_set_runtime_journals_are_valid(
+    checked: CheckedExperiment,
+    trace: dict[str, Any],
+    snapshot_series: dict[str, Any],
+    resolved_runtime_profile_identity: str,
+    expected_root_map: list[dict[str, JsonValue]],
+) -> bool:
+    journal = _runtime_journal_contract(checked)
+    snapshots = cast(list[dict[str, Any]], snapshot_series["snapshots"])
+    events = cast(list[dict[str, JsonValue]], trace["events"])
+    catalog = cast(list[dict[str, JsonValue]], snapshot_series["event_catalog"])
+    if (
+        snapshot_series.get("event_trace_identity") != trace.get("content_identity")
+        or snapshot_series.get("root_event_map") != expected_root_map
+        or trace.get("root_event_map") != expected_root_map
+        or len({cast(str, row.get("event_id")) for row in catalog}) != len(catalog)
+        or any(snapshot.get("index") != index for index, snapshot in enumerate(snapshots))
+        or any(event.get("index") != index for index, event in enumerate(events))
+    ):
+        return False
+    snapshots_by_identity = {
+        snapshot.get("snapshot_identity"): snapshot for snapshot in snapshots
+    }
+    events_by_scenario: dict[str, list[dict[str, JsonValue]]] = {}
+    for event in events:
+        before = snapshots_by_identity.get(event.get("snapshot_before_identity"))
+        after = snapshots_by_identity.get(event.get("snapshot_after_identity"))
+        if (
+            before is None
+            or after is None
+            or before.get("scenario") != after.get("scenario")
+            or after.get("event_id") != event.get("event_id")
+            or before.get("values") != event.get("state_before")
+            or after.get("values") != event.get("state_after")
+        ):
+            return False
+        events_by_scenario.setdefault(cast(str, after["scenario"]), []).append(event)
+    root_map_identity = content_identity(
+        cast(str, journal["root_event_map"]["domain"]),
+        cast(JsonValue, expected_root_map),
+    )
+    phase_rank = {"input": 0, "transition": 1, "observation": 2}
+    catalog_ids = {cast(str, row["event_id"]) for row in catalog}
+    scheduled_ids = {
+        cast(str, schedule["event_id"])
+        for event in events
+        for schedule in cast(list[dict[str, JsonValue]], event["schedules"])
+    }
+    if catalog_ids != {cast(str, event["event_id"]) for event in events} | (
+        scheduled_ids - {cast(str, event["event_id"]) for event in events}
+    ):
+        return False
+    for scenario in checked.value["scenarios"]:
+        scenario_id = cast(str, scenario["id"])
+        scenario_snapshots = [
+            snapshot for snapshot in snapshots if snapshot["scenario"] == scenario_id
+        ]
+        scenario_events = events_by_scenario.get(scenario_id, [])
+        scenario_catalog = [row for row in catalog if row["scenario"] == scenario_id]
+        if not scenario_snapshots or len(scenario_snapshots) != len(scenario_events) + 1:
+            return False
+        ordering_keys = [
+            (
+                cast(int, cast(dict[str, Any], event["ordering_key"])["logical_time"]),
+                phase_rank[cast(str, cast(dict[str, Any], event["ordering_key"])["phase"])],
+                -cast(int, cast(dict[str, Any], event["ordering_key"])["priority"]),
+                cast(int, cast(dict[str, Any], event["ordering_key"])["enqueue_sequence"]),
+            )
+            for event in scenario_events
+        ]
+        if ordering_keys != sorted(ordering_keys):
+            return False
+        catalog_prefixes = [
+            _empty_runtime_journal_identity(journal["event_catalog"])
+        ]
+        for record in scenario_catalog:
+            catalog_prefixes.append(
+                _extend_runtime_journal_identity(
+                    journal["event_catalog"], catalog_prefixes[-1], record
+                )
+            )
+        trace_prefixes = [
+            _empty_runtime_journal_identity(journal["committed_trace"])
+        ]
+        canceled_prefix_counts = [0]
+        canceled: set[str] = set()
+        for event in scenario_events:
+            trace_prefixes.append(
+                _extend_runtime_journal_identity(
+                    journal["committed_trace"],
+                    trace_prefixes[-1],
+                    _committed_event_projection(event),
+                )
+            )
+            canceled.update(
+                cast(str, cancellation["event_id"])
+                for cancellation in cast(
+                    list[dict[str, JsonValue]], event["cancellations"]
+                )
+            )
+            canceled_prefix_counts.append(len(canceled))
+        for position, snapshot in enumerate(scenario_snapshots):
+            continuation = cast(dict[str, Any], snapshot["continuation"])
+            catalog_ref = cast(dict[str, Any], continuation["event_catalog"])
+            trace_ref = cast(dict[str, Any], continuation["committed_trace"])
+            catalog_count = catalog_ref.get("count")
+            trace_count = trace_ref.get("count")
+            if (
+                not isinstance(catalog_count, int)
+                or not isinstance(trace_count, int)
+                or not 0 <= catalog_count < len(catalog_prefixes)
+                or trace_count != position
+                or catalog_ref.get("prefix_identity")
+                != catalog_prefixes[catalog_count]
+                or trace_ref.get("prefix_identity") != trace_prefixes[trace_count]
+                or continuation.get("pending_event_count")
+                != catalog_count - trace_count - canceled_prefix_counts[trace_count]
+                or continuation.get("root_event_map_identity") != root_map_identity
+                or continuation.get("resolved_runtime_profile_identity")
+                != resolved_runtime_profile_identity
+                or _projected_runtime_identity(
+                    _scheduler_contract(checked)["snapshot_identity"],
+                    {
+                        "experiment_identity": checked.content_identity,
+                        "scenario_id": scenario_id,
+                        "index": snapshot["index"],
+                        "logical_time": snapshot["logical_time"],
+                        "event_id": snapshot["event_id"],
+                        "values": snapshot["values"],
+                        "continuation": continuation,
+                    },
+                )
+                != snapshot["snapshot_identity"]
+            ):
+                return False
+    return True
+
+
+def _terminal_statuses_are_valid(
+    trace: dict[str, Any], snapshot_series: dict[str, Any]
+) -> bool:
+    snapshots = cast(list[dict[str, Any]], snapshot_series["snapshots"])
+    events = cast(list[dict[str, Any]], trace["events"])
+    snapshots_by_identity = {
+        snapshot["snapshot_identity"]: snapshot for snapshot in snapshots
+    }
+    events_by_id = {event["event_id"]: event for event in events}
+    for status in cast(list[dict[str, Any]], trace["terminal_statuses"]):
+        scenario = status["scenario"]
+        terminal_event = events_by_id.get(status["terminal_event_id"])
+        terminal_snapshot = snapshots_by_identity.get(
+            status["terminal_snapshot_identity"]
+        )
+        final_snapshot = snapshots_by_identity.get(status["final_snapshot_identity"])
+        observation_ids = cast(list[str], status["observation_event_ids"])
+        scenario_runtime_events = [
+            event
+            for event in events
+            if event["observation"] is None
+            and snapshots_by_identity[event["snapshot_after_identity"]]["scenario"]
+            == scenario
+        ]
+        if (
+            terminal_event is None
+            or terminal_snapshot is None
+            or final_snapshot is None
+            or terminal_event.get("observation") is not None
+            or terminal_snapshot.get("event_id") != terminal_event.get("event_id")
+            or terminal_snapshot.get("scenario") != scenario
+            or final_snapshot.get("scenario") != scenario
+            or final_snapshot
+            is not [snapshot for snapshot in snapshots if snapshot["scenario"] == scenario][
+                -1
+            ]
+            or status.get("event_count") != len(scenario_runtime_events)
+            or terminal_event is not scenario_runtime_events[-1]
+            or status.get("logical_time")
+            != cast(dict[str, Any], terminal_event["ordering_key"])["logical_time"]
+            or any(
+                event_id not in events_by_id
+                or events_by_id[event_id].get("observation") is None
+                or snapshots_by_identity[
+                    events_by_id[event_id]["snapshot_after_identity"]
+                ]["scenario"]
+                != scenario
+                for event_id in observation_ids
+            )
+        ):
+            return False
+        condition = cast(dict[str, Any], status["condition"])
+        if condition["kind"] == "event-count" and (
+            status["reason"] != "event-count-reached"
+            or status["event_count"] != condition["maximum"]
+        ):
+            return False
+        if condition["kind"] == "queue-drained" and (
+            status["reason"] != "queue-drained"
+            or cast(dict[str, Any], terminal_snapshot["continuation"])[
+                "pending_event_count"
+            ]
+            != 0
+        ):
+            return False
+    return True
+
+
+def validate_experiment_artifact_set(
+    checked: CheckedExperiment, artifacts: dict[str, dict[str, Any]]
+) -> bool:
+    """Revalidate exact semantic bindings across one Experiment artifact set."""
+    try:
+        if not all(
+            validate_experiment_member(checked, name, value)
+            for name, value in artifacts.items()
+        ):
+            return False
+        evaluator = _evaluator_manifest(checked)
+        resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+        reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+        common = {
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "evaluator-capability-manifest",
+        }
+        primary_names = set(artifacts) - common
+        if (
+            artifacts.get("evaluator-capability-manifest") != evaluator.value
+            or artifacts.get("resolved-runtime-profile") != resolved_runtime.value
+            or artifacts.get("reproduction-receipt") != reproduction.value
+        ):
+            return False
+        if primary_names == {"runtime-terminal-audit"}:
+            audit = artifacts["runtime-terminal-audit"]
+            return (
+                audit.get("experiment_identity") == checked.content_identity
+                and audit.get("resolved_runtime_profile_identity")
+                == resolved_runtime.content_identity
+                and audit.get("evaluator_manifest_identity")
+                == evaluator.content_identity
+                and audit.get("root_event_map") == _expected_root_event_map(checked)
+            )
+        if primary_names not in (
+            {
+                "evaluation-run",
+                "event-trace",
+                "snapshot-series",
+                "metric-dataset",
+            },
+            {
+                "experiment-verdict",
+                "event-trace",
+                "snapshot-series",
+                "metric-dataset",
+            },
+        ):
+            return False
+        primary_name = (
+            "evaluation-run" if "evaluation-run" in artifacts else "experiment-verdict"
+        )
+        primary = artifacts[primary_name]
+        trace = artifacts["event-trace"]
+        snapshot_series = artifacts["snapshot-series"]
+        dataset = artifacts["metric-dataset"]
+        expected_root_map = _expected_root_event_map(checked)
+        expected_bindings = {
+            "experiment_identity": checked.content_identity,
+            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+            "event_trace_identity": trace["content_identity"],
+            "snapshot_series_identity": snapshot_series["content_identity"],
+            "metric_dataset_identity": dataset["content_identity"],
+            "reproduction_receipt_identity": reproduction.content_identity,
+        }
+        if (
+            any(primary.get(name) != value for name, value in expected_bindings.items())
+            or primary.get("root_event_map") != expected_root_map
+            or primary.get("terminal_statuses") != trace.get("terminal_statuses")
+            or trace.get("experiment_identity") != checked.content_identity
+            or trace.get("resolved_runtime_profile_identity")
+            != resolved_runtime.content_identity
+            or snapshot_series.get("experiment_identity") != checked.content_identity
+            or snapshot_series.get("resolved_runtime_profile_identity")
+            != resolved_runtime.content_identity
+            or dataset.get("experiment_identity") != checked.content_identity
+            or dataset.get("resolved_runtime_profile_identity")
+            != resolved_runtime.content_identity
+            or cast(dict[str, Any], dataset.get("source_provenance", {})).get(
+                "resolved_runtime_profile_identity"
+            )
+            != resolved_runtime.content_identity
+            or cast(dict[str, Any], dataset.get("source_provenance", {})).get(
+                "evaluator_manifest_identity"
+            )
+            != evaluator.content_identity
+            or not _artifact_set_runtime_journals_are_valid(
+                checked,
+                trace,
+                snapshot_series,
+                resolved_runtime.content_identity,
+                expected_root_map,
+            )
+            or not _terminal_statuses_are_valid(trace, snapshot_series)
+        ):
+            return False
+        event_ids = {
+            event["event_id"] for event in cast(list[dict[str, Any]], trace["events"])
+        }
+        snapshot_ids = {
+            snapshot["snapshot_identity"]
+            for snapshot in cast(list[dict[str, Any]], snapshot_series["snapshots"])
+        }
+        metric_identities = sorted(
+            _metric_definition_identity(metric) for metric in checked.value["metrics"]
+        )
+        return (
+            dataset.get("metric_definition_identities") == metric_identities
+            and all(
+                sample.get("event_id") in event_ids
+                and sample.get("snapshot_identity") in snapshot_ids
+                and sample.get("metric_definition_identity") in metric_identities
+                and cast(dict[str, Any], sample.get("provenance", {})).get("scenario")
+                == sample.get("scenario")
+                for sample in cast(list[dict[str, Any]], dataset["samples"])
+            )
+        )
+    except (KeyError, TypeError, ValueError, IndexError):
+        return False
+
+
 def canonical_experiment_bytes(value: dict[str, Any]) -> bytes:
     """Expose canonical bytes for descriptor-owned command-input identity."""
     return canonical_bytes(cast(JsonValue, value))
