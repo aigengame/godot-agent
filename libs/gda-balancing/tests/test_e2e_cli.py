@@ -685,6 +685,195 @@ class TestKeyUserPath:
             == 85
         )
 
+    def test_periodic_effect_formula_only_edit_changes_only_dependent_identities(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        baseline_build = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="1" * 64,
+            output_name="baseline-periodic-model",
+        )
+        tuned_source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        magnitude = next(
+            formula
+            for formula in tuned_source["modules"][0]["formulas"]
+            if formula["id"] == "periodic-magnitude"
+        )
+        raw_magnitude = next(
+            node for node in magnitude["body"]["nodes"] if node["id"] == "raw_magnitude"
+        )
+        left, right = raw_magnitude["arguments"]
+        left["operand"], right["operand"] = right["operand"], left["operand"]
+        magnitude["expression"] = (
+            "let raw_magnitude = threshold - current_value;\n"
+            "let magnitude = floor_zero(raw_magnitude);\n"
+            "magnitude"
+        )
+        tuned_source_path = tmp_path / "tuned-model-source.json"
+        tuned_source_path.write_text(json.dumps(tuned_source), encoding="utf-8")
+        tuned_result = _run(
+            "model",
+            "build",
+            str(tuned_source_path),
+            "--out",
+            str(tmp_path / "tuned-periodic-model"),
+            "--invocation-key",
+            "2" * 64,
+        )
+        assert (tuned_result.returncode, tuned_result.stderr) == (0, ""), (
+            tuned_result.stdout,
+            tuned_result.stderr,
+        )
+        tuned_build = json.loads(tuned_result.stdout)
+
+        baseline_record = json.loads(
+            _receipt_members(baseline_build)["build-receipt"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_record = json.loads(
+            _receipt_members(tuned_build)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert (
+            baseline_record["kernel_identity"],
+            baseline_record["language_bundle_identity"],
+            baseline_record["package_lock_identity"],
+        ) == (
+            tuned_record["kernel_identity"],
+            tuned_record["language_bundle_identity"],
+            tuned_record["package_lock_identity"],
+        )
+        assert baseline_record["source_identity"] != tuned_record["source_identity"]
+        assert baseline_record["rir_identity"] != tuned_record["rir_identity"]
+        assert (
+            baseline_record["resolved_model_identity"]
+            != tuned_record["resolved_model_identity"]
+        )
+        baseline_rir = json.loads(
+            _receipt_members(baseline_build)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_rir = json.loads(
+            _receipt_members(tuned_build)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+
+        def effect_binding(rir: dict) -> dict:
+            return next(
+                binding
+                for binding in rir["formula_bindings"]
+                if binding["site"]["kind"] == "operation-slot"
+                and binding["site"]["operation"]["id"]
+                == "game.effect.apply-snapshot-periodic-v1"
+            )
+
+        baseline_binding = effect_binding(baseline_rir)
+        tuned_binding = effect_binding(tuned_rir)
+        assert (
+            baseline_binding["formula"]["identity"]
+            != tuned_binding["formula"]["identity"]
+        )
+        assert (
+            baseline_binding["site"]["operation"] == tuned_binding["site"]["operation"]
+        )
+
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        experiment["metrics"][0]["target"] = {"minimum": 0, "maximum": 1000}
+        _bind_experiment_to_build(experiment, baseline_build)
+        baseline_receipt, baseline_trace = _run_experiment_variant(
+            tmp_path,
+            experiment,
+            name="baseline-formula-run",
+            invocation_key="3" * 64,
+        )
+        tuned_experiment = json.loads(json.dumps(experiment))
+        _bind_experiment_to_build(tuned_experiment, tuned_build)
+        tuned_receipt, tuned_trace = _run_experiment_variant(
+            tmp_path,
+            tuned_experiment,
+            name="tuned-formula-run",
+            invocation_key="4" * 64,
+        )
+
+        assert (
+            baseline_trace["experiment_identity"] != tuned_trace["experiment_identity"]
+        )
+        assert (
+            baseline_trace["resolved_runtime_profile_identity"]
+            != tuned_trace["resolved_runtime_profile_identity"]
+        )
+        baseline_profile = json.loads(
+            _receipt_members(baseline_receipt)["resolved-runtime-profile"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_profile = json.loads(
+            _receipt_members(tuned_receipt)["resolved-runtime-profile"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert (
+            baseline_profile["evaluator_manifest_identity"],
+            baseline_profile["runtime_profile_definition_identity"],
+            baseline_profile["runtime_profile"],
+        ) == (
+            tuned_profile["evaluator_manifest_identity"],
+            tuned_profile["runtime_profile_definition_identity"],
+            tuned_profile["runtime_profile"],
+        )
+        assert baseline_trace["content_identity"] != tuned_trace["content_identity"]
+        assert (
+            json.loads(
+                _receipt_members(baseline_receipt)["metric-dataset"].read_text(
+                    encoding="utf-8"
+                )
+            )["content_identity"]
+            != json.loads(
+                _receipt_members(tuned_receipt)["metric-dataset"].read_text(
+                    encoding="utf-8"
+                )
+            )["content_identity"]
+        )
+
+        def terminal_health(trace: dict) -> int:
+            expiry = next(
+                event
+                for event in trace["events"]
+                if event["operation"] == "game.effect.expire-periodic-v1"
+            )
+            return next(
+                row["value"]
+                for row in expiry["state_after"]
+                if row["name"] == "target_health"
+            )
+
+        assert terminal_health(baseline_trace) == 70
+        assert terminal_health(tuned_trace) == 100
+        assert [
+            evaluation["result"]
+            for event in baseline_trace["events"]
+            for evaluation in event["formula_evaluations"]
+            if evaluation["operation"]["package"] == "game.effect"
+        ] == [15]
+        assert [
+            evaluation["result"]
+            for event in tuned_trace["events"]
+            for evaluation in event["formula_evaluations"]
+            if evaluation["operation"]["package"] == "game.effect"
+        ] == [0]
+
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
