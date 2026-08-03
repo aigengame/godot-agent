@@ -2434,6 +2434,95 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     )
 
 
+def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    schedule = deepcopy(
+        next(
+            instruction
+            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            if instruction["node"] == "schedule"
+        )
+    )
+    schedule["site"] = "review-rng-derived-schedule"
+    schedule["operation"] = {
+        "package": "game.resource",
+        "version": "1.0.1",
+        "id": "game.resource.spend-v1",
+    }
+    schedule["arguments"] = [
+        {
+            "port": "resource",
+            "operand": {"kind": "literal", "literal": 100},
+        },
+        {
+            "port": "cost",
+            "operand": {"kind": "local", "local": "hit_roll"},
+        },
+    ]
+    schedule["result"] = {"kind": "local", "name": "review_rng_event"}
+    hit_operation = operations["game.check.hit-v1"]
+    draw_index = next(
+        index
+        for index, instruction in enumerate(hit_operation["body"])
+        if instruction["node"] == "draw"
+    )
+    hit_operation["body"].insert(draw_index + 1, schedule)
+    hit_operation["resource_bounds"]["max_steps"] = 10_000
+    checked = replace(checked, rir=rir)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in artifacts.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    events = values["event-trace"]["events"]
+    catalog = values["snapshot-series"]["event_catalog"]
+    parent_event = next(event for event in events if event["rng_draws"])
+    draw = parent_event["rng_draws"][0]
+    replacement = draw["value"] + 1 if draw["value"] < draw["maximum"] else 1
+    draw["value"] = replacement
+    schedule_trace = next(
+        row
+        for row in parent_event["schedules"]
+        if row["parent_operation"] == "game.check.hit-v1"
+    )
+    next(row for row in schedule_trace["arguments"] if row["name"] == "cost")[
+        "value"
+    ] = replacement
+    scheduled_record = next(
+        row for row in catalog if row["event_id"] == schedule_trace["event_id"]
+    )
+    next(
+        row
+        for row in scheduled_record["event_spec"]["arguments"]
+        if row["name"] == "cost"
+    )["value"] = replacement
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
+        "scheduler"
+    ]["runtime_journal"]["event_spec"]
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_contract["domain"],
+        scheduled_record["event_spec"],
+    )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        events,
+    )
+
+
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
