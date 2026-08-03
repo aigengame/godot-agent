@@ -176,8 +176,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Experiment, observations from their Metrics, and scheduled entries from the committed parent's
   schedule provenance plus the exact RIR call path/site, scheduling Operation, ordering, normalized
   actual arguments, and state references. This provenance covers schedule nodes in a root Operation
-  or any admitted nested Operation and preserves `port`, `local`, and literal operand execution;
-  self-consistent fresh hashes are not Event admission. A growing queue or committed
+  or any admitted nested Operation and preserves `port`, `local`, and literal operand execution.
+  Recovery boundedly replays that admitted RIR path from the committed parent inputs and state to
+  recompute the schedule operands; the trace is evidence to check, not its own value authority.
+  Self-consistent fresh hashes are not Event admission. A growing queue or committed
   prefix is never copied into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is

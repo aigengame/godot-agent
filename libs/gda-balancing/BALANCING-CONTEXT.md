@@ -1110,7 +1110,8 @@ identities; the Snapshot Series stores each complete normalized admitted Event s
 and recovery revalidates its identity plus catalog, commit, and cancellation prefixes to reconstruct
 the exact pending queue. Root, scheduled, and observation catalog entries must also rebind to their
 checked Experiment, committed parent plus exact RIR scheduling Operation/call path/site and
-normalized actual operands, or Metric authority respectively;
+normalized actual operands, or Metric authority respectively. Scheduled operands are independently
+recomputed by boundedly replaying that RIR path from committed parent inputs and state;
 self-consistent fresh hashes do not prove admission (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
@@ -1130,7 +1131,8 @@ committed-trace prefixes, complete last Snapshot, rollback equality, complete re
 specification, terminal condition, exact catalog/trace/resource coordinates, Diagnostic, and
 reproduction receipt close against checked authority. A not-yet-admitted observation must be the
 next Metric at the last Snapshot's logical boundary and enqueue cursor, while attempted Event/node
-steps must close against that Snapshot's resource ledger and applicable Formula/Event charges.
+steps must close against that Snapshot's resource ledger and applicable Formula charges plus the
+current Event charge derived from the exact RIR fault instruction and completed nested-call prefix.
 Member-level wire validity and coordinated
 fresh hashes are insufficient.
 _Avoid_: crash, validation refusal, skipped event

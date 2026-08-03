@@ -2188,6 +2188,63 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     )
 
 
+def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    cast_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    cast_operation["resource_bounds"]["max_steps"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
+    assert audit["budget_counters"]["event_steps"] > 1
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    drifted_audit["budget_counters"]["event_steps"] -= 1
+    drifted_audit["budget_counters"]["node_steps"] -= 1
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
 @pytest.mark.parametrize("schedule_shape", ["local", "nested"])
 def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     tmp_path, run_cli, schedule_shape
@@ -2254,6 +2311,39 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
         name: deepcopy(member.value) for name, member in artifacts.members.items()
     }
     assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    trace_events = values["event-trace"]["events"]
+    catalog = values["snapshot-series"]["event_catalog"]
+    scheduled_record = next(
+        record for record in catalog if record["kind"] == "scheduled-transition"
+    )
+    parent_event = next(
+        event
+        for event in trace_events
+        if any(
+            schedule["event_id"] == scheduled_record["event_id"]
+            for schedule in event["schedules"]
+        )
+    )
+    schedule_trace = next(
+        schedule
+        for schedule in parent_event["schedules"]
+        if schedule["event_id"] == scheduled_record["event_id"]
+    )
+    schedule_trace["arguments"][0]["value"] += 1
+    scheduled_record["event_spec"]["arguments"][0]["value"] += 1
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
+        "scheduler"
+    ]["runtime_journal"]["event_spec"]
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_contract["domain"],
+        scheduled_record["event_spec"],
+    )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        trace_events,
+    )
 
 
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):

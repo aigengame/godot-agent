@@ -100,6 +100,7 @@ class RuntimeRefusalOutcome:
     refusing_event_index: int
     refusing_event_id: str
     refusing_event_spec: dict[str, JsonValue]
+    refusing_attempted_calls: tuple[dict[str, JsonValue], ...]
     refusing_ordering_key: dict[str, JsonValue]
     refusing_snapshot_before_identity: str
     refusing_entrypoint_id: str
@@ -108,6 +109,7 @@ class RuntimeRefusalOutcome:
     refusing_call_path: str
     refusing_call_site_identity: str | None
     refusing_evaluation_site_identity: str | None
+    refusing_instruction_index: int | None
     state_before: dict[str, int]
     state_after: dict[str, int]
 
@@ -121,6 +123,7 @@ class _RuntimeExecutionFault(Exception):
         call_path: tuple[str, ...],
         call_site_identity: str | None,
         evaluation_site_identity: str | None,
+        instruction_index: int | None,
     ) -> None:
         super().__init__(signal)
         self.signal = signal
@@ -128,6 +131,7 @@ class _RuntimeExecutionFault(Exception):
         self.call_path = call_path
         self.call_site_identity = call_site_identity
         self.evaluation_site_identity = evaluation_site_identity
+        self.instruction_index = instruction_index
 
 
 class _InitializationProgramFault(Exception):
@@ -865,6 +869,272 @@ def _committed_event_arguments(
     return arguments, state_references
 
 
+def _replayed_schedule_arguments(
+    checked: CheckedExperiment,
+    parent_event: dict[str, JsonValue],
+    parent_spec: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue],
+) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+    root_arguments = _committed_event_arguments(checked, parent_event, parent_spec)
+    parent_operation_id = parent_event.get("operation")
+    if root_arguments is None or not isinstance(parent_operation_id, str):
+        return None
+    operations = {
+        cast(str, row["definition"]["id"]): row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
+    root_operation = operations.get(parent_operation_id)
+    if root_operation is None:
+        return None
+    declarations = _resolved_declarations(checked)
+    display_names = _resolved_display_names(declarations)
+    state = {
+        identity: cast(int, values_by_name[display_name])
+        for identity, display_name in display_names.items()
+        if display_name
+        in (
+            values_by_name := {
+                cast(str, row["name"]): row["value"]
+                for row in cast(
+                    list[dict[str, JsonValue]], parent_event["state_before"]
+                )
+            }
+        )
+    }
+    fact_values = _event_fact_values(parent_event)
+    actual_values = {
+        identity: fact_values[display_name]
+        for identity, display_name in display_names.items()
+        if display_name in fact_values
+    }
+    calls = cast(list[dict[str, JsonValue]], parent_event["calls"])
+    schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
+    draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
+    draw_index = 0
+    numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
+    node_contracts = _runtime_nodes(checked)
+    schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
+
+    def execute(
+        operation: dict[str, Any],
+        arguments: dict[str, JsonValue],
+        state_references: dict[str, dict[str, JsonValue]],
+        call_path: tuple[str, ...],
+    ) -> tuple[
+        str,
+        JsonValue,
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
+    ]:
+        nonlocal draw_index
+        operation_before = dict(state)
+        variables: dict[str, Any] = dict(arguments)
+        extensions = operation.get("extensions", {})
+        snapshot_operands = (
+            extensions.get("standard.snapshot-operands")
+            if isinstance(extensions, dict)
+            else None
+        )
+        if isinstance(snapshot_operands, dict):
+            for row in cast(
+                list[dict[str, Any]], snapshot_operands.get("operands", [])
+            ):
+                identity = canonical_bytes(cast(JsonValue, row["resolved_symbol"]))
+                if identity not in actual_values:
+                    return "", None, None
+                variables[cast(str, row["name"])] = actual_values[identity]
+        operation_results: dict[str, JsonValue] = {}
+        outcome = cast(str, operation["default_outcome"])
+        for instruction in cast(list[dict[str, Any]], operation["body"]):
+            node_contract = node_contracts[instruction["node"]]
+            operator = node_contract["semantics"]["operator"]
+            if operator == "invoke-operation":
+                child = operations.get(cast(str, instruction["operation"]["id"]))
+                if child is None:
+                    return "", None, None
+                child_arguments: dict[str, JsonValue] = {}
+                child_state_references: dict[str, dict[str, JsonValue]] = {}
+                for binding in instruction["arguments"]:
+                    operand = binding["operand"]
+                    name = cast(str, binding["port"])
+                    if operand["kind"] == "port":
+                        source = cast(str, operand["port"])
+                        child_arguments[name] = cast(JsonValue, variables[source])
+                        if source in state_references:
+                            child_state_references[name] = state_references[source]
+                    elif operand["kind"] == "local":
+                        child_arguments[name] = cast(
+                            JsonValue, variables[operand["local"]]
+                        )
+                    else:
+                        child_arguments[name] = cast(JsonValue, operand["literal"])
+                child_path = (*call_path, cast(str, instruction["site"]))
+                child_outcome, child_result, found = execute(
+                    child,
+                    child_arguments,
+                    child_state_references,
+                    child_path,
+                )
+                if found is not None:
+                    return "", None, found
+                call = next(
+                    (
+                        row
+                        for row in calls
+                        if row["site"] == "/".join(child_path)
+                        and cast(dict[str, JsonValue], row["operation"])["id"]
+                        == child["id"]
+                    ),
+                    None,
+                )
+                if (
+                    call is None
+                    or cast(dict[str, JsonValue], call["outcome"])["id"]
+                    != child_outcome
+                ):
+                    return "", None, None
+                result_binding = instruction["result"]
+                if result_binding["kind"] == "local":
+                    variables[result_binding["name"]] = child_result
+                elif result_binding["kind"] == "operation-result":
+                    operation_results[instruction["site"]] = child_result
+                for alias, target in state_references.items():
+                    variables[alias] = state[canonical_bytes(cast(JsonValue, target))]
+                mapping = next(
+                    row
+                    for row in instruction["outcomes"]
+                    if row["outcome"] == child_outcome
+                )
+                if mapping["action"]["kind"] == "propagate":
+                    outcome = cast(str, mapping["action"]["outcome"])
+                    break
+                continue
+            if operator == "schedule-operation":
+                child_arguments = {}
+                child_state_references = {}
+                for binding in instruction["arguments"]:
+                    operand = binding["operand"]
+                    name = cast(str, binding["port"])
+                    if operand["kind"] == "port":
+                        source = cast(str, operand["port"])
+                        child_arguments[name] = cast(JsonValue, variables[source])
+                        if source in state_references:
+                            child_state_references[name] = state_references[source]
+                    elif operand["kind"] == "local":
+                        child_arguments[name] = cast(
+                            JsonValue, variables[operand["local"]]
+                        )
+                    else:
+                        child_arguments[name] = cast(JsonValue, operand["literal"])
+                call_site_identity = content_identity(
+                    cast(str, schedule_identity["domain"]),
+                    cast(
+                        JsonValue,
+                        {
+                            "parent_event_id": parent_event["event_id"],
+                            "parent_operation": operation["id"],
+                            "site": instruction["site"],
+                            "operation": instruction["operation"],
+                        },
+                    ),
+                )
+                if (
+                    target_schedule["call_site_identity"] == call_site_identity
+                    and target_schedule["call_path"] == "/".join(call_path)
+                ):
+                    return "", None, (child_arguments, child_state_references)
+                scheduled = next(
+                    (
+                        row
+                        for row in schedules
+                        if row["call_site_identity"] == call_site_identity
+                        and row["call_path"] == "/".join(call_path)
+                    ),
+                    None,
+                )
+                if scheduled is None:
+                    return "", None, None
+                variables[instruction["result"]["name"]] = scheduled["event_id"]
+                continue
+            if operator == "cancel-event":
+                continue
+            if operator == "gameplay-precondition":
+                if not _integer_compare(
+                    node_contract["semantics"]["comparison"],
+                    cast(int, variables[instruction["left"]]),
+                    cast(int, variables[instruction["right"]]),
+                ):
+                    outcome = cast(str, instruction["outcome"])
+                    break
+            elif operator == "named-integer-draw":
+                if draw_index >= len(draws):
+                    return "", None, None
+                draw = draws[draw_index]
+                draw_index += 1
+                if (
+                    draw["stream"] != instruction["stream"]
+                    or draw["minimum"] != instruction["minimum"]
+                    or draw["maximum"] != instruction["maximum"]
+                ):
+                    return "", None, None
+                variables[instruction["target"]] = draw["value"]
+            elif node_contract["family"] == "expression":
+                _execute_value_instruction(
+                    instruction,
+                    variables,
+                    numeric,
+                    node_contract,
+                )
+            elif operator in {"state-integer-subtract", "state-write"}:
+                formal = cast(str, instruction["symbol"])
+                target = canonical_bytes(cast(JsonValue, state_references[formal]))
+                state[target] = _admit_numeric(
+                    state[target] - cast(int, variables[instruction["value"]])
+                    if operator == "state-integer-subtract"
+                    else cast(int, variables[instruction["value"]]),
+                    numeric,
+                )
+                for alias, alias_target in state_references.items():
+                    if canonical_bytes(cast(JsonValue, alias_target)) == target:
+                        variables[alias] = state[target]
+            else:
+                return "", None, None
+        outcome_definition = next(
+            row for row in operation["outcomes"] if row["id"] == outcome
+        )
+        if outcome_definition["state_policy"] == "rollback":
+            state.clear()
+            state.update(operation_before)
+        result_source = operation["result"]["source"]
+        if outcome_definition["kind"] != "success":
+            result: JsonValue = None
+        elif result_source["kind"] in {"local", "port"}:
+            result = cast(JsonValue, variables[result_source["name"]])
+        elif result_source["kind"] == "operation-result":
+            result = operation_results[result_source["site"]]
+        else:
+            result = None
+        return outcome, result, None
+
+    root_state_references = {
+        name: target for name, target in root_arguments[1].items()
+    }
+    root_path = (
+        cast(str, cast(dict[str, JsonValue], parent_event["entrypoint"])["id"]),
+    ) if parent_event.get("entrypoint") is not None else (
+        f"scheduled:{parent_spec['call_site_identity']}",
+    )
+    try:
+        _outcome, _result, found = execute(
+            root_operation,
+            root_arguments[0],
+            root_state_references,
+            root_path,
+        )
+    except (KeyError, OverflowError, StopIteration, TypeError, ValueError):
+        return None
+    return found
+
+
 def _scheduled_catalog_record_is_authoritative(
     checked: CheckedExperiment,
     record: dict[str, JsonValue],
@@ -959,6 +1229,23 @@ def _scheduled_catalog_record_is_authoritative(
     if len(matching_instructions) != 1:
         return False
     instruction = matching_instructions[0]
+    replayed_arguments = _replayed_schedule_arguments(
+        checked,
+        parent_event,
+        parent_spec,
+        schedule,
+    )
+    if replayed_arguments is None:
+        return False
+    replayed_values, replayed_state_references = replayed_arguments
+    expected_argument_rows = [
+        {"name": name, "value": value}
+        for name, value in sorted(replayed_values.items())
+    ]
+    expected_state_reference_rows = [
+        {"name": name, "target": target}
+        for name, target in sorted(replayed_state_references.items())
+    ]
     scheduled_argument_rows = cast(
         list[dict[str, JsonValue]], schedule["arguments"]
     )
@@ -1025,13 +1312,8 @@ def _scheduled_catalog_record_is_authoritative(
         == _scheduler_contract(checked)["schedule"]["child_phase"]
         and ordering_key["priority"] == instruction["priority"]
         and event_spec["zero_time_depth"] == expected_zero_time_depth
-        and scheduled_argument_rows
-        == sorted(scheduled_argument_rows, key=lambda row: cast(str, row["name"]))
-        and scheduled_state_reference_rows
-        == sorted(
-            scheduled_state_reference_rows,
-            key=lambda row: cast(str, row["name"]),
-        )
+        and scheduled_argument_rows == expected_argument_rows
+        and scheduled_state_reference_rows == expected_state_reference_rows
     )
 
 
@@ -2427,6 +2709,7 @@ def runtime_terminal_audit_members(
                     "index": outcome.refusing_event_index,
                     "event_id": outcome.refusing_event_id,
                     "event_spec": outcome.refusing_event_spec,
+                    "attempted_calls": list(outcome.refusing_attempted_calls),
                     "ordering_key": outcome.refusing_ordering_key,
                     "snapshot_before_identity": (
                         outcome.refusing_snapshot_before_identity
@@ -2441,6 +2724,7 @@ def runtime_terminal_audit_members(
                     "evaluation_site_identity": (
                         outcome.refusing_evaluation_site_identity
                     ),
+                    "instruction_index": outcome.refusing_instruction_index,
                     "reason": diagnostic.code,
                 },
                 "rollback": {
@@ -2853,8 +3137,10 @@ def _runtime_refusal_outcome(
     call_path: tuple[str, ...],
     call_site_identity: str | None,
     evaluation_site_identity: str | None,
+    instruction_index: int | None,
     refusing_event_id: str,
     refusing_event_spec: dict[str, JsonValue],
+    refusing_attempted_calls: list[dict[str, JsonValue]],
     refusing_ordering_key: dict[str, JsonValue],
     refusing_snapshot_before_identity: str,
     state_before: dict[str, int],
@@ -2882,6 +3168,9 @@ def _runtime_refusal_outcome(
         refusing_event_index=len(events),
         refusing_event_id=refusing_event_id,
         refusing_event_spec=deepcopy(refusing_event_spec),
+        refusing_attempted_calls=tuple(
+            deepcopy(call) for call in refusing_attempted_calls
+        ),
         refusing_ordering_key=dict(refusing_ordering_key),
         refusing_snapshot_before_identity=refusing_snapshot_before_identity,
         refusing_entrypoint_id=entrypoint_id,
@@ -2890,6 +3179,7 @@ def _runtime_refusal_outcome(
         refusing_call_path="/".join(call_path),
         refusing_call_site_identity=call_site_identity,
         refusing_evaluation_site_identity=evaluation_site_identity,
+        refusing_instruction_index=instruction_index,
         state_before=dict(state_before),
         state_after=dict(state_before),
     )
@@ -3229,6 +3519,7 @@ def evaluate_experiment(
                         call_path=call_path,
                         call_site_identity=call_site_identity,
                         evaluation_site_identity=evaluation_site_identity,
+                        instruction_index=instruction_index,
                     )
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
@@ -3346,6 +3637,7 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=schedule_call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
                         )
 
                     child_phase = cast(str, scheduler["schedule"]["child_phase"])
@@ -3442,6 +3734,7 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
                         )
                     target_event_id = variables[target["local"]]
                     target_status = (
@@ -3476,6 +3769,7 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
                         )
                     cancel_identity = _scheduler_contract(checked)[
                         "call_site_identity"
@@ -3543,6 +3837,7 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
                         ) from error
                 elif operator in {"state-integer-subtract", "state-write"}:
                     formal = instruction["symbol"]
@@ -3561,6 +3856,7 @@ def evaluate_experiment(
                             call_path=call_path,
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
                         ) from error
                     for alias, alias_actual in state_references.items():
                         if alias_actual == actual:
@@ -3674,6 +3970,7 @@ def evaluate_experiment(
                         call_path=dispatch_path,
                         call_site_identity=None,
                         evaluation_site_identity=fault.evaluation_site_identity,
+                        instruction_index=None,
                     )
             if external_input:
                 for fact in event_spec["facts"]:
@@ -3767,8 +4064,10 @@ def evaluate_experiment(
                     call_path=fault.call_path,
                     call_site_identity=fault.call_site_identity,
                     evaluation_site_identity=fault.evaluation_site_identity,
+                    instruction_index=fault.instruction_index,
                     refusing_event_id=event_id,
                     refusing_event_spec=_pending_event_projection(event_spec),
+                    refusing_attempted_calls=call_trace,
                     refusing_ordering_key=cast(
                         dict[str, JsonValue],
                         {
@@ -4002,8 +4301,10 @@ def evaluate_experiment(
                     call_path=dispatch_path,
                     call_site_identity=None,
                     evaluation_site_identity=fault.evaluation_site_identity,
+                    instruction_index=None,
                     refusing_event_id=event_id,
                     refusing_event_spec=_pending_event_projection(event_spec),
+                    refusing_attempted_calls=call_trace,
                     refusing_ordering_key=cast(
                         dict[str, JsonValue],
                         {
@@ -4091,8 +4392,10 @@ def evaluate_experiment(
                     call_path=("observation", cast(str, metric["id"])),
                     call_site_identity=None,
                     evaluation_site_identity=None,
+                    instruction_index=None,
                     refusing_event_id=observation_event_id,
                     refusing_event_spec=observation_event_spec,
+                    refusing_attempted_calls=[],
                     refusing_ordering_key=observation_ordering_key,
                     refusing_snapshot_before_identity=current_snapshot_identity,
                     state_before={
@@ -4831,6 +5134,190 @@ def _formula_charge_through_evaluation_site(
     return None
 
 
+def _attempted_operation_charge(
+    checked: CheckedExperiment,
+    refusing_event: dict[str, Any],
+    refusing_event_spec: dict[str, Any],
+) -> int | None:
+    evaluation_site_identity = refusing_event.get("evaluation_site_identity")
+    target_instruction_index = refusing_event.get("instruction_index")
+    target_path = refusing_event.get("call_path")
+    if (
+        not isinstance(target_path, str)
+        or not isinstance(target_instruction_index, int)
+        and not isinstance(evaluation_site_identity, str)
+    ):
+        return None
+    operations = {
+        cast(str, row["definition"]["id"]): row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
+    if refusing_event_spec["kind"] == "transition-invocation":
+        entrypoint = next(
+            (
+                row
+                for row in checked.rir["entrypoints"]
+                if row["id"] == refusing_event_spec["entrypoint"]
+            ),
+            None,
+        )
+        root_operation_id = (
+            cast(str, entrypoint["operation"]["id"])
+            if entrypoint is not None
+            else None
+        )
+    elif refusing_event_spec["kind"] == "scheduled-transition":
+        root_operation_id = cast(str, refusing_event_spec["operation"])
+    else:
+        return None
+    root_operation = operations.get(root_operation_id) if root_operation_id else None
+    if root_operation is None:
+        return None
+    root_path = target_path.split("/", 1)[0]
+    calls = cast(list[dict[str, JsonValue]], refusing_event["attempted_calls"])
+    used_calls: set[int] = set()
+    node_contracts = _runtime_nodes(checked)
+
+    def evaluation_sites(operation: dict[str, Any]) -> dict[int, str]:
+        extensions = operation.get("extensions")
+        if not isinstance(extensions, dict):
+            return {}
+        provenance = extensions.get("standard.instruction-provenance")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("kind") != "instruction-evaluation-sites"
+            or not isinstance(provenance.get("sites"), list)
+        ):
+            return {}
+        return {
+            cast(int, row["instruction_index"]): cast(
+                str, row["evaluation_site_identity"]
+            )
+            for row in cast(list[dict[str, Any]], provenance["sites"])
+        }
+
+    def completed_charge(
+        operation: dict[str, Any],
+        call_path: str,
+        expected_outcome: str,
+    ) -> int | None:
+        charge = 0
+        outcome = cast(str, operation["default_outcome"])
+        for instruction in cast(list[dict[str, Any]], operation["body"]):
+            charge += cast(
+                int, node_contracts[instruction["node"]]["resource_charge"]["amount"]
+            )
+            operator = node_contracts[instruction["node"]]["semantics"]["operator"]
+            if operator == "invoke-operation":
+                child_path = f"{call_path}/{instruction['site']}"
+                call_rows = [
+                    (index, row)
+                    for index, row in enumerate(calls)
+                    if row["site"] == child_path
+                    and cast(dict[str, JsonValue], row["operation"])["id"]
+                    == instruction["operation"]["id"]
+                ]
+                if len(call_rows) != 1:
+                    return None
+                call_index, call = call_rows[0]
+                child = operations.get(cast(str, instruction["operation"]["id"]))
+                if child is None:
+                    return None
+                child_outcome = cast(
+                    str, cast(dict[str, JsonValue], call["outcome"])["id"]
+                )
+                child_charge = completed_charge(child, child_path, child_outcome)
+                if child_charge is None:
+                    return None
+                used_calls.add(call_index)
+                charge += child_charge
+                mapping = next(
+                    (
+                        row
+                        for row in instruction["outcomes"]
+                        if row["outcome"] == child_outcome
+                    ),
+                    None,
+                )
+                if mapping is None:
+                    return None
+                if mapping["action"]["kind"] == "propagate":
+                    outcome = cast(str, mapping["action"]["outcome"])
+                    break
+            elif (
+                operator == "gameplay-precondition"
+                and instruction["outcome"] == expected_outcome
+            ):
+                outcome = expected_outcome
+                break
+        return charge if outcome == expected_outcome else None
+
+    def charge_to_target(
+        operation: dict[str, Any],
+        call_path: str,
+    ) -> int | None:
+        charge = 0
+        sites = evaluation_sites(operation)
+        for instruction_index, instruction in enumerate(operation["body"]):
+            charge += cast(
+                int, node_contracts[instruction["node"]]["resource_charge"]["amount"]
+            )
+            if (
+                call_path == target_path
+                and operation["id"] == refusing_event["operation"]
+                and (
+                    instruction_index == target_instruction_index
+                    if isinstance(target_instruction_index, int)
+                    else sites.get(instruction_index) == evaluation_site_identity
+                )
+            ):
+                return charge
+            operator = node_contracts[instruction["node"]]["semantics"]["operator"]
+            if operator != "invoke-operation":
+                continue
+            child_path = f"{call_path}/{instruction['site']}"
+            child = operations.get(cast(str, instruction["operation"]["id"]))
+            if child is None:
+                return None
+            if target_path == child_path or target_path.startswith(f"{child_path}/"):
+                child_charge = charge_to_target(child, child_path)
+                return charge + child_charge if child_charge is not None else None
+            call_rows = [
+                (index, row)
+                for index, row in enumerate(calls)
+                if row["site"] == child_path
+                and cast(dict[str, JsonValue], row["operation"])["id"]
+                == child["id"]
+            ]
+            if len(call_rows) != 1:
+                return None
+            call_index, call = call_rows[0]
+            child_outcome = cast(
+                str, cast(dict[str, JsonValue], call["outcome"])["id"]
+            )
+            child_charge = completed_charge(child, child_path, child_outcome)
+            if child_charge is None:
+                return None
+            used_calls.add(call_index)
+            charge += child_charge
+            mapping = next(
+                (
+                    row
+                    for row in instruction["outcomes"]
+                    if row["outcome"] == child_outcome
+                ),
+                None,
+            )
+            if mapping is None or mapping["action"]["kind"] == "propagate":
+                return None
+        return None
+
+    attempted_charge = charge_to_target(root_operation, root_path)
+    if attempted_charge is None or used_calls != set(range(len(calls))):
+        return None
+    return attempted_charge
+
+
 def _terminal_audit_is_valid(
     checked: CheckedExperiment,
     audit: dict[str, Any],
@@ -5233,9 +5720,14 @@ def _terminal_audit_is_valid(
             cast(int, ledger["node_steps"]) + event_formula_fault_charge
         )
     else:
-        if budget["event_steps"] <= 0:
+        attempted_operation_charge = _attempted_operation_charge(
+            checked,
+            refusing_event,
+            refusing_event_spec,
+        )
+        if attempted_operation_charge is None:
             return False
-        exact_event_steps = cast(int, budget["event_steps"])
+        exact_event_steps = attempted_operation_charge
         exact_node_steps = (
             cast(int, ledger["node_steps"])
             + event_formula_charge

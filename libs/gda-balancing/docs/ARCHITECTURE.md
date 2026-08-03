@@ -718,8 +718,9 @@ identity, and cross-bind the Event Trace used to revalidate every catalog/commit
 and reconstruct the exact pending queue. Catalog admission independently re-derives roots from the
 Experiment, observations from Metrics, and scheduled Events from committed parent provenance and
 the exact RIR scheduling Operation, nested call path/site, normalized actual arguments, and state
-references. Port, local, and literal schedule operands use this same provenance; coordinated
-re-hashing cannot invent a different queue.
+references. Recovery boundedly replays the admitted RIR path from the committed parent inputs and
+state, so port, local, and literal schedule operands are recomputed rather than trusted from the
+trace; coordinated re-hashing cannot invent a different queue.
 Snapshot Series do not duplicate growing pending or completed arrays at every boundary.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
@@ -771,8 +772,9 @@ Recovery revalidates the set's internal Event-catalog/trace/Snapshot/state/rollb
 Diagnostic closure as well as member identities. The audit materializes its exact catalog prefix,
 complete last Snapshot, and refusing Event specification so recovery can re-derive Event admission,
 recompute continuation journals and the Snapshot identity, bind a derived observation refusal to
-the next Metric/enqueue cursor, and close attempted steps against the committed resource ledger; a
-wire-valid, re-hashed cross-field mutation is not an authoritative refusal.
+the next Metric/enqueue cursor, and derive the refusing Event's exact charge from its RIR fault
+instruction plus completed nested-call prefix before closing attempted steps against the committed
+resource ledger; a wire-valid, re-hashed cross-field mutation is not an authoritative refusal.
 
 An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
 `runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric
