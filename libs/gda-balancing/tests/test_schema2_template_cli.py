@@ -907,7 +907,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.1.0",
                 "content_identity": (
-                    "sha256:d245d9018850d278298a6d6210be0a6ebd8cbcd16941caf163e6eaacf1df308e"
+                    "sha256:4ed1dd6ae181d4e3f1d7e8e4a0ffefb52c7f1dc8893aa044b47bf1d640c0a934"
                 ),
             }
         ]
@@ -2389,12 +2389,12 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         for row in game_module["symbols"]
         if row["symbol"]
         in {
-            "actor_mana",
-            "action_cost",
-            "base_damage",
-            "critical_threshold",
-            "target_defense",
-            "target_health",
+            "enemy_defense",
+            "enemy_health",
+            "player_action_cost",
+            "player_base_damage",
+            "player_critical_threshold",
+            "player_mana",
         }
     ]
     module["symbols"].extend([*added_symbols, game_derived])
@@ -2481,14 +2481,13 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
     entrypoints = [
         _replace_json_value(deepcopy(entrypoint), "combat", "main")
         for entrypoint in game_source["entrypoints"]
+        if entrypoint["id"] == "combat.player-attacks-enemy"
     ]
     for entrypoint in entrypoints:
         next(row for row in entrypoint["arguments"] if row["port"] == "accuracy")[
             "operand"
         ]["symbol"] = "game_effective_accuracy"
-    next(entrypoint for entrypoint in entrypoints if entrypoint["id"] == "combat.cast")[
-        "result"
-    ]["symbol"] = "output_value"
+    entrypoints[0]["result"]["symbol"] = "output_value"
     extended["entrypoints"] = entrypoints
     extended["package_requirements"] = deepcopy(game_source["package_requirements"])
     source_path.write_text(json.dumps(extended), encoding="utf-8")
@@ -2541,11 +2540,28 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         "rir_identity": final_rir["content_identity"],
     }
     scenario = experiment["scenarios"][0]
+    scenario["event_plan"] = scenario["event_plan"][:1]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
+    retained_assignments = {
+        "enemy_defense",
+        "enemy_health",
+        "player_accuracy",
+        "player_action_cost",
+        "player_base_damage",
+        "player_critical_threshold",
+        "player_mana",
+    }
+    scenario["assignments"] = [
+        assignment
+        for assignment in scenario["assignments"]
+        if assignment["target"]["name"] in retained_assignments
+    ]
     for assignment in scenario["assignments"]:
         assignment["target"]["model"] = "example.template-game"
         assignment["target"]["module"] = "main"
-        if assignment["target"]["name"] == "accuracy":
+        if assignment["target"]["name"] == "player_accuracy":
             assignment["target"]["name"] = "value"
+            assignment["value"] = 25
     for event in scenario["event_plan"]:
         for fact in event.get("facts", []):
             fact["target"]["model"] = "example.template-game"
@@ -2553,8 +2569,18 @@ def test_instantiated_starter_extends_to_a_game_owned_formula_and_experiment(
         for item in event.get("payload", []):
             item["target"]["model"] = "example.template-game"
             item["target"]["module"] = "main"
+    experiment["metrics"] = [
+        metric
+        for metric in experiment["metrics"]
+        if metric["id"]
+        in {
+            "enemy_health_remaining",
+            "player_damage_dealt",
+            "player_resource_remaining",
+        }
+    ]
     for metric in experiment["metrics"]:
-        if metric["observation"]["member"] == "damage_dealt":
+        if metric["observation"]["member"] == "player_damage_dealt":
             metric["observation"]["member"] = "output_value"
     experiment_path = tmp_path / "template-game-experiment.json"
     experiment_path.write_text(json.dumps(experiment), encoding="utf-8")

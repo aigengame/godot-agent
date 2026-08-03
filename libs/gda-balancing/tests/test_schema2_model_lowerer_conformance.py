@@ -2727,6 +2727,7 @@ def _reference_entrypoints(
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
         event_payload_targets: dict[str, dict[str, Any]] = {}
+        event_reference_targets: dict[str, dict[str, Any]] = {}
         external_fact_targets: dict[str, dict[str, Any]] = {}
 
         def record_external_fact_target(
@@ -2938,6 +2939,47 @@ def _reference_entrypoints(
                         domains["actual_operand"], operand_body
                     ),
                 }
+            elif operand["kind"] == "event-reference":
+                event_reference_contract = checked.kernel["meta_format"][
+                    "runtime_program"
+                ]["fixed_value_contracts"]["kernel-event-reference"]
+                name = operand["name"]
+                if formal["access"] != "read" or not (
+                    _reference_operation_contract_matches(
+                        event_reference_contract,
+                        formal,
+                    )
+                ):
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "Event reference is incompatible",
+                    )
+                operand_body = {
+                    "kind": "event-reference",
+                    "name": name,
+                }
+                operand_identity = _reference_content_identity(
+                    domains["actual_operand"], operand_body
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (formal["id"], formal["access"])
+                )
+                reference_contract = {
+                    "name": name,
+                    "operand_identity": operand_identity,
+                    "cardinality": "required",
+                }
+                previous_reference = event_reference_targets.get(name)
+                if (
+                    previous_reference is not None
+                    and previous_reference != reference_contract
+                ):
+                    raise ValueError("conflicting Event reference targets")
+                event_reference_targets[name] = reference_contract
             else:
                 raise _ReferenceEntrypointError(
                     operand_pointer,
@@ -3017,7 +3059,11 @@ def _reference_entrypoints(
                 "targets": sorted(
                     event_payload_targets.values(),
                     key=lambda row: row["target_identity"],
-                )
+                ),
+                "event_references": sorted(
+                    event_reference_targets.values(),
+                    key=lambda row: row["name"],
+                ),
             },
             "external_fact_contract": {
                 "targets": sorted(
@@ -3988,8 +4034,12 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     assert [
         entrypoint["id"]
         for entrypoint in cast(list[dict[str, Any]], rir["entrypoints"])
-    ] == ["combat.cast", "combat.plan-casts"]
-    assert len(cast(list[Any], rir["call_sites"])) == 4
+    ] == [
+        "combat.enemy-attacks-player",
+        "combat.player-attacks-enemy",
+        "combat.player-attacks-enemy-and-cancels-counterattack",
+    ]
+    assert len(cast(list[Any], rir["call_sites"])) == 5
     assert admit_resolved_model(
         {
             name: reference[name]
