@@ -30,6 +30,9 @@ from schema2_scheduler_production_support import (
 )
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+_PERIODIC_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
+)
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
@@ -948,6 +951,42 @@ def _reference_evaluate_value_program_vector(
     }
 
 
+def _reference_evaluate_formula_document(
+    formula: dict[str, Any], arguments: list[dict[str, Any]]
+) -> int:
+    values = {row["parameter"]: row["value"] for row in arguments}
+
+    def operand_value(operand: dict[str, Any]) -> int:
+        if operand["kind"] == "parameter":
+            return values[operand["parameter"]]
+        if operand["kind"] == "local":
+            return values[operand["local"]]
+        assert operand["kind"] == "literal"
+        return operand["value"]
+
+    for node in formula["body"]["nodes"]:
+        operands = {
+            argument["port"]: operand_value(argument["operand"])
+            for argument in node["arguments"]
+        }
+        operation = node["operation"]["id"]
+        if operation == "quantity.add":
+            result = operands["left"] + operands["right"]
+        elif operation == "quantity.subtract":
+            result = operands["left"] - operands["right"]
+        elif operation == "quantity.multiply":
+            result = operands["left"] * operands["right"]
+        elif operation == "quantity.maximum":
+            result = max(operands["left"], operands["right"])
+        else:
+            assert operation == "quantity.floor-zero"
+            result = max(operands["value"], 0)
+        assert -(1 << 63) <= result <= (1 << 63) - 1
+        values[node["id"]] = result
+
+    return operand_value(formula["body"]["result"])
+
+
 @dataclass(frozen=True)
 class _ReferenceSchedulerMutation:
     accept_backward: bool = False
@@ -1329,6 +1368,40 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     spec_path = tmp_path / "experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     return spec_path
+
+
+def _write_built_periodic_experiment(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_PERIODIC_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-periodic-model.json"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = json.loads(
+        (_PERIODIC_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    specification["kernel_identity"] = build_record["kernel_identity"]
+    specification["language_bundle_identity"] = build_record[
+        "language_bundle_identity"
+    ]
+    specification["model"] = {
+        "source_identity": build_record["source_identity"],
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
+    specification_path = tmp_path / "periodic-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path, build_receipt
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
@@ -6980,6 +7053,227 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
     ).removeprefix("sha256:")
     assert not (store / "invocations" / descriptor_key / key).exists()
     assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "after-member-write",
+        "before-commit",
+        "before-anchor-commit",
+        "after-commit",
+    ],
+)
+def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
+    tmp_path, run_cli, monkeypatch, fault
+):
+    specification, _build_receipt = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
+    out = tmp_path / f"periodic-{fault}.json"
+    key = "8" * 64
+    argv = [
+        "experiment",
+        "run",
+        str(specification),
+        "--out",
+        str(out),
+        "--invocation-key",
+        key,
+    ]
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault=fault
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(argv, registry=(faulting,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    if fault == "after-commit":
+
+        def evaluator_must_not_run(_checked):
+            raise AssertionError("Invocation-key recovery reran the periodic evaluator")
+
+        monkeypatch.setattr(
+            experiment_command_module,
+            "evaluate_experiment",
+            evaluator_must_not_run,
+        )
+    else:
+        store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+        descriptor_key = descriptor_identity(
+            experiment_command_module.EXPERIMENT_RUN
+        ).removeprefix("sha256:")
+        assert not (store / "invocations" / descriptor_key / key).exists()
+        assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
+
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        argv,
+        registry=(experiment_command_module.EXPERIMENT_RUN,),
+    )
+
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    recovered = json.loads(recovered_stdout)
+    assert recovered["invocation_key"] == key
+    trace = _member(recovered, "event-trace")
+    lifecycle = [
+        event["entrypoint"]["id"]
+        if event.get("entrypoint") is not None
+        else event["operation"]
+        for event in trace["events"]
+        if event["ordering_key"]["phase"] == "transition"
+        and event["operation"].startswith("game.effect.")
+    ]
+    assert lifecycle == [
+        "effect.apply-snapshot-periodic",
+        "game.effect.tick-snapshot-periodic-v1",
+        "game.effect.tick-snapshot-periodic-v1",
+        "game.effect.expire-periodic-v1",
+    ]
+    formula_evaluations = [
+        evaluation
+        for event in trace["events"]
+        for evaluation in event["formula_evaluations"]
+    ]
+    assert [evaluation["result"] for evaluation in formula_evaluations] == [15]
+    assert out.exists()
+
+
+def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
+    tmp_path, run_cli
+):
+    specification, build_receipt = _write_built_periodic_experiment(
+        tmp_path, run_cli
+    )
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "independent-periodic-evaluation.json"),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+    assert (exit_code, stderr) == (0, "")
+
+    receipt = json.loads(stdout)
+    rir = _member(build_receipt, "rir-semantic-payload")
+    trace = _member(receipt, "event-trace")
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    metrics = _member(receipt, "metric-dataset")["samples"]
+    lifecycle = [
+        event
+        for event in trace["events"]
+        if event["ordering_key"]["phase"] == "transition"
+        and event["operation"].startswith("game.effect.")
+    ]
+    assert len(lifecycle) == 4
+    apply_event, *children = lifecycle
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    apply_operation = operations[apply_event["operation"]]
+    periodic = apply_operation["extensions"]["game.effect.periodic"]
+    timing = periodic["timing"]
+    independently_derived_tick_times = list(
+        range(timing["period"], timing["duration"], timing["period"])
+    )
+    assert timing["tick_times"] == independently_derived_tick_times == [1, 2]
+    assert timing["expiry_time"] == timing["duration"] == 3
+
+    evaluation = apply_event["formula_evaluations"][0]
+    binding = next(
+        row
+        for row in rir["formula_bindings"]
+        if row["identity"] == evaluation["binding_identity"]
+    )
+    formula = next(
+        row
+        for row in rir["formulas"]
+        if row["identity"] == evaluation["formula"]["identity"]
+    )
+    assert binding["site"] == {
+        "kind": "operation-slot",
+        "operation": evaluation["operation"],
+        "slot": evaluation["slot"],
+        "context": evaluation["context"],
+        "identity": evaluation["evaluation_site_identity"],
+    }
+    assert evaluation["frame_identity"] == apply_event["snapshot_before_identity"]
+    magnitude = _reference_evaluate_formula_document(
+        formula, evaluation["arguments"]
+    )
+    assert magnitude == evaluation["result"] == 15
+
+    policy = periodic["magnitude"]["policy"]
+    expected_schedule = [
+        (logical_time, f"game.effect.tick-{policy}-periodic-v1")
+        for logical_time in independently_derived_tick_times
+    ] + [(timing["expiry_time"], "game.effect.expire-periodic-v1")]
+    assert [
+        (row["ordering_key"]["logical_time"], row["operation"]["id"])
+        for row in apply_event["schedules"]
+    ] == expected_schedule
+    for scheduled, child in zip(apply_event["schedules"], children, strict=True):
+        assert child["event_id"] == scheduled["event_id"]
+        assert child["parent_event_id"] == apply_event["event_id"]
+        assert child["schedule_call_site_identity"] == scheduled[
+            "call_site_identity"
+        ]
+        assert child["ordering_key"] == scheduled["ordering_key"]
+        assert child["operation"] == scheduled["operation"]["id"]
+
+    reference_state = {
+        row["name"]: row["value"] for row in apply_event["state_before"]
+    }
+    instance = apply_event["rng_draws"][0]
+    instance_contract = periodic["instance"]
+    assert instance["stream"] == instance_contract["stream"]
+    assert instance_contract["minimum"] <= instance["value"] <= instance_contract[
+        "maximum"
+    ]
+    reference_state["effect_active"] = 1
+    reference_state["effect_instance_id"] = instance["value"]
+    assert apply_event["state_after"] == [
+        {"name": name, "value": value}
+        for name, value in sorted(reference_state.items())
+    ]
+    for child in children:
+        assert child["state_before"] == [
+            {"name": name, "value": value}
+            for name, value in sorted(reference_state.items())
+        ]
+        if child["operation"] == f"game.effect.tick-{policy}-periodic-v1":
+            reference_state["target_health"] -= magnitude
+        else:
+            assert child["operation"] == "game.effect.expire-periodic-v1"
+            reference_state["effect_active"] = 0
+        assert child["state_after"] == [
+            {"name": name, "value": value}
+            for name, value in sorted(reference_state.items())
+        ]
+
+    assert snapshots[0]["snapshot_identity"] == apply_event[
+        "snapshot_before_identity"
+    ]
+    assert snapshots[0]["values"] == apply_event["state_before"]
+    lifecycle_snapshots = {
+        row["event_id"]: row for row in snapshots if row["event_id"] is not None
+    }
+    for event in lifecycle:
+        snapshot = lifecycle_snapshots[event["event_id"]]
+        assert snapshot["snapshot_identity"] == event["snapshot_after_identity"]
+        assert snapshot["values"] == event["state_after"]
+    assert {
+        sample["member"]: sample["value"] for sample in metrics
+    } == reference_state
 
 
 @pytest.mark.parametrize("outcome", ["success", "verdict", "runtime"])
