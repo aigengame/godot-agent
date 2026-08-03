@@ -1,0 +1,233 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.rpg-periodic-effect.same-time",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "language_bundle_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "model": {
+    "source_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "build_receipt_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "resolved_model_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "package_lock_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "rir_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-fragment",
+        "event-program"
+      ],
+      "instruction_nodes": [
+        "add",
+        "constant",
+        "copy",
+        "draw",
+        "if",
+        "invoke",
+        "less-than-or-equal",
+        "maximum",
+        "multiply",
+        "precondition-greater-than-or-equal",
+        "schedule",
+        "subtract",
+        "subtract-state",
+        "write-state"
+      ],
+      "effects": [
+        "event.commit",
+        "event.schedule",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260804
+  },
+  "scenarios": [
+    {
+      "id": "same-time-periodic",
+      "named_streams": [
+        "critical",
+        "effect-instance",
+        "hit"
+      ],
+      "terminal_condition": {
+        "kind": "queue-drained"
+      },
+      "assignments": [
+        {
+          "target": {
+            "model": "example.rpg-periodic-effect",
+            "module": "effect",
+            "name": "target_health"
+          },
+          "value": 100
+        },
+        {
+          "target": {
+            "model": "example.rpg-periodic-effect",
+            "module": "effect",
+            "name": "magnitude_threshold"
+          },
+          "value": 85
+        }
+      ],
+      "event_plan": [
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "apply-periodic-effect",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "effect.apply-live-periodic",
+          "payload": []
+        },
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "ordinary-combat-damage",
+          "logical_time": 1,
+          "priority": 0,
+          "entrypoint": "combat.damage-target",
+          "payload": []
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "target_health_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "example",
+          "value": "periodic-effect"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "target_health"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 1000
+      }
+    },
+    {
+      "id": "effect_active_terminal",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "example",
+          "value": "periodic-effect"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "effect_active"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 0
+      }
+    },
+    {
+      "id": "effect_instance_id_terminal",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "example",
+          "value": "periodic-effect"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "effect_instance_id"
+      },
+      "target": {
+        "minimum": 1,
+        "maximum": 2147483647
+      }
+    },
+    {
+      "id": "combat_damage",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "example",
+          "value": "periodic-effect"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "cast-resolved",
+        "member": "combat_damage"
+      },
+      "target": {
+        "minimum": 10,
+        "maximum": 10
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}
