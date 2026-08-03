@@ -3157,6 +3157,11 @@ def evaluate_experiment(
         ): row
         for row in checked.rir["call_sites"]
     }
+    formula_bindings_by_site = {
+        cast(str, cast(dict[str, Any], binding["site"])["identity"]): binding
+        for binding in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+        if cast(dict[str, Any], binding["site"])["kind"] == "operation-slot"
+    }
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
@@ -3391,6 +3396,7 @@ def evaluate_experiment(
         )
         draws: list[dict[str, JsonValue]] = []
         call_trace: list[dict[str, JsonValue]] = []
+        formula_evaluations: list[dict[str, JsonValue]] = []
         schedule_trace: list[dict[str, JsonValue]] = []
         cancellation_trace: list[dict[str, JsonValue]] = []
         buffered_children: list[dict[str, Any]] = []
@@ -3416,6 +3422,18 @@ def evaluate_experiment(
                 )
                 for row in cast(list[dict[str, Any]], provenance["sites"])
             }
+
+        def operation_formula_slot(
+            selected_operation: dict[str, Any], slot_id: str
+        ) -> dict[str, Any]:
+            extensions = cast(dict[str, Any], selected_operation["extensions"])
+            return next(
+                row
+                for row in cast(
+                    list[dict[str, Any]], extensions["standard.formula-slots"]
+                )
+                if row["id"] == slot_id
+            )
 
         def execute_operation(
             selected_operation: dict[str, Any],
@@ -3827,6 +3845,49 @@ def evaluate_experiment(
                     raise ValueError(
                         f"admitted evaluator lacks runtime operator {operator}"
                     )
+                if (
+                    evaluation_site_identity is not None
+                    and evaluation_sites.get(instruction_index + 1)
+                    != evaluation_site_identity
+                ):
+                    binding = formula_bindings_by_site[evaluation_site_identity]
+                    binding_site = cast(dict[str, Any], binding["site"])
+                    slot = operation_formula_slot(
+                        selected_operation, cast(str, binding_site["slot"])
+                    )
+                    evaluated_arguments: list[dict[str, JsonValue]] = []
+                    for parameter in cast(list[dict[str, Any]], slot["parameters"]):
+                        source = cast(dict[str, Any], parameter["source"])
+                        if source["kind"] not in {"port", "local"}:
+                            raise ValueError(
+                                "admitted Formula slot parameter source is unavailable"
+                            )
+                        evaluated_arguments.append(
+                            {
+                                "parameter": parameter["id"],
+                                "value": variables[source["name"]],
+                            }
+                        )
+                    formula_evaluations.append(
+                        cast(
+                            dict[str, JsonValue],
+                            {
+                                "evaluation_site_identity": (evaluation_site_identity),
+                                "binding_identity": binding["identity"],
+                                "formula": binding["formula"],
+                                "operation": binding_site["operation"],
+                                "slot": binding_site["slot"],
+                                "context": binding_site["context"],
+                                "arguments": sorted(
+                                    evaluated_arguments,
+                                    key=lambda row: cast(str, row["parameter"]),
+                                ),
+                                "result": variables[slot["target"]],
+                                "frame_identity": current_snapshot_identity,
+                                "call_path": "/".join(call_path),
+                            },
+                        )
+                    )
             outcome_definition = next(
                 row for row in selected_operation["outcomes"] if row["id"] == outcome
             )
@@ -3877,6 +3938,7 @@ def evaluate_experiment(
             )
             draws = []
             call_trace = []
+            formula_evaluations = []
             schedule_trace = []
             cancellation_trace = []
             buffered_children = []
@@ -4114,6 +4176,7 @@ def evaluate_experiment(
                         else None
                     ),
                     "calls": call_trace,
+                    "formula_evaluations": formula_evaluations,
                     "schedules": schedule_trace,
                     "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
@@ -4402,6 +4465,7 @@ def evaluate_experiment(
                     "operation": None,
                     "entrypoint": None,
                     "calls": [],
+                    "formula_evaluations": [],
                     "schedules": [],
                     "cancellations": [],
                     "outcome": {
