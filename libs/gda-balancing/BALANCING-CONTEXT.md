@@ -1099,7 +1099,11 @@ _Avoid_: initial Snapshot, initialization Event, mutable setup state
 The semantic state boundary committed after successful initialization and after every committed
 Event transaction. The pre-Snapshot Initialization frame is not a Snapshot. The full state exists
 conceptually at each boundary; traces may store a canonical state hash and materialize full state
-only at declared checkpoints without changing semantics (bADR-0014).
+only at declared checkpoints without changing semantics. A materialized Snapshot continuation
+binds the selected Runtime profile plus append-only admitted-Event and committed-trace prefix
+identities; the Snapshot Series stores each catalog record once and recovery revalidates the prefix
+against its cross-bound Event Trace rather than copying a growing queue or trace into every boundary
+(bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
 **Runtime refusal**:

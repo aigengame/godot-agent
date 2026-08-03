@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:163b039079585d0374b0566618cd87cf1c1c43dd6b0838c01b3f6554b4ee72c2"
+    "sha256:5ecb89f2128c3cc68b1b9f93378b9e26775d38f0e3936703992ccb83aeed7625"
 )
 
 
@@ -5295,15 +5295,42 @@ def _consumer_b_runtime_authority_is_closed(
                 ],
                 "runtime_configuration_projection": {
                     "lifecycle_state": "continuation.lifecycle_state",
+                    "step_boundary": "continuation.step_boundary",
                     "scenario_cursor": "continuation.scenario_cursor",
-                    "pending_events": "continuation.pending_events",
-                    "completed_events": "continuation.completed_events",
+                    "event_catalog": "continuation.event_catalog",
+                    "pending_event_count": "continuation.pending_event_count",
+                    "committed_trace": "continuation.committed_trace",
                     "current_snapshot": "continuation.current_snapshot",
                     "state": "values",
                     "rng": "continuation.rng",
                     "resource_ledger": "continuation.resource_ledger",
                     "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                    "root_event_map": "continuation.root_event_map",
+                    "root_event_map_identity": (
+                        "continuation.root_event_map_identity"
+                    ),
+                    "resolved_runtime_profile_identity": (
+                        "continuation.resolved_runtime_profile_identity"
+                    ),
+                },
+            },
+            "runtime_journal": {
+                "event_spec": {
+                    "domain": "runtime-event-spec-v2",
+                    "projection": "complete-admitted-event",
+                },
+                "event_catalog": {
+                    "domain": "runtime-event-catalog-v2",
+                    "projection": "append-only-admitted-event-chain",
+                },
+                "committed_trace": {
+                    "domain": "runtime-committed-trace-v2",
+                    "projection": (
+                        "append-only-committed-event-chain-without-snapshot-after"
+                    ),
+                },
+                "root_event_map": {
+                    "domain": "runtime-root-event-map-v2",
+                    "projection": "complete-root-event-map",
                 },
             },
             "external_input_identity": {
@@ -5327,8 +5354,11 @@ def _consumer_b_runtime_authority_is_closed(
                     "scenario",
                     "condition",
                     "reason",
+                    "event_count",
                     "terminal_event_id",
                     "terminal_snapshot_identity",
+                    "observation_event_ids",
+                    "final_snapshot_identity",
                     "logical_time",
                 ],
                 "reasons": ["event-count-reached", "queue-drained"],
@@ -5347,20 +5377,24 @@ def _consumer_b_runtime_authority_is_closed(
             "lifecycle_states": [
                 "instantiated",
                 "initializing",
+                "step",
                 "event",
                 "terminated",
             ],
             "members": [
                 "lifecycle_state",
+                "step_boundary",
                 "scenario_cursor",
-                "pending_events",
-                "completed_events",
+                "event_catalog",
+                "pending_event_count",
+                "committed_trace",
                 "current_snapshot",
                 "state",
                 "rng",
                 "resource_ledger",
                 "next_enqueue_sequence",
-                "root_event_map",
+                "root_event_map_identity",
+                "resolved_runtime_profile_identity",
             ],
             "mutation": "internal-transition-only",
         }

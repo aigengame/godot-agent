@@ -162,8 +162,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   may record a canonical hash at every boundary and materialize full snapshots only at declared
   checkpoints; storage optimization cannot change the conceptual boundary or replay trace. The
   Snapshot identity therefore projects both the committed state values and the complete resumable
-  Runtime continuation: lifecycle and Scenario cursor, pending and completed Events, current
-  Snapshot coordinate, Named RNG state, resource ledger, next enqueue sequence, and root-Event map.
+  Runtime continuation: lifecycle and `step` boundary, Scenario cursor, admitted/pending Event
+  catalog, committed trace, current Snapshot coordinate, Named RNG state, resource ledger, next
+  enqueue sequence, root-Event map, and Resolved Runtime profile identity. Materialized Snapshot
+  Series encode the Event catalog once and bind each boundary to append-only catalog/trace prefix
+  identities and counts. Recovery replays those prefixes against the cross-bound Event Trace; a
+  growing queue or committed prefix is never copied into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic

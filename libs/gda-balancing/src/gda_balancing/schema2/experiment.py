@@ -299,20 +299,24 @@ def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
             "lifecycle_states": [
                 "instantiated",
                 "initializing",
+                "step",
                 "event",
                 "terminated",
             ],
             "members": [
                 "lifecycle_state",
+                "step_boundary",
                 "scenario_cursor",
-                "pending_events",
-                "completed_events",
+                "event_catalog",
+                "pending_event_count",
+                "committed_trace",
                 "current_snapshot",
                 "state",
                 "rng",
                 "resource_ledger",
                 "next_enqueue_sequence",
-                "root_event_map",
+                "root_event_map_identity",
+                "resolved_runtime_profile_identity",
             ],
             "mutation": "internal-transition-only",
         },
@@ -432,15 +436,41 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
             ],
             "runtime_configuration_projection": {
                 "lifecycle_state": "continuation.lifecycle_state",
+                "step_boundary": "continuation.step_boundary",
                 "scenario_cursor": "continuation.scenario_cursor",
-                "pending_events": "continuation.pending_events",
-                "completed_events": "continuation.completed_events",
+                "event_catalog": "continuation.event_catalog",
+                "pending_event_count": "continuation.pending_event_count",
+                "committed_trace": "continuation.committed_trace",
                 "current_snapshot": "continuation.current_snapshot",
                 "state": "values",
                 "rng": "continuation.rng",
                 "resource_ledger": "continuation.resource_ledger",
                 "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                "root_event_map": "continuation.root_event_map",
+                "root_event_map_identity": "continuation.root_event_map_identity",
+                "resolved_runtime_profile_identity": (
+                    "continuation.resolved_runtime_profile_identity"
+                ),
+            },
+        }
+        or scheduler.get("runtime_journal")
+        != {
+            "event_spec": {
+                "domain": "runtime-event-spec-v2",
+                "projection": "complete-admitted-event",
+            },
+            "event_catalog": {
+                "domain": "runtime-event-catalog-v2",
+                "projection": "append-only-admitted-event-chain",
+            },
+            "committed_trace": {
+                "domain": "runtime-committed-trace-v2",
+                "projection": (
+                    "append-only-committed-event-chain-without-snapshot-after"
+                ),
+            },
+            "root_event_map": {
+                "domain": "runtime-root-event-map-v2",
+                "projection": "complete-root-event-map",
             },
         }
         or scheduler.get("external_input_identity")
@@ -467,8 +497,11 @@ def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
                 "scenario",
                 "condition",
                 "reason",
+                "event_count",
                 "terminal_event_id",
                 "terminal_snapshot_identity",
+                "observation_event_ids",
+                "final_snapshot_identity",
                 "logical_time",
             ],
             "reasons": ["event-count-reached", "queue-drained"],
@@ -624,13 +657,92 @@ def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
     }
 
 
+def _runtime_journal_contract(checked: CheckedExperiment) -> dict[str, Any]:
+    journal = _scheduler_contract(checked).get("runtime_journal")
+    expected = {
+        "event_spec": {
+            "domain": "runtime-event-spec-v2",
+            "projection": "complete-admitted-event",
+        },
+        "event_catalog": {
+            "domain": "runtime-event-catalog-v2",
+            "projection": "append-only-admitted-event-chain",
+        },
+        "committed_trace": {
+            "domain": "runtime-committed-trace-v2",
+            "projection": "append-only-committed-event-chain-without-snapshot-after",
+        },
+        "root_event_map": {
+            "domain": "runtime-root-event-map-v2",
+            "projection": "complete-root-event-map",
+        },
+    }
+    if journal != expected:
+        raise ValueError("Kernel Runtime journal contract is unsupported or incomplete")
+    return cast(dict[str, Any], journal)
+
+
+def _empty_runtime_journal_identity(contract: dict[str, Any]) -> str:
+    return content_identity(cast(str, contract["domain"]), [])
+
+
+def _extend_runtime_journal_identity(
+    contract: dict[str, Any],
+    previous_identity: str,
+    record: dict[str, JsonValue],
+) -> str:
+    return content_identity(
+        cast(str, contract["domain"]),
+        cast(
+            JsonValue,
+            {
+                "previous_identity": previous_identity,
+                "record": record,
+            },
+        ),
+    )
+
+
+def _committed_event_projection(event: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    return {
+        member: value
+        for member, value in event.items()
+        if member != "snapshot_after_identity"
+    }
+
+
+def _event_catalog_record(
+    checked: CheckedExperiment,
+    scenario_id: str,
+    event: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    contract = _runtime_journal_contract(checked)["event_spec"]
+    return cast(
+        dict[str, JsonValue],
+        {
+            "scenario": scenario_id,
+            "event_id": event["event_id"],
+            "kind": event["kind"],
+            "ordering_key": event["ordering_key"],
+            "event_spec_identity": content_identity(
+                cast(str, contract["domain"]),
+                cast(JsonValue, event),
+            ),
+        },
+    )
+
+
 def _runtime_continuation(
     checked: CheckedExperiment,
     *,
     lifecycle_state: str,
+    step_boundary: str | None,
     scenario_cursor: int,
-    pending_events: list[dict[str, Any]],
-    completed_events: list[str],
+    event_catalog_count: int,
+    event_catalog_identity: str,
+    pending_event_count: int,
+    committed_event_count: int,
+    committed_trace_identity: str,
     snapshot_index: int,
     event_id: str | None,
     logical_time: int | None,
@@ -639,22 +751,25 @@ def _runtime_continuation(
     node_steps: int,
     admitted_event_count: int,
     next_enqueue_sequence: int,
-    root_event_map: list[dict[str, JsonValue]],
+    root_event_map_identity: str,
+    resolved_runtime_profile_identity: str,
 ) -> dict[str, JsonValue]:
-    scheduler = _scheduler_contract(checked)
+    _runtime_journal_contract(checked)
     return cast(
         dict[str, JsonValue],
         {
             "lifecycle_state": lifecycle_state,
+            "step_boundary": step_boundary,
             "scenario_cursor": scenario_cursor,
-            "pending_events": [
-                _pending_event_projection(event)
-                for event in sorted(
-                    pending_events,
-                    key=lambda pending: _scheduler_ordering_key(scheduler, pending),
-                )
-            ],
-            "completed_events": list(completed_events),
+            "event_catalog": {
+                "count": event_catalog_count,
+                "prefix_identity": event_catalog_identity,
+            },
+            "pending_event_count": pending_event_count,
+            "committed_trace": {
+                "count": committed_event_count,
+                "prefix_identity": committed_trace_identity,
+            },
             "current_snapshot": {
                 "index": snapshot_index,
                 "event_id": event_id,
@@ -664,11 +779,12 @@ def _runtime_continuation(
             "resource_ledger": {
                 "event_steps": event_steps,
                 "node_steps": node_steps,
-                "queue_events": len(pending_events),
+                "queue_events": pending_event_count,
                 "total_events": admitted_event_count,
             },
             "next_enqueue_sequence": next_enqueue_sequence,
-            "root_event_map": root_event_map,
+            "root_event_map_identity": root_event_map_identity,
+            "resolved_runtime_profile_identity": resolved_runtime_profile_identity,
         },
     )
 
@@ -2423,6 +2539,7 @@ def evaluate_experiment(
     node_contracts = _runtime_nodes(checked)
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
+    event_catalog: list[dict[str, JsonValue]] = []
     root_event_map: list[dict[str, JsonValue]] = []
     terminal_statuses: list[dict[str, JsonValue]] = []
     scenario_observation_evidence: dict[tuple[str, str], tuple[str, str, int]] = {}
@@ -2450,6 +2567,11 @@ def evaluate_experiment(
                 ordered_events, key=lambda event: event["enqueue_sequence"]
             )
         )
+    journal_contract = _runtime_journal_contract(checked)
+    root_event_map_identity = content_identity(
+        cast(str, journal_contract["root_event_map"]["domain"]),
+        cast(JsonValue, root_event_map),
+    )
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         ordered_events = root_events_by_scenario[scenario["id"]]
         if len(ordered_events) > runtime_bounds["max_queue_events"]:
@@ -2490,7 +2612,28 @@ def evaluate_experiment(
         )
         admitted_event_count = len(ordered_events)
         next_enqueue_sequence = len(ordered_events)
-        scenario_completed_events: list[str] = []
+        scenario_event_catalog = [
+            _event_catalog_record(
+                checked,
+                scenario["id"],
+                _pending_event_projection(root_event),
+            )
+            for root_event in ordered_events
+        ]
+        event_catalog.extend(scenario_event_catalog)
+        event_catalog_identity = _empty_runtime_journal_identity(
+            journal_contract["event_catalog"]
+        )
+        for record in scenario_event_catalog:
+            event_catalog_identity = _extend_runtime_journal_identity(
+                journal_contract["event_catalog"],
+                event_catalog_identity,
+                record,
+            )
+        committed_event_count = 0
+        committed_trace_identity = _empty_runtime_journal_identity(
+            journal_contract["committed_trace"]
+        )
         event_steps = 0
         root_step_limit = runtime_bounds["max_event_steps"]
         scenario_entrypoints = [
@@ -2575,10 +2718,14 @@ def evaluate_experiment(
                 "values": cast(JsonValue, initial_values),
                 "continuation": _runtime_continuation(
                     checked,
-                    lifecycle_state="event",
+                    lifecycle_state="step",
+                    step_boundary="initial",
                     scenario_cursor=scenario_index,
-                    pending_events=ordered_events,
-                    completed_events=scenario_completed_events,
+                    event_catalog_count=len(scenario_event_catalog),
+                    event_catalog_identity=event_catalog_identity,
+                    pending_event_count=len(ordered_events),
+                    committed_event_count=committed_event_count,
+                    committed_trace_identity=committed_trace_identity,
                     snapshot_index=len(snapshots),
                     event_id=None,
                     logical_time=None,
@@ -2587,7 +2734,8 @@ def evaluate_experiment(
                     node_steps=total_steps,
                     admitted_event_count=admitted_event_count,
                     next_enqueue_sequence=next_enqueue_sequence,
-                    root_event_map=root_event_map,
+                    root_event_map_identity=root_event_map_identity,
+                    resolved_runtime_profile_identity=resolved_runtime.content_identity,
                 ),
             },
         )
@@ -3262,6 +3410,18 @@ def evaluate_experiment(
                 if pending["event_id"] not in canceled_event_ids
             ]
             for child in buffered_children:
+                catalog_record = _event_catalog_record(
+                    checked,
+                    scenario["id"],
+                    _pending_event_projection(child),
+                )
+                scenario_event_catalog.append(catalog_record)
+                event_catalog.append(catalog_record)
+                event_catalog_identity = _extend_runtime_journal_identity(
+                    journal_contract["event_catalog"],
+                    event_catalog_identity,
+                    catalog_record,
+                )
                 if child["event_id"] not in canceled_event_ids:
                     pending_events.append(child)
             event_payload = cast(
@@ -3317,14 +3477,23 @@ def evaluate_experiment(
                 event_position=event_position,
                 terminal_maximum=terminal_maximum,
             )
-            scenario_completed_events.append(event_id)
+            committed_event_count += 1
+            committed_trace_identity = _extend_runtime_journal_identity(
+                journal_contract["committed_trace"],
+                committed_trace_identity,
+                _committed_event_projection(event),
+            )
             snapshot_index = len(snapshots)
             continuation = _runtime_continuation(
                 checked,
-                lifecycle_state="event",
+                lifecycle_state="step" if step_boundary is not None else "event",
+                step_boundary=step_boundary,
                 scenario_cursor=scenario_index,
-                pending_events=pending_events,
-                completed_events=scenario_completed_events,
+                event_catalog_count=len(scenario_event_catalog),
+                event_catalog_identity=event_catalog_identity,
+                pending_event_count=len(pending_events),
+                committed_event_count=committed_event_count,
+                committed_trace_identity=committed_trace_identity,
                 snapshot_index=snapshot_index,
                 event_id=event_id,
                 logical_time=cast(int, event_spec["logical_time"]),
@@ -3333,7 +3502,8 @@ def evaluate_experiment(
                 node_steps=total_steps,
                 admitted_event_count=admitted_event_count,
                 next_enqueue_sequence=next_enqueue_sequence,
-                root_event_map=root_event_map,
+                root_event_map_identity=root_event_map_identity,
+                resolved_runtime_profile_identity=resolved_runtime.content_identity,
             )
             snapshot = cast(
                 dict[str, JsonValue],
@@ -3457,6 +3627,10 @@ def evaluate_experiment(
         if last_logical_time is None:
             raise ValueError("admitted Scenario produced no runtime Event")
         logical_time = last_logical_time
+        terminal_event_id = cast(str, events[-1]["event_id"])
+        terminal_snapshot_identity = current_snapshot_identity
+        terminal_event_count = event_position
+        observation_event_ids: list[str] = []
         for metric_index, metric in enumerate(checked.value["metrics"]):
             metric_identity = _metric_definition_identity(metric)
             observation_event_id = _observation_event_id(
@@ -3510,6 +3684,27 @@ def evaluate_experiment(
                 )
             admitted_event_count += 1
             next_enqueue_sequence += 1
+            observation_event_spec = cast(
+                dict[str, JsonValue],
+                {
+                    "event_id": observation_event_id,
+                    "kind": "observation",
+                    "ordering_key": observation_ordering_key,
+                    "metric_definition_identity": metric_identity,
+                },
+            )
+            observation_catalog_record = _event_catalog_record(
+                checked,
+                scenario["id"],
+                observation_event_spec,
+            )
+            scenario_event_catalog.append(observation_catalog_record)
+            event_catalog.append(observation_catalog_record)
+            event_catalog_identity = _extend_runtime_journal_identity(
+                journal_contract["event_catalog"],
+                event_catalog_identity,
+                observation_catalog_record,
+            )
             resolved_state = _resolved_int_rows(state, display_names)
             observation_event = cast(
                 dict[str, JsonValue],
@@ -3542,7 +3737,13 @@ def evaluate_experiment(
                     },
                 },
             )
-            scenario_completed_events.append(observation_event_id)
+            observation_event_ids.append(observation_event_id)
+            committed_event_count += 1
+            committed_trace_identity = _extend_runtime_journal_identity(
+                journal_contract["committed_trace"],
+                committed_trace_identity,
+                _committed_event_projection(observation_event),
+            )
             snapshot_index = len(snapshots)
             continuation = _runtime_continuation(
                 checked,
@@ -3551,9 +3752,17 @@ def evaluate_experiment(
                     if metric_index + 1 == len(checked.value["metrics"])
                     else "event"
                 ),
+                step_boundary=(
+                    "terminal"
+                    if metric_index + 1 == len(checked.value["metrics"])
+                    else "observation-boundary"
+                ),
                 scenario_cursor=scenario_index,
-                pending_events=pending_events,
-                completed_events=scenario_completed_events,
+                event_catalog_count=len(scenario_event_catalog),
+                event_catalog_identity=event_catalog_identity,
+                pending_event_count=len(pending_events),
+                committed_event_count=committed_event_count,
+                committed_trace_identity=committed_trace_identity,
                 snapshot_index=snapshot_index,
                 event_id=observation_event_id,
                 logical_time=logical_time,
@@ -3562,7 +3771,8 @@ def evaluate_experiment(
                 node_steps=total_steps,
                 admitted_event_count=admitted_event_count,
                 next_enqueue_sequence=next_enqueue_sequence,
-                root_event_map=root_event_map,
+                root_event_map_identity=root_event_map_identity,
+                resolved_runtime_profile_identity=resolved_runtime.content_identity,
             )
             snapshot = cast(
                 dict[str, JsonValue],
@@ -3609,8 +3819,11 @@ def evaluate_experiment(
                     "scenario": scenario["id"],
                     "condition": terminal_condition,
                     "reason": terminal_reason,
-                    "terminal_event_id": cast(str, events[-1]["event_id"]),
-                    "terminal_snapshot_identity": current_snapshot_identity,
+                    "event_count": terminal_event_count,
+                    "terminal_event_id": terminal_event_id,
+                    "terminal_snapshot_identity": terminal_snapshot_identity,
+                    "observation_event_ids": observation_event_ids,
+                    "final_snapshot_identity": current_snapshot_identity,
                     "logical_time": logical_time,
                 },
             )
@@ -3728,6 +3941,9 @@ def evaluate_experiment(
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
                 "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
+                "event_trace_identity": trace.content_identity,
+                "event_catalog": event_catalog,
+                "root_event_map": root_event_map,
                 "snapshots": snapshots,
             },
         ),

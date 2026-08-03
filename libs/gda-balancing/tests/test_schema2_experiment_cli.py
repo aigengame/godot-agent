@@ -1515,7 +1515,7 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     assert snapshot_series["event_trace_identity"] == artifacts.members[
         "event-trace"
     ].content_identity
-    catalog_ids = [row["event"]["event_id"] for row in snapshot_series["event_catalog"]]
+    catalog_ids = [row["event_id"] for row in snapshot_series["event_catalog"]]
     assert len(catalog_ids) == len(set(catalog_ids))
     assert set(catalog_ids) == {
         events[0]["event_id"],
@@ -1594,6 +1594,10 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
         "mutation": "internal-transition-only",
     }
     assert runtime_program["scheduler"]["runtime_journal"] == {
+        "event_spec": {
+            "domain": "runtime-event-spec-v2",
+            "projection": "complete-admitted-event",
+        },
         "event_catalog": {
             "domain": "runtime-event-catalog-v2",
             "projection": "append-only-admitted-event-chain",
