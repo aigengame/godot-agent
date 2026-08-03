@@ -31,6 +31,13 @@ structured formal judgments, and an honest proof/conformance boundary.
 > identities/order before dispatch. The small-step Runtime judgment dispatches one Event, while the
 > public `step` judgment advances to the next observation or logical boundary.
 
+> **Amendment (2026-08-04, #595):** A Resolved Model may contain lifecycle sites reachable from
+> different entrypoints. Each Scenario evaluates only the closed site subset reachable from its
+> selected entrypoints and admitted explicit inputs. A site reachable only from an unselected
+> entrypoint neither executes nor creates an ambient Scenario-input requirement; selecting multiple
+> entrypoints evaluates their union. Closed cycles remain invariant violations rather than being
+> silently pruned as unavailable input branches.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -183,11 +190,6 @@ structured formal judgments, and an honest proof/conformance boundary.
   evaluates once at its declared capture Event and retains the result; Effect `live` reevaluates at
   each declared lifecycle Event against that Event's pre-event Snapshot. `live` never means
   visibility of uncommitted writes.
-
-  A Resolved Model may contain lifecycle sites reachable from different entrypoints. Each Scenario
-  evaluates only the closed site subset reachable from its selected entrypoints and admitted
-  explicit inputs. A site reachable only from an unselected entrypoint neither executes nor creates
-  an ambient Scenario-input requirement; selecting two directional entrypoints evaluates the union.
 
   Repeating the same evaluation-site identity with the same Initialization-frame or Snapshot
   identity, canonical explicit operand values, and Numeric profile derives the same pure semantic
