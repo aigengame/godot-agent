@@ -1051,7 +1051,7 @@ def test_standard_schema_owns_the_closed_formula_notation_grammar(run_cli) -> No
             "--id",
             "standard.schema",
             "--version",
-            "2.1.0",
+            "2.2.0",
             "--member",
             "release",
         ]

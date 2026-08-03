@@ -1514,17 +1514,17 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
         (
             "duplicate-binding",
             "language.formula_binding_duplicate",
-            "/formula_bindings/2/site",
+            "/formula_bindings/3/site",
         ),
         (
             "duplicate-operation-slot-binding",
             "language.formula_binding_duplicate",
-            "/formula_bindings/2/site",
+            "/formula_bindings/3/site",
         ),
         (
             "resource-budget",
             "language.formula_resource_exhausted",
-            "/formula_bindings/1/formula",
+            "/formula_bindings/2/formula",
         ),
     ),
 )
@@ -1548,7 +1548,7 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
         )
     elif mutation == "duplicate-operation-slot-binding":
         source_document["formula_bindings"].append(
-            deepcopy(source_document["formula_bindings"][1])
+            deepcopy(source_document["formula_bindings"][2])
         )
     else:
         formula = source_document["modules"][0]["formulas"][0]
@@ -1739,14 +1739,14 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
             "formula.refuse.context-mismatch",
             "model.reason.formula-context-mismatch",
             "language.formula_context_mismatch",
-            "/formula_bindings/1/site",
+            "/formula_bindings/2/site",
         ),
         (
             "refusals",
             "formula.refuse.refusal-widening",
             "model.reason.formula-refusal-widening",
             "language.formula_refusal_widening",
-            "/formula_bindings/1/formula",
+            "/formula_bindings/2/formula",
         ),
     ),
 )
@@ -1871,7 +1871,7 @@ def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.formula_resource_exhausted"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings/1/formula"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/formula"
 
 
 def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
@@ -1893,10 +1893,10 @@ def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
         "result": {
             "kind": "symbol",
             "module": "combat",
-            "symbol": "damage_dealt",
+            "symbol": "player_damage_dealt",
         },
     }
-    formula["expression"] = "combat.damage_dealt"
+    formula["expression"] = "combat.player_damage_dealt"
     source = tmp_path / "event-formula-output-symbol.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1920,7 +1920,7 @@ def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contrac
     derived = next(
         symbol
         for symbol in source_document["modules"][0]["symbols"]
-        if symbol["symbol"] == "effective_accuracy"
+        if symbol["symbol"] == "player_effective_accuracy"
     )
     derived["domain"]["maximum"] = 10
     source = tmp_path / "incompatible-derived-result.json"
@@ -1946,7 +1946,7 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
         next(
             symbol
             for symbol in module["symbols"]
-            if symbol["symbol"] == "effective_accuracy"
+            if symbol["symbol"] == "player_effective_accuracy"
         )
     )
     unused_symbol["symbol"] = "unused_derived"
@@ -1972,7 +1972,7 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.formula_unreachable"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/site"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/3/site"
 
 
 def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run_cli):
@@ -4887,18 +4887,18 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
     entrypoint = next(
         row
         for row in cast(list[dict[str, Any]], rir["entrypoints"])
-        if row["id"] == "combat.cast"
+        if row["id"] == "combat.player-attacks-enemy"
     )
 
     assert {
         row["target"]["name"]: (row["cardinality"], row["value_source"])
         for row in entrypoint["event_local_payload_contract"]["targets"]
     } == {
-        "action_cost": ("optional", "event-payload"),
-        "accuracy": ("optional", "event-payload"),
-        "base_damage": ("optional", "event-payload"),
-        "critical_threshold": ("optional", "event-payload"),
-        "target_defense": ("optional", "event-payload"),
+        "enemy_defense": ("optional", "event-payload"),
+        "player_accuracy": ("optional", "event-payload"),
+        "player_action_cost": ("optional", "event-payload"),
+        "player_base_damage": ("optional", "event-payload"),
+        "player_critical_threshold": ("optional", "event-payload"),
     }
     assert all(
         row["override"] is True
@@ -4932,12 +4932,12 @@ def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
     entrypoint = next(
         row
         for row in cast(list[dict[str, Any]], rir["entrypoints"])
-        if row["id"] == "combat.cast"
+        if row["id"] == "combat.player-attacks-enemy"
     )
     assert {
         row["target"]["name"]: row["cardinality"]
         for row in entrypoint["external_fact_contract"]["targets"]
-    } == {"target_defense": "optional"}
+    } == {"enemy_defense": "optional"}
 
 
 @pytest.mark.parametrize(
@@ -5306,7 +5306,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "actor_mana",
+                        "symbol": "player_mana",
                     },
                 },
                 {
@@ -5314,7 +5314,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "action_cost",
+                        "symbol": "player_action_cost",
                     },
                 },
             ],
