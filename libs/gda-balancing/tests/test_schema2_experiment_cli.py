@@ -1528,6 +1528,48 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         "event-trace"
     ].content_identity
     catalog_ids = [row["event_id"] for row in snapshot_series["event_catalog"]]
+    event_spec_domain = checked.kernel["meta_format"]["runtime_program"][
+        "scheduler"
+    ]["runtime_journal"]["event_spec"]["domain"]
+    assert all(
+        row["event_id"] == row["event_spec"]["event_id"]
+        and row["kind"] == row["event_spec"]["kind"]
+        and row["ordering_key"] == row["event_spec"]["ordering_key"]
+        and row["event_spec_identity"]
+        == content_identity(event_spec_domain, row["event_spec"])
+        for row in snapshot_series["event_catalog"]
+    )
+    event_spec_members = {
+        row["kind"]: set(row["event_spec"])
+        for row in snapshot_series["event_catalog"]
+    }
+    assert event_spec_members["transition-invocation"] == {
+            "event_id",
+            "ordering_key",
+            "zero_time_depth",
+            "kind",
+            "root_event_ref",
+            "entrypoint",
+            "payload",
+        }
+    assert event_spec_members["scheduled-transition"] == {
+            "event_id",
+            "ordering_key",
+            "zero_time_depth",
+            "kind",
+            "parent_event_id",
+            "call_site_identity",
+            "schedule_sequence",
+            "operation",
+            "arguments",
+            "state_references",
+        }
+    assert event_spec_members["observation"] == {
+            "event_id",
+            "ordering_key",
+            "kind",
+            "metric_definition_identity",
+        }
     assert len(catalog_ids) == len(set(catalog_ids))
     assert set(catalog_ids) == {
         events[0]["event_id"],
