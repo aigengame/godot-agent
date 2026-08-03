@@ -4060,7 +4060,10 @@ def _expected_root_event_map(
 ) -> list[dict[str, JsonValue]]:
     root_map: list[dict[str, JsonValue]] = []
     for scenario in checked.value["scenarios"]:
-        for event in _ordered_root_events(checked, scenario):
+        for event in sorted(
+            _ordered_root_events(checked, scenario),
+            key=lambda item: cast(int, item["enqueue_sequence"]),
+        ):
             root_map.append(
                 {
                     "scenario": scenario["id"],
