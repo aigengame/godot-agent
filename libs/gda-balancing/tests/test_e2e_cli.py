@@ -177,6 +177,78 @@ class TestKeyUserPath:
             row["id"] for row in explanation["operation_explanations"]
         }
 
+    def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
+        source = (
+            Path(__file__).parents[1]
+            / "examples"
+            / "schema2"
+            / "rpg-combat-cast"
+            / "model-source.json"
+        )
+        built = _run(
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "5" * 64,
+        )
+
+        assert (built.returncode, built.stderr) == (0, "")
+        receipt = json.loads(built.stdout)
+        rir_path = next(
+            Path(row["locator"])
+            for row in receipt["member_locators"]
+            if row["logical_name"] == "rir-semantic-payload"
+        )
+        rir = json.loads(rir_path.read_text(encoding="utf-8"))
+        entrypoints = {
+            row["id"]: row["operation"] for row in rir["entrypoints"]
+        }
+
+        assert entrypoints == {
+            "combat.enemy-attacks-player": {
+                "package": "game.combat",
+                "version": "2.0.0",
+                "id": "game.combat.cast-v1",
+            },
+            "combat.player-attacks-enemy": {
+                "package": "game.combat",
+                "version": "2.0.0",
+                "id": "game.combat.cast-v1",
+            },
+        }
+        directional_bindings = {
+            row["id"]: {
+                argument["port"]["name"]: argument["operand"]["symbol"]["name"]
+                for argument in row["arguments"]
+            }
+            for row in rir["entrypoints"]
+        }
+        assert directional_bindings == {
+            "combat.enemy-attacks-player": {
+                "actor_resource": "enemy_mana",
+                "action_cost": "enemy_action_cost",
+                "accuracy": "enemy_effective_accuracy",
+                "base_damage": "enemy_base_damage",
+                "critical_threshold": "enemy_critical_threshold",
+                "hit_defense": "player_defense",
+                "damage_mitigation": "player_defense",
+                "target_health": "player_health",
+            },
+            "combat.player-attacks-enemy": {
+                "actor_resource": "player_mana",
+                "action_cost": "player_action_cost",
+                "accuracy": "player_effective_accuracy",
+                "base_damage": "player_base_damage",
+                "critical_threshold": "player_critical_threshold",
+                "hit_defense": "enemy_defense",
+                "damage_mitigation": "enemy_defense",
+                "target_health": "enemy_health",
+            },
+        }
+
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
@@ -301,22 +373,32 @@ class TestKeyUserPath:
         metrics = json.loads(run_members["metric-dataset"].read_text())
         trace = json.loads(run_members["event-trace"].read_text())
         snapshots = json.loads(run_members["snapshot-series"].read_text())["snapshots"]
-        assert (
-            next(
-                row["value"]
-                for row in metrics["samples"]
-                if row["metric"] == "target_health_remaining"
-            )
-            == 12
-        )
-        assert (
-            next(
-                row["value"]
-                for row in metrics["samples"]
-                if row["metric"] == "damage_dealt"
-            )
-            == 4
-        )
+        assert {row["metric"]: row["value"] for row in metrics["samples"]} == {
+            "enemy_damage_dealt": 14,
+            "enemy_health_remaining": 63,
+            "player_damage_dealt": 37,
+            "player_health_remaining": 86,
+        }
+        assert {
+            row["metric"]: row["dimensions"] for row in metrics["samples"]
+        } == {
+            "enemy_damage_dealt": [
+                {"name": "entity", "value": "enemy"},
+                {"name": "role", "value": "attacker"},
+            ],
+            "enemy_health_remaining": [
+                {"name": "entity", "value": "enemy"},
+                {"name": "role", "value": "defender"},
+            ],
+            "player_damage_dealt": [
+                {"name": "entity", "value": "player"},
+                {"name": "role", "value": "attacker"},
+            ],
+            "player_health_remaining": [
+                {"name": "entity", "value": "player"},
+                {"name": "role", "value": "defender"},
+            ],
+        }
         events = trace["events"]
         assert [
             (
@@ -327,39 +409,40 @@ class TestKeyUserPath:
             )
             for event in events
         ] == [
-            (0, "input", 0, 0),
+            (0, "transition", 0, 0),
             (0, "transition", 0, 1),
-            (1, "transition", 0, 3),
-            (2, "transition", 0, 2),
-            (2, "observation", 0, 5),
-            (2, "observation", 0, 6),
+            (0, "observation", 0, 2),
+            (0, "observation", 0, 3),
+            (0, "observation", 0, 4),
+            (0, "observation", 0, 5),
         ]
-        input_event, plan_event, scheduled_cast, root_cast = events[:4]
+        player_attack, enemy_attack = events[:2]
         assert trace["root_event_map"] == [
             {
-                "scenario": "multi-cast",
-                "root_event_ref": "raise-defense",
-                "event_id": input_event["event_id"],
+                "scenario": "reciprocal-cast",
+                "root_event_ref": "player-attacks-enemy",
+                "event_id": player_attack["event_id"],
             },
             {
-                "scenario": "multi-cast",
-                "root_event_ref": "plan-casts",
-                "event_id": plan_event["event_id"],
-            },
-            {
-                "scenario": "multi-cast",
-                "root_event_ref": "retry-cast",
-                "event_id": root_cast["event_id"],
+                "scenario": "reciprocal-cast",
+                "root_event_ref": "enemy-attacks-player",
+                "event_id": enemy_attack["event_id"],
             },
         ]
-        assert scheduled_cast["parent_event_id"] == plan_event["event_id"]
-        assert plan_event["schedules"][0]["event_id"] == scheduled_cast["event_id"]
-        assert plan_event["schedules"][1]["outcome"] == "canceled"
-        assert (
-            plan_event["cancellations"][0]["event_id"]
-            == (plan_event["schedules"][1]["event_id"])
+        assert [event["entrypoint"]["id"] for event in events[:2]] == [
+            "combat.player-attacks-enemy",
+            "combat.enemy-attacks-player",
+        ]
+        assert all(
+            event["outcome"] == {"id": "cast-resolved", "kind": "success"}
+            for event in events[:2]
         )
-        assert root_cast["outcome"]["id"] == "cast-resolved"
+        assert enemy_attack["state_before"] == player_attack["state_after"]
+        player_facts = {row["name"] for row in player_attack["facts"]}
+        enemy_facts = {row["name"] for row in enemy_attack["facts"]}
+        assert "player_damage_dealt" in player_facts
+        assert "player_damage_dealt" not in enemy_facts
+        assert "enemy_damage_dealt" in enemy_facts
         assert len(snapshots) == len(events) + 1
         assert all(
             event["snapshot_before_identity"] == snapshots[index]["snapshot_identity"]
@@ -368,8 +451,10 @@ class TestKeyUserPath:
             for index, event in enumerate(events)
         )
         assert events[-1]["state_after"] == [
-            {"name": "actor_mana", "value": 26},
-            {"name": "target_health", "value": 12},
+            {"name": "enemy_health", "value": 63},
+            {"name": "enemy_mana", "value": 23},
+            {"name": "player_health", "value": 86},
+            {"name": "player_mana", "value": 26},
         ]
         recovered = _run(
             "experiment",

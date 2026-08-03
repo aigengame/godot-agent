@@ -3916,7 +3916,6 @@ def evaluate_experiment(
                     result_identity = canonical_bytes(
                         cast(JsonValue, entrypoint["result"]["symbol"])
                     )
-                    actual_values[result_identity] = root_result
                     event_actual_values[result_identity] = root_result
                 typed_outcome = {
                     "id": outcome,

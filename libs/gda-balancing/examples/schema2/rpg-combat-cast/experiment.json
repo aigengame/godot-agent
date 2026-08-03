@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0.0",
-  "id": "example.rpg-combat-cast.multi-event",
+  "id": "example.rpg-combat-cast.reciprocal",
   "version": "1.0.0",
   "kernel_identity": "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab",
   "language_bundle_identity": "sha256:49d234e054de5e38e055e51b309f73e7e702fac34a9ffe1c364dbf074e74767a",
   "model": {
-    "source_identity": "sha256:567635b88135f3893530422b6956854bc15cbdfd8913be45b2130f7f2f3cb45b",
-    "build_receipt_identity": "sha256:af2aa04abaa29d26f025a51452db61a5c79d2a497d1e64cadcd7c4cb03b89018",
-    "resolved_model_identity": "sha256:f4e6e57c6eb334eb74f1612b5f0e5c3b599cae0beab5361450528b6f6e5a31cf",
+    "source_identity": "sha256:4f459c9d979cf3a048bb68ab59e66f3eaa1900674a458206010222613a2adf93",
+    "build_receipt_identity": "sha256:5e60a10d027a4d3a312d8e15d4696e2de65203e47ab778675b3959b8b240cbb5",
+    "resolved_model_identity": "sha256:3d0275dcc0e8969be26a7b7961bc219f366fbe3a067a8e5b299a216180f98cf5",
     "package_lock_identity": "sha256:1f9d81d9b522b528c1ebcf76373c222c07e5a51e2c91598a4f22b0ad23302fc2",
-    "rir_identity": "sha256:2969c43d726bd459e575bf5e6391958b1d026381949ebf57d6269f0820917ae5"
+    "rir_identity": "sha256:c4aff6f436cbedc8fef98e93cd561420591cc6eeb820f1d475685a8ad8933949"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -20,7 +20,6 @@
       ],
       "instruction_nodes": [
         "add",
-        "cancel",
         "constant",
         "copy",
         "draw",
@@ -30,14 +29,11 @@
         "maximum",
         "multiply",
         "precondition-greater-than-or-equal",
-        "schedule",
         "subtract",
         "subtract-state"
       ],
       "effects": [
-        "event.cancel",
         "event.commit",
-        "event.schedule",
         "metric.observe",
         "rng.named-stream",
         "snapshot.commit"
@@ -59,75 +55,23 @@
   },
   "scenarios": [
     {
-      "id": "multi-cast",
+      "id": "reciprocal-cast",
       "event_plan": [
         {
-          "kind": "external-input",
-          "root_event_ref": "raise-defense",
+          "kind": "transition-invocation",
+          "root_event_ref": "player-attacks-enemy",
           "logical_time": 0,
           "priority": 0,
-          "source_identity": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-          "source_sequence": 0,
-          "facts": [
-            {
-              "target": {
-                "model": "example.rpg-combat-cast",
-                "module": "combat",
-                "name": "target_defense"
-              },
-              "value": 6
-            }
-          ]
+          "entrypoint": "combat.player-attacks-enemy",
+          "payload": []
         },
         {
           "kind": "transition-invocation",
-          "root_event_ref": "plan-casts",
+          "root_event_ref": "enemy-attacks-player",
           "logical_time": 0,
           "priority": 0,
-          "entrypoint": "combat.plan-casts",
-          "payload": [
-            {
-              "target": {
-                "model": "example.rpg-combat-cast",
-                "module": "combat",
-                "name": "base_damage"
-              },
-              "value": 45
-            }
-          ]
-        },
-        {
-          "kind": "transition-invocation",
-          "root_event_ref": "retry-cast",
-          "logical_time": 2,
-          "priority": 0,
-          "entrypoint": "combat.cast",
-          "payload": [
-            {
-              "target": {
-                "model": "example.rpg-combat-cast",
-                "module": "combat",
-                "name": "action_cost"
-              },
-              "value": 0
-            },
-            {
-              "target": {
-                "model": "example.rpg-combat-cast",
-                "module": "combat",
-                "name": "base_damage"
-              },
-              "value": 5
-            },
-            {
-              "target": {
-                "model": "example.rpg-combat-cast",
-                "module": "combat",
-                "name": "critical_threshold"
-              },
-              "value": 100
-            }
-          ]
+          "entrypoint": "combat.enemy-attacks-player",
+          "payload": []
         }
       ],
       "assignments": [
@@ -135,7 +79,7 @@
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "actor_mana"
+            "name": "player_mana"
           },
           "value": 35
         },
@@ -143,7 +87,7 @@
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "action_cost"
+            "name": "player_action_cost"
           },
           "value": 9
         },
@@ -151,15 +95,15 @@
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "accuracy"
+            "name": "player_accuracy"
           },
-          "value": 25
+          "value": 1000
         },
         {
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "base_damage"
+            "name": "player_base_damage"
           },
           "value": 45
         },
@@ -167,15 +111,31 @@
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "critical_threshold"
+            "name": "player_critical_threshold"
           },
-          "value": 50
+          "value": 0
         },
         {
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "target_defense"
+            "name": "player_defense"
+          },
+          "value": 6
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_health"
+          },
+          "value": 100
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_mana"
           },
           "value": 30
         },
@@ -183,7 +143,47 @@
           "target": {
             "model": "example.rpg-combat-cast",
             "module": "combat",
-            "name": "target_health"
+            "name": "enemy_action_cost"
+          },
+          "value": 7
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_accuracy"
+          },
+          "value": 1000
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_base_damage"
+          },
+          "value": 20
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_critical_threshold"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_defense"
+          },
+          "value": 8
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_health"
           },
           "value": 100
         }
@@ -199,10 +199,19 @@
   ],
   "metrics": [
     {
-      "id": "target_health_remaining",
+      "id": "player_health_remaining",
       "kind": "scalar",
       "unit": "1",
-      "dimensions": [],
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "player"
+        },
+        {
+          "name": "role",
+          "value": "defender"
+        }
+      ],
       "window": {
         "kind": "scenario",
         "name": "terminal-event"
@@ -216,18 +225,27 @@
       "observation": {
         "source": "snapshot",
         "name": "terminal",
-        "member": "target_health"
+        "member": "player_health"
       },
       "target": {
         "minimum": 0,
-        "maximum": 99
+        "maximum": 100
       }
     },
     {
-      "id": "damage_dealt",
+      "id": "enemy_health_remaining",
       "kind": "scalar",
       "unit": "1",
-      "dimensions": [],
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "enemy"
+        },
+        {
+          "name": "role",
+          "value": "defender"
+        }
+      ],
       "window": {
         "kind": "scenario",
         "name": "terminal-event"
@@ -239,9 +257,77 @@
       "missing": "refuse",
       "censoring": "none",
       "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "enemy_health"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 100
+      }
+    },
+    {
+      "id": "player_damage_dealt",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "player"
+        },
+        {
+          "name": "role",
+          "value": "attacker"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "reciprocal-exchange"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
         "source": "event",
         "name": "cast-resolved",
-        "member": "damage_dealt"
+        "member": "player_damage_dealt"
+      },
+      "target": {
+        "minimum": 1,
+        "maximum": 1000
+      }
+    },
+    {
+      "id": "enemy_damage_dealt",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "enemy"
+        },
+        {
+          "name": "role",
+          "value": "attacker"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "reciprocal-exchange"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "cast-resolved",
+        "member": "enemy_damage_dealt"
       },
       "target": {
         "minimum": 1,
