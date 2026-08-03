@@ -210,8 +210,8 @@ def experiment_run_handler(
             lambda logical_name, value: validate_experiment_member(
                 checked, logical_name, value
             ),
-            artifact_set_validator=lambda artifacts: (
-                validate_experiment_artifact_set(checked, artifacts)
+            artifact_set_validator=lambda artifacts: validate_experiment_artifact_set(
+                checked, artifacts
             ),
             authentication_key=publication_authentication_key(),
         )
@@ -289,8 +289,8 @@ def experiment_run_handler(
                 checked, logical_name, value
             ),
             publication_fault,
-            artifact_set_validator=lambda artifacts: (
-                validate_experiment_artifact_set(checked, artifacts)
+            artifact_set_validator=lambda artifacts: validate_experiment_artifact_set(
+                checked, artifacts
             ),
             authentication_key=publication_authentication_key(),
         )

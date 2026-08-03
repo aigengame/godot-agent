@@ -4615,9 +4615,7 @@ def _resolved_entrypoints(
                 dependency_identity,
             )
             if event_payload_target is not None:
-                previous_payload_target = event_payload_targets.get(
-                    dependency_identity
-                )
+                previous_payload_target = event_payload_targets.get(dependency_identity)
                 if (
                     previous_payload_target is not None
                     and previous_payload_target != event_payload_target
@@ -6139,9 +6137,7 @@ def _resolved_entrypoint_graph_is_admitted(
                 dependency_identity,
             )
             if event_payload_target is not None:
-                previous_payload_target = event_payload_targets.get(
-                    dependency_identity
-                )
+                previous_payload_target = event_payload_targets.get(dependency_identity)
                 if (
                     previous_payload_target is not None
                     and previous_payload_target != event_payload_target
@@ -8841,8 +8837,7 @@ def publish_artifact_set(
     member_validator: Callable[[str, dict[str, Any]], bool],
     publication_fault: str | None = None,
     *,
-    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool]
-    | None = None,
+    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool] | None = None,
     authentication_key: bytes | None = None,
 ) -> dict[str, JsonValue]:
     """Atomically publish a pre-admitted heterogeneous Schema 2.x artifact set.
@@ -8936,8 +8931,7 @@ def recover_committed_artifact_set(
     candidate_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
     member_validator: Callable[[str, dict[str, Any]], bool],
     *,
-    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool]
-    | None = None,
+    artifact_set_validator: Callable[[dict[str, dict[str, Any]]], bool] | None = None,
     authentication_key: bytes | None = None,
 ) -> RecoveredArtifactSet | None:
     """Recover one committed producing outcome before its producer reruns."""

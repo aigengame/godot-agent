@@ -313,12 +313,10 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         "frame": "pre-event-snapshot",
         "phase": "event",
     }
-    assert len(
-        {
-            binding["site"]["identity"]
-            for binding in bindings_by_phase.values()
-        }
-    ) == 3
+    assert (
+        len({binding["site"]["identity"] for binding in bindings_by_phase.values()})
+        == 3
+    )
     assert len(rir["initialization_programs"]) == 3
     for program in rir["initialization_programs"]:
         phase = program["site"]["context"]["phase"]

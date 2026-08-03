@@ -5386,9 +5386,7 @@ def _consumer_b_runtime_authority_is_closed(
                     "rng": "continuation.rng",
                     "resource_ledger": "continuation.resource_ledger",
                     "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                    "root_event_map_identity": (
-                        "continuation.root_event_map_identity"
-                    ),
+                    "root_event_map_identity": ("continuation.root_event_map_identity"),
                     "resolved_runtime_profile_identity": (
                         "continuation.resolved_runtime_profile_identity"
                     ),

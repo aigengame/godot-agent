@@ -7559,10 +7559,7 @@ def _active_runtime_profile_matches_contract(
         or not isinstance(budget_scopes, dict)
         or not budget_scopes
         or not all(
-            isinstance(member, str)
-            and member
-            and isinstance(scope, str)
-            and scope
+            isinstance(member, str) and member and isinstance(scope, str) and scope
             for member, scope in budget_scopes.items()
         )
         or profile.get("budget_scopes") != budget_scopes
@@ -7759,9 +7756,7 @@ def _runtime_authority_is_closed(
                     "rng": "continuation.rng",
                     "resource_ledger": "continuation.resource_ledger",
                     "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                    "root_event_map_identity": (
-                        "continuation.root_event_map_identity"
-                    ),
+                    "root_event_map_identity": ("continuation.root_event_map_identity"),
                     "resolved_runtime_profile_identity": (
                         "continuation.resolved_runtime_profile_identity"
                     ),

@@ -347,7 +347,9 @@ def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
         },
     }
     if any(runtime.get(member) != contract for member, contract in expected.items()):
-        raise ValueError("Kernel Runtime lifecycle contract is unsupported or incomplete")
+        raise ValueError(
+            "Kernel Runtime lifecycle contract is unsupported or incomplete"
+        )
     return expected
 
 
@@ -799,18 +801,12 @@ def _authoritative_event_actual_values(
     declarations = _resolved_declarations(checked)
     display_names = _resolved_display_names(declarations)
     scenario = next(
-        (
-            row
-            for row in checked.value["scenarios"]
-            if row["id"] == scenario_id
-        ),
+        (row for row in checked.value["scenarios"] if row["id"] == scenario_id),
         None,
     )
     if scenario is None:
         return None
-    entrypoints = {
-        cast(str, row["id"]): row for row in checked.rir["entrypoints"]
-    }
+    entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
     actual_values: dict[bytes, int] = {}
     try:
         for root_event in _scenario_transition_events(scenario):
@@ -818,20 +814,16 @@ def _authoritative_event_actual_values(
             contract = cast(
                 dict[str, Any], selected_entrypoint["scenario_input_contract"]
             )
-            for initializer in cast(
-                list[dict[str, Any]], contract["initializers"]
-            ):
-                identity = canonical_bytes(
-                    cast(JsonValue, initializer["target"])
-                )
+            for initializer in cast(list[dict[str, Any]], contract["initializers"]):
+                identity = canonical_bytes(cast(JsonValue, initializer["target"]))
                 value = cast(int, initializer["value"])
                 if identity in actual_values and actual_values[identity] != value:
                     return None
                 actual_values[identity] = value
         for assignment in scenario["assignments"]:
-            actual_values[
-                canonical_bytes(cast(JsonValue, assignment["target"]))
-            ] = cast(int, assignment["value"])
+            actual_values[canonical_bytes(cast(JsonValue, assignment["target"]))] = (
+                cast(int, assignment["value"])
+            )
         _evaluate_initialization_programs(
             checked,
             actual_values,
@@ -854,9 +846,9 @@ def _authoritative_event_actual_values(
             if prior_spec["kind"] != "external-input":
                 continue
             for fact in cast(list[dict[str, JsonValue]], prior_spec["facts"]):
-                actual_values[
-                    canonical_bytes(cast(JsonValue, fact["target"]))
-                ] = cast(int, fact["value"])
+                actual_values[canonical_bytes(cast(JsonValue, fact["target"]))] = cast(
+                    int, fact["value"]
+                )
         state_before = {
             cast(str, row["name"]): cast(int, row["value"])
             for row in cast(list[dict[str, JsonValue]], event["state_before"])
@@ -868,12 +860,10 @@ def _authoritative_event_actual_values(
             ):
                 actual_values[identity] = state_before[display_name]
         if event_spec["kind"] == "transition-invocation":
-            for payload in cast(
-                list[dict[str, JsonValue]], event_spec["payload"]
-            ):
-                actual_values[
-                    canonical_bytes(cast(JsonValue, payload["target"]))
-                ] = cast(int, payload["value"])
+            for payload in cast(list[dict[str, JsonValue]], event_spec["payload"]):
+                actual_values[canonical_bytes(cast(JsonValue, payload["target"]))] = (
+                    cast(int, payload["value"])
+                )
         _evaluate_initialization_programs(
             checked,
             actual_values,
@@ -883,7 +873,13 @@ def _authoritative_event_actual_values(
             frame_identity=cast(str, event["snapshot_before_identity"]),
             phase="event",
         )
-    except (KeyError, OverflowError, TypeError, ValueError, _InitializationProgramFault):
+    except (
+        KeyError,
+        OverflowError,
+        TypeError,
+        ValueError,
+        _InitializationProgramFault,
+    ):
         return None
     return actual_values
 
@@ -896,11 +892,14 @@ def _committed_event_arguments(
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> tuple[
-    dict[str, JsonValue],
-    dict[str, dict[str, JsonValue]],
-    dict[bytes, int],
-] | None:
+) -> (
+    tuple[
+        dict[str, JsonValue],
+        dict[str, dict[str, JsonValue]],
+        dict[bytes, int],
+    ]
+    | None
+):
     actual_values = _authoritative_event_actual_values(
         checked,
         event,
@@ -917,12 +916,8 @@ def _committed_event_arguments(
             for row in cast(list[dict[str, JsonValue]], event_spec["arguments"])
         }
         state_references = {
-            cast(str, row["name"]): cast(
-                dict[str, JsonValue], row["target"]
-            )
-            for row in cast(
-                list[dict[str, JsonValue]], event_spec["state_references"]
-            )
+            cast(str, row["name"]): cast(dict[str, JsonValue], row["target"])
+            for row in cast(list[dict[str, JsonValue]], event_spec["state_references"])
         }
         for name, target in state_references.items():
             identity = canonical_bytes(cast(JsonValue, target))
@@ -1052,9 +1047,7 @@ def _replayed_schedule_arguments(
             continue
         if any(
             consume_authoritative_draw(draw) is None
-            for draw in cast(
-                list[dict[str, JsonValue]], prior_event["rng_draws"]
-            )
+            for draw in cast(list[dict[str, JsonValue]], prior_event["rng_draws"])
         ):
             return None
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
@@ -1183,9 +1176,10 @@ def _replayed_schedule_arguments(
                         },
                     ),
                 )
-                if (
-                    target_schedule["call_site_identity"] == call_site_identity
-                    and target_schedule["call_path"] == "/".join(call_path)
+                if target_schedule[
+                    "call_site_identity"
+                ] == call_site_identity and target_schedule["call_path"] == "/".join(
+                    call_path
                 ):
                     return "", None, (child_arguments, child_state_references)
                 scheduled = next(
@@ -1264,13 +1258,11 @@ def _replayed_schedule_arguments(
             result = None
         return outcome, result, None
 
-    root_state_references = {
-        name: target for name, target in root_arguments[1].items()
-    }
+    root_state_references = {name: target for name, target in root_arguments[1].items()}
     root_path = (
-        cast(str, cast(dict[str, JsonValue], parent_event["entrypoint"])["id"]),
-    ) if parent_event.get("entrypoint") is not None else (
-        f"scheduled:{parent_spec['call_site_identity']}",
+        (cast(str, cast(dict[str, JsonValue], parent_event["entrypoint"])["id"]),)
+        if parent_event.get("entrypoint") is not None
+        else (f"scheduled:{parent_spec['call_site_identity']}",)
     )
     try:
         _outcome, _result, found = execute(
@@ -1365,11 +1357,11 @@ def _scheduled_catalog_record_is_authoritative(
             cast(str, schedule_identity["domain"]),
             cast(
                 JsonValue,
-                    {
-                        "parent_event_id": parent_id,
-                        "parent_operation": schedule_parent_operation,
-                        "site": instruction["site"],
-                        "operation": instruction["operation"],
+                {
+                    "parent_event_id": parent_id,
+                    "parent_operation": schedule_parent_operation,
+                    "site": instruction["site"],
+                    "operation": instruction["operation"],
                 },
             ),
         )
@@ -1398,9 +1390,7 @@ def _scheduled_catalog_record_is_authoritative(
         {"name": name, "target": target}
         for name, target in sorted(replayed_state_references.items())
     ]
-    scheduled_argument_rows = cast(
-        list[dict[str, JsonValue]], schedule["arguments"]
-    )
+    scheduled_argument_rows = cast(list[dict[str, JsonValue]], schedule["arguments"])
     scheduled_state_reference_rows = cast(
         list[dict[str, JsonValue]], schedule["state_references"]
     )
@@ -1415,9 +1405,10 @@ def _scheduled_catalog_record_is_authoritative(
     instruction_ports = {
         cast(str, binding["port"]) for binding in instruction["arguments"]
     }
-    if set(traced_arguments) != instruction_ports or not set(
-        traced_state_references
-    ) <= instruction_ports:
+    if (
+        set(traced_arguments) != instruction_ports
+        or not set(traced_state_references) <= instruction_ports
+    ):
         return False
     parent_arguments = (
         _committed_event_arguments(
@@ -2301,9 +2292,7 @@ def check_experiment(
                             "entrypoints' exact external-fact contract"
                         ),
                     )
-                value_contract = cast(
-                    dict[str, Any], target_contract["value_contract"]
-                )
+                value_contract = cast(dict[str, Any], target_contract["value_contract"])
                 domain = cast(dict[str, int], value_contract["domain"])
                 if not domain["minimum"] <= fact["value"] <= domain["maximum"]:
                     return _refusal(
@@ -4961,12 +4950,13 @@ def _artifact_set_runtime_journals_are_valid(
         or snapshot_series.get("root_event_map") != expected_root_map
         or trace.get("root_event_map") != expected_root_map
         or any(
-            not _event_catalog_record_is_valid(checked, record)
-            for record in catalog
+            not _event_catalog_record_is_valid(checked, record) for record in catalog
         )
         or not _event_catalog_records_are_authoritative(checked, catalog, events)
         or len({cast(str, row.get("event_id")) for row in catalog}) != len(catalog)
-        or any(snapshot.get("index") != index for index, snapshot in enumerate(snapshots))
+        or any(
+            snapshot.get("index") != index for index, snapshot in enumerate(snapshots)
+        )
         or any(event.get("index") != index for index, event in enumerate(events))
     ):
         return False
@@ -5009,31 +4999,34 @@ def _artifact_set_runtime_journals_are_valid(
         ]
         scenario_events = events_by_scenario.get(scenario_id, [])
         scenario_catalog = [row for row in catalog if row["scenario"] == scenario_id]
-        if not scenario_snapshots or len(scenario_snapshots) != len(scenario_events) + 1:
+        if (
+            not scenario_snapshots
+            or len(scenario_snapshots) != len(scenario_events) + 1
+        ):
             return False
         ordering_keys = [
             (
                 cast(int, cast(dict[str, Any], event["ordering_key"])["logical_time"]),
-                phase_rank[cast(str, cast(dict[str, Any], event["ordering_key"])["phase"])],
+                phase_rank[
+                    cast(str, cast(dict[str, Any], event["ordering_key"])["phase"])
+                ],
                 -cast(int, cast(dict[str, Any], event["ordering_key"])["priority"]),
-                cast(int, cast(dict[str, Any], event["ordering_key"])["enqueue_sequence"]),
+                cast(
+                    int, cast(dict[str, Any], event["ordering_key"])["enqueue_sequence"]
+                ),
             )
             for event in scenario_events
         ]
         if ordering_keys != sorted(ordering_keys):
             return False
-        catalog_prefixes = [
-            _empty_runtime_journal_identity(journal["event_catalog"])
-        ]
+        catalog_prefixes = [_empty_runtime_journal_identity(journal["event_catalog"])]
         for record in scenario_catalog:
             catalog_prefixes.append(
                 _extend_runtime_journal_identity(
                     journal["event_catalog"], catalog_prefixes[-1], record
                 )
             )
-        trace_prefixes = [
-            _empty_runtime_journal_identity(journal["committed_trace"])
-        ]
+        trace_prefixes = [_empty_runtime_journal_identity(journal["committed_trace"])]
         canceled_prefixes: list[set[str]] = [set()]
         canceled: set[str] = set()
         for event in scenario_events:
@@ -5066,8 +5059,7 @@ def _artifact_set_runtime_journals_are_valid(
                 return False
             catalog_prefix = scenario_catalog[:catalog_count]
             committed_ids = {
-                cast(str, event["event_id"])
-                for event in scenario_events[:trace_count]
+                cast(str, event["event_id"]) for event in scenario_events[:trace_count]
             }
             canceled_ids = canceled_prefixes[trace_count]
             catalog_prefix_ids = {
@@ -5108,7 +5100,9 @@ def _artifact_set_runtime_journals_are_valid(
             next_pending_id = (
                 cast(
                     str,
-                    pending_records[pending_order.index(min(pending_order))]["event_id"],
+                    pending_records[pending_order.index(min(pending_order))][
+                        "event_id"
+                    ],
                 )
                 if pending_order
                 else None
@@ -5119,11 +5113,9 @@ def _artifact_set_runtime_journals_are_valid(
                 else None
             )
             if (
-                catalog_ref.get("prefix_identity")
-                != catalog_prefixes[catalog_count]
+                catalog_ref.get("prefix_identity") != catalog_prefixes[catalog_count]
                 or trace_ref.get("prefix_identity") != trace_prefixes[trace_count]
-                or continuation.get("pending_event_count")
-                != len(pending_records)
+                or continuation.get("pending_event_count") != len(pending_records)
                 or len(set(pending_order)) != len(pending_order)
                 or (
                     next_committed_id is not None
@@ -5184,9 +5176,9 @@ def _terminal_statuses_are_valid(
             or terminal_snapshot.get("scenario") != scenario
             or final_snapshot.get("scenario") != scenario
             or final_snapshot
-            is not [snapshot for snapshot in snapshots if snapshot["scenario"] == scenario][
-                -1
-            ]
+            is not [
+                snapshot for snapshot in snapshots if snapshot["scenario"] == scenario
+            ][-1]
             or status.get("event_count") != len(scenario_runtime_events)
             or terminal_event is not scenario_runtime_events[-1]
             or status.get("logical_time")
@@ -5283,9 +5275,7 @@ def _formula_charge_through_evaluation_site(
             }
             if evaluation_site_identity in program_sites:
                 return consumed
-            completed_targets.add(
-                canonical_bytes(cast(JsonValue, program["target"]))
-            )
+            completed_targets.add(canonical_bytes(cast(JsonValue, program["target"])))
             pending.remove(program)
             progressed = True
         if not progressed:
@@ -5325,9 +5315,7 @@ def _attempted_operation_charge(
             None,
         )
         root_operation_id = (
-            cast(str, entrypoint["operation"]["id"])
-            if entrypoint is not None
-            else None
+            cast(str, entrypoint["operation"]["id"]) if entrypoint is not None else None
         )
     elif refusing_event_spec["kind"] == "scheduled-transition":
         root_operation_id = cast(str, refusing_event_spec["operation"])
@@ -5390,8 +5378,7 @@ def _attempted_operation_charge(
         event_charge += amount
         node_steps += amount
         breached = (
-            operation_charge
-            > cast(int, operation["resource_bounds"]["max_steps"])
+            operation_charge > cast(int, operation["resource_bounds"]["max_steps"])
             or event_charge > bounds["max_event_steps"]
             or node_steps > bounds["max_node_steps"]
         )
@@ -5413,9 +5400,7 @@ def _attempted_operation_charge(
                 operation_charge,
                 instruction,
             )
-            if breached or is_target(
-                operation, call_path, instruction_index, sites
-            ):
+            if breached or is_target(operation, call_path, instruction_index, sites):
                 return False
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "invoke-operation":
@@ -5488,15 +5473,12 @@ def _attempted_operation_charge(
                 (index, row)
                 for index, row in enumerate(calls)
                 if row["site"] == child_path
-                and cast(dict[str, JsonValue], row["operation"])["id"]
-                == child["id"]
+                and cast(dict[str, JsonValue], row["operation"])["id"] == child["id"]
             ]
             if len(call_rows) != 1:
                 return False
             call_index, call = call_rows[0]
-            child_outcome = cast(
-                str, cast(dict[str, JsonValue], call["outcome"])["id"]
-            )
+            child_outcome = cast(str, cast(dict[str, JsonValue], call["outcome"])["id"])
             if not completed_operation(child, child_path, child_outcome):
                 return False
             used_calls.add(call_index)
@@ -5567,27 +5549,22 @@ def _terminal_audit_is_valid(
         or state_before != last_snapshot_values
         or last_snapshot.get("values") != last_snapshot_values
         or not _runtime_state_rows_are_valid(last_snapshot_values)
-        or audit.get("last_snapshot_identity")
-        != last_snapshot.get("snapshot_identity")
+        or audit.get("last_snapshot_identity") != last_snapshot.get("snapshot_identity")
         or refusing_event.get("event_id") != refusing_event_spec.get("event_id")
-        or refusing_event.get("ordering_key")
-        != refusing_event_spec.get("ordering_key")
+        or refusing_event.get("ordering_key") != refusing_event_spec.get("ordering_key")
     ):
         return False
     budget = cast(dict[str, Any], audit["budget_counters"])
     ordering_key = cast(dict[str, Any], refusing_event["ordering_key"])
-    if (
-        budget.get("logical_time") != ordering_key.get("logical_time")
-        or any(
-            not isinstance(budget.get(member), int) or budget[member] < 0
-            for member in (
-                "event_steps",
-                "logical_time",
-                "node_steps",
-                "queue_events",
-                "total_events",
-                "zero_time_depth",
-            )
+    if budget.get("logical_time") != ordering_key.get("logical_time") or any(
+        not isinstance(budget.get(member), int) or budget[member] < 0
+        for member in (
+            "event_steps",
+            "logical_time",
+            "node_steps",
+            "queue_events",
+            "total_events",
+            "zero_time_depth",
         )
     ):
         return False
@@ -5600,17 +5577,15 @@ def _terminal_audit_is_valid(
     events = cast(list[dict[str, Any]], audit["committed_trace_prefix"])
     catalog = cast(list[dict[str, JsonValue]], audit["event_catalog_prefix"])
     required_root_scenarios = {
-        cast(str, row["id"])
-        for row in checked.value["scenarios"][: scenario_index + 1]
+        cast(str, row["id"]) for row in checked.value["scenarios"][: scenario_index + 1]
     }
-    if (
-        any(not _event_catalog_record_is_valid(checked, record) for record in catalog)
-        or not _event_catalog_records_are_authoritative(
-            checked,
-            catalog,
-            cast(list[dict[str, JsonValue]], events),
-            required_root_scenarios=required_root_scenarios,
-        )
+    if any(
+        not _event_catalog_record_is_valid(checked, record) for record in catalog
+    ) or not _event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        cast(list[dict[str, JsonValue]], events),
+        required_root_scenarios=required_root_scenarios,
     ):
         return False
     if refusing_event.get("index") != len(events):
@@ -5630,21 +5605,20 @@ def _terminal_audit_is_valid(
             if event.get("root_event_ref") != root_record["root_event_ref"]:
                 return False
         elif "parent_event_id" in event:
-            event_scenario = event_scenarios.get(cast(str, event["parent_event_id"]), "")
+            event_scenario = event_scenarios.get(
+                cast(str, event["parent_event_id"]), ""
+            )
             if not event_scenario:
                 return False
         elif event.get("observation") is not None and previous_event is not None:
-            if (
-                event.get("snapshot_before_identity")
-                != previous_event.get("snapshot_after_identity")
+            if event.get("snapshot_before_identity") != previous_event.get(
+                "snapshot_after_identity"
             ):
                 return False
             event_scenario = cast(str, previous_scenario)
         else:
             return False
-        ordering = _runtime_ordering_tuple(
-            cast(dict[str, Any], event["ordering_key"])
-        )
+        ordering = _runtime_ordering_tuple(cast(dict[str, Any], event["ordering_key"]))
         if (
             event.get("index") != index
             or event_id in seen_event_ids
@@ -5700,11 +5674,9 @@ def _terminal_audit_is_valid(
     }
     catalog_ids = {cast(str, record["event_id"]) for record in catalog}
     if (
-        catalog_ids
-        != required_root_ids | scheduled_ids | committed_observation_ids
+        catalog_ids != required_root_ids | scheduled_ids | committed_observation_ids
         or any(
-            record["scenario"]
-            != event_scenarios.get(cast(str, record["event_id"]))
+            record["scenario"] != event_scenarios.get(cast(str, record["event_id"]))
             for record in catalog
             if record["event_id"] in event_scenarios
         )
@@ -5750,9 +5722,7 @@ def _terminal_audit_is_valid(
                 cast(str, scenario_id),
                 metric_identity,
                 logical_time=cast(int, expected_ordering_key["logical_time"]),
-                enqueue_sequence=cast(
-                    int, expected_ordering_key["enqueue_sequence"]
-                ),
+                enqueue_sequence=cast(int, expected_ordering_key["enqueue_sequence"]),
             )
             != refusing_event_id
         ):
@@ -5782,9 +5752,7 @@ def _terminal_audit_is_valid(
             != last_event.get("snapshot_after_identity")
             or last_snapshot_values != last_event.get("state_after")
             or _runtime_ordering_tuple(ordering_key)
-            < _runtime_ordering_tuple(
-                cast(dict[str, Any], last_event["ordering_key"])
-            )
+            < _runtime_ordering_tuple(cast(dict[str, Any], last_event["ordering_key"]))
         ):
             return False
     expected_snapshot_event_id = (
@@ -5816,9 +5784,7 @@ def _terminal_audit_is_valid(
             cast(str, cancellation["event_id"])
             for cancellation in cast(list[dict[str, Any]], event["cancellations"])
         )
-    committed_ids = {
-        cast(str, event["event_id"]) for event in current_scenario_events
-    }
+    committed_ids = {cast(str, event["event_id"]) for event in current_scenario_events}
     pending_ids = {
         cast(str, record["event_id"])
         for record in scenario_catalog
@@ -5916,9 +5882,7 @@ def _terminal_audit_is_valid(
         )
     elif event_formula_fault_charge is not None:
         exact_event_steps = 0
-        exact_node_steps = (
-            cast(int, ledger["node_steps"]) + event_formula_fault_charge
-        )
+        exact_node_steps = cast(int, ledger["node_steps"]) + event_formula_fault_charge
     else:
         attempted_operation_charge = _attempted_operation_charge(
             checked,
@@ -5928,17 +5892,13 @@ def _terminal_audit_is_valid(
                 cast(int, ledger["node_steps"]) + event_formula_charge
             ),
             bounds=bounds,
-            require_budget_breach=(
-                diagnostic["code"] == "runtime.step_limit_exceeded"
-            ),
+            require_budget_breach=(diagnostic["code"] == "runtime.step_limit_exceeded"),
         )
         if attempted_operation_charge is None:
             return False
         exact_event_steps = attempted_operation_charge
         exact_node_steps = (
-            cast(int, ledger["node_steps"])
-            + event_formula_charge
-            + exact_event_steps
+            cast(int, ledger["node_steps"]) + event_formula_charge + exact_event_steps
         )
     if (
         budget["total_events"] != len(scenario_catalog)
@@ -6066,16 +6026,13 @@ def validate_experiment_artifact_set(
         metric_identities = sorted(
             _metric_definition_identity(metric) for metric in checked.value["metrics"]
         )
-        return (
-            dataset.get("metric_definition_identities") == metric_identities
-            and all(
-                sample.get("event_id") in event_ids
-                and sample.get("snapshot_identity") in snapshot_ids
-                and sample.get("metric_definition_identity") in metric_identities
-                and cast(dict[str, Any], sample.get("provenance", {})).get("scenario")
-                == sample.get("scenario")
-                for sample in cast(list[dict[str, Any]], dataset["samples"])
-            )
+        return dataset.get("metric_definition_identities") == metric_identities and all(
+            sample.get("event_id") in event_ids
+            and sample.get("snapshot_identity") in snapshot_ids
+            and sample.get("metric_definition_identity") in metric_identities
+            and cast(dict[str, Any], sample.get("provenance", {})).get("scenario")
+            == sample.get("scenario")
+            for sample in cast(list[dict[str, Any]], dataset["samples"])
         )
     except (KeyError, TypeError, ValueError, IndexError):
         return False

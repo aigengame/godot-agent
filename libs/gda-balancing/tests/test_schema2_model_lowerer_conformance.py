@@ -2893,9 +2893,7 @@ def _reference_entrypoints(
                             "target_identity": dependency_identity,
                             "owner": "experiment",
                             "value_source": "event-payload",
-                            "cardinality": dependency_mode[
-                                "event_payload_cardinality"
-                            ],
+                            "cardinality": dependency_mode["event_payload_cardinality"],
                             "override": True,
                         }
                     if dependency_mode["initialization_source"] in {

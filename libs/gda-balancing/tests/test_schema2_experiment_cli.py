@@ -1410,12 +1410,12 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
-    next(row for row in scenario["assignments"] if row["target"]["name"] == "actor_mana")[
-        "value"
-    ] = 60
-    next(row for row in scenario["assignments"] if row["target"]["name"] == "action_cost")[
-        "value"
-    ] = 30
+    next(
+        row for row in scenario["assignments"] if row["target"]["name"] == "actor_mana"
+    )["value"] = 60
+    next(
+        row for row in scenario["assignments"] if row["target"]["name"] == "action_cost"
+    )["value"] = 30
     next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
         "value"
     ] = 1000
@@ -1468,11 +1468,14 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
         "insufficient-resource",
     ]
     assert runtime_events[-1]["state_before"] == runtime_events[-1]["state_after"]
-    assert next(
-        row["value"]
-        for row in runtime_events[-1]["state_after"]
-        if row["name"] == "actor_mana"
-    ) == 0
+    assert (
+        next(
+            row["value"]
+            for row in runtime_events[-1]["state_after"]
+            if row["name"] == "actor_mana"
+        )
+        == 0
+    )
 
 
 def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
@@ -1521,11 +1524,14 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
     assert (exit_code, stderr) == (0, ""), stdout
     event = _member(json.loads(stdout), "event-trace")["events"][0]
     assert event["outcome"]["id"] == "cast-resolved"
-    assert next(
-        row["integer"]
-        for row in event["facts"]
-        if row["name"] == "effective_accuracy"
-    ) == 1000
+    assert (
+        next(
+            row["integer"]
+            for row in event["facts"]
+            if row["name"] == "effective_accuracy"
+        )
+        == 1000
+    )
 
 
 def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
@@ -1591,15 +1597,18 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     ]["continuation"]
     assert set(continuation_schema["properties"]) == runtime_members
     assert set(continuation_schema["required"]) == runtime_members
-    assert all(set(snapshot["continuation"]) == runtime_members for snapshot in snapshots)
+    assert all(
+        set(snapshot["continuation"]) == runtime_members for snapshot in snapshots
+    )
     snapshot_series = artifacts.members["snapshot-series"].value
-    assert snapshot_series["event_trace_identity"] == artifacts.members[
-        "event-trace"
-    ].content_identity
+    assert (
+        snapshot_series["event_trace_identity"]
+        == artifacts.members["event-trace"].content_identity
+    )
     catalog_ids = [row["event_id"] for row in snapshot_series["event_catalog"]]
-    event_spec_domain = checked.kernel["meta_format"]["runtime_program"][
-        "scheduler"
-    ]["runtime_journal"]["event_spec"]["domain"]
+    event_spec_domain = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]["domain"]
     assert all(
         row["event_id"] == row["event_spec"]["event_id"]
         and row["kind"] == row["event_spec"]["kind"]
@@ -1651,36 +1660,35 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         drifted_catalog_record,
     )
     event_spec_members = {
-        row["kind"]: set(row["event_spec"])
-        for row in snapshot_series["event_catalog"]
+        row["kind"]: set(row["event_spec"]) for row in snapshot_series["event_catalog"]
     }
     assert event_spec_members["transition-invocation"] == {
-            "event_id",
-            "ordering_key",
-            "zero_time_depth",
-            "kind",
-            "root_event_ref",
-            "entrypoint",
-            "payload",
-        }
+        "event_id",
+        "ordering_key",
+        "zero_time_depth",
+        "kind",
+        "root_event_ref",
+        "entrypoint",
+        "payload",
+    }
     assert event_spec_members["scheduled-transition"] == {
-            "event_id",
-            "ordering_key",
-            "zero_time_depth",
-            "kind",
-            "parent_event_id",
-            "call_site_identity",
-            "schedule_sequence",
-            "operation",
-            "arguments",
-            "state_references",
-        }
+        "event_id",
+        "ordering_key",
+        "zero_time_depth",
+        "kind",
+        "parent_event_id",
+        "call_site_identity",
+        "schedule_sequence",
+        "operation",
+        "arguments",
+        "state_references",
+    }
     assert event_spec_members["observation"] == {
-            "event_id",
-            "ordering_key",
-            "kind",
-            "metric_definition_identity",
-        }
+        "event_id",
+        "ordering_key",
+        "kind",
+        "metric_definition_identity",
+    }
     assert len(catalog_ids) == len(set(catalog_ids))
     assert set(catalog_ids) == {
         events[0]["event_id"],
@@ -1715,18 +1723,21 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     ]
     altered = deepcopy(snapshots[1]["continuation"])
     altered["committed_trace"]["prefix_identity"] = "sha256:" + ("0" * 64)
-    assert experiment_runtime_module._projected_runtime_identity(
-        snapshot_contract,
-        {
-            "experiment_identity": checked.content_identity,
-            "scenario_id": snapshots[1]["scenario"],
-            "index": snapshots[1]["index"],
-            "logical_time": snapshots[1]["logical_time"],
-            "event_id": snapshots[1]["event_id"],
-            "values": snapshots[1]["values"],
-            "continuation": altered,
-        },
-    ) != snapshots[1]["snapshot_identity"]
+    assert (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": snapshots[1]["scenario"],
+                "index": snapshots[1]["index"],
+                "logical_time": snapshots[1]["logical_time"],
+                "event_id": snapshots[1]["event_id"],
+                "values": snapshots[1]["values"],
+                "continuation": altered,
+            },
+        )
+        != snapshots[1]["snapshot_identity"]
+    )
 
 
 def test_kernel_closes_runtime_configuration_transition_and_public_step():
@@ -1830,7 +1841,9 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
-    values = {name: deepcopy(member.value) for name, member in evaluation.members.items()}
+    values = {
+        name: deepcopy(member.value) for name, member in evaluation.members.items()
+    }
     assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
 
     snapshot_payload = {
@@ -1890,9 +1903,7 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(
-        checked, outcome
-    )
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
     values = {name: deepcopy(member.value) for name, member in members.items()}
     assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
 
@@ -1969,18 +1980,18 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.committed_trace_prefix == ()
-    members = experiment_runtime_module.runtime_terminal_audit_members(
-        checked, outcome
-    )
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["event_catalog_prefix"]
-    assert audit["last_snapshot_record"]["snapshot_identity"] == audit[
-        "last_snapshot_identity"
-    ]
-    assert audit["refusing_event"]["event_spec"]["event_id"] == audit[
-        "refusing_event"
-    ]["event_id"]
+    assert (
+        audit["last_snapshot_record"]["snapshot_identity"]
+        == audit["last_snapshot_identity"]
+    )
+    assert (
+        audit["refusing_event"]["event_spec"]["event_id"]
+        == audit["refusing_event"]["event_id"]
+    )
     assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
 
     def reidentify(drifted_audit):
@@ -2004,12 +2015,12 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     coordinated_snapshot = deepcopy(audit)
     replacement_snapshot_identity = "sha256:" + "0" * 64
     coordinated_snapshot["last_snapshot_identity"] = replacement_snapshot_identity
-    coordinated_snapshot["last_snapshot_record"][
-        "snapshot_identity"
-    ] = replacement_snapshot_identity
-    coordinated_snapshot["refusing_event"][
-        "snapshot_before_identity"
-    ] = replacement_snapshot_identity
+    coordinated_snapshot["last_snapshot_record"]["snapshot_identity"] = (
+        replacement_snapshot_identity
+    )
+    coordinated_snapshot["refusing_event"]["snapshot_before_identity"] = (
+        replacement_snapshot_identity
+    )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_snapshot)
     assert not experiment_runtime_module.validate_experiment_artifact_set(
@@ -2020,9 +2031,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     coordinated_event = deepcopy(audit)
     replacement_event_id = "sha256:" + "1" * 64
     coordinated_event["refusing_event"]["event_id"] = replacement_event_id
-    coordinated_event["refusing_event"]["event_spec"][
-        "event_id"
-    ] = replacement_event_id
+    coordinated_event["refusing_event"]["event_spec"]["event_id"] = replacement_event_id
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_event)
     assert not experiment_runtime_module.validate_experiment_artifact_set(
@@ -2053,9 +2062,9 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
     last_snapshot["snapshot_identity"] = replacement_snapshot_identity
     coordinated_budget["last_snapshot_identity"] = replacement_snapshot_identity
-    coordinated_budget["refusing_event"][
-        "snapshot_before_identity"
-    ] = replacement_snapshot_identity
+    coordinated_budget["refusing_event"]["snapshot_before_identity"] = (
+        replacement_snapshot_identity
+    )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_budget)
     assert not experiment_runtime_module.validate_experiment_artifact_set(
@@ -2080,9 +2089,7 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(
-        checked, outcome
-    )
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["event_spec"]["kind"] == "observation"
@@ -2148,9 +2155,7 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(
-        checked, outcome
-    )
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
@@ -2207,9 +2212,7 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(
-        checked, outcome
-    )
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
@@ -2287,9 +2290,7 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     )
 
 
-def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(
-    tmp_path, run_cli
-):
+def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
     checked = experiment_runtime_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
@@ -2298,21 +2299,19 @@ def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(
     catalog = deepcopy(artifacts.members["snapshot-series"].value["event_catalog"])
     events = deepcopy(artifacts.members["event-trace"].value["events"])
     parent_event = next(
-        event
-        for event in events
-        if event["operation"] == "game.combat.plan-casts-v1"
+        event for event in events if event["operation"] == "game.combat.plan-casts-v1"
     )
     action_cost = next(
         fact for fact in parent_event["facts"] if fact["name"] == "action_cost"
     )
     action_cost["integer"] += 1
-    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
-        "scheduler"
-    ]["runtime_journal"]["event_spec"]
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
     for schedule in parent_event["schedules"]:
-        next(
-            row for row in schedule["arguments"] if row["name"] == "action_cost"
-        )["value"] += 1
+        next(row for row in schedule["arguments"] if row["name"] == "action_cost")[
+            "value"
+        ] += 1
         scheduled_record = next(
             record for record in catalog if record["event_id"] == schedule["event_id"]
         )
@@ -2419,9 +2418,9 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     )
     schedule_trace["arguments"][0]["value"] += 1
     scheduled_record["event_spec"]["arguments"][0]["value"] += 1
-    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
-        "scheduler"
-    ]["runtime_journal"]["event_spec"]
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
     scheduled_record["event_spec_identity"] = content_identity(
         event_spec_contract["domain"],
         scheduled_record["event_spec"],
@@ -2508,9 +2507,9 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
         for row in scheduled_record["event_spec"]["arguments"]
         if row["name"] == "cost"
     )["value"] = replacement
-    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
-        "scheduler"
-    ]["runtime_journal"]["event_spec"]
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
     scheduled_record["event_spec_identity"] = content_identity(
         event_spec_contract["domain"],
         scheduled_record["event_spec"],
@@ -2618,13 +2617,16 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
-    assert len(
-        [
-            event
-            for event in artifacts.members["event-trace"].value["events"]
-            if event["operation"] is not None
-        ]
-    ) == 2
+    assert (
+        len(
+            [
+                event
+                for event in artifacts.members["event-trace"].value["events"]
+                if event["operation"] is not None
+            ]
+        )
+        == 2
+    )
 
 
 def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
@@ -2683,17 +2685,13 @@ def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     assert observation_frames == [transition_event["snapshot_after_identity"]]
 
 
-def test_event_metric_searches_the_complete_committed_scenario_trace(
-    tmp_path, run_cli
-):
+def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
-    next(
-        row
-        for row in scenario["assignments"]
-        if row["target"]["name"] == "accuracy"
-    )["value"] = 1000
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 1000
     plan = scenario["event_plan"][0]
     plan["logical_time"] = 0
     scenario["event_plan"] = [
@@ -3040,8 +3038,7 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     rir = _member(receipt, "rir-semantic-payload")
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
     assert {
-        row["target"]["name"]
-        for row in entrypoint["external_fact_contract"]["targets"]
+        row["target"]["name"] for row in entrypoint["external_fact_contract"]["targets"]
     } == {"target_defense"}
 
     specification = _experiment(
