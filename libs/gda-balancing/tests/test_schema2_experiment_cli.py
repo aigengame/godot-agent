@@ -2079,14 +2079,19 @@ def test_event_metric_searches_the_complete_committed_scenario_trace(
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
     scenario = specification["scenarios"][0]
+    next(
+        row
+        for row in scenario["assignments"]
+        if row["target"]["name"] == "accuracy"
+    )["value"] = 1000
     plan = scenario["event_plan"][0]
-    plan["logical_time"] = 1
+    plan["logical_time"] = 0
     scenario["event_plan"] = [
         {
             "kind": "transition-invocation",
             "root_event_ref": "cast-before-plan",
             "logical_time": 0,
-            "priority": 0,
+            "priority": 10,
             "entrypoint": "combat.cast",
             "payload": [],
         },
