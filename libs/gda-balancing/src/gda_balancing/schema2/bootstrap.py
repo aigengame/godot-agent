@@ -51,7 +51,10 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
+    "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab"
+)
+_SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
+    "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -412,6 +415,17 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "instruction_nodes",
         "required_members",
     },
+    "scheduler-scenario": {
+        "event_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "mutation_detectors",
+        "observation_members",
+        "required_members",
+        "state_value_members",
+        "target_states",
+    },
 }
 
 
@@ -480,6 +494,14 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "input",
             "kind",
         },
+        "scheduler-scenario": {
+            "category",
+            "detects_mutation",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -527,6 +549,44 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "multiply",
             "subtract",
         ]
+        and kinds["scheduler-scenario"].get("input_members")
+        == ["events", "initial_states", "terminal_condition"]
+        and kinds["scheduler-scenario"].get("expect_members")
+        == [
+            "event_order",
+            "observations",
+            "outcome",
+            "signal",
+            "terminal_reason",
+            "terminal_states",
+        ]
+        and kinds["scheduler-scenario"].get("mutation_detectors")
+        == [
+            "backward-scheduling",
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep",
+        ]
+        and kinds["scheduler-scenario"].get("event_members")
+        == [
+            "cancel_requested",
+            "enqueue_sequence",
+            "id",
+            "logical_time",
+            "parent_id",
+            "phase",
+            "priority",
+            "scenario",
+            "state_delta",
+            "status",
+        ]
+        and kinds["scheduler-scenario"].get("observation_members")
+        == ["event_id", "scenario", "state_after", "state_before"]
+        and kinds["scheduler-scenario"].get("state_value_members")
+        == ["scenario", "value"]
+        and kinds["scheduler-scenario"].get("target_states")
+        == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
     )
 
 
@@ -594,6 +654,107 @@ def _value_program_instruction_is_closed(
     )
 
 
+def _scheduler_scenario_vector_is_closed(
+    vector: dict[str, Any], kind: dict[str, Any], phase_inventory: set[str]
+) -> bool:
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    detects_mutation = vector.get("detects_mutation")
+    if (
+        not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+        or (
+            detects_mutation not in kind["mutation_detectors"]
+            if vector.get("category") == "semantic-mutation"
+            else detects_mutation is not None
+        )
+        or inp.get("terminal_condition") not in {"event-count-reached", "queue-drained"}
+        or not isinstance(inp.get("initial_states"), list)
+        or not inp["initial_states"]
+        or not isinstance(inp.get("events"), list)
+        or not inp["events"]
+    ):
+        return False
+    initial_states = inp["initial_states"]
+    scenarios = [row.get("scenario") for row in initial_states if isinstance(row, dict)]
+    if (
+        len(scenarios) != len(initial_states)
+        or len(scenarios) != len(set(scenarios))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and isinstance(row.get("scenario"), str)
+            and bool(row["scenario"])
+            and _signed_int64(row.get("value"))
+            for row in initial_states
+        )
+    ):
+        return False
+    events = inp["events"]
+    event_ids = [row.get("id") for row in events if isinstance(row, dict)]
+    if (
+        len(event_ids) != len(events)
+        or len(event_ids) != len(set(event_ids))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["event_members"])
+            and isinstance(row.get("id"), str)
+            and bool(row["id"])
+            and row.get("scenario") in scenarios
+            and _signed_int64(row.get("logical_time"))
+            and isinstance(row.get("phase"), str)
+            and row["phase"] in phase_inventory
+            and _signed_int64(row.get("priority"))
+            and isinstance(row.get("enqueue_sequence"), int)
+            and not isinstance(row["enqueue_sequence"], bool)
+            and row["enqueue_sequence"] >= 0
+            and _signed_int64(row.get("state_delta"))
+            and isinstance(row.get("cancel_requested"), bool)
+            and row.get("status") in kind["target_states"]
+            and (
+                row.get("parent_id") is None
+                or (
+                    isinstance(row["parent_id"], str)
+                    and row["parent_id"] in event_ids
+                    and row["parent_id"] != row["id"]
+                )
+            )
+            for row in events
+        )
+    ):
+        return False
+    observations = expect.get("observations")
+    terminal_states = expect.get("terminal_states")
+    return (
+        expect.get("outcome") in {"admitted", "refused"}
+        and (expect.get("signal") is None or isinstance(expect.get("signal"), str))
+        and expect.get("terminal_reason")
+        in {None, "event-count-reached", "queue-drained"}
+        and isinstance(expect.get("event_order"), list)
+        and all(event_id in event_ids for event_id in expect["event_order"])
+        and isinstance(observations, list)
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["observation_members"])
+            and row.get("event_id") in event_ids
+            and row.get("scenario") in scenarios
+            and _signed_int64(row.get("state_before"))
+            and _signed_int64(row.get("state_after"))
+            for row in observations
+        )
+        and isinstance(terminal_states, list)
+        and [row.get("scenario") for row in terminal_states] == scenarios
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and _signed_int64(row.get("value"))
+            for row in terminal_states
+        )
+    )
+
+
 def _package_conformance_vector_set_is_closed(
     vector_set: dict[str, Any],
     contract: Any,
@@ -650,7 +811,25 @@ def _package_evidence_vectors_are_closed(
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
+    scheduler_contract: Any,
 ) -> bool:
+    ordering = (
+        scheduler_contract.get("ordering")
+        if isinstance(scheduler_contract, dict)
+        else None
+    )
+    phase_rank = (
+        next(
+            (
+                row.get("rank")
+                for row in ordering
+                if isinstance(row, dict) and row.get("member") == "phase"
+            ),
+            None,
+        )
+        if isinstance(ordering, list)
+        else None
+    )
     if (
         not _package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -660,8 +839,12 @@ def _package_evidence_vectors_are_closed(
         or candidate_encoding["width_bits"] % 4 != 0
         or not isinstance(candidate_encoding.get("alphabet"), str)
         or not candidate_encoding["alphabet"]
+        or not isinstance(phase_rank, list)
+        or not phase_rank
+        or not all(isinstance(phase, str) and phase for phase in phase_rank)
     ):
         return False
+    phase_inventory = set(phase_rank)
     candidate_width = candidate_encoding["width_bits"] // 4
     candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
@@ -798,6 +981,10 @@ def _package_evidence_vectors_are_closed(
                     )
                 )
             ):
+                return False
+            continue
+        if kind_id == "scheduler-scenario":
+            if not _scheduler_scenario_vector_is_closed(vector, kind, phase_inventory):
                 return False
             continue
         operation = operations.get(vector.get("operation"))
@@ -4409,8 +4596,10 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
     source = mode.get("initialization_source")
     value_member = mode.get("value_member")
     cardinality = mode.get("experiment_cardinality")
+    event_cardinality = mode.get("event_payload_cardinality")
+    external_fact_cardinality = mode.get("external_fact_cardinality")
     override = mode.get("override")
-    return (
+    initialization_is_coherent = (
         (
             source == "model"
             and value_member == "required"
@@ -4435,6 +4624,11 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
             and cardinality == "forbidden"
             and override is False
         )
+    )
+    return (
+        initialization_is_coherent
+        and event_cardinality in {"forbidden", "optional", "required"}
+        and external_fact_cardinality in {"forbidden", "optional", "required"}
     )
 
 
@@ -4464,14 +4658,39 @@ def _assignment_role_contract_is_total(row: dict[str, Any]) -> bool:
                 )
                 for mode in modes
             )
+            and all(
+                mode["event_payload_cardinality"] == "forbidden"
+                or (
+                    accesses == ["read"]
+                    and mode["initialization_source"]
+                    in {"experiment", "model-with-experiment-override"}
+                )
+                for mode in modes
+            )
+            and all(
+                mode["external_fact_cardinality"] == "forbidden"
+                or (
+                    accesses == ["read"]
+                    and mode["initialization_source"] == "experiment"
+                )
+                for mode in modes
+            )
         )
     if binding_kind == "result":
         return (
             not accesses
             and result is True
             and all(mode["initialization_source"] == "execution" for mode in modes)
+            and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+            and all(mode["external_fact_cardinality"] == "forbidden" for mode in modes)
         )
-    return binding_kind == "internal" and not accesses and result is False
+    return (
+        binding_kind == "internal"
+        and not accesses
+        and result is False
+        and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+        and all(mode["external_fact_cardinality"] == "forbidden" for mode in modes)
+    )
 
 
 def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
@@ -6473,6 +6692,11 @@ def admit_authorities(
                         vector_set,
                         package_vector_contract,
                         candidate_encoding_contract,
+                        (
+                            runtime_program_contract.get("scheduler")
+                            if isinstance(runtime_program_contract, dict)
+                            else None
+                        ),
                     )
                 )
             ):
@@ -7338,6 +7562,400 @@ def _authority_wire_schema_projection_is_closed(kernel: dict[str, Any]) -> bool:
     }
 
 
+def _runtime_contract_path(runtime: dict[str, Any], path: str) -> Any:
+    value: Any = runtime
+    for member in path.split("."):
+        if not isinstance(value, dict) or member not in value:
+            return None
+        value = value[member]
+    return value
+
+
+def _active_runtime_profile_matches_contract(
+    profile: dict[str, Any],
+    contract: dict[str, Any],
+    runtime: dict[str, Any],
+) -> bool:
+    active = contract.get("active_runtime")
+    if not isinstance(active, dict) or set(active) != {
+        "required_members",
+        "optional_members",
+        "runtime_member_bindings",
+        "rng_member_bindings",
+        "budget_scopes",
+        "resource_bounds",
+    }:
+        return False
+    required = active.get("required_members")
+    optional = active.get("optional_members")
+    runtime_bindings = active.get("runtime_member_bindings")
+    rng_bindings = active.get("rng_member_bindings")
+    budget_scopes = active.get("budget_scopes")
+    resource_contract = active.get("resource_bounds")
+    if (
+        not isinstance(required, list)
+        or not required
+        or not all(isinstance(member, str) and member for member in required)
+        or len(required) != len(set(required))
+        or not isinstance(optional, list)
+        or not all(isinstance(member, str) and member for member in optional)
+        or len(optional) != len(set(optional))
+        or set(required) & set(optional)
+        or set(profile) - set(optional) != set(required)
+        or not isinstance(runtime_bindings, dict)
+        or not runtime_bindings
+        or not set(runtime_bindings) <= set(required)
+        or not all(isinstance(path, str) and path for path in runtime_bindings.values())
+        or not isinstance(rng_bindings, dict)
+        or not rng_bindings
+        or "rng" not in required
+        or not isinstance(profile.get("rng"), dict)
+        or set(profile["rng"]) != set(rng_bindings)
+        or not all(isinstance(path, str) and path for path in rng_bindings.values())
+        or "budget_scopes" not in required
+        or not isinstance(budget_scopes, dict)
+        or not budget_scopes
+        or not all(
+            isinstance(member, str) and member and isinstance(scope, str) and scope
+            for member, scope in budget_scopes.items()
+        )
+        or profile.get("budget_scopes") != budget_scopes
+        or "resource_bounds" not in required
+        or not isinstance(resource_contract, dict)
+        or set(resource_contract) != {"members", "value_contract"}
+        or resource_contract.get("value_contract") != "positive-integer"
+    ):
+        return False
+    resource_members = resource_contract.get("members")
+    resource_bounds = profile.get("resource_bounds")
+    if (
+        not isinstance(resource_members, list)
+        or not resource_members
+        or not all(isinstance(member, str) and member for member in resource_members)
+        or len(resource_members) != len(set(resource_members))
+        or not isinstance(resource_bounds, dict)
+        or set(resource_bounds) != set(resource_members)
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in resource_bounds.values()
+        )
+    ):
+        return False
+    return all(
+        profile.get(member) == _runtime_contract_path(runtime, cast(str, path))
+        for member, path in runtime_bindings.items()
+    ) and all(
+        cast(dict[str, Any], profile["rng"]).get(member)
+        == _runtime_contract_path(runtime, cast(str, path))
+        for member, path in rng_bindings.items()
+    )
+
+
+def _runtime_component_value_has_type(value: Any, expected: Any) -> bool:
+    if expected == "ordering-list":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(row, dict)
+                and set(row)
+                in ({"direction", "member"}, {"direction", "member", "rank"})
+                and row.get("direction") in {"ascending", "descending"}
+                and isinstance(row.get("member"), str)
+                and bool(row["member"])
+                and (
+                    "rank" not in row
+                    or (
+                        isinstance(row["rank"], list)
+                        and bool(row["rank"])
+                        and all(isinstance(item, str) and item for item in row["rank"])
+                        and len(row["rank"]) == len(set(row["rank"]))
+                    )
+                )
+                for row in value
+            )
+            and len({row["member"] for row in value}) == len(value)
+        )
+    return (
+        (expected == "object" and isinstance(value, dict))
+        or (expected == "array" and isinstance(value, list))
+        or (expected == "string" and isinstance(value, str) and bool(value))
+        or (
+            expected == "integer"
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+        )
+        or (
+            expected == "string-list"
+            and isinstance(value, list)
+            and all(isinstance(item, str) and item for item in value)
+            and len(value) == len(set(value))
+        )
+    )
+
+
+def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
+    required_object_roles = {
+        "runtime-configuration": {"lifecycle-roles", "root"},
+        "scheduler": {
+            "budget-members",
+            "call-site-identities",
+            "cancel-call-site-identity",
+            "cancel-policy",
+            "cancel-refusal-signals",
+            "committed-trace-journal",
+            "event-catalog-journal",
+            "event-identity",
+            "event-identity-variants",
+            "event-spec-journal",
+            "external-input-admission",
+            "external-input-identity",
+            "observation-policy",
+            "root",
+            "root-admission-map",
+            "root-event-map-journal",
+            "root-phase-map",
+            "runtime-configuration-projection",
+            "runtime-journal",
+            "schedule-call-site-identity",
+            "schedule-policy",
+            "schedule-refusal-signals",
+            "snapshot-identity",
+            "terminal-status",
+        },
+        "step": {"boundary-roles", "root"},
+        "transition": {"root"},
+    }
+    required_relation_roles = {
+        "lifecycle-states",
+        "observation-phase",
+        "root-phases",
+        "scheduled-child-phase",
+        "step-boundaries",
+        "step-stops",
+    }
+    contract = runtime.get("component_contract")
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "components",
+            "content_identity",
+            "relations",
+            "version",
+        }
+        or contract.get("version") != "runtime-component-meta-contract-v1"
+        or contract.get("content_identity")
+        != _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+    ):
+        return False
+    try:
+        observed_contract_identity = content_identity(
+            cast(str, contract["version"]),
+            cast(
+                JsonValue,
+                {
+                    member: value
+                    for member, value in contract.items()
+                    if member != "content_identity"
+                },
+            ),
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+    if observed_contract_identity != contract["content_identity"]:
+        return False
+    components = contract.get("components")
+    relations = contract.get("relations")
+    if (
+        not isinstance(components, dict)
+        or not components
+        or not isinstance(relations, list)
+    ):
+        return False
+    component_roles: dict[str, str] = {}
+    for component_name, component_contract in components.items():
+        component = runtime.get(component_name)
+        objects = (
+            component_contract.get("objects")
+            if isinstance(component_contract, dict)
+            else None
+        )
+        if (
+            not isinstance(component_name, str)
+            or not component_name
+            or not isinstance(component, dict)
+            or not isinstance(component_contract, dict)
+            or set(component_contract) != {"objects", "role"}
+            or not isinstance(objects, dict)
+            or "" not in objects
+            or not isinstance(component_contract.get("role"), str)
+            or not component_contract["role"]
+            or component_contract["role"] in component_roles
+        ):
+            return False
+        component_role = cast(str, component_contract["role"])
+        component_roles[component_role] = component_name
+        object_roles: set[str] = set()
+        for path, object_contract in objects.items():
+            value = component if path == "" else _runtime_contract_path(component, path)
+            member_types = (
+                object_contract.get("member_types")
+                if isinstance(object_contract, dict)
+                else None
+            )
+            object_role = (
+                object_contract.get("role")
+                if isinstance(object_contract, dict)
+                else None
+            )
+            if (
+                not isinstance(path, str)
+                or not isinstance(object_contract, dict)
+                or set(object_contract) != {"member_types", "role"}
+                or not isinstance(object_role, str)
+                or not object_role
+                or object_role in object_roles
+                or not isinstance(value, dict)
+                or not isinstance(member_types, dict)
+                or set(value) != set(member_types)
+                or not all(
+                    isinstance(member, str)
+                    and member
+                    and _runtime_component_value_has_type(value[member], expected)
+                    for member, expected in member_types.items()
+                )
+            ):
+                return False
+            object_roles.add(object_role)
+        if object_roles != required_object_roles.get(component_role):
+            return False
+    if set(component_roles) != set(required_object_roles):
+        return False
+    relation_roles: set[str] = set()
+    for relation in relations:
+        if not isinstance(relation, dict):
+            return False
+        component_name = cast(str, relation.get("component"))
+        component = components.get(component_name)
+        runtime_component = runtime.get(component_name)
+        if not isinstance(component, dict) or not isinstance(runtime_component, dict):
+            return False
+        relation_role = relation.get("role")
+        if (
+            not isinstance(relation_role, str)
+            or not relation_role
+            or relation_role in relation_roles
+        ):
+            return False
+        relation_roles.add(relation_role)
+        kind = relation.get("kind")
+        if kind == "mapping-values-in-list":
+            if set(relation) != {
+                "component",
+                "excluded_keys",
+                "kind",
+                "list_path",
+                "mapping_path",
+                "role",
+            }:
+                return False
+            mapping = _runtime_contract_path(
+                runtime_component, relation["mapping_path"]
+            )
+            values = _runtime_contract_path(runtime_component, relation["list_path"])
+            excluded = relation.get("excluded_keys")
+            if (
+                not isinstance(mapping, dict)
+                or not isinstance(values, list)
+                or not isinstance(excluded, list)
+                or not all(isinstance(key, str) for key in excluded)
+                or not set(excluded) <= set(mapping)
+                or any(
+                    value not in values
+                    for key, value in mapping.items()
+                    if key not in excluded
+                )
+            ):
+                return False
+            continue
+        if kind == "list-values-in-list":
+            if set(relation) != {
+                "component",
+                "kind",
+                "list_path",
+                "role",
+                "values_path",
+            }:
+                return False
+            source = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("list_path"))
+            )
+            values = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("values_path"))
+            )
+            if (
+                not isinstance(source, list)
+                or not isinstance(values, list)
+                or not set(source) <= set(values)
+            ):
+                return False
+            continue
+        if kind in {
+            "mapping-values-in-ranked-ordering",
+            "value-in-ranked-ordering",
+        }:
+            expected_members = {
+                "component",
+                "kind",
+                "ordering_member",
+                "ordering_path",
+                "role",
+                (
+                    "mapping_path"
+                    if kind == "mapping-values-in-ranked-ordering"
+                    else "value_path"
+                ),
+            }
+            ordering = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("ordering_path"))
+            )
+            rank_row = (
+                next(
+                    (
+                        row
+                        for row in ordering
+                        if isinstance(row, dict)
+                        and row.get("member") == relation.get("ordering_member")
+                    ),
+                    None,
+                )
+                if isinstance(ordering, list)
+                else None
+            )
+            rank = rank_row.get("rank") if isinstance(rank_row, dict) else None
+            if set(relation) != expected_members or not isinstance(rank, list):
+                return False
+            if kind == "mapping-values-in-ranked-ordering":
+                mapping = _runtime_contract_path(
+                    runtime_component, cast(str, relation.get("mapping_path"))
+                )
+                if not isinstance(mapping, dict) or any(
+                    value not in rank for value in mapping.values()
+                ):
+                    return False
+            elif (
+                _runtime_contract_path(
+                    runtime_component, cast(str, relation.get("value_path"))
+                )
+                not in rank
+            ):
+                return False
+            continue
+        return False
+    return relation_roles == required_relation_roles
+
+
 def _runtime_authority_is_closed(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -7349,11 +7967,11 @@ def _runtime_authority_is_closed(
     )
     if (
         not isinstance(runtime, dict)
-        or profile_identity
-        != {
-            "domain": "runtime-profile-definition-v1",
-            "projection": "complete-definition",
-        }
+        or not isinstance(profile_identity, dict)
+        or set(profile_identity) != {"domain", "projection", "active_runtime"}
+        or not isinstance(profile_identity.get("domain"), str)
+        or not profile_identity["domain"]
+        or profile_identity.get("projection") != "complete-definition"
         or set(runtime)
         != {
             "closed",
@@ -7366,7 +7984,12 @@ def _runtime_authority_is_closed(
             "nodes",
             "numeric",
             "named_rng",
+            "scheduler",
             "event_atomicity",
+            "component_contract",
+            "runtime_configuration",
+            "transition",
+            "step",
             "outcome_contract",
             "invocation_contract",
             "vectors",
@@ -7374,6 +7997,11 @@ def _runtime_authority_is_closed(
         or runtime.get("closed") is not True
         or not isinstance(runtime.get("version"), str)
         or not runtime["version"]
+        or not isinstance(runtime.get("scheduler"), dict)
+        or not isinstance(runtime.get("runtime_configuration"), dict)
+        or not isinstance(runtime.get("transition"), dict)
+        or not isinstance(runtime.get("step"), dict)
+        or not _runtime_component_contract_is_closed(runtime)
     ):
         return False
     family_members = {
@@ -7504,6 +8132,33 @@ def _runtime_authority_is_closed(
             elif set(constraint) != {"kind", "members"}:
                 return False
         nodes[node["id"]] = node
+    cancel_semantics = nodes.get("cancel", {}).get("semantics")
+    cancel_target = (
+        cancel_semantics.get("target_reference")
+        if isinstance(cancel_semantics, dict)
+        else None
+    )
+    if (
+        not isinstance(cancel_target, dict)
+        or set(cancel_target)
+        != {
+            "instruction_member",
+            "kind",
+            "producer_result_kind",
+            "value_member",
+        }
+        or not all(
+            isinstance(cancel_target.get(member), str) and cancel_target[member]
+            for member in cancel_target
+        )
+        or cancel_target["instruction_member"]
+        not in nodes["cancel"]["required_members"]
+        or not any(
+            node["result"]["kind"] == cancel_target["producer_result_kind"]
+            for node in nodes.values()
+        )
+    ):
+        return False
     for family, member in family_members.items():
         inventory = runtime.get(member)
         if not isinstance(inventory, list) or inventory != [
@@ -7562,6 +8217,8 @@ def _runtime_authority_is_closed(
         != {
             "state_writes": "buffered",
             "rng_draws": "buffered",
+            "child_events": "buffered",
+            "cancellations": "buffered",
             "success": "commit-entire-current-event",
             "runtime_refusal": "rollback-entire-current-event",
         }
@@ -7694,20 +8351,12 @@ def _runtime_authority_is_closed(
     for profile in profiles:
         if not isinstance(profile, dict):
             return False
-        if profile.get("evaluation") == runtime["version"] and (
-            profile.get("runtime_program_version") != runtime["version"]
-            or profile.get("numeric_law") != numeric["id"]
-            or profile.get("rng")
-            != {
-                "algorithm": rng["algorithm"],
-                "interval_sampling": rng["interval_sampling"]["mapping"],
-                "bias_policy": rng["interval_sampling"]["bias_policy"],
-            }
-            or profile.get("budget_scopes")
-            != {
-                "operation_max_steps": "per-event",
-                "runtime_max_steps": "per-run",
-            }
+        if profile.get("evaluation") == runtime["version"] and not (
+            _active_runtime_profile_matches_contract(
+                profile,
+                profile_identity,
+                runtime,
+            )
         ):
             return False
     kinds = set(outcomes["kinds"])
@@ -7726,6 +8375,7 @@ def _runtime_authority_is_closed(
             return None
         visiting.add(operation_id)
         referenced: set[str] = set()
+        local_result_kinds: dict[str, str] = {}
         body = operation.get("body")
         if not isinstance(body, list):
             visiting.remove(operation_id)
@@ -7738,6 +8388,20 @@ def _runtime_authority_is_closed(
             if node is None or set(instruction) != set(node["required_members"]):
                 visiting.remove(operation_id)
                 return None
+            if node["semantics"]["operator"] == "cancel-event":
+                target_contract = node["semantics"]["target_reference"]
+                target = instruction.get(target_contract["instruction_member"])
+                if (
+                    not isinstance(target, dict)
+                    or set(target) != {"kind", target_contract["value_member"]}
+                    or target.get("kind") != target_contract["kind"]
+                    or not isinstance(target.get(target_contract["value_member"]), str)
+                    or not target[target_contract["value_member"]]
+                    or local_result_kinds.get(target[target_contract["value_member"]])
+                    != target_contract["producer_result_kind"]
+                ):
+                    visiting.remove(operation_id)
+                    return None
             if "outcome" in instruction:
                 referenced.add(str(instruction["outcome"]))
             if node["semantics"]["operator"] == "invoke-operation":
@@ -7815,6 +8479,20 @@ def _runtime_authority_is_closed(
                         return None
                     if action["kind"] == "propagate":
                         referenced.add(action["outcome"])
+            result_binding = instruction.get("result")
+            if (
+                isinstance(result_binding, dict)
+                and result_binding.get("kind") == "local"
+            ):
+                local_name = result_binding.get("name")
+                if (
+                    not isinstance(local_name, str)
+                    or not local_name
+                    or local_name in local_result_kinds
+                ):
+                    visiting.remove(operation_id)
+                    return None
+                local_result_kinds[local_name] = node["result"]["kind"]
         visiting.remove(operation_id)
         return referenced
 

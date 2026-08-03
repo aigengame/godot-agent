@@ -296,7 +296,11 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         binding["site"]["context"]["phase"]: binding
         for binding in rir["formula_bindings"]
     }
-    assert set(bindings_by_phase) == {"initialization", "observation"}
+    assert set(bindings_by_phase) == {
+        "initialization",
+        "event",
+        "observation",
+    }
     assert bindings_by_phase["initialization"]["site"]["context"] == {
         "frame": "pre-snapshot",
         "phase": "initialization",
@@ -305,11 +309,15 @@ def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
         "frame": "post-transition-snapshot",
         "phase": "observation",
     }
+    assert bindings_by_phase["event"]["site"]["context"] == {
+        "frame": "pre-event-snapshot",
+        "phase": "event",
+    }
     assert (
-        bindings_by_phase["initialization"]["site"]["identity"]
-        != bindings_by_phase["observation"]["site"]["identity"]
+        len({binding["site"]["identity"] for binding in bindings_by_phase.values()})
+        == 3
     )
-    assert len(rir["initialization_programs"]) == 2
+    assert len(rir["initialization_programs"]) == 3
     for program in rir["initialization_programs"]:
         phase = program["site"]["context"]["phase"]
         binding = bindings_by_phase[phase]
@@ -540,7 +548,11 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
     bindings_by_phase = {
         row["site"]["context"]["phase"]: row for row in rir["formula_bindings"]
     }
-    assert set(explanation_sites) == {"initialization", "observation"}
+    assert set(explanation_sites) == {
+        "initialization",
+        "event",
+        "observation",
+    }
     for phase, binding in bindings_by_phase.items():
         assert explanation_sites[phase] == {
             "binding_identity": binding["identity"],
@@ -4861,6 +4873,73 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
     )
 
 
+def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+
+    rir = cast(
+        dict[str, Any],
+        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+    )
+    entrypoint = next(
+        row
+        for row in cast(list[dict[str, Any]], rir["entrypoints"])
+        if row["id"] == "combat.cast"
+    )
+
+    assert {
+        row["target"]["name"]: (row["cardinality"], row["value_source"])
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    } == {
+        "action_cost": ("optional", "event-payload"),
+        "accuracy": ("optional", "event-payload"),
+        "base_damage": ("optional", "event-payload"),
+        "critical_threshold": ("optional", "event-payload"),
+        "target_defense": ("optional", "event-payload"),
+    }
+    assert all(
+        row["override"] is True
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    )
+
+
+def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    assignment_policy = checked.language_bundle["language"]["model_lowerings"][0][
+        "assignment_policy"
+    ]
+    modes = {
+        (row["role"], mode["id"]): mode["external_fact_cardinality"]
+        for row in assignment_policy["roles"]
+        for mode in row["modes"]
+    }
+    assert modes[("input", "experiment-required")] == "optional"
+    assert {
+        cardinality for (role, _mode), cardinality in modes.items() if role != "input"
+    } == {"forbidden"}
+
+    rir = cast(
+        dict[str, Any],
+        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+    )
+    entrypoint = next(
+        row
+        for row in cast(list[dict[str, Any]], rir["entrypoints"])
+        if row["id"] == "combat.cast"
+    )
+    assert {
+        row["target"]["name"]: row["cardinality"]
+        for row in entrypoint["external_fact_contract"]["targets"]
+    } == {"target_defense": "optional"}
+
+
 @pytest.mark.parametrize(
     ("member", "hidden_value"),
     (
@@ -5295,7 +5374,13 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     lowering["assignment_policy"]["roles"].append(
         {
             "role": "lowered-by-ldb",
-            "modes": [modes_by_id[mode] for mode in sorted(modes_by_id)],
+            "modes": [
+                {
+                    **modes_by_id[mode],
+                    "event_payload_cardinality": "forbidden",
+                }
+                for mode in sorted(modes_by_id)
+            ],
             "entrypoint_operand_access": [],
             "entrypoint_result": False,
             "binding_kind": "internal",
@@ -6229,11 +6314,19 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": "purchase",
-                "entrypoint": "economy.purchase",
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "purchase",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": "economy.purchase",
+                        "payload": [],
+                    }
+                ],
                 "assignments": [
                     {
                         "target": {

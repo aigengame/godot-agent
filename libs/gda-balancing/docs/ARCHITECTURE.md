@@ -336,9 +336,14 @@ Operation composition is explicit and directional. An LDB Operation is the sole 
 named formal ports. Every nested call binds the callee's complete formal-port set to caller ports,
 caller locals, literals, or another Kernel-admitted expression; equality of display names has no
 semantic force. A Model Source entrypoint then binds one exact Operation's ports to resolved Model
-symbols and binds or explicitly discards its result. Experiment scenarios may select only those
-entrypoints and assign the generated Scenario Input Contract; they cannot select an LDB Operation
-or repeat its port schema. The selected LDB lowering owns the total Symbol assignment table
+symbols and binds or explicitly discards its result. Experiment transition-invocation members may
+select only those entrypoints. Scenario initialization assigns the canonical union of their
+generated Scenario Input Contracts; each Event-local payload is admitted by a separately derived
+contract. The assignment mode owns that payload cardinality: only an admitted read-only
+Experiment-initialized parameter or input can be overridden for one Event; fixed, writable,
+derived, result, and internal values cannot. Experiments cannot select an LDB Operation or repeat
+its port schema. The selected LDB
+lowering owns the total Symbol assignment table
 (value ownership, legal port access and result roles, required/optional Experiment modes, and
 actual-target deduplication) and the nested-call composition policy (callee effect/refusal closure
 and transitive resource bounds). The host interprets those admitted tables; it does not maintain a
@@ -650,7 +655,18 @@ Numeric profile, RNG algorithm and streams, scheduler/effect policy, and resourc
 The Kernel declares the Runtime-profile-definition identity domain; admission hashes the complete
 selected definition and the Resolved Runtime profile binds that identity. The definition,
 Evaluator Capability Manifest, and Resolved Runtime profile therefore form an explicit acyclic
-three-node identity graph rather than relying on an embedded value comparison.
+three-node identity graph rather than relying on an embedded value comparison. The Kernel's
+active-definition contract supplies the required member set, Runtime/RNG bindings, budget scopes,
+and positive-bound shape; the LDB supplies the concrete bound values. Hosts interpret that contract
+instead of carrying a peer profile schema or copied budget constants.
+The Kernel's Runtime-program component contract likewise closes every evaluator-consumed scheduler,
+Runtime-configuration, transition, and step object behind required abstract roles, then declares
+the relations among phase, lifecycle, and boundary inventories. Bootstrap consumers implement only
+that role meta-protocol; component paths, member shapes, inventories, and concrete values remain
+Kernel authority. The complete role-to-structure mapping has its own content identity, and an
+evaluator admits only a mapping identity it explicitly implements; changing a path, member shape,
+or relation therefore requires an evaluator capability update without turning concrete authority
+values into host constants.
 
 The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
 its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,
@@ -668,8 +684,10 @@ One execution instance follows a closed lifecycle:
    creating mutable state;
 2. `initializing` evaluates against an immutable pre-Snapshot Initialization frame and atomically
    creates and validates Snapshot 0;
-3. `event` dispatches the atomic events at the current logical time;
-4. `step` advances to the next declared observation or logical boundary;
+3. `event` applies one internal scheduler transition and dispatches one atomic Event;
+4. public `step` applies those transitions until the next declared observation or logical boundary;
+   an Event-count terminal threshold becomes effective only at such a boundary, after the active
+   logical-time transition phase drains;
 5. `terminated` seals terminal trace, Snapshot, Metrics, and evidence identities; and
 6. reset discards the instance and initializes a new one from the same immutable artifacts rather
    than mutating RIR.
@@ -681,6 +699,14 @@ one phase in its stable ordering key. At each logical time the fixed order is `i
 then `observation`; signed priority descending and runtime-assigned FIFO enqueue sequence complete
 the total order. Models and packages cannot add or reorder phases.
 
+Runtime admission first resolves the Experiment's closed Executable Event plan. Every authored
+external-input or transition-invocation root member has a unique stable `root_event_ref`; canonical
+array order assigns initial enqueue sequence and Runtime-owned `event_id`, while the Kernel
+scheduler contract maps each root kind to its phase. This produces an explicit root-reference map
+before dispatch. Equal logical times are legal. Event identity, host-container iteration, wall
+clock, threads, and evaluator parallelism never break ties. Observation members are derived from
+exact Observation/Metric contracts and cannot choose a phase or Model entrypoint.
+
 - An `input` event admits externally supplied, source-sequenced facts and cannot be scheduled by
   model operations.
 - A `transition` event executes actions, effects, resource changes, combat, generation, and other
@@ -691,7 +717,31 @@ the total order. Models and packages cannot add or reorder phases.
 
 Dispatching **each queued event** is one atomic transaction over the latest committed Snapshot.
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
-commits; refusal discards that event's buffers.
+commits; refusal discards that event's buffers. Every committed Snapshot identity covers both its
+state values and the resumable Runtime continuation (lifecycle/`step` boundary, Scenario cursor,
+admitted-Event catalog and committed-trace prefix identities, pending count, Snapshot coordinate,
+Named RNG state, scoped resource ledger, enqueue cursor, root-map identity, and Resolved Runtime
+profile identity), so equal state values cannot conceal different future execution. Snapshot Series
+materialize each complete normalized admitted Event specification once, bind its recomputable
+identity, and cross-bind the Event Trace used to revalidate every catalog/commit/cancellation prefix
+and reconstruct the exact pending queue. Catalog admission independently re-derives roots from the
+Experiment, observations from Metrics, and scheduled Events from committed parent provenance and
+the exact RIR scheduling Operation, nested call path/site, normalized actual arguments, and state
+references. Recovery boundedly replays the admitted RIR path from the committed parent inputs and
+state, so port, local, and literal schedule operands are recomputed rather than trusted from the
+trace. Named-RNG-derived locals additionally replay from the checked seed through the independently
+verified committed draw prefix; coordinated re-hashing cannot invent a different queue.
+Snapshot Series do not duplicate growing pending or completed arrays at every boundary.
+
+A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
+commit makes each uncanceled child queue-visible under the same law and traces its
+parent/call-site provenance. Cancellation targets only a stable admitted pending identity,
+including one provisionally admitted in the same transaction, and is buffered atomically. Backward scheduling,
+hidden input admission, active/completed cancellation, illegal same-time priority, queue overflow,
+zero-time derivation overflow, total-Event exhaustion, and logical-time exhaustion follow their
+distinct LDB-owned typed outcomes or Runtime refusals. Runtime node-step, per-Event operation-step,
+queue, zero-time-depth, total-Event, and logical-time budgets remain separately identified and
+observable in the Resolved Runtime profile and audit artifacts.
 
 Initialization is a distinct atomic pre-Event boundary. A refusal while deriving or validating
 Snapshot 0 discards the whole Initialization frame and returns a `runtime`-stage refusal with exact
@@ -728,6 +778,14 @@ retrievable, and verifiable **terminal-audit artifact set**. bADR-0015 exclusive
 closed member and binding contract. At the architecture level, it is a refusal-only publication: it
 must not publish fabricated or half-complete Evaluation, Metric, Replay, or Evidence success
 artifacts, and admission failures before dispatch have no terminal audit.
+Recovery revalidates the set's internal Event-catalog/trace/Snapshot/state/rollback/refusing-event/
+Diagnostic closure as well as member identities. The audit materializes its exact catalog prefix,
+complete last Snapshot, and refusing Event specification so recovery can re-derive Event admission,
+recompute continuation journals and the Snapshot identity, bind a derived observation refusal to
+the next Metric/enqueue cursor, and—without rerunning the evaluator—walk admitted RIR resource
+transitions to derive the first budget-breaching instruction, completed nested-call prefix, and
+exact Event charge before closing attempted steps against the committed resource ledger; a
+wire-valid, re-hashed cross-field mutation is not an authoritative refusal.
 
 An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
 `runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric
@@ -743,8 +801,11 @@ fault-injected and verified independently.
 
 An Experiment Specification owns everything that turns a model into a testable question:
 
-- scenarios and external inputs;
-- exact Model-entrypoint selection and total assignments to its generated Scenario Input Contract;
+- scenarios and their bounded external-input/transition-invocation root Event plans;
+- canonical one-time initialization over the union of selected entrypoints' Scenario Input
+  Contracts;
+- exact per-Event Model-entrypoint selection and separately derived Event-local payload admission;
+- derived observation Events from exact Observation/Metric contracts;
 - exact model/runtime compatibility binding;
 - metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;

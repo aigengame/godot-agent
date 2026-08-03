@@ -24,19 +24,22 @@ Admitted Experiment Specification
 Event trace + Snapshots + Metrics + Evaluation run
 ```
 
-The example models one `game.combat.cast-v1` event. A character spends mana, rolls for hit and
-critical outcome, deals damage after defense, and updates the target's health. The game owns two
+The example models one bounded multi-Event scenario. An authored external-input root changes the
+defense fact, an authored `game.combat.plan-casts-v1` root schedules two child casts, the plan
+cancels one pending child, and the remaining `game.combat.cast-v1` child executes at logical time
+`1`. A direct `combat.cast` root then executes at time `2`, binding its result to the Model's
+`damage_dealt` output. Runtime derives two read-only Metric observation Events. The game owns two
 pure Formulas in Model Source: `effective-accuracy` initializes a game-owned derived Symbol, while
 `mitigated-damage` fills the combat package's `damage-policy` Formula slot. The reusable Operation
 still owns Event control, RNG, state changes, outcomes, and commit/rollback. The files are:
 
 - [`model-source.json`](model-source.json): the editable numeric model. It declares symbols,
   pure Formulas as exact adjacent `body`/`expression` pairs, static Formula bindings, package
-  requirements, and the `combat.cast` entrypoint that explicitly binds game-owned symbols to
-  Operation ports.
+  requirements, and the `combat.cast` / `combat.plan-casts` entrypoints that explicitly bind
+  game-owned symbols to Operation ports.
 - [`experiment.json`](experiment.json): one exact scenario and evaluation policy. It binds the
-  built Model artifacts, selects `combat.cast`, assigns its generated Scenario Input Contract,
-  supplies a seed, and defines the Metrics and acceptance targets.
+  built Model artifacts, authors the three root Events, assigns the generated one-time Scenario
+  Input Contract, supplies a seed, and defines snapshot- and Event-sourced Metrics and targets.
 
 This is a beginner-oriented product-feedback slice, not proof of general RPG or Roguelike
 coverage.
@@ -150,20 +153,24 @@ two operands have the same admitted contract, swapping their named bindings is t
 semantic edit rather than a type error; the binding, Formula, RIR, and downstream identities make
 that edit observable.
 
-The Model Source also owns the `combat.cast` entrypoint. `game.combat.cast-v1` is the reusable LDB
-Operation and therefore owns formal ports such as `hit_defense` and `damage_mitigation`. The
-entrypoint binds both of those read-only ports explicitly to the one game-owned
+The Model Source also owns `combat.cast` and `combat.plan-casts` entrypoints. Their reusable LDB
+Operations own formal ports such as `hit_defense` and `damage_mitigation`. Both entrypoints bind
+those read-only ports explicitly to the one game-owned
 `target_defense` symbol; matching names are neither required nor used for resolution. The
 LDB assignment policy marks that Symbol as a required Experiment input, so RIR exports one exact
 target even though two ports consume it; the Experiment assigns that target once. A Model-fixed
 value would instead appear as a Model initializer, and an admitted override mode would expose one
-optional Experiment target over that explicit default. This is deliberate DRY:
+optional Experiment target over that explicit default. The same LDB policy separately exports
+read-only `parameter` and `input` operands as optional Event-local targets. The example plan uses
+that contract to supply `base_damage` for its transition without making `actor_mana` state
+payload-addressable. This is deliberate DRY:
 
 ```text
 LDB Operation formal ports
     -> Model entrypoint binds game-owned symbols
         -> RIR derives exact call sites and Scenario Input Contract
-            -> Experiment assigns only those contract members
+            + Event-local payload contract
+                -> Experiment assigns only the matching members at each boundary
 ```
 
 ## 3. Round-trip Formula notation
@@ -385,15 +392,37 @@ to produce a pair, then replace both adjacent members together.
 ## 5. Check the Experiment Specification
 
 The companion [`experiment.json`](experiment.json) binds the exact source, Build receipt,
-Resolved Model, Package Lock, and RIR identities produced by the build. Its `one-cast` scenario
-selects the `combat.cast` Model entrypoint and assigns all seven required symbol identities exactly
-once. It also owns:
+Resolved Model, Package Lock, and RIR identities produced by the build. Its `multi-cast` scenario
+authors an external-input root plus `combat.plan-casts` and `combat.cast` transition roots, then
+assigns the canonical union of their seven required initialization targets exactly once. It also
+owns:
 
 - the `standard.exact-int64-event-v1` Runtime profile request;
 - the effective RNG algorithm and seed;
-- the `one-cast` Scenario Input assignments and Named random streams;
-- the `damage_dealt` and `target_health_remaining` Metrics;
-- their target ranges and the all-Metrics acceptance policy.
+- the `multi-cast` Scenario Input assignments and Named random streams;
+- the snapshot-sourced `target_health_remaining` and Event-sourced `damage_dealt` Metrics;
+- its target range and the all-Metrics acceptance policy.
+
+The Event plan deliberately separates concepts that are easy to conflate:
+
+- `root_event_ref` is the stable authored name in `experiment.json`; Runtime maps each root to its
+  own `event_id` before dispatch. Scheduled children have Runtime ids and parent/call-site
+  provenance, but no authored root reference.
+- `payload` is checked against each selected entrypoint's independently derived Event-local
+  contract. The plan explicitly supplies `base_damage`; the direct retry supplies zero cost and
+  damage so it exposes an output without changing the terminal state. Trying to put writable
+  `actor_mana` state in either payload refuses before Runtime.
+- Logical time orders modeled Events; it is not a tick count and is unrelated to node-step or
+  per-Event resource budgets. Here two roots execute at time `0`, the surviving child executes at
+  time `1`, and the direct retry root executes at time `2`.
+- Equal logical times are legal and serialized by phase (`input`, `transition`, `observation`),
+  priority, then enqueue sequence. Each Event reads the Snapshot committed by the preceding Event,
+  including another Event at the same logical time.
+- `queue-drained` ends this scenario after the pending queue empties. `event-count` is the other
+  admitted multi-step terminal condition; neither turns separate scenarios into sequential steps.
+  Multiple scenarios remain independent replications with separate Snapshot 0 values and queues.
+- Runtime `step` advances to the next observation or logical boundary. Queue, total-Event,
+  zero-time-depth, logical-time, node-step, and per-Event budgets remain separate profile members.
 
 Check it before execution:
 
@@ -437,8 +466,8 @@ publication also contains:
 
 | Artifact | What to inspect |
 |---|---|
-| `event-trace` | Ordered outcomes, intermediate facts, RNG draws, and state before/after |
-| `snapshot-series` | Initial and committed terminal state |
+| `event-trace` | Root mapping, complete ordering keys, schedule/cancel provenance, observations, RNG draws, and state before/after |
+| `snapshot-series` | Initial state and every committed Event boundary, each with a stable Snapshot identity |
 | `metric-dataset` | Metric values, provenance, target comparison, and status |
 | `reproduction-receipt` | Exact Model, RIR, Runtime profile, evaluator, seed, and input identities |
 | `resolved-runtime-profile` | Runtime definition bound to the evaluator, platform, budgets, numeric policy, and RNG policy |
@@ -465,13 +494,20 @@ export METRIC_PATH="$(
 )"
 ```
 
-Inspect the combat transition:
+Inspect the complete Event sequence:
 
 ```sh
 jq '.events[] | {
+  event_id,
+  root_event_ref,
+  parent_event_id,
+  ordering_key,
   entrypoint,
   operation,
   calls,
+  schedules,
+  cancellations,
+  observation,
   outcome,
   rng_draws,
   state_before,
@@ -496,8 +532,11 @@ jq '.samples[] | {
 }' "$METRIC_PATH"
 ```
 
-With the committed example values, `base_damage = 45` produces `damage_dealt = 60`; target health
-changes from `100` to `40`, and actor mana changes from `35` to `26`. These tutorial inputs are
+With the committed example values, the external-input root changes defense from `30` to `6`.
+The surviving critical cast then changes target health from `100` to `16`, and actor mana from
+`35` to `26`. The direct retry resolves with zero cost, `base_damage = 5`, and an Event-local
+critical threshold of `100`, so its entrypoint result produces the Event-sourced
+`damage_dealt = 4` sample and changes target health from `16` to `12`. These tutorial inputs are
 intentionally independent from the package's normative conformance-vector inputs: the public loop
 consumes the same admitted semantics without treating package evidence as product configuration.
 
@@ -526,7 +565,7 @@ uv run gda-balancing experiment run \
 ```
 
 Seed `4` draws hit `22` and critical `72`. It still hits, but takes the non-critical branch:
-damage is `15`, target health is `85`, and actor mana is `26`. The two fixed seeds therefore
+target health is `75`, and actor mana is `26`. The two fixed seeds therefore
 exercise different critical outcomes and different terminal states while keeping the Model,
 scenario assignments, and Metric policy unchanged. A different seed can still produce the same
 result when its draws remain on the same modeled branches.
@@ -644,7 +683,7 @@ jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
 uv run gda-balancing experiment check "$EDITED_EXPERIMENT" | jq .
 ```
 
-Run the edited Formula and read its Metric:
+Run the edited Formula and read the terminal-health Metric:
 
 ```sh
 export EDITED_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
@@ -668,24 +707,26 @@ export EDITED_TRACE_PATH="$(
 )"
 
 jq '.samples[]
-  | select(.metric == "damage_dealt")
+  | select(.metric == "target_health_remaining")
   | {metric, value, within_target}' "$EDITED_METRIC_PATH"
-jq '.events[0].state_after' "$EDITED_TRACE_PATH"
+jq '.events[]
+  | select(.operation == "game.combat.cast-v1")
+  | .state_after' "$EDITED_TRACE_PATH"
 ```
 
-With the same seed and assignments, damage increases from `60` to `90` and target health falls
-from `40` to `10`. Edit Model Source when changing a game's numeric policy. Publish a new Domain
+With the same seed and assignments, target health falls from `30` to `10`. Edit Model Source when
+changing a game's numeric policy. Publish a new Domain
 package only when changing reusable mechanic contracts such as Operation ports, Formula slots,
 control/effects, permitted refusals, or resource budgets.
 
 ## 8. Exercise a rejected Verdict
 
 An admitted and fully executed Experiment can still fail its declared Metric targets. Create a
-copy whose damage target is impossible for this scenario:
+copy whose terminal-health target is impossible for this scenario:
 
 ```sh
 jq '(.metrics[]
-  | select(.id == "damage_dealt")
+  | select(.id == "target_health_remaining")
   | .target) = {"minimum": 1000, "maximum": 1000}' \
   examples/schema2/rpg-combat-cast/experiment.json \
   > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-rejected.json"
@@ -707,7 +748,7 @@ jq '{outcome, failed_metrics, artifact_set}' "$REJECTED_RESULT"
 ```
 
 Exit status `1` is a completed negative Verdict, not a usage or runtime refusal. The result names
-`damage_dealt` in `failed_metrics` and publishes a typed `experiment-verdict` artifact set with
+`target_health_remaining` in `failed_metrics` and publishes a typed `experiment-verdict` artifact set with
 the trace, snapshots, Metrics, reproduction receipt, Runtime profile, and evaluator manifest. It
 does not publish a false `evaluation-run` success artifact.
 
@@ -834,6 +875,19 @@ The authority split matters:
 That separation is why changing a scenario value can produce new evaluation evidence without
 silently changing the Model, and why every run records enough identities to explain and reproduce
 its exact scope.
+
+The dogfooding result is deliberately narrow:
+
+- **Confirmed:** exact Formula body/expression round trips, atomic Event commits, root mapping,
+  deterministic ordering, schedule/cancel provenance, derived observations, and artifact recovery
+  all execute through the public CLI.
+- **Refined and adopted:** the example observes the scheduled child through the terminal Snapshot
+  and the direct `combat.cast` root through its `damage_dealt` output. A scheduled Operation is not
+  a Model entrypoint invocation, so only the direct root rebinds its return value to that Symbol.
+- **Authored-example-only:** the mana, hit, critical, defense, and cast narrative demonstrates the
+  generic contracts but proves no general RPG, Effect, Replay, or Evidence coverage.
+- **Gap-opened:** none. The example stays within the admitted scheduler and observation contracts;
+  broader scheduler-conformance work remains outside this slice.
 
 ## Troubleshooting
 

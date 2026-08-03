@@ -37,7 +37,10 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3"
+    "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab"
+)
+_SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
+    "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
 )
 
 
@@ -467,6 +470,17 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "instruction_nodes",
         "required_members",
     },
+    "scheduler-scenario": {
+        "event_members",
+        "expect_members",
+        "id",
+        "input_members",
+        "mutation_detectors",
+        "observation_members",
+        "required_members",
+        "state_value_members",
+        "target_states",
+    },
 }
 
 
@@ -535,6 +549,14 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "input",
             "kind",
         },
+        "scheduler-scenario": {
+            "category",
+            "detects_mutation",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
     }
     for kind_id, kind in kinds.items():
         if set(kind) != _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
@@ -582,6 +604,44 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "multiply",
             "subtract",
         ]
+        and kinds["scheduler-scenario"].get("input_members")
+        == ["events", "initial_states", "terminal_condition"]
+        and kinds["scheduler-scenario"].get("expect_members")
+        == [
+            "event_order",
+            "observations",
+            "outcome",
+            "signal",
+            "terminal_reason",
+            "terminal_states",
+        ]
+        and kinds["scheduler-scenario"].get("mutation_detectors")
+        == [
+            "backward-scheduling",
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep",
+        ]
+        and kinds["scheduler-scenario"].get("event_members")
+        == [
+            "cancel_requested",
+            "enqueue_sequence",
+            "id",
+            "logical_time",
+            "parent_id",
+            "phase",
+            "priority",
+            "scenario",
+            "state_delta",
+            "status",
+        ]
+        and kinds["scheduler-scenario"].get("observation_members")
+        == ["event_id", "scenario", "state_after", "state_before"]
+        and kinds["scheduler-scenario"].get("state_value_members")
+        == ["scenario", "value"]
+        and kinds["scheduler-scenario"].get("target_states")
+        == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
     )
 
 
@@ -633,6 +693,107 @@ def _consumer_b_value_program_instruction_is_closed(
     return all(
         isinstance(value, str) and bool(value)
         for value in (instruction.get(field) for field in fields)
+    )
+
+
+def _consumer_b_scheduler_scenario_vector_is_closed(
+    vector: dict[str, Any], kind: dict[str, Any], phases: set[str]
+) -> bool:
+    inp = vector.get("input")
+    expect = vector.get("expect")
+    detects_mutation = vector.get("detects_mutation")
+    if (
+        not isinstance(inp, dict)
+        or set(inp) != set(kind["input_members"])
+        or not isinstance(expect, dict)
+        or set(expect) != set(kind["expect_members"])
+        or (
+            detects_mutation not in kind["mutation_detectors"]
+            if vector.get("category") == "semantic-mutation"
+            else detects_mutation is not None
+        )
+        or inp.get("terminal_condition") not in {"event-count-reached", "queue-drained"}
+        or not isinstance(inp.get("initial_states"), list)
+        or not inp["initial_states"]
+        or not isinstance(inp.get("events"), list)
+        or not inp["events"]
+    ):
+        return False
+    initial_states = inp["initial_states"]
+    scenarios = [row.get("scenario") for row in initial_states if isinstance(row, dict)]
+    if (
+        len(scenarios) != len(initial_states)
+        or len(scenarios) != len(set(scenarios))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and isinstance(row.get("scenario"), str)
+            and bool(row["scenario"])
+            and _consumer_b_signed_int64(row.get("value"))
+            for row in initial_states
+        )
+    ):
+        return False
+    events = inp["events"]
+    event_ids = [row.get("id") for row in events if isinstance(row, dict)]
+    if (
+        len(event_ids) != len(events)
+        or len(event_ids) != len(set(event_ids))
+        or not all(
+            isinstance(row, dict)
+            and set(row) == set(kind["event_members"])
+            and isinstance(row.get("id"), str)
+            and bool(row["id"])
+            and row.get("scenario") in scenarios
+            and _consumer_b_signed_int64(row.get("logical_time"))
+            and isinstance(row.get("phase"), str)
+            and row["phase"] in phases
+            and _consumer_b_signed_int64(row.get("priority"))
+            and isinstance(row.get("enqueue_sequence"), int)
+            and not isinstance(row["enqueue_sequence"], bool)
+            and row["enqueue_sequence"] >= 0
+            and _consumer_b_signed_int64(row.get("state_delta"))
+            and isinstance(row.get("cancel_requested"), bool)
+            and row.get("status") in kind["target_states"]
+            and (
+                row.get("parent_id") is None
+                or (
+                    isinstance(row["parent_id"], str)
+                    and row["parent_id"] in event_ids
+                    and row["parent_id"] != row["id"]
+                )
+            )
+            for row in events
+        )
+    ):
+        return False
+    observations = expect.get("observations")
+    terminal_states = expect.get("terminal_states")
+    return (
+        expect.get("outcome") in {"admitted", "refused"}
+        and (expect.get("signal") is None or isinstance(expect.get("signal"), str))
+        and expect.get("terminal_reason")
+        in {None, "event-count-reached", "queue-drained"}
+        and isinstance(expect.get("event_order"), list)
+        and all(event_id in event_ids for event_id in expect["event_order"])
+        and isinstance(observations, list)
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["observation_members"])
+            and row.get("event_id") in event_ids
+            and row.get("scenario") in scenarios
+            and _consumer_b_signed_int64(row.get("state_before"))
+            and _consumer_b_signed_int64(row.get("state_after"))
+            for row in observations
+        )
+        and isinstance(terminal_states, list)
+        and [row.get("scenario") for row in terminal_states] == scenarios
+        and all(
+            isinstance(row, dict)
+            and set(row) == set(kind["state_value_members"])
+            and _consumer_b_signed_int64(row.get("value"))
+            for row in terminal_states
+        )
     )
 
 
@@ -690,7 +851,22 @@ def _consumer_b_package_evidence_vectors_are_closed(
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
+    scheduler: Any,
 ) -> bool:
+    ordering = scheduler.get("ordering") if isinstance(scheduler, dict) else None
+    phase_row = (
+        next(
+            (
+                row
+                for row in ordering
+                if isinstance(row, dict) and row.get("member") == "phase"
+            ),
+            None,
+        )
+        if isinstance(ordering, list)
+        else None
+    )
+    phase_rank = phase_row.get("rank") if isinstance(phase_row, dict) else None
     if (
         not _consumer_b_package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -700,8 +876,12 @@ def _consumer_b_package_evidence_vectors_are_closed(
         or candidate_encoding["width_bits"] % 4 != 0
         or not isinstance(candidate_encoding.get("alphabet"), str)
         or not candidate_encoding["alphabet"]
+        or not isinstance(phase_rank, list)
+        or not phase_rank
+        or any(not isinstance(phase, str) or not phase for phase in phase_rank)
     ):
         return False
+    phases = set(phase_rank)
     candidate_width = candidate_encoding["width_bits"] // 4
     candidate_alphabet = candidate_encoding["alphabet"]
     vector_ids = vector_set.get("vectors")
@@ -840,6 +1020,12 @@ def _consumer_b_package_evidence_vectors_are_closed(
                         and expect["result_artifact"] is False
                     )
                 )
+            ):
+                return False
+            continue
+        if kind_id == "scheduler-scenario":
+            if not _consumer_b_scheduler_scenario_vector_is_closed(
+                vector, kind, phases
             ):
                 return False
             continue
@@ -4148,6 +4334,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                     mode.get("override"),
                 )
                 not in coherent_modes
+                or mode.get("event_payload_cardinality")
+                not in {"forbidden", "optional", "required"}
+                or mode.get("external_fact_cardinality")
+                not in {"forbidden", "optional", "required"}
                 for mode in modes
             )
             or len({mode["id"] for mode in modes}) != len(modes)
@@ -4167,6 +4357,23 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         )
                         for mode in modes
                     )
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        and not (
+                            accesses == ["read"]
+                            and mode["initialization_source"]
+                            in {"experiment", "model-with-experiment-override"}
+                        )
+                        for mode in modes
+                    )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
+                        and not (
+                            accesses == ["read"]
+                            and mode["initialization_source"] == "experiment"
+                        )
+                        for mode in modes
+                    )
                 )
             )
             or (
@@ -4177,9 +4384,31 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                     or any(
                         mode["initialization_source"] != "execution" for mode in modes
                     )
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
                 )
             )
-            or (binding_kind == "internal" and (accesses or result is not False))
+            or (
+                binding_kind == "internal"
+                and (
+                    accesses
+                    or result is not False
+                    or any(
+                        mode["event_payload_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
+                )
+            )
             or binding_kind not in {"operand", "result", "internal"}
         ):
             return False
@@ -4975,6 +5204,361 @@ def _consumer_b_authority_wire_schema_projection_is_closed(
     }
 
 
+def _consumer_b_path(source: dict[str, Any], coordinate: str) -> Any:
+    current: Any = source
+    for component in coordinate.split("."):
+        if not isinstance(current, dict) or component not in current:
+            return None
+        current = current[component]
+    return current
+
+
+def _consumer_b_active_profile_is_closed(
+    profile: dict[str, Any],
+    definition_contract: dict[str, Any],
+    runtime: dict[str, Any],
+) -> bool:
+    active = definition_contract.get("active_runtime")
+    if not isinstance(active, dict):
+        return False
+    required = active.get("required_members")
+    optional = active.get("optional_members")
+    bindings = active.get("runtime_member_bindings")
+    rng_bindings = active.get("rng_member_bindings")
+    scopes = active.get("budget_scopes")
+    bounds_contract = active.get("resource_bounds")
+    if (
+        set(active)
+        != {
+            "required_members",
+            "optional_members",
+            "runtime_member_bindings",
+            "rng_member_bindings",
+            "budget_scopes",
+            "resource_bounds",
+        }
+        or not isinstance(required, list)
+        or not required
+        or not all(isinstance(item, str) and item for item in required)
+        or len(required) != len(set(required))
+        or not isinstance(optional, list)
+        or not all(isinstance(item, str) and item for item in optional)
+        or len(optional) != len(set(optional))
+        or set(required) & set(optional)
+        or set(profile) - set(optional) != set(required)
+        or not isinstance(bindings, dict)
+        or not bindings
+        or not set(bindings) <= set(required)
+        or not all(isinstance(path, str) and path for path in bindings.values())
+        or not isinstance(rng_bindings, dict)
+        or not rng_bindings
+        or not all(isinstance(path, str) and path for path in rng_bindings.values())
+        or set(profile.get("rng", {})) != set(rng_bindings)
+        or not isinstance(scopes, dict)
+        or not scopes
+        or profile.get("budget_scopes") != scopes
+        or not isinstance(bounds_contract, dict)
+        or set(bounds_contract) != {"members", "value_contract"}
+        or bounds_contract.get("value_contract") != "positive-integer"
+    ):
+        return False
+    bound_names = bounds_contract.get("members")
+    bounds = profile.get("resource_bounds")
+    if (
+        not isinstance(bound_names, list)
+        or not bound_names
+        or not all(isinstance(item, str) and item for item in bound_names)
+        or len(bound_names) != len(set(bound_names))
+        or not isinstance(bounds, dict)
+        or set(bounds) != set(bound_names)
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in bounds.values()
+        )
+    ):
+        return False
+    return all(
+        profile.get(member) == _consumer_b_path(runtime, path)
+        for member, path in bindings.items()
+    ) and all(
+        profile["rng"].get(member) == _consumer_b_path(runtime, path)
+        for member, path in rng_bindings.items()
+    )
+
+
+def _consumer_b_component_shape_matches(value: Any, declared_type: Any) -> bool:
+    if declared_type == "ordering-list":
+        if not isinstance(value, list) or not value:
+            return False
+        members: list[str] = []
+        for item in value:
+            if (
+                not isinstance(item, dict)
+                or set(item)
+                not in ({"direction", "member"}, {"direction", "member", "rank"})
+                or item.get("direction") not in {"ascending", "descending"}
+                or not isinstance(item.get("member"), str)
+                or not item["member"]
+            ):
+                return False
+            members.append(item["member"])
+            rank = item.get("rank")
+            if "rank" in item and (
+                not isinstance(rank, list)
+                or not rank
+                or any(not isinstance(entry, str) or not entry for entry in rank)
+                or len(rank) != len(set(rank))
+            ):
+                return False
+        return len(members) == len(set(members))
+    checks = {
+        "object": lambda candidate: isinstance(candidate, dict),
+        "array": lambda candidate: isinstance(candidate, list),
+        "string": lambda candidate: isinstance(candidate, str) and bool(candidate),
+        "integer": lambda candidate: (
+            isinstance(candidate, int) and not isinstance(candidate, bool)
+        ),
+        "string-list": lambda candidate: (
+            isinstance(candidate, list)
+            and all(isinstance(item, str) and item for item in candidate)
+            and len(candidate) == len(set(candidate))
+        ),
+    }
+    predicate = checks.get(declared_type)
+    return predicate(value) if predicate is not None else False
+
+
+def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
+    expected_object_roles = {
+        "runtime-configuration": {"lifecycle-roles", "root"},
+        "scheduler": {
+            "budget-members",
+            "call-site-identities",
+            "cancel-call-site-identity",
+            "cancel-policy",
+            "cancel-refusal-signals",
+            "committed-trace-journal",
+            "event-catalog-journal",
+            "event-identity",
+            "event-identity-variants",
+            "event-spec-journal",
+            "external-input-admission",
+            "external-input-identity",
+            "observation-policy",
+            "root",
+            "root-admission-map",
+            "root-event-map-journal",
+            "root-phase-map",
+            "runtime-configuration-projection",
+            "runtime-journal",
+            "schedule-call-site-identity",
+            "schedule-policy",
+            "schedule-refusal-signals",
+            "snapshot-identity",
+            "terminal-status",
+        },
+        "step": {"boundary-roles", "root"},
+        "transition": {"root"},
+    }
+    expected_relation_roles = {
+        "lifecycle-states",
+        "observation-phase",
+        "root-phases",
+        "scheduled-child-phase",
+        "step-boundaries",
+        "step-stops",
+    }
+    declaration = runtime.get("component_contract")
+    if (
+        not isinstance(declaration, dict)
+        or set(declaration)
+        != {"components", "content_identity", "relations", "version"}
+        or declaration.get("version") != "runtime-component-meta-contract-v1"
+        or declaration.get("content_identity")
+        != _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+        or _safe_identity(declaration["version"], declaration)
+        != declaration["content_identity"]
+    ):
+        return False
+    component_specs = declaration.get("components")
+    relation_specs = declaration.get("relations")
+    if not isinstance(component_specs, dict) or not isinstance(relation_specs, list):
+        return False
+    resolved_components: dict[str, dict[str, Any]] = {}
+    observed_component_roles: set[str] = set()
+    for name, spec in component_specs.items():
+        candidate = runtime.get(name)
+        object_specs = spec.get("objects") if isinstance(spec, dict) else None
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(candidate, dict)
+            or not isinstance(spec, dict)
+            or set(spec) != {"objects", "role"}
+            or not isinstance(object_specs, dict)
+            or "" not in object_specs
+            or not isinstance(spec.get("role"), str)
+            or not spec["role"]
+            or spec["role"] in observed_component_roles
+        ):
+            return False
+        component_role = spec["role"]
+        observed_component_roles.add(component_role)
+        resolved_components[name] = candidate
+        observed_object_roles: set[str] = set()
+        for coordinate, object_spec in object_specs.items():
+            fields = (
+                object_spec.get("member_types")
+                if isinstance(object_spec, dict)
+                else None
+            )
+            object_role = (
+                object_spec.get("role") if isinstance(object_spec, dict) else None
+            )
+            observed = (
+                candidate
+                if coordinate == ""
+                else _consumer_b_path(candidate, coordinate)
+            )
+            if (
+                not isinstance(coordinate, str)
+                or not isinstance(object_spec, dict)
+                or set(object_spec) != {"member_types", "role"}
+                or not isinstance(object_role, str)
+                or not object_role
+                or object_role in observed_object_roles
+                or not isinstance(fields, dict)
+                or not isinstance(observed, dict)
+                or set(observed) != set(fields)
+                or any(
+                    not isinstance(field, str)
+                    or not field
+                    or not _consumer_b_component_shape_matches(
+                        observed[field], declared_type
+                    )
+                    for field, declared_type in fields.items()
+                )
+            ):
+                return False
+            observed_object_roles.add(object_role)
+        if observed_object_roles != expected_object_roles.get(component_role):
+            return False
+    if observed_component_roles != set(expected_object_roles):
+        return False
+    observed_relation_roles: set[str] = set()
+    for relation in relation_specs:
+        if not isinstance(relation, dict):
+            return False
+        component = resolved_components.get(cast(str, relation.get("component")))
+        if component is None:
+            return False
+        relation_role = relation.get("role")
+        if (
+            not isinstance(relation_role, str)
+            or not relation_role
+            or relation_role in observed_relation_roles
+        ):
+            return False
+        observed_relation_roles.add(relation_role)
+        kind = relation.get("kind")
+        if kind == "mapping-values-in-list":
+            if set(relation) != {
+                "component",
+                "excluded_keys",
+                "kind",
+                "list_path",
+                "mapping_path",
+                "role",
+            }:
+                return False
+            source = _consumer_b_path(
+                component, cast(str, relation.get("mapping_path"))
+            )
+            destination = _consumer_b_path(
+                component, cast(str, relation.get("list_path"))
+            )
+            excluded = relation.get("excluded_keys")
+            if (
+                not isinstance(source, dict)
+                or not isinstance(destination, list)
+                or not isinstance(excluded, list)
+                or any(not isinstance(item, str) for item in excluded)
+                or not set(excluded) <= set(source)
+                or not set(source[key] for key in source if key not in excluded)
+                <= set(destination)
+            ):
+                return False
+        elif kind == "list-values-in-list":
+            if set(relation) != {
+                "component",
+                "kind",
+                "list_path",
+                "role",
+                "values_path",
+            }:
+                return False
+            source = _consumer_b_path(component, cast(str, relation.get("list_path")))
+            values = _consumer_b_path(component, cast(str, relation.get("values_path")))
+            if (
+                not isinstance(source, list)
+                or not isinstance(values, list)
+                or not set(source) <= set(values)
+            ):
+                return False
+        elif kind in {
+            "mapping-values-in-ranked-ordering",
+            "value-in-ranked-ordering",
+        }:
+            coordinate_member = (
+                "mapping_path"
+                if kind == "mapping-values-in-ranked-ordering"
+                else "value_path"
+            )
+            if set(relation) != {
+                "component",
+                "kind",
+                "ordering_member",
+                "ordering_path",
+                "role",
+                coordinate_member,
+            }:
+                return False
+            ordering = _consumer_b_path(
+                component, cast(str, relation.get("ordering_path"))
+            )
+            ranked = (
+                next(
+                    (
+                        row.get("rank")
+                        for row in ordering
+                        if isinstance(row, dict)
+                        and row.get("member") == relation.get("ordering_member")
+                    ),
+                    None,
+                )
+                if isinstance(ordering, list)
+                else None
+            )
+            source = _consumer_b_path(
+                component, cast(str, relation.get(coordinate_member))
+            )
+            if (
+                not isinstance(ranked, list)
+                or (
+                    kind == "mapping-values-in-ranked-ordering"
+                    and (
+                        not isinstance(source, dict)
+                        or not set(source.values()) <= set(ranked)
+                    )
+                )
+                or (kind == "value-in-ranked-ordering" and source not in ranked)
+            ):
+                return False
+        else:
+            return False
+    return observed_relation_roles == expected_relation_roles
+
+
 def _consumer_b_runtime_authority_is_closed(
     kernel: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
@@ -4985,11 +5569,10 @@ def _consumer_b_runtime_authority_is_closed(
     )
     if (
         not isinstance(runtime, dict)
-        or profile_identity
-        != {
-            "domain": "runtime-profile-definition-v1",
-            "projection": "complete-definition",
-        }
+        or not isinstance(profile_identity, dict)
+        or set(profile_identity) != {"domain", "projection", "active_runtime"}
+        or profile_identity.get("domain") != "runtime-profile-definition-v1"
+        or profile_identity.get("projection") != "complete-definition"
         or set(runtime)
         != {
             "closed",
@@ -5002,12 +5585,22 @@ def _consumer_b_runtime_authority_is_closed(
             "nodes",
             "numeric",
             "named_rng",
+            "scheduler",
             "event_atomicity",
+            "component_contract",
+            "runtime_configuration",
+            "transition",
+            "step",
             "outcome_contract",
             "invocation_contract",
             "vectors",
         }
         or runtime.get("closed") is not True
+        or not isinstance(runtime.get("scheduler"), dict)
+        or not isinstance(runtime.get("runtime_configuration"), dict)
+        or not isinstance(runtime.get("transition"), dict)
+        or not isinstance(runtime.get("step"), dict)
+        or not _consumer_b_component_contract_matches(runtime)
     ):
         return False
     nodes = runtime.get("nodes")
@@ -5137,6 +5730,34 @@ def _consumer_b_runtime_authority_is_closed(
                 )
             ):
                 return False
+    nodes_by_id = {node["id"]: node for node in nodes if isinstance(node, dict)}
+    cancel_semantics = nodes_by_id.get("cancel", {}).get("semantics")
+    cancel_target = (
+        cancel_semantics.get("target_reference")
+        if isinstance(cancel_semantics, dict)
+        else None
+    )
+    if (
+        not isinstance(cancel_target, dict)
+        or set(cancel_target)
+        != {
+            "instruction_member",
+            "kind",
+            "producer_result_kind",
+            "value_member",
+        }
+        or any(
+            not isinstance(cancel_target.get(member), str) or not cancel_target[member]
+            for member in cancel_target
+        )
+        or cancel_target["instruction_member"]
+        not in nodes_by_id["cancel"]["required_members"]
+        or not any(
+            node["result"]["kind"] == cancel_target["producer_result_kind"]
+            for node in nodes_by_id.values()
+        )
+    ):
+        return False
     rng = runtime.get("named_rng")
     if (
         runtime.get("numeric")
@@ -5258,15 +5879,13 @@ def _consumer_b_runtime_authority_is_closed(
         ):
             return False
     for profile in ldb.get("language", {}).get("runtime_profiles", []):
-        if profile.get("evaluation") == runtime.get("version") and (
-            profile.get("runtime_program_version") != runtime.get("version")
-            or profile.get("numeric_law") != runtime["numeric"]["id"]
-            or profile.get("rng", {}).get("algorithm") != rng["algorithm"]
-            or profile.get("budget_scopes")
-            != {
-                "operation_max_steps": "per-event",
-                "runtime_max_steps": "per-run",
-            }
+        if profile.get("evaluation") == runtime.get("version") and not (
+            isinstance(profile, dict)
+            and _consumer_b_active_profile_is_closed(
+                profile,
+                profile_identity,
+                runtime,
+            )
         ):
             return False
     kinds = set(runtime["outcome_contract"]["kinds"])
@@ -5279,7 +5898,6 @@ def _consumer_b_runtime_authority_is_closed(
         for operation in operations
         if isinstance(operation, dict) and isinstance(operation.get("id"), str)
     }
-    nodes_by_id = {node["id"]: node for node in nodes if isinstance(node, dict)}
 
     def referenced_outcomes(
         operation: dict[str, Any], stack: set[str]
@@ -5292,6 +5910,7 @@ def _consumer_b_runtime_authority_is_closed(
             return None
         nested_stack = {*stack, operation_id}
         referenced: set[str] = set()
+        produced_locals: dict[str, str] = {}
         for instruction in body:
             if not isinstance(instruction, dict):
                 return None
@@ -5300,6 +5919,19 @@ def _consumer_b_runtime_authority_is_closed(
                 node["required_members"]
             ):
                 return None
+            if node["semantics"]["operator"] == "cancel-event":
+                target_contract = node["semantics"]["target_reference"]
+                target = instruction.get(target_contract["instruction_member"])
+                if (
+                    not isinstance(target, dict)
+                    or set(target) != {"kind", target_contract["value_member"]}
+                    or target.get("kind") != target_contract["kind"]
+                    or not isinstance(target.get(target_contract["value_member"]), str)
+                    or not target[target_contract["value_member"]]
+                    or produced_locals.get(target[target_contract["value_member"]])
+                    != target_contract["producer_result_kind"]
+                ):
+                    return None
             outcome = instruction.get("outcome")
             if isinstance(outcome, str):
                 referenced.add(outcome)
@@ -5370,6 +6002,12 @@ def _consumer_b_runtime_authority_is_closed(
                 nested = referenced_outcomes(invoked, nested_stack)
                 if nested is None:
                     return None
+            binding = instruction.get("result")
+            if isinstance(binding, dict) and binding.get("kind") == "local":
+                name = binding.get("name")
+                if not isinstance(name, str) or not name or name in produced_locals:
+                    return None
+                produced_locals[name] = node["result"]["kind"]
         return referenced
 
     for operation in operations:
@@ -6737,6 +7375,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         meta.get("runtime_program", {})
                         .get("named_rng", {})
                         .get("candidate_encoding"),
+                        meta.get("runtime_program", {}).get("scheduler"),
                     )
                 )
             ):

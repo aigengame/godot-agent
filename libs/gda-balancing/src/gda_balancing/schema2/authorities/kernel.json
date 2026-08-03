@@ -843,7 +843,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          ""
+          "\u007f"
         ]
       },
       {
@@ -858,7 +858,7 @@
             1
           ],
           "quote": "\"\n\\",
-          "é": "雪"
+          "\u00e9": "\u96ea"
         }
       },
       {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:fc18062349573a9d5a9dc79657116577e2ea4220fa082dd55ede3b849e7f39e3",
+  "content_identity": "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2573,15 +2573,31 @@
                                 "forbidden",
                                 "required"
                               ]
-                            }
+                            },
+                    "event_payload_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    },
+                    "external_fact_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    }
                           },
                           "required_members": [
                             "id",
                             "initialization_source",
                             "value_member",
-                            "experiment_cardinality",
-                            "override"
-                          ],
+                    "experiment_cardinality",
+                    "override",
+                    "event_payload_cardinality",
+                    "external_fact_cardinality"
+                  ],
                           "type": "closed-object"
                         },
                         "type": "list-of"
@@ -3113,15 +3129,7 @@
               "type": "non-empty-string"
             },
             "resource_bounds": {
-              "field_types": {
-                "max_steps": {
-                  "type": "positive-signed-int64"
-                }
-              },
-              "required_members": [
-                "max_steps"
-              ],
-              "type": "closed-object"
+              "type": "canonical-value"
             },
             "version": {
               "type": "non-empty-string"
@@ -3846,6 +3854,67 @@
             "id",
             "input",
             "kind"
+          ]
+        },
+        {
+          "id": "scheduler-scenario",
+          "required_members": [
+            "category",
+            "detects_mutation",
+            "expect",
+            "id",
+            "input",
+            "kind"
+          ],
+          "input_members": [
+            "events",
+            "initial_states",
+            "terminal_condition"
+          ],
+          "expect_members": [
+            "event_order",
+            "observations",
+            "outcome",
+            "signal",
+            "terminal_reason",
+            "terminal_states"
+          ],
+          "mutation_detectors": [
+            "backward-scheduling",
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep"
+          ],
+          "event_members": [
+            "cancel_requested",
+            "enqueue_sequence",
+            "id",
+            "logical_time",
+            "parent_id",
+            "phase",
+            "priority",
+            "scenario",
+            "state_delta",
+            "status"
+          ],
+          "observation_members": [
+            "event_id",
+            "scenario",
+            "state_after",
+            "state_before"
+          ],
+          "state_value_members": [
+            "scenario",
+            "value"
+          ],
+          "target_states": [
+            "active",
+            "canceled",
+            "completed",
+            "pending",
+            "provisional",
+            "unknown"
           ]
         }
       ],
@@ -4773,7 +4842,9 @@
       ],
       "effect_nodes": [
         "subtract-state",
-        "write-state"
+        "write-state",
+        "schedule",
+        "cancel"
       ],
       "control_nodes": [
         "draw",
@@ -4781,10 +4852,12 @@
         "invoke"
       ],
       "event_atomicity": {
-        "rng_draws": "buffered",
-        "runtime_refusal": "rollback-entire-current-event",
         "state_writes": "buffered",
-        "success": "commit-entire-current-event"
+        "rng_draws": "buffered",
+        "child_events": "buffered",
+        "cancellations": "buffered",
+        "success": "commit-entire-current-event",
+        "runtime_refusal": "rollback-entire-current-event"
       },
       "named_rng": {
         "algorithm": "splitmix64-v1",
@@ -5448,6 +5521,70 @@
           "semantics": {
             "operator": "invoke-operation"
           }
+        },
+        {
+          "family": "effect",
+          "id": "schedule",
+          "operand_constraints": [],
+          "refusals": [
+            "schedule-backward",
+            "schedule-hidden-input",
+            "schedule-illegal-same-time-priority",
+            "queue-limit",
+            "zero-time-depth-limit",
+            "event-limit",
+            "logical-time-limit"
+          ],
+          "required_members": [
+            "node",
+            "site",
+            "operation",
+            "arguments",
+            "logical_time",
+            "priority",
+            "result"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "scheduled-event"
+          },
+          "semantics": {
+            "operator": "schedule-operation"
+          }
+        },
+        {
+          "family": "effect",
+          "id": "cancel",
+          "operand_constraints": [],
+          "refusals": [
+            "cancel-active",
+            "cancel-completed",
+            "cancel-unknown"
+          ],
+          "required_members": [
+            "node",
+            "site",
+            "event"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "cancellation"
+          },
+          "semantics": {
+            "operator": "cancel-event",
+            "target_reference": {
+              "instruction_member": "event",
+              "kind": "local",
+              "producer_result_kind": "scheduled-event",
+              "value_member": "local"
+            }
+          }
         }
       ],
       "numeric": {
@@ -6105,6 +6242,46 @@
             "result_contract": "kernel-unit"
           },
           "kind": "invocation-result-contract"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "schedule-operation",
+            "result_kind": "scheduled-event"
+          },
+          "id": "runtime.node.schedule",
+          "input": {
+            "contract-probe": [
+              "node",
+              "site",
+              "operation",
+              "arguments",
+              "logical_time",
+              "priority",
+              "result"
+            ]
+          },
+          "kind": "node",
+          "node": "schedule"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "cancel-event",
+            "result_kind": "cancellation"
+          },
+          "id": "runtime.node.cancel",
+          "input": {
+            "contract-probe": [
+              "node",
+              "site",
+              "event"
+            ]
+          },
+          "kind": "node",
+          "node": "cancel"
         }
       ],
       "invocation_contract": {
@@ -6157,6 +6334,609 @@
         "ambient_capture": "forbidden",
         "resource_charge": "invoke-plus-transitive-callee-steps",
         "runtime_refusal": "propagate-with-call-site"
+      },
+      "scheduler": {
+        "event_identity": {
+          "domain": "runtime-event-v2",
+          "variants": {
+            "root": [
+              "experiment_identity",
+              "scenario_id",
+              "root_event_ref",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
+            ],
+            "scheduled": [
+              "experiment_identity",
+              "scenario_id",
+              "parent_event_id",
+              "call_site_identity",
+              "schedule_sequence",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
+            ],
+            "observation": [
+              "experiment_identity",
+              "scenario_id",
+              "metric_definition_identity",
+              "logical_time",
+              "phase",
+              "priority",
+              "enqueue_sequence"
+            ]
+          }
+        },
+        "ordering": [
+          {
+            "direction": "ascending",
+            "member": "logical_time"
+          },
+          {
+            "direction": "ascending",
+            "member": "phase",
+            "rank": [
+              "input",
+              "transition",
+              "observation"
+            ]
+          },
+          {
+            "direction": "descending",
+            "member": "priority"
+          },
+          {
+            "direction": "ascending",
+            "member": "enqueue_sequence"
+          }
+        ],
+        "root_enqueue_sequence": "authored-array-order",
+        "root_phases": {
+          "external-input": "input",
+          "transition-invocation": "transition"
+        },
+        "step_boundary": "next-observation-or-logical-boundary",
+        "call_site_identity": {
+          "schedule": {
+            "domain": "runtime-schedule-call-site-v2",
+            "projection": [
+              "parent_event_id",
+              "parent_operation",
+              "site",
+              "operation"
+            ]
+          },
+          "cancel": {
+            "domain": "runtime-cancel-call-site-v2",
+            "projection": [
+              "canceling_event_id",
+              "operation",
+              "site",
+              "target_event_id"
+            ]
+          }
+        },
+        "schedule": {
+          "child_phase": "transition",
+          "legal_position": "strictly-after-active-ordering-key",
+          "same_time_priority": "not-greater-than-active-priority",
+          "refusal_signals": {
+            "backward": "schedule-backward",
+            "hidden_input": "schedule-hidden-input",
+            "illegal_same_time_priority": "schedule-illegal-same-time-priority"
+          }
+        },
+        "cancel": {
+          "admitted_target_states": [
+            "pending",
+            "provisional"
+          ],
+          "refusal_signals": {
+            "active": "cancel-active",
+            "completed": "cancel-completed",
+            "unknown": "cancel-unknown"
+          }
+        },
+        "budget_members": {
+          "event_steps": "max_event_steps",
+          "logical_time": "max_logical_time",
+          "node_steps": "max_node_steps",
+          "queue_events": "max_queue_events",
+          "total_events": "max_total_events",
+          "zero_time_depth": "max_zero_time_depth"
+        },
+        "root_admission_map": {
+          "members": [
+            "scenario",
+            "root_event_ref",
+            "event_id"
+          ],
+          "order": "scenario-order-then-authored-array-order"
+        },
+        "snapshot_identity": {
+          "domain": "runtime-snapshot-v2",
+          "projection": [
+            "experiment_identity",
+            "scenario_id",
+            "index",
+            "logical_time",
+            "event_id",
+            "values",
+            "continuation"
+          ],
+          "runtime_configuration_projection": {
+            "lifecycle_state": "continuation.lifecycle_state",
+            "step_boundary": "continuation.step_boundary",
+            "scenario_cursor": "continuation.scenario_cursor",
+            "event_catalog": "continuation.event_catalog",
+            "pending_event_count": "continuation.pending_event_count",
+            "committed_trace": "continuation.committed_trace",
+            "current_snapshot": "continuation.current_snapshot",
+            "state": "values",
+            "rng": "continuation.rng",
+            "resource_ledger": "continuation.resource_ledger",
+            "next_enqueue_sequence": "continuation.next_enqueue_sequence",
+            "root_event_map_identity": "continuation.root_event_map_identity",
+            "resolved_runtime_profile_identity": "continuation.resolved_runtime_profile_identity"
+          }
+        },
+        "runtime_journal": {
+          "event_spec": {
+            "domain": "runtime-event-spec-v2",
+            "projection": "complete-admitted-event"
+          },
+          "event_catalog": {
+            "domain": "runtime-event-catalog-v2",
+            "projection": "append-only-admitted-event-chain"
+          },
+          "committed_trace": {
+            "domain": "runtime-committed-trace-v2",
+            "projection": "append-only-committed-event-chain-without-snapshot-after"
+          },
+          "root_event_map": {
+            "domain": "runtime-root-event-map-v2",
+            "projection": "complete-root-event-map"
+          }
+        },
+        "external_input_identity": {
+          "domain": "runtime-external-input-v2",
+          "projection": [
+            "experiment_identity",
+            "scenario_id",
+            "root_event_ref",
+            "source_identity",
+            "source_sequence",
+            "facts"
+          ]
+        },
+        "external_input_admission": {
+          "ordering": [
+            "source_identity",
+            "source_sequence"
+          ],
+          "sequence_origin": 0,
+          "continuity": "contiguous-per-source"
+        },
+        "terminal_status": {
+          "members": [
+            "scenario",
+            "condition",
+            "reason",
+            "event_count",
+            "terminal_event_id",
+            "terminal_snapshot_identity",
+            "observation_event_ids",
+            "final_snapshot_identity",
+            "logical_time"
+          ],
+          "reasons": [
+            "event-count-reached",
+            "queue-drained"
+          ]
+        },
+        "observation": {
+          "derivation": "exact-metric-array-order-at-terminal-boundary",
+          "entrypoint": "forbidden",
+          "phase": "observation",
+          "priority": 0,
+          "state_effects": "forbidden"
+        }
+      },
+      "component_contract": {
+        "content_identity": "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798",
+        "version": "runtime-component-meta-contract-v1",
+        "components": {
+          "runtime_configuration": {
+            "role": "runtime-configuration",
+            "objects": {
+              "": {
+                "role": "root",
+                "member_types": {
+                  "lifecycle_roles": "object",
+                  "lifecycle_states": "string-list",
+                  "members": "string-list",
+                  "mutation": "string"
+                }
+              },
+              "lifecycle_roles": {
+                "role": "lifecycle-roles",
+                "member_types": {
+                  "active": "string",
+                  "ready": "string",
+                  "terminal": "string"
+                }
+              }
+            }
+          },
+          "scheduler": {
+            "role": "scheduler",
+            "objects": {
+              "": {
+                "role": "root",
+                "member_types": {
+                  "budget_members": "object",
+                  "call_site_identity": "object",
+                  "cancel": "object",
+                  "event_identity": "object",
+                  "external_input_admission": "object",
+                  "external_input_identity": "object",
+                  "observation": "object",
+                  "ordering": "ordering-list",
+                  "root_admission_map": "object",
+                  "root_enqueue_sequence": "string",
+                  "root_phases": "object",
+                  "runtime_journal": "object",
+                  "schedule": "object",
+                  "snapshot_identity": "object",
+                  "step_boundary": "string",
+                  "terminal_status": "object"
+                }
+              },
+              "budget_members": {
+                "role": "budget-members",
+                "member_types": {
+                  "event_steps": "string",
+                  "logical_time": "string",
+                  "node_steps": "string",
+                  "queue_events": "string",
+                  "total_events": "string",
+                  "zero_time_depth": "string"
+                }
+              },
+              "call_site_identity": {
+                "role": "call-site-identities",
+                "member_types": {
+                  "cancel": "object",
+                  "schedule": "object"
+                }
+              },
+              "call_site_identity.cancel": {
+                "role": "cancel-call-site-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
+              },
+              "call_site_identity.schedule": {
+                "role": "schedule-call-site-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
+              },
+              "cancel": {
+                "role": "cancel-policy",
+                "member_types": {
+                  "admitted_target_states": "string-list",
+                  "refusal_signals": "object"
+                }
+              },
+              "cancel.refusal_signals": {
+                "role": "cancel-refusal-signals",
+                "member_types": {
+                  "active": "string",
+                  "completed": "string",
+                  "unknown": "string"
+                }
+              },
+              "event_identity": {
+                "role": "event-identity",
+                "member_types": {
+                  "domain": "string",
+                  "variants": "object"
+                }
+              },
+              "event_identity.variants": {
+                "role": "event-identity-variants",
+                "member_types": {
+                  "observation": "string-list",
+                  "root": "string-list",
+                  "scheduled": "string-list"
+                }
+              },
+              "external_input_admission": {
+                "role": "external-input-admission",
+                "member_types": {
+                  "continuity": "string",
+                  "ordering": "string-list",
+                  "sequence_origin": "integer"
+                }
+              },
+              "external_input_identity": {
+                "role": "external-input-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
+              },
+              "observation": {
+                "role": "observation-policy",
+                "member_types": {
+                  "derivation": "string",
+                  "entrypoint": "string",
+                  "phase": "string",
+                  "priority": "integer",
+                  "state_effects": "string"
+                }
+              },
+              "root_admission_map": {
+                "role": "root-admission-map",
+                "member_types": {
+                  "members": "string-list",
+                  "order": "string"
+                }
+              },
+              "root_phases": {
+                "role": "root-phase-map",
+                "member_types": {
+                  "external-input": "string",
+                  "transition-invocation": "string"
+                }
+              },
+              "runtime_journal": {
+                "role": "runtime-journal",
+                "member_types": {
+                  "committed_trace": "object",
+                  "event_catalog": "object",
+                  "event_spec": "object",
+                  "root_event_map": "object"
+                }
+              },
+              "runtime_journal.committed_trace": {
+                "role": "committed-trace-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.event_catalog": {
+                "role": "event-catalog-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.event_spec": {
+                "role": "event-spec-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.root_event_map": {
+                "role": "root-event-map-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "schedule": {
+                "role": "schedule-policy",
+                "member_types": {
+                  "child_phase": "string",
+                  "legal_position": "string",
+                  "refusal_signals": "object",
+                  "same_time_priority": "string"
+                }
+              },
+              "schedule.refusal_signals": {
+                "role": "schedule-refusal-signals",
+                "member_types": {
+                  "backward": "string",
+                  "hidden_input": "string",
+                  "illegal_same_time_priority": "string"
+                }
+              },
+              "snapshot_identity": {
+                "role": "snapshot-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list",
+                  "runtime_configuration_projection": "object"
+                }
+              },
+              "snapshot_identity.runtime_configuration_projection": {
+                "role": "runtime-configuration-projection",
+                "member_types": {
+                  "committed_trace": "string",
+                  "current_snapshot": "string",
+                  "event_catalog": "string",
+                  "lifecycle_state": "string",
+                  "next_enqueue_sequence": "string",
+                  "pending_event_count": "string",
+                  "resolved_runtime_profile_identity": "string",
+                  "resource_ledger": "string",
+                  "rng": "string",
+                  "root_event_map_identity": "string",
+                  "scenario_cursor": "string",
+                  "state": "string",
+                  "step_boundary": "string"
+                }
+              },
+              "terminal_status": {
+                "role": "terminal-status",
+                "member_types": {
+                  "members": "string-list",
+                  "reasons": "string-list"
+                }
+              }
+            }
+          },
+          "step": {
+            "role": "step",
+            "objects": {
+              "": {
+                "role": "root",
+                "member_types": {
+                  "advance": "string",
+                  "boundaries": "string-list",
+                  "boundary_roles": "object",
+                  "input": "string",
+                  "result": "string",
+                  "stop": "string-list"
+                }
+              },
+              "boundary_roles": {
+                "role": "boundary-roles",
+                "member_types": {
+                  "initial": "string",
+                  "logical": "string",
+                  "observation": "string",
+                  "terminal": "string"
+                }
+              }
+            }
+          },
+          "transition": {
+            "role": "transition",
+            "objects": {
+              "": {
+                "role": "root",
+                "member_types": {
+                  "dispatch_count": "integer",
+                  "event_selection": "string",
+                  "input": "string",
+                  "result": "string-list",
+                  "transaction": "string"
+                }
+              }
+            }
+          }
+        },
+        "relations": [
+          {
+            "component": "runtime_configuration",
+            "excluded_keys": [],
+            "kind": "mapping-values-in-list",
+            "list_path": "lifecycle_states",
+            "mapping_path": "lifecycle_roles",
+            "role": "lifecycle-states"
+          },
+          {
+            "component": "step",
+            "excluded_keys": [],
+            "kind": "mapping-values-in-list",
+            "list_path": "boundaries",
+            "mapping_path": "boundary_roles",
+            "role": "step-boundaries"
+          },
+          {
+            "component": "step",
+            "kind": "list-values-in-list",
+            "list_path": "stop",
+            "role": "step-stops",
+            "values_path": "boundaries"
+          },
+          {
+            "component": "scheduler",
+            "kind": "mapping-values-in-ranked-ordering",
+            "mapping_path": "root_phases",
+            "ordering_member": "phase",
+            "ordering_path": "ordering",
+            "role": "root-phases"
+          },
+          {
+            "component": "scheduler",
+            "kind": "value-in-ranked-ordering",
+            "ordering_member": "phase",
+            "ordering_path": "ordering",
+            "role": "observation-phase",
+            "value_path": "observation.phase"
+          },
+          {
+            "component": "scheduler",
+            "kind": "value-in-ranked-ordering",
+            "ordering_member": "phase",
+            "ordering_path": "ordering",
+            "role": "scheduled-child-phase",
+            "value_path": "schedule.child_phase"
+          }
+        ]
+      },
+      "runtime_configuration": {
+        "lifecycle_roles": {
+          "active": "event",
+          "ready": "step",
+          "terminal": "terminated"
+        },
+        "lifecycle_states": [
+          "instantiated",
+          "initializing",
+          "step",
+          "event",
+          "terminated"
+        ],
+        "members": [
+          "lifecycle_state",
+          "step_boundary",
+          "scenario_cursor",
+          "event_catalog",
+          "pending_event_count",
+          "committed_trace",
+          "current_snapshot",
+          "state",
+          "rng",
+          "resource_ledger",
+          "next_enqueue_sequence",
+          "root_event_map_identity",
+          "resolved_runtime_profile_identity"
+        ],
+        "mutation": "internal-transition-only"
+      },
+      "transition": {
+        "input": "runtime-configuration",
+        "dispatch_count": 1,
+        "event_selection": "scheduler-order-head",
+        "transaction": "event-atomicity",
+        "result": [
+          "runtime-configuration",
+          "runtime-refusal"
+        ]
+      },
+      "step": {
+        "input": "runtime-configuration",
+        "advance": "repeat-transition",
+        "boundaries": [
+          "initial",
+          "observation-boundary",
+          "logical-boundary",
+          "terminal"
+        ],
+        "boundary_roles": {
+          "initial": "initial",
+          "logical": "logical-boundary",
+          "observation": "observation-boundary",
+          "terminal": "terminal"
+        },
+        "stop": [
+          "observation-boundary",
+          "logical-boundary",
+          "terminal"
+        ],
+        "result": "committed-boundary"
       }
     },
     "admitted_language_index": {
@@ -6315,7 +7095,54 @@
     },
     "runtime_profile_definition": {
       "domain": "runtime-profile-definition-v1",
-      "projection": "complete-definition"
+      "projection": "complete-definition",
+      "active_runtime": {
+        "required_members": [
+          "id",
+          "version",
+          "evaluation",
+          "numeric_policy",
+          "runtime_program_version",
+          "numeric_law",
+          "rng",
+          "budget_scopes",
+          "effects",
+          "resource_bounds"
+        ],
+        "optional_members": [
+          "extensions"
+        ],
+        "runtime_member_bindings": {
+          "evaluation": "version",
+          "runtime_program_version": "version",
+          "numeric_law": "numeric.id"
+        },
+        "rng_member_bindings": {
+          "algorithm": "named_rng.algorithm",
+          "interval_sampling": "named_rng.interval_sampling.mapping",
+          "bias_policy": "named_rng.interval_sampling.bias_policy"
+        },
+        "budget_scopes": {
+          "event_steps": "per-event-transaction",
+          "logical_time": "per-event",
+          "node_steps": "per-run",
+          "operation_steps": "per-operation-invocation",
+          "queue_events": "pending-and-provisional",
+          "total_events": "per-scenario",
+          "zero_time_depth": "per-descendant-chain"
+        },
+        "resource_bounds": {
+          "members": [
+            "max_event_steps",
+            "max_logical_time",
+            "max_node_steps",
+            "max_queue_events",
+            "max_total_events",
+            "max_zero_time_depth"
+          ],
+          "value_contract": "positive-integer"
+        }
+      }
     },
     "json_pointer": {
       "encoding": "RFC6901",

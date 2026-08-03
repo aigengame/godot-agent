@@ -1787,7 +1787,7 @@ def _reference_formulas_and_bindings(
                     "context": formula_contexts[phase],
                     "resolved_symbol": declaration["resolved_symbol"],
                 }
-                for phase in ("initialization", "observation")
+                for phase in ("initialization", "event", "observation")
             ]
         arguments.sort(key=lambda item: item["parameter"])
         for site_body in site_bodies:
@@ -2726,6 +2726,40 @@ def _reference_entrypoints(
         aliases: dict[str, list[tuple[str, str]]] = {}
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
+        event_payload_targets: dict[str, dict[str, Any]] = {}
+        external_fact_targets: dict[str, dict[str, Any]] = {}
+
+        def record_external_fact_target(
+            declaration: dict[str, Any],
+            resolved_symbol: dict[str, Any],
+            target_identity: str,
+        ) -> None:
+            if declaration["role"] != "input":
+                return
+            target = {
+                "target": resolved_symbol,
+                "target_identity": target_identity,
+                "owner": "external-source",
+                "cardinality": "optional",
+                "value_source": "external-input-fact",
+                "value_contract": {
+                    member: declaration[member]
+                    for member in (
+                        "type_identity",
+                        "representation",
+                        "kind",
+                        "unit",
+                        "domain_kind",
+                        "domain",
+                        "numeric_policy",
+                    )
+                },
+            }
+            previous = external_fact_targets.get(target_identity)
+            if previous is not None and previous != target:
+                raise ValueError("conflicting external Fact targets")
+            external_fact_targets[target_identity] = target
+
         for argument_index, (formal, authored) in enumerate(
             zip(formals, authored_arguments, strict=True)
         ):
@@ -2775,6 +2809,29 @@ def _reference_entrypoints(
                     if previous is not None and previous != target:
                         raise ValueError("conflicting Scenario targets")
                     targets[operand_identity] = target
+                if mode["event_payload_cardinality"] != "forbidden":
+                    payload_target = {
+                        "target": symbol,
+                        "target_identity": operand_identity,
+                        "owner": "experiment",
+                        "value_source": "event-payload",
+                        "cardinality": mode["event_payload_cardinality"],
+                        "override": True,
+                    }
+                    previous_payload_target = event_payload_targets.get(
+                        operand_identity
+                    )
+                    if (
+                        previous_payload_target is not None
+                        and previous_payload_target != payload_target
+                    ):
+                        raise ValueError("conflicting Event-local payload targets")
+                    event_payload_targets[operand_identity] = payload_target
+                record_external_fact_target(
+                    declaration,
+                    symbol,
+                    operand_identity,
+                )
                 if mode["initialization_source"] in {
                     "model",
                     "model-with-experiment-override",
@@ -2830,6 +2887,15 @@ def _reference_entrypoints(
                             "cardinality": dependency_mode["experiment_cardinality"],
                             "override": dependency_mode["override"],
                         }
+                    if dependency_mode["event_payload_cardinality"] != "forbidden":
+                        event_payload_targets[dependency_identity] = {
+                            "target": dependency["resolved_symbol"],
+                            "target_identity": dependency_identity,
+                            "owner": "experiment",
+                            "value_source": "event-payload",
+                            "cardinality": dependency_mode["event_payload_cardinality"],
+                            "override": True,
+                        }
                     if dependency_mode["initialization_source"] in {
                         "model",
                         "model-with-experiment-override",
@@ -2841,6 +2907,11 @@ def _reference_entrypoints(
                             "initialization_source": "value-policy",
                             "value": dependency["value_policy"]["value"],
                         }
+                    record_external_fact_target(
+                        dependency,
+                        dependency["resolved_symbol"],
+                        dependency_identity,
+                    )
                     pending_dependencies.extend(
                         derived_dependencies.get(dependency_key, [])
                     )
@@ -2941,6 +3012,18 @@ def _reference_entrypoints(
                     targets.values(),
                     key=lambda row: row["target_identity"],
                 ),
+            },
+            "event_local_payload_contract": {
+                "targets": sorted(
+                    event_payload_targets.values(),
+                    key=lambda row: row["target_identity"],
+                )
+            },
+            "external_fact_contract": {
+                "targets": sorted(
+                    external_fact_targets.values(),
+                    key=lambda row: row["target_identity"],
+                )
             },
         }
         resolved_entrypoints.append(
@@ -3902,7 +3985,10 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
 
     assert production["rir-semantic-payload"] == reference["rir-semantic-payload"]
     rir = reference["rir-semantic-payload"]
-    assert len(cast(list[Any], rir["entrypoints"])) == 1
+    assert [
+        entrypoint["id"]
+        for entrypoint in cast(list[dict[str, Any]], rir["entrypoints"])
+    ] == ["combat.cast", "combat.plan-casts"]
     assert len(cast(list[Any], rir["call_sites"])) == 4
     assert admit_resolved_model(
         {

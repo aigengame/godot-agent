@@ -151,17 +151,29 @@ _Avoid_: Experiment Specification (after build), executable experiment, experime
 **Experiment Specification**:
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
-and drift policy. Each scenario selects one exact `Model entrypoint` and assigns every member of
-that entrypoint's generated `Scenario Input Contract` exactly once; it cannot select a raw LDB
-Operation, invent an input name, or redefine a formal port or model symbol. It references an exact
-`Resolved Model` identity or a declared compatibility contract. Exact Resolved-Model binding is
-immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
-Resolved Model before execution and produce an identified
+and drift policy. Each scenario authors one bounded `Executable Event plan` and assigns the
+canonical union of every selected entrypoint's generated `Scenario Input Contract` exactly once.
+Each transition-invocation member selects one exact `Model entrypoint` and carries a separately
+derived Event-local payload; external-input members carry typed source-sequenced facts and select no
+entrypoint; observation members are derived from exact Observation/Metric contracts. It cannot
+select a raw LDB Operation, invent an input name, author another Runtime phase, or redefine a formal
+port or model symbol. It references an exact `Resolved Model` identity or a declared compatibility
+contract. Exact Resolved-Model binding is immutable; compatibility binding may compare RIR semantic
+payloads but must resolve to one exact Resolved Model before execution and produce an identified
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
 identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
 specification is versioned and hashed independently so evidence identifies both model and
 experiment (bADR-0012/0018).
 _Avoid_: experiment config, model overrides, scenario package
+
+**Executable Event plan**:
+The closed, bounded Experiment-owned plan for one scenario. Its authored root members are exactly
+`external-input` or `transition-invocation`; its `observation` members are derived from the exact
+Observation/Metric contracts. Every authored root has a unique `Root Event reference`, logical
+time, Kernel-mapped phase for its root kind, priority, and typed payload/facts contract. Runtime
+admission resolves the plan, assigns Event identities and enqueue sequence, and cannot add a
+scenario timeline, choose another phase, or call a host callback (bADR-0012/0014/0018/0022).
+_Avoid_: scenario loop, tick list, evaluator callback plan
 
 **Approval Record**:
 The immutable governance authority for an approval decision. It identifies the exact model,
@@ -523,6 +535,15 @@ duplicate symbol declarations or Operation formal ports. Each policy role is mac
 an Operation operand, Operation result, or internal generated value; authority admission rejects an
 operand mode that has neither an Experiment assignment nor a Model initializer, and rejects a
 result mode not produced by execution (bADR-0012/0013/0022).
+When one scenario selects several entrypoints, initialization is the canonical union of their
+targets: equal targets with equal contracts collapse, while conflicting contracts or assignments
+refuse. This union is a derived projection, not a second Scenario Input Contract. Event-local
+payloads and external facts never become initialization members. The LDB assignment mode derives a
+separate payload contract for each entrypoint: an admitted read-only, Experiment-initialized
+parameter or input may be overridden for one Event, while state and every other forbidden target
+cannot appear in that payload. The same mode independently declares external-fact cardinality;
+only an admitted read-only, Experiment-initialized operand may be exposed to an external-input
+root, and every other mode is forbidden.
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:
@@ -927,22 +948,38 @@ Standard Schema artifacts and the atomic-event runtime without adopting FMU, C A
 co-simulation compatibility (bADR-0014/0020).
 _Avoid_: FMI runtime, process lifecycle, implicit evaluator state
 
+**Runtime step**:
+The public boundary-directed advance that dispatches as many totally ordered atomic Events as
+needed to reach the next declared observation or logical boundary. An internal scheduler transition
+dispatches one Event; `event-steps` counts Operation work and is neither a Runtime step nor logical
+time. Reaching an Event-count terminal threshold drains the active logical-time transition phase
+before terminating at the next Runtime-step boundary; the threshold cannot introduce an
+observation ahead of a pending same-time transition. There is no universal tick
+(bADR-0014/0020/0022).
+_Avoid_: tick, one Event dispatch, scenario step
+
 **Runtime profile definition**:
 The Language Definition Bundle-owned, immutable contract for one admitted execution policy:
 scheduler/phase semantics, budget vocabulary and accounting units, Named-stream derivation,
 `Numeric profile`, complete RNG sampling law, permitted effect sets, primitive requirements,
 overflow behavior, and portability constraints. It contains no bundle identity, evaluator build,
 host platform, or deployment fact, so it cannot form an identity cycle with its owning bundle
-(bADR-0014/0022).
+(bADR-0014/0022). Its required shape and Runtime/RNG bindings come from the Kernel's
+active-definition contract, while its concrete positive resource-bound values remain LDB content;
+host constants are not a peer profile authority.
 _Avoid_: environment, evaluator configuration, resolved execution identity
 
 **Runtime program contract**:
 The Schema-major Kernel-owned, closed machine contract for irreducible runtime nodes and laws. It
 enumerates each node's exact fields, operator, result/transition kind, refusals, and resource charge,
 plus Numeric bounds, Named-stream RNG derivation/state/sampling/bias/trace laws, Event atomicity,
-typed outcome requirements, and normative vectors. LDB Operations compose these nodes and own their
-domain-specific typed outcome algebra; evaluator code implements the contract but does not add
-fields, outcomes, constants, or behavior (bADR-0014/0022).
+typed outcome requirements, normative vectors, and a complete abstract-role contract for every
+evaluator-consumed scheduler, Runtime-configuration, transition, and step object and relationship.
+LDB Operations compose these nodes and own their domain-specific typed outcome algebra; evaluator
+code implements the role meta-protocol and contract but does not add fields, outcomes, constants,
+paths, or behavior. The complete role-to-structure mapping is content-addressed, and an evaluator
+admits only a mapping identity it explicitly implements; concrete Kernel values remain outside
+that implementation capability identity (bADR-0014/0022).
 _Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
 
 **Resolved Runtime profile**:
@@ -1019,6 +1056,14 @@ ascending. Input admits ordered external facts, transition owns model mutation, 
 read-only evidence collection (bADR-0014).
 _Avoid_: callback, message (unqualified), async task
 
+**Root Event reference**:
+The unique stable authored identity of one external-input or transition-invocation root member in
+an Executable Event plan. Runtime admission maps canonical root order to Runtime-owned `event_id`
+and enqueue sequence before dispatch and exposes the complete reference map. Scheduled children
+have Runtime Event identities and parent/call-site provenance but no invented root reference
+(bADR-0014/0018/0022).
+_Avoid_: Event id, array index, host object identity
+
 **Signal**:
 An ephemeral typed fact emitted during one Event transaction to subscribers declared statically in
 the Model Source Package and compiled into the Resolved Model's static subscription table. The
@@ -1064,7 +1109,17 @@ _Avoid_: initial Snapshot, initialization Event, mutable setup state
 The semantic state boundary committed after successful initialization and after every committed
 Event transaction. The pre-Snapshot Initialization frame is not a Snapshot. The full state exists
 conceptually at each boundary; traces may store a canonical state hash and materialize full state
-only at declared checkpoints without changing semantics (bADR-0014).
+only at declared checkpoints without changing semantics. A materialized Snapshot continuation
+binds the selected Runtime profile plus append-only admitted-Event and committed-trace prefix
+identities; the Snapshot Series stores each complete normalized admitted Event specification once,
+and recovery revalidates its identity plus catalog, commit, and cancellation prefixes to reconstruct
+the exact pending queue. Root, scheduled, and observation catalog entries must also rebind to their
+checked Experiment, committed parent plus exact RIR scheduling Operation/call path/site and
+normalized actual operands, or Metric authority respectively. Scheduled operands are independently
+recomputed by boundedly replaying that RIR path from committed parent inputs and state; a
+Named-RNG-derived local also replays from the checked seed through the verified committed draw
+prefix rather than trusting a traced draw value;
+self-consistent fresh hashes do not prove admission (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
 **Runtime refusal**:
@@ -1078,7 +1133,16 @@ committed terminal-audit artifact set, and the run stops (bADR-0014). Both are `
 refusals with exit 2 on stdout; only the post-dispatch variant carries the retrievable terminal-audit
 receipt. Failure to publish a required post-dispatch set before commit is an `internal` command
 outcome, while failure after commit leaves the set recoverable by its durable invocation identity
-(bADR-0015/0021).
+(bADR-0015/0021). Recovery admits the terminal audit only when its admitted-Event catalog and
+committed-trace prefixes, complete last Snapshot, rollback equality, complete refusing Event
+specification, terminal condition, exact catalog/trace/resource coordinates, Diagnostic, and
+reproduction receipt close against checked authority. A not-yet-admitted observation must be the
+next Metric at the last Snapshot's logical boundary and enqueue cursor, while attempted Event/node
+steps must close against that Snapshot's resource ledger and applicable Formula charges plus the
+current Event charge derived, without rerunning the evaluator, by walking admitted RIR resource
+transitions to the first budget-breaching instruction and completed nested-call prefix.
+Member-level wire validity and coordinated
+fresh hashes are insufficient.
 _Avoid_: crash, validation refusal, skipped event
 
 **Named random stream**:

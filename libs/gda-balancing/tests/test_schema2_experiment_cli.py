@@ -13,9 +13,11 @@ import jsonschema
 
 import gda_balancing.commands.experiment as experiment_command_module
 import gda_balancing.schema2.authority as authority_module
+import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.schema2.diagnostics import ArtifactLocation
 from gda_balancing.schema2.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
@@ -25,6 +27,16 @@ _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
+_REFERENCE_EVENT_RUNTIME_BINDINGS = {
+    "index",
+    "event_id",
+    "root_event_ref",
+    "ordering_key",
+    "snapshot_before_identity",
+    "snapshot_after_identity",
+    "external_input_identity",
+    "observation",
+}
 
 
 def test_experiment_conformance_uses_only_prepared_public_documents():
@@ -110,6 +122,113 @@ def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
         "missing": "refuse",
         "censoring": "none",
     }
+
+
+def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
+    target = {
+        "model": "example.contract-union",
+        "module": "main",
+        "name": "shared",
+    }
+    rows = [
+        {
+            "target": target,
+            "target_identity": "sha256:" + ("1" * 64),
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": "required",
+            "override": False,
+        },
+        {
+            "target": target,
+            "target_identity": "sha256:" + ("1" * 64),
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": "optional",
+            "override": True,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="conflicting Scenario Input Contract"):
+        experiment_runtime_module._canonical_contract_union(
+            rows,
+            contract_name="Scenario Input Contract",
+        )
+
+
+def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    specification["scenarios"][0]["event_plan"].append(
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "plan-casts",
+            "logical_time": 1,
+            "priority": 0,
+            "entrypoint": "combat.plan-casts",
+            "payload": [],
+        }
+    )
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    original_find = experiment_runtime_module.find_published_artifact
+    original_admit = experiment_runtime_module.admit_resolved_model
+    original_rir: dict[str, Any] | None = None
+
+    def find_with_conflicting_entrypoint(content_identity_value, artifact_kind, ldb):
+        nonlocal original_rir
+        artifact = original_find(content_identity_value, artifact_kind, ldb)
+        if artifact_kind != "rir-semantic-payload" or artifact is None:
+            return artifact
+        original_rir = artifact
+        conflicting = deepcopy(artifact)
+        entrypoints = {row["id"]: row for row in conflicting["entrypoints"]}
+        cast_targets = entrypoints["combat.cast"]["scenario_input_contract"]["targets"]
+        plan_targets = entrypoints["combat.plan-casts"]["scenario_input_contract"][
+            "targets"
+        ]
+        cast_target = next(
+            row for row in cast_targets if row["cardinality"] == "required"
+        )
+        plan_target = next(
+            row for row in plan_targets if row["target"] == cast_target["target"]
+        )
+        plan_target["cardinality"] = "optional"
+        return conflicting
+
+    def admit_original_model(artifacts, *, authority_context=None):
+        assert original_rir is not None
+        original_artifacts = {
+            **artifacts,
+            "rir-semantic-payload": original_rir,
+        }
+        return original_admit(
+            original_artifacts,
+            authority_context=authority_context,
+        )
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "find_published_artifact",
+        find_with_conflicting_entrypoint,
+    )
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "admit_resolved_model",
+        admit_original_model,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/scenarios/0/assignments"
+    assert diagnostic["message"] == "conflicting Scenario Input Contract rows"
 
 
 def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
@@ -632,6 +751,8 @@ def _reference_execute_event(
             for name in sorted(state_cells)
         ],
         "rng_draws": draws,
+        "schedules": [],
+        "cancellations": [],
     }
     if resolved_entrypoint is not None:
         event["entrypoint"] = {
@@ -723,6 +844,132 @@ def _reference_evaluate_value_program_vector(
         "result_artifact": admitted,
         "signal": signal,
         "site": inp["site"] if admitted else site,
+    }
+
+
+def _reference_evaluate_scheduler_vector(
+    kernel: dict[str, Any],
+    vector: dict[str, Any],
+    *,
+    mutation: str | None = None,
+) -> dict[str, Any]:
+    supported_mutations = {
+        "backward-scheduling",
+        "host-assigned-ordering",
+        "omitted-key",
+        "pre-commit-visibility",
+        "scenario-as-timestep",
+    }
+    if mutation is not None and mutation not in supported_mutations:
+        raise ValueError(f"unsupported scheduler mutation: {mutation}")
+    scheduler = kernel["meta_format"]["runtime_program"]["scheduler"]
+    events = deepcopy(vector["input"]["events"])
+    initial_states = vector["input"]["initial_states"]
+    scenario_order = {
+        row["scenario"]: index for index, row in enumerate(initial_states)
+    }
+    states = {row["scenario"]: row["value"] for row in initial_states}
+    by_id = {event["id"]: event for event in events}
+
+    def refused(signal: str) -> dict[str, Any]:
+        return {
+            "event_order": [],
+            "observations": [],
+            "outcome": "refused",
+            "signal": signal,
+            "terminal_reason": None,
+            "terminal_states": deepcopy(initial_states),
+        }
+
+    for event in events:
+        if not event["cancel_requested"]:
+            continue
+        status = event["status"]
+        if status not in scheduler["cancel"]["admitted_target_states"]:
+            return refused(scheduler["cancel"]["refusal_signals"][status])
+    for event in events:
+        parent_id = event["parent_id"]
+        if parent_id is None:
+            continue
+        parent = by_id[parent_id]
+        if event["phase"] != scheduler["schedule"]["child_phase"]:
+            return refused(scheduler["schedule"]["refusal_signals"]["hidden_input"])
+        if (
+            mutation != "backward-scheduling"
+            and event["logical_time"] < parent["logical_time"]
+        ):
+            return refused(scheduler["schedule"]["refusal_signals"]["backward"])
+        if (
+            event["logical_time"] == parent["logical_time"]
+            and event["priority"] > parent["priority"]
+        ):
+            return refused(
+                scheduler["schedule"]["refusal_signals"]["illegal_same_time_priority"]
+            )
+
+    phase_order = next(
+        row["rank"] for row in scheduler["ordering"] if row["member"] == "phase"
+    )
+    phase_rank = {phase: index for index, phase in enumerate(phase_order)}
+
+    def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
+        if mutation == "host-assigned-ordering":
+            return (event["id"],)
+        key: tuple[Any, ...] = (
+            scenario_order[event["scenario"]],
+            event["logical_time"],
+            phase_rank[event["phase"]],
+            -event["priority"],
+        )
+        if mutation != "omitted-key":
+            key = (*key, event["enqueue_sequence"])
+        return key
+
+    admitted = sorted(
+        (
+            event
+            for event in events
+            if event["status"] not in {"canceled", "completed"}
+            and not event["cancel_requested"]
+        ),
+        key=ordering_key,
+    )
+    observations = []
+    shared_state = next(iter(states.values()))
+    for event in admitted:
+        scenario = event["scenario"]
+        before = (
+            shared_state if mutation == "scenario-as-timestep" else states[scenario]
+        )
+        if mutation == "pre-commit-visibility":
+            before = next(
+                row["value"] for row in initial_states if row["scenario"] == scenario
+            )
+        after = before + event["state_delta"]
+        if mutation == "scenario-as-timestep":
+            shared_state = after
+        else:
+            states[scenario] = after
+        observations.append(
+            {
+                "event_id": event["id"],
+                "scenario": scenario,
+                "state_after": after,
+                "state_before": before,
+            }
+        )
+    if mutation == "scenario-as-timestep":
+        states = {scenario: shared_state for scenario in states}
+    return {
+        "event_order": [event["id"] for event in admitted],
+        "observations": observations,
+        "outcome": "admitted",
+        "signal": None,
+        "terminal_reason": vector["input"]["terminal_condition"],
+        "terminal_states": [
+            {"scenario": row["scenario"], "value": states[row["scenario"]]}
+            for row in initial_states
+        ],
     }
 
 
@@ -866,11 +1113,19 @@ def _experiment(
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260726},
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": "one-cast",
-                "entrypoint": "combat.cast",
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "cast",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": "combat.cast",
+                        "payload": [],
+                    }
+                ],
                 "assignments": [
                     {
                         "target": {
@@ -941,7 +1196,7 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
             "1" * 64,
         ]
     )
-    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
     specification = _experiment(
@@ -954,6 +1209,2141 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     spec_path = tmp_path / "experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     return spec_path
+
+
+def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "low-priority-cast",
+            "logical_time": 0,
+            "priority": 0,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "high-priority-cast",
+            "logical_time": 0,
+            "priority": 10,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "same-time-root-events"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    events = _member(receipt, "event-trace")["events"]
+    assert [
+        (
+            event["root_event_ref"],
+            event["ordering_key"]["logical_time"],
+            event["ordering_key"]["phase"],
+            event["ordering_key"]["priority"],
+            event["ordering_key"]["enqueue_sequence"],
+        )
+        for event in events
+        if "root_event_ref" in event
+    ] == [
+        ("high-priority-cast", 0, "transition", 10, 1),
+        ("low-priority-cast", 0, "transition", 0, 0),
+    ]
+    assert len({event["event_id"] for event in events}) == 3
+    assert events[1]["state_before"] == events[0]["state_after"]
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 4
+
+
+def test_event_count_terminates_only_after_same_time_transitions_drain(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": root_event_ref,
+            "logical_time": 0,
+            "priority": priority,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        }
+        for root_event_ref, priority in (
+            ("low-priority-cast", 0),
+            ("high-priority-cast", 10),
+        )
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "same-time-terminal-boundary"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    events = trace["events"]
+    runtime_events = [event for event in events if event["observation"] is None]
+    assert [event["root_event_ref"] for event in runtime_events] == [
+        "high-priority-cast",
+        "low-priority-cast",
+    ]
+    assert events[-1]["observation"]["metric"] == "terminal_health"
+    assert trace["terminal_statuses"][0]["event_count"] == 2
+    assert trace["terminal_statuses"][0]["condition"]["maximum"] == 1
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    assert snapshots[-2]["continuation"]["pending_event_count"] == 0
+
+
+def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
+    source_value = _rpg_model_source()
+    source_path = tmp_path / "scheduled-combat-model.json"
+    source_path.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "scheduled-combat-model"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=12,
+    )
+    specification["scenarios"][0]["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "plan-casts",
+            "logical_time": 0,
+            "priority": 0,
+            "entrypoint": "combat.plan-casts",
+            "payload": [],
+        }
+    ]
+    specification["scenarios"][0]["terminal_condition"] = {
+        "kind": "event-count",
+        "maximum": 2,
+    }
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    requirements, _named_streams = (
+        experiment_runtime_module.derive_scenario_program_requirements(
+            _member(build_receipt, "rir-semantic-payload"),
+            entrypoint_id="combat.plan-casts",
+            runtime_profile=specification["runtime"]["profile"],
+            rng_algorithm=specification["seed"]["algorithm"],
+        )
+    )
+    specification["runtime"]["required_evaluator"] = requirements
+    specification_path = tmp_path / "scheduled-combat-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path
+
+
+def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+    event_frames: list[str] = []
+
+    def record_formula_frame(*args, **kwargs):
+        result = evaluate_programs(*args, **kwargs)
+        if (
+            kwargs.get("phase") == "event"
+            and kwargs["frame_identity"] not in event_frames
+        ):
+            event_frames.append(kwargs["frame_identity"])
+        return result
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        record_formula_frame,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "scheduled-combat-run"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    events = trace["events"]
+    assert [event["operation"] for event in events] == [
+        "game.combat.plan-casts-v1",
+        "game.combat.cast-v1",
+        None,
+    ]
+    schedules = events[0]["schedules"]
+    assert len(schedules) == 2
+    assert schedules[0]["event_id"] == events[1]["event_id"]
+    assert events[1]["parent_event_id"] == events[0]["event_id"]
+    assert events[0]["cancellations"] == [
+        {
+            "call_site_identity": events[0]["cancellations"][0]["call_site_identity"],
+            "event_id": schedules[1]["event_id"],
+            "outcome": "canceled",
+        }
+    ]
+    assert schedules[1]["event_id"] not in {event["event_id"] for event in events}
+    root_map = [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "plan-casts",
+            "event_id": events[0]["event_id"],
+        }
+    ]
+    assert trace["root_event_map"] == root_map
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    assert event_frames == [
+        snapshots[0]["snapshot_identity"],
+        snapshots[1]["snapshot_identity"],
+    ]
+    assert all(
+        snapshot["snapshot_identity"].startswith("sha256:") for snapshot in snapshots
+    )
+    assert [
+        (event["snapshot_before_identity"], event["snapshot_after_identity"])
+        for event in events
+    ] == [
+        (snapshots[0]["snapshot_identity"], snapshots[1]["snapshot_identity"]),
+        (snapshots[1]["snapshot_identity"], snapshots[2]["snapshot_identity"]),
+        (snapshots[2]["snapshot_identity"], snapshots[3]["snapshot_identity"]),
+    ]
+    terminal_status = {
+        "scenario": "one-cast",
+        "condition": {"kind": "event-count", "maximum": 2},
+        "reason": "event-count-reached",
+        "event_count": 2,
+        "terminal_event_id": events[-2]["event_id"],
+        "terminal_snapshot_identity": snapshots[-2]["snapshot_identity"],
+        "observation_event_ids": [events[-1]["event_id"]],
+        "final_snapshot_identity": snapshots[-1]["snapshot_identity"],
+        "logical_time": 1,
+    }
+    assert trace["terminal_statuses"] == [terminal_status]
+    evaluation_run = _member(receipt, "evaluation-run")
+    assert evaluation_run["root_event_map"] == root_map
+    assert evaluation_run["terminal_statuses"] == [terminal_status]
+    sample = _member(receipt, "metric-dataset")["samples"][0]
+    assert sample["event_id"] == events[-1]["event_id"]
+    assert sample["snapshot_identity"] == snapshots[-1]["snapshot_identity"]
+    assert sample["logical_time"] == events[-1]["ordering_key"]["logical_time"]
+
+
+def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    next(
+        row for row in scenario["assignments"] if row["target"]["name"] == "actor_mana"
+    )["value"] = 60
+    next(
+        row for row in scenario["assignments"] if row["target"]["name"] == "action_cost"
+    )["value"] = 30
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 1000
+    scenario["event_plan"].append(
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "intervening-cast",
+            "logical_time": 1,
+            "priority": 10,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        }
+    )
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 4}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
+    checked_value = deepcopy(checked.value)
+    requirements, _named_streams = (
+        experiment_runtime_module.derive_scenario_program_requirements(
+            rir,
+            entrypoint_id="combat.plan-casts",
+            runtime_profile=checked_value["runtime"]["profile"],
+            rng_algorithm=checked_value["seed"]["algorithm"],
+        )
+    )
+    checked_value["runtime"]["required_evaluator"] = requirements
+
+    artifacts = experiment_runtime_module.evaluate_experiment(
+        replace(checked, value=checked_value, rir=rir)
+    )
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_events = [
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    ]
+    assert [event["outcome"]["id"] for event in runtime_events] == [
+        "planned",
+        "cast-resolved",
+        "cast-resolved",
+        "insufficient-resource",
+    ]
+    assert runtime_events[-1]["state_before"] == runtime_events[-1]["state_after"]
+    assert (
+        next(
+            row["value"]
+            for row in runtime_events[-1]["state_after"]
+            if row["name"] == "actor_mana"
+        )
+        == 0
+    )
+
+
+def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    entrypoint = next(
+        row for row in checked.rir["entrypoints"] if row["id"] == "combat.cast"
+    )
+    assert {
+        row["target"]["name"]
+        for row in entrypoint["event_local_payload_contract"]["targets"]
+    } >= {"accuracy"}
+
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 0
+    scenario["event_plan"][0]["payload"] = [
+        {
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "accuracy",
+            },
+            "value": 1000,
+        }
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "payload-formula-run"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    event = _member(json.loads(stdout), "event-trace")["events"][0]
+    assert event["outcome"]["id"] == "cast-resolved"
+    assert (
+        next(
+            row["integer"]
+            for row in event["facts"]
+            if row["name"] == "effective_accuracy"
+        )
+        == 1000
+    )
+
+
+def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    assert snapshot_contract["projection"] == [
+        "experiment_identity",
+        "scenario_id",
+        "index",
+        "logical_time",
+        "event_id",
+        "values",
+        "continuation",
+    ]
+    assert snapshot_contract["runtime_configuration_projection"] == {
+        "lifecycle_state": "continuation.lifecycle_state",
+        "step_boundary": "continuation.step_boundary",
+        "scenario_cursor": "continuation.scenario_cursor",
+        "event_catalog": "continuation.event_catalog",
+        "pending_event_count": "continuation.pending_event_count",
+        "committed_trace": "continuation.committed_trace",
+        "current_snapshot": "continuation.current_snapshot",
+        "state": "values",
+        "rng": "continuation.rng",
+        "resource_ledger": "continuation.resource_ledger",
+        "next_enqueue_sequence": "continuation.next_enqueue_sequence",
+        "root_event_map_identity": "continuation.root_event_map_identity",
+        "resolved_runtime_profile_identity": (
+            "continuation.resolved_runtime_profile_identity"
+        ),
+    }
+    snapshots = artifacts.members["snapshot-series"].value["snapshots"]
+    events = artifacts.members["event-trace"].value["events"]
+    runtime_members = {
+        "lifecycle_state",
+        "step_boundary",
+        "scenario_cursor",
+        "event_catalog",
+        "pending_event_count",
+        "committed_trace",
+        "current_snapshot",
+        "rng",
+        "resource_ledger",
+        "next_enqueue_sequence",
+        "root_event_map_identity",
+        "resolved_runtime_profile_identity",
+    }
+    snapshot_wire_schema = next(
+        row["schema"]
+        for row in checked.language_bundle["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == "snapshot-series"
+    )
+    continuation_schema = snapshot_wire_schema["properties"]["snapshots"]["items"][
+        "properties"
+    ]["continuation"]
+    assert set(continuation_schema["properties"]) == runtime_members
+    assert set(continuation_schema["required"]) == runtime_members
+    assert all(
+        set(snapshot["continuation"]) == runtime_members for snapshot in snapshots
+    )
+    snapshot_series = artifacts.members["snapshot-series"].value
+    assert (
+        snapshot_series["event_trace_identity"]
+        == artifacts.members["event-trace"].content_identity
+    )
+    catalog_ids = [row["event_id"] for row in snapshot_series["event_catalog"]]
+    event_spec_domain = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]["domain"]
+    assert all(
+        row["event_id"] == row["event_spec"]["event_id"]
+        and row["kind"] == row["event_spec"]["kind"]
+        and row["ordering_key"] == row["event_spec"]["ordering_key"]
+        and row["event_spec_identity"]
+        == content_identity(event_spec_domain, row["event_spec"])
+        for row in snapshot_series["event_catalog"]
+    )
+    assert all(
+        experiment_runtime_module._event_catalog_record_is_valid(checked, row)
+        for row in snapshot_series["event_catalog"]
+    )
+    assert experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        snapshot_series["event_catalog"],
+        events,
+    )
+    coordinated_root_drift = deepcopy(snapshot_series["event_catalog"])
+    coordinated_root_drift[0]["event_spec"]["entrypoint"] = "combat.cast"
+    coordinated_root_drift[0]["event_spec_identity"] = content_identity(
+        event_spec_domain,
+        coordinated_root_drift[0]["event_spec"],
+    )
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        coordinated_root_drift,
+        events,
+    )
+    coordinated_schedule_drift = deepcopy(snapshot_series["event_catalog"])
+    scheduled_record = next(
+        row
+        for row in coordinated_schedule_drift
+        if row["kind"] == "scheduled-transition"
+    )
+    scheduled_record["event_spec"]["arguments"][0]["value"] += 1
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_domain,
+        scheduled_record["event_spec"],
+    )
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        coordinated_schedule_drift,
+        events,
+    )
+    drifted_catalog_record = deepcopy(snapshot_series["event_catalog"][0])
+    drifted_catalog_record["event_spec"]["zero_time_depth"] += 1
+    assert not experiment_runtime_module._event_catalog_record_is_valid(
+        checked,
+        drifted_catalog_record,
+    )
+    event_spec_members = {
+        row["kind"]: set(row["event_spec"]) for row in snapshot_series["event_catalog"]
+    }
+    assert event_spec_members["transition-invocation"] == {
+        "event_id",
+        "ordering_key",
+        "zero_time_depth",
+        "kind",
+        "root_event_ref",
+        "entrypoint",
+        "payload",
+    }
+    assert event_spec_members["scheduled-transition"] == {
+        "event_id",
+        "ordering_key",
+        "zero_time_depth",
+        "kind",
+        "parent_event_id",
+        "call_site_identity",
+        "schedule_sequence",
+        "operation",
+        "arguments",
+        "state_references",
+    }
+    assert event_spec_members["observation"] == {
+        "event_id",
+        "ordering_key",
+        "kind",
+        "metric_definition_identity",
+    }
+    assert len(catalog_ids) == len(set(catalog_ids))
+    assert set(catalog_ids) == {
+        events[0]["event_id"],
+        events[1]["event_id"],
+        events[0]["schedules"][1]["event_id"],
+        events[2]["event_id"],
+    }
+    assert snapshots[0]["continuation"]["event_catalog"]["count"] == 1
+    assert snapshots[0]["continuation"]["pending_event_count"] == 1
+    assert snapshots[0]["continuation"]["committed_trace"]["count"] == 0
+    assert snapshots[1]["continuation"]["event_catalog"]["count"] == 3
+    assert snapshots[1]["continuation"]["pending_event_count"] == 1
+    assert snapshots[1]["continuation"]["committed_trace"]["count"] == 1
+    assert snapshots[2]["continuation"]["committed_trace"]["count"] == 2
+    assert snapshots[-1]["continuation"]["committed_trace"]["count"] == 3
+    assert all(
+        snapshot["continuation"]["resolved_runtime_profile_identity"]
+        == artifacts.members["resolved-runtime-profile"].content_identity
+        for snapshot in snapshots
+    )
+    assert [snapshot["continuation"]["lifecycle_state"] for snapshot in snapshots] == [
+        "step",
+        "step",
+        "step",
+        "terminated",
+    ]
+    assert [snapshot["continuation"]["step_boundary"] for snapshot in snapshots] == [
+        "initial",
+        "logical-boundary",
+        "terminal",
+        "terminal",
+    ]
+    altered = deepcopy(snapshots[1]["continuation"])
+    altered["committed_trace"]["prefix_identity"] = "sha256:" + ("0" * 64)
+    assert (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": snapshots[1]["scenario"],
+                "index": snapshots[1]["index"],
+                "logical_time": snapshots[1]["logical_time"],
+                "event_id": snapshots[1]["event_id"],
+                "values": snapshots[1]["values"],
+                "continuation": altered,
+            },
+        )
+        != snapshots[1]["snapshot_identity"]
+    )
+
+
+def test_kernel_closes_runtime_configuration_transition_and_public_step():
+    kernel, _language_bundle = authority_module.load_authorities()
+    runtime_program = kernel["meta_format"]["runtime_program"]
+
+    assert runtime_program["runtime_configuration"] == {
+        "lifecycle_roles": {
+            "active": "event",
+            "ready": "step",
+            "terminal": "terminated",
+        },
+        "lifecycle_states": [
+            "instantiated",
+            "initializing",
+            "step",
+            "event",
+            "terminated",
+        ],
+        "members": [
+            "lifecycle_state",
+            "step_boundary",
+            "scenario_cursor",
+            "event_catalog",
+            "pending_event_count",
+            "committed_trace",
+            "current_snapshot",
+            "state",
+            "rng",
+            "resource_ledger",
+            "next_enqueue_sequence",
+            "root_event_map_identity",
+            "resolved_runtime_profile_identity",
+        ],
+        "mutation": "internal-transition-only",
+    }
+    assert runtime_program["scheduler"]["runtime_journal"] == {
+        "event_spec": {
+            "domain": "runtime-event-spec-v2",
+            "projection": "complete-admitted-event",
+        },
+        "event_catalog": {
+            "domain": "runtime-event-catalog-v2",
+            "projection": "append-only-admitted-event-chain",
+        },
+        "committed_trace": {
+            "domain": "runtime-committed-trace-v2",
+            "projection": "append-only-committed-event-chain-without-snapshot-after",
+        },
+        "root_event_map": {
+            "domain": "runtime-root-event-map-v2",
+            "projection": "complete-root-event-map",
+        },
+    }
+    assert runtime_program["transition"] == {
+        "input": "runtime-configuration",
+        "dispatch_count": 1,
+        "event_selection": "scheduler-order-head",
+        "transaction": "event-atomicity",
+        "result": ["runtime-configuration", "runtime-refusal"],
+    }
+    assert runtime_program["step"] == {
+        "input": "runtime-configuration",
+        "advance": "repeat-transition",
+        "boundaries": [
+            "initial",
+            "observation-boundary",
+            "logical-boundary",
+            "terminal",
+        ],
+        "boundary_roles": {
+            "initial": "initial",
+            "logical": "logical-boundary",
+            "observation": "observation-boundary",
+            "terminal": "terminal",
+        },
+        "stop": [
+            "observation-boundary",
+            "logical-boundary",
+            "terminal",
+        ],
+        "result": "committed-boundary",
+    }
+
+
+def test_runtime_profile_bounds_are_ldb_owned_under_the_kernel_shape():
+    kernel, language_bundle = authority_module.load_authorities()
+    profile_contract = kernel["meta_format"]["runtime_profile_definition"]
+    assert profile_contract["active_runtime"]["resource_bounds"] == {
+        "members": [
+            "max_event_steps",
+            "max_logical_time",
+            "max_node_steps",
+            "max_queue_events",
+            "max_total_events",
+            "max_zero_time_depth",
+        ],
+        "value_contract": "positive-integer",
+    }
+    profile = next(
+        row
+        for row in language_bundle["language"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    profile["resource_bounds"]["max_event_steps"] += 1
+
+    assert bootstrap_module._runtime_authority_is_closed(kernel, language_bundle)
+
+    del profile["resource_bounds"]["max_queue_events"]
+    assert not bootstrap_module._runtime_authority_is_closed(kernel, language_bundle)
+
+
+def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in evaluation.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    snapshot_payload = {
+        key: value
+        for key, value in values["snapshot-series"].items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    snapshot_payload["event_trace_identity"] = "sha256:" + ("0" * 64)
+    drifted_snapshots = experiment_runtime_module._artifact(
+        checked, "snapshot-series", snapshot_payload
+    )
+    values["snapshot-series"] = drifted_snapshots.value
+    primary_payload = {
+        key: value
+        for key, value in values["evaluation-run"].items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    primary_payload["snapshot_series_identity"] = drifted_snapshots.content_identity
+    values["evaluation-run"] = experiment_runtime_module._artifact(
+        checked, "evaluation-run", primary_payload
+    ).value
+
+    assert all(
+        experiment_runtime_module.validate_experiment_member(checked, name, value)
+        for name, value in values.items()
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
+
+
+def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    def drift_refusing_index(audit):
+        audit["refusing_event"]["index"] += 1
+
+    def drift_snapshot_binding(audit):
+        audit["refusing_event"]["snapshot_before_identity"] = "sha256:" + "0" * 64
+
+    def drift_rollback_state(audit):
+        audit["rollback"]["state_after"][0]["value"] += 1
+
+    def drift_reason(audit):
+        audit["refusing_event"]["reason"] = "runtime.queue_limit_exceeded"
+
+    def drift_trace_index(audit):
+        audit["committed_trace_prefix"][0]["index"] += 1
+
+    for mutate in (
+        drift_refusing_index,
+        drift_snapshot_binding,
+        drift_rollback_state,
+        drift_reason,
+        drift_trace_index,
+    ):
+        drifted_values = deepcopy(values)
+        audit = drifted_values["runtime-terminal-audit"]
+        payload = {
+            key: value
+            for key, value in audit.items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        mutate(payload)
+        drifted = experiment_runtime_module._artifact(
+            checked, "runtime-terminal-audit", payload
+        )
+        drifted_values["runtime-terminal-audit"] = drifted.value
+
+        assert experiment_runtime_module.validate_experiment_member(
+            checked,
+            "runtime-terminal-audit",
+            drifted.value,
+        )
+        assert not experiment_runtime_module.validate_experiment_artifact_set(
+            checked,
+            drifted_values,
+        )
+
+
+def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )["logical_time"] = -1
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert outcome.committed_trace_prefix == ()
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["event_catalog_prefix"]
+    assert (
+        audit["last_snapshot_record"]["snapshot_identity"]
+        == audit["last_snapshot_identity"]
+    )
+    assert (
+        audit["refusing_event"]["event_spec"]["event_id"]
+        == audit["refusing_event"]["event_id"]
+    )
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    def reidentify(drifted_audit):
+        payload = {
+            key: value
+            for key, value in drifted_audit.items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        return experiment_runtime_module._artifact(
+            checked,
+            "runtime-terminal-audit",
+            payload,
+        ).value
+
+    coordinated_snapshot = deepcopy(audit)
+    replacement_snapshot_identity = "sha256:" + "0" * 64
+    coordinated_snapshot["last_snapshot_identity"] = replacement_snapshot_identity
+    coordinated_snapshot["last_snapshot_record"]["snapshot_identity"] = (
+        replacement_snapshot_identity
+    )
+    coordinated_snapshot["refusing_event"]["snapshot_before_identity"] = (
+        replacement_snapshot_identity
+    )
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_snapshot)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+    coordinated_event = deepcopy(audit)
+    replacement_event_id = "sha256:" + "1" * 64
+    coordinated_event["refusing_event"]["event_id"] = replacement_event_id
+    coordinated_event["refusing_event"]["event_spec"]["event_id"] = replacement_event_id
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_event)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+    coordinated_budget = deepcopy(audit)
+    coordinated_budget["budget_counters"]["total_events"] += 1
+    last_snapshot = coordinated_budget["last_snapshot_record"]
+    last_snapshot["continuation"]["resource_ledger"]["total_events"] += 1
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    replacement_snapshot_identity = (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": last_snapshot["scenario"],
+                "index": last_snapshot["index"],
+                "logical_time": last_snapshot["logical_time"],
+                "event_id": last_snapshot["event_id"],
+                "values": last_snapshot["values"],
+                "continuation": last_snapshot["continuation"],
+            },
+        )
+    )
+    last_snapshot["snapshot_identity"] = replacement_snapshot_identity
+    coordinated_budget["last_snapshot_identity"] = replacement_snapshot_identity
+    coordinated_budget["refusing_event"]["snapshot_before_identity"] = (
+        replacement_snapshot_identity
+    )
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_budget)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["event_spec"]["kind"] == "observation"
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    refusing = drifted_audit["refusing_event"]
+    ordering_key = refusing["event_spec"]["ordering_key"]
+    ordering_key["enqueue_sequence"] += 1
+    refusing["ordering_key"] = deepcopy(ordering_key)
+    metric_identity = refusing["event_spec"]["metric_definition_identity"]
+    replacement_event_id = experiment_runtime_module._observation_event_id(
+        checked,
+        drifted_audit["scenario"],
+        metric_identity,
+        logical_time=ordering_key["logical_time"],
+        enqueue_sequence=ordering_key["enqueue_sequence"],
+    )
+    refusing["event_id"] = replacement_event_id
+    refusing["event_spec"]["event_id"] = replacement_event_id
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_event_steps"] = 0
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
+    assert audit["budget_counters"]["event_steps"] > 0
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    drifted_audit["budget_counters"]["event_steps"] = 0
+    drifted_audit["budget_counters"]["node_steps"] = drifted_audit[
+        "last_snapshot_record"
+    ]["continuation"]["resource_ledger"]["node_steps"]
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    cast_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    cast_operation["resource_bounds"]["max_steps"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
+    assert audit["budget_counters"]["event_steps"] > 1
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    drifted_audit["budget_counters"]["event_steps"] -= 1
+    drifted_audit["budget_counters"]["node_steps"] -= 1
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+    coordinated_proof = deepcopy(audit)
+    assert coordinated_proof["budget_counters"]["event_steps"] == 8
+    assert coordinated_proof["budget_counters"]["node_steps"] == 12
+    assert coordinated_proof["refusing_event"]["instruction_index"] == 2
+    assert len(coordinated_proof["refusing_event"]["attempted_calls"]) == 2
+    coordinated_proof["budget_counters"]["event_steps"] = 4
+    coordinated_proof["budget_counters"]["node_steps"] = 8
+    coordinated_proof["refusing_event"]["instruction_index"] = 1
+    coordinated_proof["refusing_event"]["attempted_calls"] = coordinated_proof[
+        "refusing_event"
+    ]["attempted_calls"][:1]
+    payload = {
+        key: value
+        for key, value in coordinated_proof.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, run_cli):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    catalog = deepcopy(artifacts.members["snapshot-series"].value["event_catalog"])
+    events = deepcopy(artifacts.members["event-trace"].value["events"])
+    parent_event = next(
+        event for event in events if event["operation"] == "game.combat.plan-casts-v1"
+    )
+    action_cost = next(
+        fact for fact in parent_event["facts"] if fact["name"] == "action_cost"
+    )
+    action_cost["integer"] += 1
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
+    for schedule in parent_event["schedules"]:
+        next(row for row in schedule["arguments"] if row["name"] == "action_cost")[
+            "value"
+        ] += 1
+        scheduled_record = next(
+            record for record in catalog if record["event_id"] == schedule["event_id"]
+        )
+        next(
+            row
+            for row in scheduled_record["event_spec"]["arguments"]
+            if row["name"] == "action_cost"
+        )["value"] += 1
+        scheduled_record["event_spec_identity"] = content_identity(
+            event_spec_contract["domain"],
+            scheduled_record["event_spec"],
+        )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        events,
+    )
+
+
+@pytest.mark.parametrize("schedule_shape", ["local", "nested"])
+def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
+    tmp_path, run_cli, schedule_shape
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    schedule = deepcopy(
+        next(
+            instruction
+            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            if instruction["node"] == "schedule"
+        )
+    )
+    schedule["site"] = f"review-{schedule_shape}-schedule"
+    schedule["operation"] = {
+        "package": "game.resource",
+        "version": "1.0.1",
+        "id": "game.resource.spend-v1",
+    }
+    schedule["result"] = {"kind": "local", "name": "review_scheduled_event"}
+    damage_operation = operations["game.combat.damage-v1"]
+    if schedule_shape == "local":
+        constant_index = next(
+            index
+            for index, instruction in enumerate(damage_operation["body"])
+            if instruction.get("target") == "critical_multiplier"
+        )
+        schedule["arguments"] = [
+            {
+                "port": "resource",
+                "operand": {"kind": "literal", "literal": 10},
+            },
+            {
+                "port": "cost",
+                "operand": {"kind": "local", "local": "critical_multiplier"},
+            },
+        ]
+        damage_operation["body"].insert(constant_index + 1, schedule)
+    else:
+        schedule["arguments"] = [
+            {
+                "port": "resource",
+                "operand": {"kind": "literal", "literal": 1},
+            },
+            {
+                "port": "cost",
+                "operand": {"kind": "literal", "literal": 1},
+            },
+        ]
+        damage_operation["body"].insert(0, schedule)
+    damage_operation["resource_bounds"]["max_steps"] = 10_000
+    checked = replace(checked, rir=rir)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in artifacts.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    trace_events = values["event-trace"]["events"]
+    catalog = values["snapshot-series"]["event_catalog"]
+    scheduled_record = next(
+        record for record in catalog if record["kind"] == "scheduled-transition"
+    )
+    parent_event = next(
+        event
+        for event in trace_events
+        if any(
+            schedule["event_id"] == scheduled_record["event_id"]
+            for schedule in event["schedules"]
+        )
+    )
+    schedule_trace = next(
+        schedule
+        for schedule in parent_event["schedules"]
+        if schedule["event_id"] == scheduled_record["event_id"]
+    )
+    schedule_trace["arguments"][0]["value"] += 1
+    scheduled_record["event_spec"]["arguments"][0]["value"] += 1
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_contract["domain"],
+        scheduled_record["event_spec"],
+    )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        trace_events,
+    )
+
+
+def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    schedule = deepcopy(
+        next(
+            instruction
+            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            if instruction["node"] == "schedule"
+        )
+    )
+    schedule["site"] = "review-rng-derived-schedule"
+    schedule["operation"] = {
+        "package": "game.resource",
+        "version": "1.0.1",
+        "id": "game.resource.spend-v1",
+    }
+    schedule["arguments"] = [
+        {
+            "port": "resource",
+            "operand": {"kind": "literal", "literal": 100},
+        },
+        {
+            "port": "cost",
+            "operand": {"kind": "local", "local": "hit_roll"},
+        },
+    ]
+    schedule["result"] = {"kind": "local", "name": "review_rng_event"}
+    hit_operation = operations["game.check.hit-v1"]
+    draw_index = next(
+        index
+        for index, instruction in enumerate(hit_operation["body"])
+        if instruction["node"] == "draw"
+    )
+    hit_operation["body"].insert(draw_index + 1, schedule)
+    hit_operation["resource_bounds"]["max_steps"] = 10_000
+    checked = replace(checked, rir=rir)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in artifacts.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    events = values["event-trace"]["events"]
+    catalog = values["snapshot-series"]["event_catalog"]
+    parent_event = next(event for event in events if event["rng_draws"])
+    draw = parent_event["rng_draws"][0]
+    replacement = draw["value"] + 1 if draw["value"] < draw["maximum"] else 1
+    draw["value"] = replacement
+    schedule_trace = next(
+        row
+        for row in parent_event["schedules"]
+        if row["parent_operation"] == "game.check.hit-v1"
+    )
+    next(row for row in schedule_trace["arguments"] if row["name"] == "cost")[
+        "value"
+    ] = replacement
+    scheduled_record = next(
+        row for row in catalog if row["event_id"] == schedule_trace["event_id"]
+    )
+    next(
+        row
+        for row in scheduled_record["event_spec"]["arguments"]
+        if row["name"] == "cost"
+    )["value"] = replacement
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["event_spec"]
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_contract["domain"],
+        scheduled_record["event_spec"],
+    )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        events,
+    )
+
+
+def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    second = deepcopy(specification["scenarios"][0])
+    second["id"] = "second-cast"
+    specification["scenarios"].append(second)
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first-terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "one-cast:terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_events = [
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    ]
+    assert len(runtime_events) == 2
+    assert runtime_events[0]["rng_draws"] == runtime_events[1]["rng_draws"]
+
+
+def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    second = deepcopy(scenario["event_plan"][0])
+    second["root_event_ref"] = "second-cast"
+    second["logical_time"] = 1
+    scenario["event_plan"].append(second)
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    operation = operations[entrypoint["operation"]["id"]]
+    runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
+    per_event_steps = sum(
+        runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
+        for instruction in experiment_runtime_module._expanded_operation_body(
+            operation, operations
+        )
+    )
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_event_steps"] = per_event_steps
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    assert (
+        len(
+            [
+                event
+                for event in artifacts.members["event-trace"].value["events"]
+                if event["operation"] is not None
+            ]
+        )
+        == 2
+    )
+
+
+def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    transition = scenario["event_plan"][0]
+    transition["logical_time"] = 0
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "raise-defense",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "e" * 64,
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "target_defense",
+                    },
+                    "value": 20,
+                }
+            ],
+        },
+        transition,
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
+    observation_frames: list[str] = []
+
+    def record_formula_frame(*args, **kwargs):
+        result = evaluate_programs(*args, **kwargs)
+        if kwargs.get("phase") == "observation":
+            observation_frames.append(kwargs["frame_identity"])
+        return result
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluate_initialization_programs",
+        record_formula_frame,
+    )
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    events = artifacts.members["event-trace"].value["events"]
+    transition_event = next(event for event in events if event["operation"] is not None)
+    assert observation_frames == [transition_event["snapshot_after_identity"]]
+
+
+def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, run_cli):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    next(row for row in scenario["assignments"] if row["target"]["name"] == "accuracy")[
+        "value"
+    ] = 1000
+    plan = scenario["event_plan"][0]
+    plan["logical_time"] = 0
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "cast-before-plan",
+            "logical_time": 0,
+            "priority": 10,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+        plan,
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first_cast_damage",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "event",
+                    "name": "cast-resolved",
+                    "member": "damage_dealt",
+                },
+                "target": {"minimum": 1, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    sample = artifacts.members["metric-dataset"].value["samples"][0]
+    assert sample["metric"] == "first_cast_damage"
+    assert sample["value"] > 0
+
+
+def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    first_schedule["logical_time"] = -1
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == "runtime.schedule_backward"
+    assert result.committed_trace_prefix == ()
+    assert result.state_before == {"actor_mana": 30, "target_health": 100}
+    assert result.state_after == result.state_before
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("hidden-input", "runtime.schedule_hidden_input"),
+        ("illegal-same-time-priority", "runtime.schedule_illegal_same_time_priority"),
+        ("logical-time-limit", "runtime.logical_time_exceeded"),
+        ("queue-limit", "runtime.queue_limit_exceeded"),
+        ("zero-time-depth", "runtime.zero_time_depth_exceeded"),
+        ("event-limit", "runtime.event_limit_exceeded"),
+        ("cancel-unknown", "runtime.cancel_unknown"),
+    ],
+)
+def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
+    tmp_path, run_cli, mutation, expected_code
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    schedules = [
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    ]
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    if mutation == "hidden-input":
+        schedules[0]["phase"] = "input"
+    elif mutation == "illegal-same-time-priority":
+        schedules[0]["logical_time"] = 0
+        schedules[0]["priority"] = 1
+    elif mutation == "logical-time-limit":
+        schedules[0]["logical_time"] = 1 << 63
+    elif mutation == "queue-limit":
+        runtime_profile["resource_bounds"]["max_queue_events"] = 1
+    elif mutation == "zero-time-depth":
+        schedules[0]["logical_time"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+    elif mutation == "event-limit":
+        runtime_profile["resource_bounds"]["max_total_events"] = 1
+    else:
+        cancel = next(
+            instruction
+            for instruction in plan_operation["body"]
+            if instruction["node"] == "cancel"
+        )
+        cancel["event"]["local"] = "missing_event"
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == expected_code
+    assert result.committed_trace_prefix == ()
+    assert result.state_after == result.state_before
+
+
+def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    cancel = next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "cancel"
+    )
+    cancel["event"]["local"] = "missing_event"
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == "runtime.cancel_unknown"
+    assert result.committed_trace_prefix == ()
+    assert result.budget_counters["total_events"] == 1
+    assert result.budget_counters["queue_events"] == 0
+
+
+def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.report.diagnostics[0].code == "runtime.event_limit_exceeded"
+    assert [
+        cast(dict[str, Any], event["ordering_key"])["phase"]
+        for event in result.committed_trace_prefix
+    ] == ["transition", "observation"]
+    assert result.budget_counters["total_events"] == 2
+    assert result.refusing_operation == "observation"
+    assert result.refusing_event_index == 2
+    assert result.state_after == result.state_before
+
+
+@pytest.mark.parametrize(
+    ("bound", "expected_code"),
+    [
+        ("max_queue_events", "runtime.queue_limit_exceeded"),
+        ("max_total_events", "runtime.event_limit_exceeded"),
+        ("max_logical_time", "runtime.logical_time_exceeded"),
+    ],
+)
+def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
+    tmp_path, run_cli, bound, expected_code
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    second = deepcopy(scenario["event_plan"][0])
+    second["root_event_ref"] = "second-cast"
+    second["logical_time"] = 1
+    scenario["event_plan"].append(second)
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"][bound] = 0 if bound == "max_logical_time" else 1
+
+    result = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "runtime"
+    assert result.diagnostics[0].code == expected_code
+
+
+def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    value = deepcopy(checked.value)
+    second = deepcopy(value["scenarios"][0])
+    second["id"] = "second-scenario"
+    second["event_plan"][0]["root_event_ref"] = "second-plan"
+    value["scenarios"].append(second)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    first_schedule["logical_time"] = -1
+    checked = replace(
+        checked,
+        value=value,
+        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        rir=rir,
+    )
+
+    result = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(result, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert result.scenario_id == value["scenarios"][0]["id"]
+    assert [row["scenario"] for row in result.root_event_map] == [
+        value["scenarios"][0]["id"],
+        "second-scenario",
+    ]
+
+
+@pytest.mark.parametrize(
+    "external_roots",
+    [
+        [("a", 0, 0, 0), ("a", 0, 0, 0)],
+        [("a", 1, 0, 0), ("a", 0, 0, 0)],
+        [("a", 0, 0, 0), ("a", 2, 0, 0)],
+        [("a", 0, 1, 0), ("a", 1, 0, 0)],
+        [("a", 0, 0, 0), ("a", 1, 0, 10)],
+    ],
+    ids=[
+        "duplicate",
+        "decreasing",
+        "continuity-gap",
+        "logical-order",
+        "priority-order",
+    ],
+)
+def test_external_input_sources_require_canonical_contiguous_sequences(
+    tmp_path, run_cli, external_roots
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    transition = deepcopy(scenario["event_plan"][0])
+    transition["logical_time"] = 1
+    target = scenario["assignments"][5]["target"]
+    scenario["event_plan"] = [
+        *[
+            {
+                "kind": "external-input",
+                "root_event_ref": f"input-{index}",
+                "logical_time": logical_time,
+                "priority": priority,
+                "source_identity": "sha256:" + source * 64,
+                "source_sequence": sequence,
+                "facts": [{"target": target, "value": 6 + index}],
+            }
+            for index, (source, sequence, logical_time, priority) in enumerate(
+                external_roots
+            )
+        ],
+        transition,
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    result = experiment_runtime_module.check_experiment(str(specification_path))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "static"
+    assert result.diagnostics[0].code == "language.source_contract_mismatch"
+
+
+def test_external_facts_must_target_the_compiler_projected_reachable_contract(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    module = source_value["modules"][0]
+    ambient = deepcopy(
+        next(row for row in module["symbols"] if row["symbol"] == "target_defense")
+    )
+    ambient["symbol"] = "ambient_temperature"
+    module["symbols"].append(ambient)
+    source_path = tmp_path / "external-fact-contract-model.json"
+    source_path.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "external-fact-contract-model"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    receipt = json.loads(build_stdout)
+    build = _member(receipt, "build-receipt")
+    rir = _member(receipt, "rir-semantic-payload")
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    assert {
+        row["target"]["name"] for row in entrypoint["external_fact_contract"]["targets"]
+    } == {"target_defense"}
+
+    specification = _experiment(
+        kernel_identity=build["kernel_identity"],
+        language_bundle_identity=build["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=receipt,
+        base_damage=24,
+    )
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "ambient-input",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + "d" * 64,
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "ambient_temperature",
+                    },
+                    "value": 10,
+                }
+            ],
+        },
+        {**scenario["event_plan"][0], "logical_time": 1},
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification_path = tmp_path / "external-fact-contract-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    result = experiment_runtime_module.check_experiment(str(specification_path))
+
+    assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
+    assert result.stage == "static"
+    assert result.diagnostics[0].code == "language.source_contract_mismatch"
+    primary = result.diagnostics[0].primary
+    assert isinstance(primary, ArtifactLocation)
+    assert primary.pointer.endswith("/facts/0/target")
+
+
+def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "external-input",
+            "root_event_ref": "raise-defense",
+            "logical_time": 0,
+            "priority": 0,
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "facts": [
+                {
+                    "target": {
+                        "model": "example.rpg-combat-cast",
+                        "module": "combat",
+                        "name": "target_defense",
+                    },
+                    "value": 200,
+                }
+            ],
+        },
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "cast-after-input",
+            "logical_time": 1,
+            "priority": 0,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        },
+    ]
+    scenario["terminal_condition"] = {"kind": "queue-drained"}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 100, "maximum": 100},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "external-input-run"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    events = _member(receipt, "event-trace")["events"]
+    assert [
+        (event["root_event_ref"], event["ordering_key"]["phase"])
+        for event in events
+        if "root_event_ref" in event
+    ] == [
+        ("raise-defense", "input"),
+        ("cast-after-input", "transition"),
+    ]
+    assert events[0]["operation"] is None
+    assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
+    reproduction = _member(receipt, "reproduction-receipt")
+    kernel, _language_bundle = authority_module.load_authorities()
+    input_contract = kernel["meta_format"]["runtime_program"]["scheduler"][
+        "external_input_identity"
+    ]
+    input_identity = content_identity(
+        input_contract["domain"],
+        {
+            "experiment_identity": reproduction["experiment_identity"],
+            "scenario_id": "one-cast",
+            "root_event_ref": "raise-defense",
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "facts": scenario["event_plan"][0]["facts"],
+        },
+    )
+    assert events[0]["external_input_identity"] == input_identity
+    assert reproduction["external_input_identities"] == [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "raise-defense",
+            "source_identity": "sha256:" + ("8" * 64),
+            "source_sequence": 0,
+            "input_identity": input_identity,
+        }
+    ]
+    assert (
+        next(
+            fact["integer"]
+            for fact in events[1]["facts"]
+            if fact["name"] == "target_defense"
+        )
+        == 200
+    )
+    assert events[1]["state_after"] == [
+        {"name": "actor_mana", "value": 30},
+        {"name": "target_health", "value": 100},
+    ]
+    observation = events[-1]
+    assert observation["ordering_key"]["phase"] == "observation"
+    assert observation["operation"] is None
+    assert observation["entrypoint"] is None
+    assert observation["outcome"] == {
+        "id": "observation-emitted",
+        "kind": "success",
+    }
+    assert observation["observation"]["metric"] == "terminal_health"
+    assert observation["state_before"] == observation["state_after"]
+    assert len(_member(receipt, "snapshot-series")["snapshots"]) == 4
 
 
 def test_initialization_formula_computes_a_read_only_derived_symbol_before_snapshot_zero(
@@ -1609,43 +3999,49 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
     events = artifacts.members["event-trace"].value["events"]
     snapshots = artifacts.members["snapshot-series"].value["snapshots"]
-    terminal_snapshots = [
-        snapshot for snapshot in snapshots if snapshot["name"].endswith(":terminal")
+    observation_input_snapshots = [
+        snapshot for snapshot in snapshots if ":event:" in snapshot["name"]
     ]
-    snapshot_identity_domain = (
-        experiment_runtime_module._formula_snapshot_identity_domain(checked)
-    )
     assert observation_frames == [
-        content_identity(snapshot_identity_domain, cast(Any, snapshot))
-        for snapshot in terminal_snapshots
+        snapshot["snapshot_identity"] for snapshot in observation_input_snapshots
     ]
     assert len(set(observation_frames)) == 2
     assert observation_cache_growth == [1, 1]
+    runtime_events = [event for event in events if event["operation"] is not None]
+    for event in runtime_events:
+        facts = {row["name"]: row["integer"] for row in event["facts"]}
+        assert facts["target_health"] == 82
+        assert facts["effective_accuracy"] == 100
     for event in events:
+        if event["operation"] is not None:
+            continue
         facts = {row["name"]: row["integer"] for row in event["facts"]}
         assert facts["target_health"] == 82
         assert facts["effective_accuracy"] == facts["target_health"]
     positive_evidence = _observation_evidence(
         site="runtime.lifecycle-observation.positive",
         cache_entries=observation_cache_growth[0],
-        events=events[:1],
+        events=runtime_events[:1],
         outcome="admitted",
         post_state_committed=(
-            terminal_snapshots[0]["values"] == events[0]["state_after"]
+            observation_input_snapshots[0]["values"] == runtime_events[0]["state_after"]
         ),
         snapshot_identities=cast(list[str], observation_frames[:1]),
-        snapshot_indices=[terminal_snapshots[0]["index"]],
+        snapshot_indices=[observation_input_snapshots[0]["index"]],
     )
     boundary_evidence = _observation_evidence(
         site="runtime.lifecycle-observation.boundary",
         cache_entries=sum(observation_cache_growth),
-        events=events,
+        events=runtime_events,
         outcome="admitted",
         post_state_committed=(
-            terminal_snapshots[-1]["values"] == events[-1]["state_after"]
+            observation_input_snapshots[-1]["values"]
+            == runtime_events[-1]["state_after"]
         ),
         snapshot_identities=cast(list[str], observation_frames),
-        snapshot_indices=[snapshot["index"] for snapshot in terminal_snapshots],
+        snapshot_indices=[
+            snapshot["index"] for snapshot in observation_input_snapshots
+        ],
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -1704,7 +4100,14 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     assert outcome.report.variant == "post-dispatch"
     assert len(observation_frames) == 2
     assert all(frame.startswith("sha256:") for frame in observation_frames)
-    assert outcome.committed_trace_prefix == (
+    assert tuple(
+        {
+            "index": event["index"],
+            "operation": event["operation"],
+            "outcome": event["outcome"],
+        }
+        for event in outcome.committed_trace_prefix
+    ) == (
         {
             "index": 0,
             "operation": "game.combat.cast-v1",
@@ -1712,11 +4115,21 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
         },
         {
             "index": 1,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
+        {
+            "index": 2,
+            "operation": None,
+            "outcome": {"id": "observation-emitted", "kind": "success"},
+        },
+        {
+            "index": 3,
             "operation": "game.combat.cast-v1",
             "outcome": {"id": "cast-resolved", "kind": "success"},
         },
     )
-    assert outcome.refusing_event_index == 2
+    assert outcome.refusing_event_index == 4
     assert outcome.last_state["target_health"] == 82
     assert outcome.state_before == outcome.state_after == outcome.last_state
     evidence = _observation_evidence(
@@ -1728,7 +4141,7 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
             outcome.state_before == outcome.state_after == outcome.last_state
         ),
         snapshot_identities=observation_frames,
-        snapshot_indices=[1, 3],
+        snapshot_indices=[1, 5],
     )
     _assert_observation_evidence_matches_package_vector(
         checked.language_bundle,
@@ -1791,7 +4204,7 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     requirements, _named_streams = (
         experiment_runtime_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
-            entrypoint_id=specification["scenarios"][0]["entrypoint"],
+            entrypoint_id=specification["scenarios"][0]["event_plan"][0]["entrypoint"],
             runtime_profile=specification["runtime"]["profile"],
             rng_algorithm=specification["seed"]["algorithm"],
         )
@@ -1901,7 +4314,16 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
     specification["scenarios"] = [
         {
             "id": "one-cast",
-            "entrypoint": "combat.cast",
+            "event_plan": [
+                {
+                    "kind": "transition-invocation",
+                    "root_event_ref": "cast",
+                    "logical_time": 0,
+                    "priority": 0,
+                    "entrypoint": "combat.cast",
+                    "payload": [],
+                }
+            ],
             "assignments": [
                 {"target": resolved_target(name), "value": value}
                 for name, value in (
@@ -2031,9 +4453,9 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
 def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
-    scenario = value["scenarios"][0]
-    scenario.pop("entrypoint")
-    scenario["operation"] = "game.combat.cast-v1"
+    root_event = value["scenarios"][0]["event_plan"][0]
+    root_event.pop("entrypoint")
+    root_event["operation"] = "game.combat.cast-v1"
     specification.write_text(json.dumps(value), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
@@ -2043,9 +4465,76 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     assert error["stage"] == "static"
     pointer = error["diagnostics"][0]["primary"]["pointer"]
     assert pointer in {
-        "/scenarios/0/entrypoint",
-        "/scenarios/0/operation",
+        "/scenarios/0/event_plan/0/entrypoint",
+        "/scenarios/0/event_plan/0/operation",
     }
+
+
+@pytest.mark.parametrize(
+    ("target_name", "accepted"),
+    (("base_damage", True), ("actor_mana", False)),
+)
+def test_transition_payload_must_exactly_match_its_event_local_contract(
+    tmp_path, run_cli, target_name, accepted
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    transition = next(
+        event
+        for event in value["scenarios"][0]["event_plan"]
+        if event["kind"] == "transition-invocation"
+    )
+    transition["payload"] = [
+        {
+            "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": target_name,
+            },
+            "value": 50,
+        }
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert stderr == ""
+    assert exit_code == (0 if accepted else 2)
+    if not accepted:
+        error = json.loads(stdout)["error"]
+        assert error["stage"] == "static"
+        assert error["diagnostics"][0]["primary"]["pointer"] == (
+            "/scenarios/0/event_plan/0/payload"
+        )
+
+
+def test_transition_payload_rejects_duplicate_targets(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    transition = next(
+        event
+        for event in value["scenarios"][0]["event_plan"]
+        if event["kind"] == "transition-invocation"
+    )
+    payload = {
+        "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "base_damage",
+        },
+        "value": 50,
+    }
+    transition["payload"] = [payload, deepcopy(payload)]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/event_plan/0/payload"
+    )
 
 
 def test_experiment_cannot_rebind_a_resolved_entrypoint(tmp_path, run_cli):
@@ -2220,8 +4709,100 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert (first_exit, first_stderr) == (0, "")
     first_receipt = json.loads(first_stdout)
     first_trace = _member(first_receipt, "event-trace")
+    first_snapshots = _member(first_receipt, "snapshot-series")["snapshots"]
     first_metrics = _member(first_receipt, "metric-dataset")
-    assert first_trace["events"][0]["operation"] == "game.combat.cast-v1"
+    first_events = first_trace["events"]
+    assert [event["operation"] for event in first_events] == [
+        None,
+        "game.combat.plan-casts-v1",
+        "game.combat.cast-v1",
+        "game.combat.cast-v1",
+        None,
+        None,
+    ]
+    assert [event["ordering_key"]["logical_time"] for event in first_events] == [
+        0,
+        0,
+        1,
+        2,
+        2,
+        2,
+    ]
+    assert [event["ordering_key"]["phase"] for event in first_events] == [
+        "input",
+        "transition",
+        "transition",
+        "transition",
+        "observation",
+        "observation",
+    ]
+    input_event, plan_event, cast_event = first_events[:3]
+    direct_cast_event = first_events[3]
+    assert first_trace["root_event_map"] == [
+        {
+            "scenario": "multi-cast",
+            "root_event_ref": "raise-defense",
+            "event_id": input_event["event_id"],
+        },
+        {
+            "scenario": "multi-cast",
+            "root_event_ref": "plan-casts",
+            "event_id": plan_event["event_id"],
+        },
+        {
+            "scenario": "multi-cast",
+            "root_event_ref": "retry-cast",
+            "event_id": direct_cast_event["event_id"],
+        },
+    ]
+    assert cast_event["parent_event_id"] == plan_event["event_id"]
+    assert plan_event["schedules"][0]["event_id"] == cast_event["event_id"]
+    assert plan_event["schedules"][1]["outcome"] == "canceled"
+    assert plan_event["cancellations"] == [
+        {
+            "call_site_identity": plan_event["cancellations"][0]["call_site_identity"],
+            "event_id": plan_event["schedules"][1]["event_id"],
+            "outcome": "canceled",
+        }
+    ]
+    assert plan_event["schedules"][1]["event_id"] not in {
+        event["event_id"] for event in first_events
+    }
+    assert direct_cast_event.get("parent_event_id") is None
+    assert direct_cast_event["outcome"]["id"] == "cast-resolved"
+    assert direct_cast_event["state_after"] != direct_cast_event["state_before"]
+    assert (
+        next(
+            item["integer"]
+            for item in direct_cast_event["facts"]
+            if item["name"] == "action_cost"
+        )
+        == 0
+    )
+    assert len(first_snapshots) == len(first_events) + 1
+    assert [
+        (event["snapshot_before_identity"], event["snapshot_after_identity"])
+        for event in first_events
+    ] == [
+        (
+            first_snapshots[index]["snapshot_identity"],
+            first_snapshots[index + 1]["snapshot_identity"],
+        )
+        for index in range(len(first_events))
+    ]
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(first_path),
+            "--out",
+            str(tmp_path / "evaluation-45.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    assert json.loads(recovered_stdout) == first_receipt
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     _loaded_kernel, ldb = authority_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
@@ -2232,11 +4813,19 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
+    reference_scenario = deepcopy(first_spec["scenarios"][0])
+    external_fact = input_event["facts"]
+    defense = next(
+        row["integer"] for row in external_fact if row["name"] == "target_defense"
+    )
+    for assignment in reference_scenario["assignments"]:
+        if assignment["target"]["name"] == "target_defense":
+            assignment["value"] = defense
     reference_event = _reference_execute_event(
         kernel,
         operation,
         operations,
-        first_spec["scenarios"][0],
+        reference_scenario,
         seed=first_spec["seed"]["value"],
         resolved_entrypoint=resolved_entrypoint,
         resolved_declarations=rir["declarations"],
@@ -2244,26 +4833,38 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in first_trace["events"][0].items() if key != "index"
-    } == reference_event
+        member: cast_event[member]
+        for member in ("outcome", "rng_draws", "state_before", "state_after")
+    } == {
+        member: reference_event[member]
+        for member in ("outcome", "rng_draws", "state_before", "state_after")
+    }
     assert (
         next(
             item["integer"]
-            for item in first_trace["events"][0]["facts"]
+            for item in cast_event["facts"]
             if item["name"] == "base_damage"
         )
         == 45
     )
-    assert first_trace["events"][0]["state_after"] == [
+    assert cast_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 40},
+        {"name": "target_health", "value": 16},
     ]
-    first_damage = next(
+    first_health = next(
         sample["value"]
         for sample in first_metrics["samples"]
-        if sample["metric"] == "damage_dealt"
+        if sample["metric"] == "target_health_remaining"
     )
-    assert first_damage == 60
+    assert first_health == 12
+    assert (
+        next(
+            sample["value"]
+            for sample in first_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 4
+    )
 
     edited_source_value = deepcopy(source_value)
     edited_source_value["manifest"]["version"] = "1.1.0"
@@ -2368,7 +4969,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     tuned_requirements, _named_streams = (
         experiment_runtime_module.derive_scenario_program_requirements(
             _member(edited_build_receipt, "rir-semantic-payload"),
-            entrypoint_id=tuned_spec["scenarios"][0]["entrypoint"],
+            entrypoint_id=next(
+                event["entrypoint"]
+                for event in tuned_spec["scenarios"][0]["event_plan"]
+                if event["kind"] == "transition-invocation"
+            ),
             runtime_profile=tuned_spec["runtime"]["profile"],
             rng_algorithm=tuned_spec["seed"]["algorithm"],
         )
@@ -2403,21 +5008,37 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         == baseline_evaluator["evaluator_build_identity"]
     )
     assert tuned_trace["experiment_identity"] != first_trace["experiment_identity"]
-    tuned_damage = next(
+    tuned_health = next(
         sample["value"]
         for sample in tuned_metrics["samples"]
-        if sample["metric"] == "damage_dealt"
+        if sample["metric"] == "target_health_remaining"
     )
     assert (
         next(
             item["integer"]
-            for item in tuned_trace["events"][0]["facts"]
+            for item in next(
+                event
+                for event in tuned_trace["events"]
+                if event["operation"] == "game.combat.cast-v1"
+            )["facts"]
             if item["name"] == "base_damage"
         )
         == 45
     )
-    assert tuned_damage == 90 > first_damage
-    assert tuned_trace["events"][0]["state_after"] == [
+    assert tuned_health == 0 < first_health
+    assert (
+        next(
+            sample["value"]
+            for sample in tuned_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 10
+    )
+    assert next(
+        event
+        for event in tuned_trace["events"]
+        if event["operation"] == "game.combat.cast-v1"
+    )["state_after"] == [
         {"name": "actor_mana", "value": 26},
         {"name": "target_health", "value": 10},
     ]
@@ -2448,7 +5069,11 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     alternate_receipt = json.loads(alternate_stdout)
     alternate_trace = _member(alternate_receipt, "event-trace")
     alternate_metrics = _member(alternate_receipt, "metric-dataset")
-    alternate_event = alternate_trace["events"][0]
+    alternate_event = next(
+        event
+        for event in alternate_trace["events"]
+        if event["operation"] == "game.combat.cast-v1"
+    )
     assert alternate_event["outcome"]["id"] == "cast-resolved"
     assert [
         (draw["stream"], draw["value"]) for draw in alternate_event["rng_draws"]
@@ -2458,15 +5083,23 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     ]
     assert alternate_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 85},
+        {"name": "target_health", "value": 61},
     ]
+    assert (
+        next(
+            sample["value"]
+            for sample in alternate_metrics["samples"]
+            if sample["metric"] == "target_health_remaining"
+        )
+        == 57
+    )
     assert (
         next(
             sample["value"]
             for sample in alternate_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 15
+        == 4
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -2523,7 +5156,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         == runtime_definition_identity
     )
     changed_definition = deepcopy(runtime_definition)
-    changed_definition["resource_bounds"]["max_steps"] += 1
+    changed_definition["resource_bounds"]["max_event_steps"] += 1
     assert (
         experiment_runtime_module._runtime_profile_definition_identity(
             checked_experiment,
@@ -2541,7 +5174,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         "rng": runtime_definition["rng"],
         "budget_scopes": runtime_definition["budget_scopes"],
         "effects": runtime_definition["effects"],
-        "max_steps": runtime_definition["resource_bounds"]["max_steps"],
+        "resource_bounds": runtime_definition["resource_bounds"],
     }
     identity_nodes = {
         runtime_definition_identity,
@@ -2591,10 +5224,11 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         if symbol["symbol"] == "target_defense"
     )
     defense["symbol"] = "renamed_defense"
-    for argument in renamed["entrypoints"][0]["arguments"]:
-        operand = argument["operand"]
-        if operand["kind"] == "symbol" and operand["symbol"] == "target_defense":
-            operand["symbol"] = "renamed_defense"
+    for entrypoint in renamed["entrypoints"]:
+        for argument in entrypoint["arguments"]:
+            operand = argument["operand"]
+            if operand["kind"] == "symbol" and operand["symbol"] == "target_defense":
+                operand["symbol"] = "renamed_defense"
 
     def build_and_run(
         label: str,
@@ -2951,6 +5585,65 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
     ]
 
 
+def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
+    kernel, ldb = authority_module.load_authorities()
+    vectors = {
+        vector["id"]: vector
+        for vector in next(
+            vector_set["vector_definitions"]
+            for vector_set in ldb.package_conformance_vector_sets
+            if vector_set["package_id"] == "standard.runtime"
+            and vector_set["package_version"] == "1.1.0"
+        )
+        if vector.get("kind") == "scheduler-scenario"
+    }
+    mutation_vectors = {
+        vector_id: vector["detects_mutation"]
+        for vector_id, vector in vectors.items()
+        if vector["category"] == "semantic-mutation"
+    }
+    vector_contract = next(
+        kind
+        for kind in kernel["meta_format"]["package_vector"]["kinds"]
+        if kind["id"] == "scheduler-scenario"
+    )
+    assert set(mutation_vectors.values()) == set(vector_contract["mutation_detectors"])
+    assert set(vectors) == {
+        "runtime.scheduler.accept.total-order-visibility-cancellation",
+        "runtime.scheduler.refuse.cancel-active",
+        "runtime.scheduler.refuse.cancel-completed",
+        *mutation_vectors,
+    }
+    mutation_inputs = [
+        canonical_bytes(vectors[vector_id]["input"]) for vector_id in mutation_vectors
+    ]
+    assert len(set(mutation_inputs)) == len(mutation_inputs)
+    for vector in vectors.values():
+        assert (vector["detects_mutation"] is not None) == (
+            vector["category"] == "semantic-mutation"
+        )
+        production = experiment_runtime_module._evaluate_scheduler_vector(
+            kernel, vector
+        )
+        reference = _reference_evaluate_scheduler_vector(kernel, vector)
+        assert production == reference == vector["expect"]
+    for vector_id, mutation in mutation_vectors.items():
+        for candidate_id, candidate_mutation in mutation_vectors.items():
+            production = experiment_runtime_module._evaluate_scheduler_vector(
+                kernel,
+                vectors[candidate_id],
+                mutation=mutation,
+            )
+            reference = _reference_evaluate_scheduler_vector(
+                kernel,
+                vectors[candidate_id],
+                mutation=mutation,
+            )
+            detected = candidate_mutation == mutation
+            assert (production != vectors[candidate_id]["expect"]) is detected
+            assert (reference != vectors[candidate_id]["expect"]) is detected
+
+
 def test_package_value_program_vectors_execute_in_two_consumers():
     _kernel, ldb = authority_module.load_authorities()
     vectors = [
@@ -3234,9 +5927,7 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     ]
 
 
-def test_experiment_refuses_nonempty_external_inputs_until_the_slice_consumes_them(
-    tmp_path, run_cli
-):
+def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["external_inputs"] = [{"channel": "player", "index": 0, "value": 1}]
@@ -3305,8 +5996,9 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
         for scenario in checked.value["scenarios"]
+        for event in scenario["event_plan"]
         for instruction in experiment_runtime_module._expanded_operation_body(
-            operations[entrypoints[scenario["entrypoint"]]["operation"]["id"]],
+            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
     }
@@ -3384,6 +6076,53 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
         assert sample["replication_identity"]
         assert sample["source_kind"] == "simulated"
         assert sample["provenance"]["scenario"]
+
+
+def test_metric_dataset_emits_one_replication_for_each_scenario(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    second = deepcopy(value["scenarios"][0])
+    second["id"] = "second-cast"
+    value["scenarios"].append(second)
+    value["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "scenario-replications.json"),
+            "--invocation-key",
+            "2" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    dataset = _member(json.loads(stdout), "metric-dataset")
+    assert [sample["scenario"] for sample in dataset["samples"]] == [
+        "one-cast",
+        "second-cast",
+    ]
+    assert [sample["replication_identity"] for sample in dataset["samples"]] == [
+        "one-cast",
+        "second-cast",
+    ]
 
 
 def test_metric_dataset_canonicalizes_reversed_authored_metrics(tmp_path, run_cli):
@@ -3719,7 +6458,9 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: item for key, item in production_event.items() if key != "index"
+        key: item
+        for key, item in production_event.items()
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert (
         next(
@@ -3779,7 +6520,9 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in production_event.items() if key != "index"
+        key: value
+        for key, value in production_event.items()
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert production_event["state_after"] == [
         {"name": "actor_mana", "value": 22},
@@ -3842,7 +6585,9 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: value for key, value in production_event.items() if key != "index"
+        key: value
+        for key, value in production_event.items()
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert (
         next(
@@ -3941,7 +6686,9 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
         resolved_initialization_programs=rir["initialization_programs"],
     )
     assert {
-        key: item for key, item in production_event.items() if key != "index"
+        key: item
+        for key, item in production_event.items()
+        if key not in _REFERENCE_EVENT_RUNTIME_BINDINGS
     } == reference_event
     assert production_event["outcome"]["id"] == "miss"
     assert production_event["state_after"] == [
@@ -4138,7 +6885,13 @@ def test_operation_step_budget_is_scoped_per_event_not_across_scenarios(
 
     assert (exit_code, stderr) == (0, "")
     trace = _member(json.loads(stdout), "event-trace")
-    assert len(trace["events"]) == 5
+    assert (
+        len([event for event in trace["events"] if event["operation"] is not None]) == 5
+    )
+    assert (
+        len([event for event in trace["events"] if event["observation"] is not None])
+        == 5
+    )
 
 
 def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_cli):
@@ -4199,13 +6952,58 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     error = json.loads(stdout)["error"]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
     assert audit["scenario"] == "overflowing-cast"
-    assert audit["committed_trace_prefix"] == [
-        {
-            "index": 0,
-            "operation": "game.combat.cast-v1",
-            "outcome": {"id": "cast-resolved", "kind": "success"},
-        }
+    prefix = audit["committed_trace_prefix"]
+    assert [event["ordering_key"]["phase"] for event in prefix] == [
+        "transition",
+        "observation",
+        "observation",
     ]
+    assert prefix[0]["root_event_ref"] == "cast"
+    assert prefix[0]["entrypoint"]["id"] == "combat.cast"
+    assert prefix[0]["event_id"].startswith("sha256:")
+    assert all(
+        call["call_site_identity"].startswith("sha256:") for call in prefix[0]["calls"]
+    )
+    assert prefix[0]["snapshot_before_identity"].startswith("sha256:")
+    assert prefix[-1]["snapshot_after_identity"].startswith("sha256:")
+    assert prefix[-1]["observation"]["window"] == {
+        "kind": "scenario",
+        "name": "terminal-event",
+    }
+    assert (
+        audit["last_snapshot_identity"]
+        == audit["refusing_event"]["snapshot_before_identity"]
+    )
+    assert audit["last_snapshot_identity"] != prefix[-1]["snapshot_after_identity"]
+    assert audit["terminal_condition"] == {"kind": "event-count", "maximum": 1}
+    assert audit["root_event_map"] == [
+        {
+            "scenario": "one-cast",
+            "root_event_ref": "cast",
+            "event_id": prefix[0]["event_id"],
+        },
+        {
+            "scenario": "overflowing-cast",
+            "root_event_ref": "cast",
+            "event_id": audit["refusing_event"]["event_id"],
+        },
+    ]
+    assert audit["refusing_event"]["ordering_key"] == {
+        "logical_time": 0,
+        "phase": "transition",
+        "priority": 0,
+        "enqueue_sequence": 0,
+    }
+    assert (
+        audit["refusing_event"]["snapshot_before_identity"]
+        == audit["last_snapshot_identity"]
+    )
+    assert audit["budget_counters"]["logical_time"] == 0
+    assert audit["budget_counters"]["queue_events"] == 0
+    assert audit["budget_counters"]["total_events"] == 1
+    assert audit["budget_counters"]["zero_time_depth"] == 0
+    assert audit["budget_counters"]["event_steps"] > 0
+    assert audit["budget_counters"]["node_steps"] > 0
 
 
 @pytest.mark.parametrize(
@@ -4271,7 +7069,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         def overflow_at_runtime(value, numeric):
             nonlocal numeric_admissions
             numeric_admissions += 1
-            if numeric_admissions <= 3:
+            if numeric_admissions <= 6:
                 return admit_numeric(value, numeric)
             raise OverflowError
 
@@ -4344,6 +7142,56 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             **error["diagnostics"][0],
         }
     assert out.exists()
+
+
+def test_committed_recovery_requires_semantic_artifact_set_revalidation(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    out = tmp_path / "semantic-recovery.json"
+    key = "8" * 64
+    argv = [
+        "experiment",
+        "run",
+        str(specification),
+        "--out",
+        str(out),
+        "--invocation-key",
+        key,
+    ]
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault="after-commit"
+        ),
+    )
+    first_exit, first_stdout, first_stderr = run_cli(argv, registry=(faulting,))
+    assert (first_exit, first_stdout) == (4, "")
+    assert json.loads(first_stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "validate_experiment_artifact_set",
+        lambda _checked, _artifacts: False,
+    )
+
+    def evaluator_must_not_run(_checked):
+        raise AssertionError("semantically invalid recovery reran the evaluator")
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "evaluate_experiment",
+        evaluator_must_not_run,
+    )
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        argv,
+        registry=(experiment_command_module.EXPERIMENT_RUN,),
+    )
+
+    assert (recovered_exit, recovered_stdout) == (4, "")
+    assert json.loads(recovered_stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
 
 
 @pytest.mark.parametrize(

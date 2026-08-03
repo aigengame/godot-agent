@@ -35,6 +35,7 @@ from gda_balancing.schema2.experiment import (
     evaluate_experiment,
     experiment_input_identity,
     runtime_terminal_audit_members,
+    validate_experiment_artifact_set,
     validate_experiment_member,
 )
 from gda_balancing.schema2.model import (
@@ -209,6 +210,9 @@ def experiment_run_handler(
             lambda logical_name, value: validate_experiment_member(
                 checked, logical_name, value
             ),
+            artifact_set_validator=lambda artifacts: validate_experiment_artifact_set(
+                checked, artifacts
+            ),
             authentication_key=publication_authentication_key(),
         )
         if recovered is not None:
@@ -260,6 +264,9 @@ def experiment_run_handler(
                     checked, logical_name, value
                 ),
                 publication_fault,
+                artifact_set_validator=lambda artifacts: (
+                    validate_experiment_artifact_set(checked, artifacts)
+                ),
                 authentication_key=publication_authentication_key(),
             )
             return report.model_copy(update={"terminal_audit": receipt})
@@ -282,6 +289,9 @@ def experiment_run_handler(
                 checked, logical_name, value
             ),
             publication_fault,
+            artifact_set_validator=lambda artifacts: validate_experiment_artifact_set(
+                checked, artifacts
+            ),
             authentication_key=publication_authentication_key(),
         )
         validated_receipt = ExperimentRunResult.model_validate(receipt)
@@ -401,11 +411,19 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
             "algorithm": rng_algorithm,
             "value": runtime_vector["input"]["seed"],
         },
-        "external_inputs": [],
         "scenarios": [
             {
                 "id": runtime_vector["id"],
-                "entrypoint": entrypoint["id"],
+                "event_plan": [
+                    {
+                        "kind": "transition-invocation",
+                        "root_event_ref": "conformance-entrypoint",
+                        "logical_time": 0,
+                        "priority": 0,
+                        "entrypoint": entrypoint["id"],
+                        "payload": [],
+                    }
+                ],
                 "assignments": assignments,
                 "named_streams": named_streams,
                 "terminal_condition": {"kind": "event-count", "maximum": 1},

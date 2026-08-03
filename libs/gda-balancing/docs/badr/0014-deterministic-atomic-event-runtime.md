@@ -24,6 +24,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > wording retained below therefore apply only after successful initialization and Event dispatch.
 > bADR-0022 separately owns Formula-result caching semantics and its conformance vector.
 
+> **Amendment (2026-08-03, #594):** Runtime admission resolves one closed Experiment Event plan,
+> assigns every authored root Event a stable Runtime identity before dispatch, and exposes the
+> complete `root_event_ref → event_id` map. An internal scheduler transition dispatches one Event;
+> public `step` advances to the next declared observation or logical boundary. These are not a
+> universal tick or a second Experiment timeline.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
@@ -39,6 +45,19 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   The enqueue sequence is assigned monotonically by the runtime when an event is admitted. Models
   and packages cannot supply it or reorder/extend the phase table.
 
+- **Root Event admission is deterministic and identity-bearing.** Every authored root member has a
+  unique stable `root_event_ref`. The Runtime admits root members in their canonical authored-array
+  order, allocates each Runtime-owned `event_id`, and assigns initial enqueue sequence in that order
+  before dispatch. Equal logical time is legal; Event identity, object-map iteration, wall clock,
+  threads, and evaluator parallelism never break ties. The admission result exposes the exact root
+  reference map, while later schedule operations return and trace their Runtime-owned child
+  `event_id`.
+
+- **Root kind fixes phase through the Kernel contract.** The Kernel scheduler maps authored
+  `external-input` roots to `input` and `transition-invocation` roots to `transition`; the host
+  neither repeats that map nor assigns a phase from local conditionals. Observation phase and
+  priority are likewise Kernel-owned derived values.
+
 - **The three phases have non-overlapping ownership.** `input` admits the externally supplied,
   source-sequenced facts for that logical time and cannot be scheduled by model operations.
   `transition` executes model actions, effects, resource changes, combat, generation, and other
@@ -47,6 +66,16 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   that time is drained and emits metrics/evidence only; it cannot mutate model state, consume model
   resources, or schedule another event at the same logical time. A later Domain package therefore
   cannot acquire a hidden scheduler slot.
+
+- **Public `step` is boundary-directed.** One internal scheduler transition dispatches exactly one
+  atomic Event. A public `step` repeatedly applies those transitions until the next declared
+  observation or logical boundary, then returns the newly committed boundary. Queue drain and the
+  Experiment's declared multi-step terminal condition end a run. An `event-count.maximum` is the
+  first eligible termination count, not permission to cut a phase in half: after reaching it, the
+  Runtime drains the active logical-time transition phase and terminates at the next `step`
+  boundary, so the reported Event count can exceed that threshold but cannot advance into the next
+  logical time. `event-steps` is an Operation resource counter, not logical time; there is no fixed
+  tick.
 
 - **Each event is one atomic transaction over the latest committed state.** Dispatch reads the
   snapshot produced by the previous successful event, including events at the same logical time.
@@ -96,12 +125,24 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   read-only and cannot schedule. A transaction may never enqueue into an already completed time,
   phase, or queue position. Illegal scheduling is a Runtime refusal. Deterministic caps on zero-time
   derivation depth, total events, and queue size bound cycles and denial-of-service behavior.
+  A successful schedule provisionally admits a stable child `event_id` immediately and buffers its
+  queue visibility; later operations in the same transaction may address that pending identity.
+  Commit makes each uncanceled child visible under the same queue law, while refusal discards the
+  provisional admission with the other Event buffers. The trace binds the scheduling call site,
+  parent Event, child Event, complete ordering key, and commit outcome.
 
 - **Cancellation is prospective and identity-based.** Every admitted event has a stable `event_id`.
+  The Kernel `schedule` node produces a scheduled-Event reference, and `cancel` consumes that
+  reference through its declared target-reference shape; the generic invocation operand inventory
+  does not broaden cancellation targets.
   Cancellation may target only an event that has not begun dispatch; canceling an absent, completed,
-  or active event follows the operation's declared typed outcome and never rewinds committed state.
-  Undo is represented by an explicit compensating event or a higher-level rollback model, not by
-  scheduler time travel.
+  or active event produces the LDB-owned Runtime refusal for that exact target state and never
+  rewinds committed state. A Domain operation may expose a typed alternative only where its declared
+  contract explicitly maps that refusal before the scheduler boundary. Undo is represented by an
+  explicit compensating event or a higher-level rollback model, not by scheduler time travel.
+  Cancellation is buffered with the active transaction and traces the canceling Event/call site,
+  target identity, and typed result. A successful commit removes only an admitted pending target;
+  refusal restores both the queue and cancellation state.
 
 - **Reaction and priority windows are bounded Domain protocols, not hidden scheduler phases.** A
   package may represent a proposed action, eligible responders, pass state, nested responses, and a
@@ -132,12 +173,37 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - **A Snapshot boundary exists initially and after every successful event.** The semantic snapshot
   includes all persistent state and scheduler state required to resume deterministically. Evidence
   may record a canonical hash at every boundary and materialize full snapshots only at declared
-  checkpoints; storage optimization cannot change the conceptual boundary or replay trace.
+  checkpoints; storage optimization cannot change the conceptual boundary or replay trace. The
+  Snapshot identity therefore projects both the committed state values and the complete resumable
+  Runtime continuation: lifecycle and `step` boundary, Scenario cursor, admitted/pending Event
+  catalog, committed trace, current Snapshot coordinate, Named RNG state, resource ledger, next
+  enqueue sequence, root-Event map, and Resolved Runtime profile identity. Materialized Snapshot
+  Series encode every complete normalized admitted Event specification once, with its independently
+  recomputable identity, and bind each boundary to append-only catalog/trace prefix identities and
+  counts. Recovery replays those prefixes and cancellation provenance against the cross-bound Event
+  Trace to reconstruct the exact pending queue. It also re-derives root entries from the checked
+  Experiment, observations from their Metrics, and scheduled entries from the committed parent's
+  schedule provenance plus the exact RIR call path/site, scheduling Operation, ordering, normalized
+  actual arguments, and state references. This provenance covers schedule nodes in a root Operation
+  or any admitted nested Operation and preserves `port`, `local`, and literal operand execution.
+  Recovery boundedly replays that admitted RIR path from the committed parent inputs and state to
+  recompute the schedule operands. A Named-RNG-derived local is recomputed from the checked seed and
+  independently verified committed draw prefix; the draw trace is evidence to check, not its own
+  value authority.
+  Self-consistent fresh hashes are not Event admission. A growing queue or committed
+  prefix is never copied into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic
   zero-time and total-event budgets prevent an unbounded chain from silently starving the queue;
   exhaustion is a Runtime refusal with the last committed snapshot preserved.
+
+- **Budgets are independent and observable.** Runtime node-step, per-Event operation-step, queue,
+  zero-time-depth, total-Event, and logical-time limits have distinct authority paths and counters.
+  Exhausting one cannot be reported as another or reset outside its declared scope: node steps are
+  per run, Event steps per Event transaction, total Events per Scenario, and queue/logical/depth
+  counters follow their declared queue or Event scope. The Resolved Runtime profile and terminal
+  audit expose the selected limits and consumed boundary.
 
 - **Randomness is stream-scoped and normatively mapped.** Stochastic operations read only a Named
   random stream derived from the effective root seed and stable stream identity under the selected
@@ -167,7 +233,19 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   The Kernel owns the definition identity domain and its complete-definition projection. Runtime
   admission derives that identity from the selected LDB definition and binds it into the Resolved
   Runtime profile alongside the Evaluator Capability Manifest identity. Neither authority artifact
-  refers back to the generated profile, so the three identities are distinct and acyclic.
+  refers back to the generated profile, so the three identities are distinct and acyclic. The
+  Kernel also declares the active-definition member/binding shape and positive-bound contract;
+  concrete bound values remain LDB content and are never duplicated as host constants.
+  Its Runtime-program component contract names the complete scheduler, Runtime-configuration,
+  transition, and step role set; closes every nested object consumed by execution; and relates
+  lifecycle, boundary, and scheduler-phase inventories. Hosts implement this abstract role
+  meta-protocol but do not own the declared paths or concrete tokens. The complete role-to-path,
+  member-shape, and relation mapping is content-addressed separately; an evaluator admits only a
+  mapping identity it explicitly implements, so structural changes require a matching evaluator
+  capability update. That component-contract identity does not separately pin concrete behavioral
+  token values: exact Kernel identity plus the complete scheduler conformance-vector suite protects
+  them, so every Kernel identity rotation must rerun both consumers before their support identity is
+  updated.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel
