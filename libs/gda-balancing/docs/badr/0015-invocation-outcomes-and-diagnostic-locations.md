@@ -102,9 +102,10 @@ refusal payload stage-aware and artifact-aware.
   Snapshot identity, continuation journals, pending set, and exact catalog/trace/resource counts.
   A derived refusing observation is exactly the next Metric at the last Snapshot's logical boundary
   and enqueue cursor. An operation refusal records the exact failing instruction and completed
-  nested-call prefix needed to derive the current Event charge from admitted RIR. Recovery
-  boundedly replays the checked deterministic Runtime through that first fault and treats those
-  coordinates as evidence to compare, not path authority. Attempted Event and node steps close
+  nested-call prefix needed to derive the current Event charge from admitted RIR. Without rerunning
+  the evaluator, Recovery walks the admitted RIR resource transitions through that first budget
+  breach and treats those coordinates as evidence to compare, not path authority. Attempted Event
+  and node steps close
   against the last committed resource ledger plus those independently derived current-Event and
   applicable Formula charges; they are not merely bounded values.
   Re-hashing independently wire-valid drift does not make it trusted recovery evidence. Only after commit does

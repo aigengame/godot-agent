@@ -772,10 +772,10 @@ Recovery revalidates the set's internal Event-catalog/trace/Snapshot/state/rollb
 Diagnostic closure as well as member identities. The audit materializes its exact catalog prefix,
 complete last Snapshot, and refusing Event specification so recovery can re-derive Event admission,
 recompute continuation journals and the Snapshot identity, bind a derived observation refusal to
-the next Metric/enqueue cursor, and boundedly replay the checked deterministic Runtime to derive the
-first RIR fault instruction, completed nested-call prefix, and exact Event charge before closing
-attempted steps against the committed resource ledger; a wire-valid, re-hashed cross-field mutation
-is not an authoritative refusal.
+the next Metric/enqueue cursor, and—without rerunning the evaluator—walk admitted RIR resource
+transitions to derive the first budget-breaching instruction, completed nested-call prefix, and
+exact Event charge before closing attempted steps against the committed resource ledger; a
+wire-valid, re-hashed cross-field mutation is not an authoritative refusal.
 
 An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
 `runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric

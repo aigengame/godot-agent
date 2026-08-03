@@ -1132,8 +1132,8 @@ specification, terminal condition, exact catalog/trace/resource coordinates, Dia
 reproduction receipt close against checked authority. A not-yet-admitted observation must be the
 next Metric at the last Snapshot's logical boundary and enqueue cursor, while attempted Event/node
 steps must close against that Snapshot's resource ledger and applicable Formula charges plus the
-current Event charge derived by boundedly replaying the checked deterministic Runtime to its first
-RIR fault instruction and completed nested-call prefix.
+current Event charge derived, without rerunning the evaluator, by walking admitted RIR resource
+transitions to the first budget-breaching instruction and completed nested-call prefix.
 Member-level wire validity and coordinated
 fresh hashes are insufficient.
 _Avoid_: crash, validation refusal, skipped event

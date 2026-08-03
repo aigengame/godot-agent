@@ -5250,6 +5250,10 @@ def _attempted_operation_charge(
     checked: CheckedExperiment,
     refusing_event: dict[str, Any],
     refusing_event_spec: dict[str, Any],
+    *,
+    node_steps_before_operation: int,
+    bounds: dict[str, int],
+    require_budget_breach: bool,
 ) -> int | None:
     evaluation_site_identity = refusing_event.get("evaluation_site_identity")
     target_instruction_index = refusing_event.get("instruction_index")
@@ -5289,6 +5293,8 @@ def _attempted_operation_charge(
     calls = cast(list[dict[str, JsonValue]], refusing_event["attempted_calls"])
     used_calls: set[int] = set()
     node_contracts = _runtime_nodes(checked)
+    event_charge = 0
+    node_steps = node_steps_before_operation
 
     def evaluation_sites(operation: dict[str, Any]) -> dict[int, str]:
         extensions = operation.get("extensions")
@@ -5308,17 +5314,62 @@ def _attempted_operation_charge(
             for row in cast(list[dict[str, Any]], provenance["sites"])
         }
 
-    def completed_charge(
+    def is_target(
+        operation: dict[str, Any],
+        call_path: str,
+        instruction_index: int,
+        sites: dict[int, str],
+    ) -> bool:
+        return (
+            call_path == target_path
+            and operation["id"] == refusing_event["operation"]
+            and (
+                instruction_index == target_instruction_index
+                if isinstance(target_instruction_index, int)
+                else sites.get(instruction_index) == evaluation_site_identity
+            )
+        )
+
+    def charge_instruction(
+        operation: dict[str, Any],
+        operation_charge: int,
+        instruction: dict[str, Any],
+    ) -> tuple[int, bool]:
+        nonlocal event_charge, node_steps
+        amount = cast(
+            int, node_contracts[instruction["node"]]["resource_charge"]["amount"]
+        )
+        operation_charge += amount
+        event_charge += amount
+        node_steps += amount
+        breached = (
+            operation_charge
+            > cast(int, operation["resource_bounds"]["max_steps"])
+            or event_charge > bounds["max_event_steps"]
+            or node_steps > bounds["max_node_steps"]
+        )
+        return operation_charge, breached
+
+    def completed_operation(
         operation: dict[str, Any],
         call_path: str,
         expected_outcome: str,
-    ) -> int | None:
-        charge = 0
+    ) -> bool:
+        operation_charge = 0
         outcome = cast(str, operation["default_outcome"])
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
-            charge += cast(
-                int, node_contracts[instruction["node"]]["resource_charge"]["amount"]
+        sites = evaluation_sites(operation)
+        for instruction_index, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            operation_charge, breached = charge_instruction(
+                operation,
+                operation_charge,
+                instruction,
             )
+            if breached or is_target(
+                operation, call_path, instruction_index, sites
+            ):
+                return False
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "invoke-operation":
                 child_path = f"{call_path}/{instruction['site']}"
@@ -5330,19 +5381,17 @@ def _attempted_operation_charge(
                     == instruction["operation"]["id"]
                 ]
                 if len(call_rows) != 1:
-                    return None
+                    return False
                 call_index, call = call_rows[0]
                 child = operations.get(cast(str, instruction["operation"]["id"]))
                 if child is None:
-                    return None
+                    return False
                 child_outcome = cast(
                     str, cast(dict[str, JsonValue], call["outcome"])["id"]
                 )
-                child_charge = completed_charge(child, child_path, child_outcome)
-                if child_charge is None:
-                    return None
+                if not completed_operation(child, child_path, child_outcome):
+                    return False
                 used_calls.add(call_index)
-                charge += child_charge
                 mapping = next(
                     (
                         row
@@ -5352,7 +5401,7 @@ def _attempted_operation_charge(
                     None,
                 )
                 if mapping is None:
-                    return None
+                    return False
                 if mapping["action"]["kind"] == "propagate":
                     outcome = cast(str, mapping["action"]["outcome"])
                     break
@@ -5362,38 +5411,32 @@ def _attempted_operation_charge(
             ):
                 outcome = expected_outcome
                 break
-        return charge if outcome == expected_outcome else None
+        return outcome == expected_outcome
 
     def charge_to_target(
         operation: dict[str, Any],
         call_path: str,
-    ) -> int | None:
-        charge = 0
+    ) -> bool:
+        operation_charge = 0
         sites = evaluation_sites(operation)
         for instruction_index, instruction in enumerate(operation["body"]):
-            charge += cast(
-                int, node_contracts[instruction["node"]]["resource_charge"]["amount"]
+            operation_charge, breached = charge_instruction(
+                operation,
+                operation_charge,
+                instruction,
             )
-            if (
-                call_path == target_path
-                and operation["id"] == refusing_event["operation"]
-                and (
-                    instruction_index == target_instruction_index
-                    if isinstance(target_instruction_index, int)
-                    else sites.get(instruction_index) == evaluation_site_identity
-                )
-            ):
-                return charge
+            target = is_target(operation, call_path, instruction_index, sites)
+            if breached or target:
+                return target and (breached or not require_budget_breach)
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator != "invoke-operation":
                 continue
             child_path = f"{call_path}/{instruction['site']}"
             child = operations.get(cast(str, instruction["operation"]["id"]))
             if child is None:
-                return None
+                return False
             if target_path == child_path or target_path.startswith(f"{child_path}/"):
-                child_charge = charge_to_target(child, child_path)
-                return charge + child_charge if child_charge is not None else None
+                return charge_to_target(child, child_path)
             call_rows = [
                 (index, row)
                 for index, row in enumerate(calls)
@@ -5402,16 +5445,14 @@ def _attempted_operation_charge(
                 == child["id"]
             ]
             if len(call_rows) != 1:
-                return None
+                return False
             call_index, call = call_rows[0]
             child_outcome = cast(
                 str, cast(dict[str, JsonValue], call["outcome"])["id"]
             )
-            child_charge = completed_charge(child, child_path, child_outcome)
-            if child_charge is None:
-                return None
+            if not completed_operation(child, child_path, child_outcome):
+                return False
             used_calls.add(call_index)
-            charge += child_charge
             mapping = next(
                 (
                     row
@@ -5421,13 +5462,13 @@ def _attempted_operation_charge(
                 None,
             )
             if mapping is None or mapping["action"]["kind"] == "propagate":
-                return None
-        return None
+                return False
+        return False
 
-    attempted_charge = charge_to_target(root_operation, root_path)
-    if attempted_charge is None or used_calls != set(range(len(calls))):
+    reached_target = charge_to_target(root_operation, root_path)
+    if not reached_target or used_calls != set(range(len(calls))):
         return None
-    return attempted_charge
+    return event_charge
 
 
 def _terminal_audit_is_valid(
@@ -5832,31 +5873,17 @@ def _terminal_audit_is_valid(
             cast(int, ledger["node_steps"]) + event_formula_fault_charge
         )
     else:
-        replayed_refusal = evaluate_experiment(checked)
-        if (
-            not isinstance(replayed_refusal, RuntimeRefusalOutcome)
-            or replayed_refusal.scenario_id != scenario_id
-            or replayed_refusal.refusing_event_id != refusing_event_id
-            or replayed_refusal.refusing_event_spec != refusing_event_spec
-            or list(replayed_refusal.refusing_attempted_calls)
-            != refusing_event.get("attempted_calls")
-            or replayed_refusal.refusing_operation
-            != refusing_event.get("operation")
-            or replayed_refusal.refusing_call_path
-            != refusing_event.get("call_path")
-            or replayed_refusal.refusing_call_site_identity
-            != refusing_event.get("call_site_identity")
-            or replayed_refusal.refusing_evaluation_site_identity
-            != refusing_event.get("evaluation_site_identity")
-            or replayed_refusal.refusing_instruction_index
-            != refusing_event.get("instruction_index")
-            or replayed_refusal.budget_counters != budget
-        ):
-            return False
         attempted_operation_charge = _attempted_operation_charge(
             checked,
             refusing_event,
             refusing_event_spec,
+            node_steps_before_operation=(
+                cast(int, ledger["node_steps"]) + event_formula_charge
+            ),
+            bounds=bounds,
+            require_budget_breach=(
+                diagnostic["code"] == "runtime.step_limit_exceeded"
+            ),
         )
         if attempted_operation_charge is None:
             return False
