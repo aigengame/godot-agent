@@ -874,6 +874,209 @@ class TestKeyUserPath:
             if evaluation["operation"]["package"] == "game.effect"
         ] == [0]
 
+    def test_periodic_effect_refuses_an_unbound_magnitude_formula(self, tmp_path):
+        source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source["formula_bindings"] = [
+            binding
+            for binding in source["formula_bindings"]
+            if binding["site"].get("operation", {}).get("id")
+            != "game.effect.apply-snapshot-periodic-v1"
+        ]
+        source_path = tmp_path / "unbound-periodic-formula.json"
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        output = tmp_path / "must-not-build"
+
+        result = _run(
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "5" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "static"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "language.formula_binding_missing"
+        ]
+        assert output.exists() is False
+
+    def test_periodic_effect_formula_overflow_rolls_back_the_apply_event(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        threshold_symbol = next(
+            symbol
+            for symbol in source["modules"][0]["symbols"]
+            if symbol["symbol"] == "magnitude_threshold"
+        )
+        threshold_symbol["domain"]["minimum"] = -(1 << 63)
+        source_path = tmp_path / "overflow-periodic-model.json"
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        built = _run(
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "overflow-periodic-model"),
+            "--invocation-key",
+            "6" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+        rir = json.loads(
+            _receipt_members(build_receipt)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+        site_identity = next(
+            binding["site"]["identity"]
+            for binding in rir["formula_bindings"]
+            if binding["site"]["kind"] == "operation-slot"
+            and binding["site"]["operation"]["id"]
+            == "game.effect.apply-snapshot-periodic-v1"
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        next(
+            assignment
+            for assignment in experiment["scenarios"][0]["assignments"]
+            if assignment["target"]["name"] == "magnitude_threshold"
+        )["value"] = -(1 << 63)
+        specification = tmp_path / "overflow-periodic-experiment.json"
+        specification.write_text(json.dumps(experiment), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "overflow-periodic-run"),
+            "--invocation-key",
+            "7" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "runtime"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "runtime.numeric_overflow"
+        ]
+        terminal_receipt = error["terminal_audit"]
+        assert {row["logical_name"] for row in terminal_receipt["member_locators"]} == {
+            "evaluator-capability-manifest",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "runtime-terminal-audit",
+        }
+        audit = json.loads(
+            _receipt_members(terminal_receipt)["runtime-terminal-audit"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert audit["committed_trace_prefix"] == []
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.apply-snapshot-periodic-v1"
+        )
+        assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
+        assert audit["refusing_event"]["evaluation_site_identity"] == site_identity
+        assert audit["rollback"]["committed"] is False
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+        assert all(
+            record["event_spec"]["kind"] != "scheduled-transition"
+            for record in audit["event_catalog_prefix"]
+        )
+
+    def test_periodic_effect_schedule_budget_refuses_and_discards_apply_buffers(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="8" * 64,
+            output_name="queue-boundary-model",
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "same-time-experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        apply = experiment["scenarios"][0]["event_plan"][0]
+        apply["entrypoint"] = "effect.apply-snapshot-periodic"
+        experiment["scenarios"][0]["event_plan"] = [apply] + [
+            {
+                "kind": "transition-invocation",
+                "root_event_ref": f"future-combat-{index:03d}",
+                "logical_time": 10,
+                "priority": 0,
+                "entrypoint": "combat.damage-target",
+                "payload": [],
+            }
+            for index in range(127)
+        ]
+        specification = tmp_path / "queue-boundary-experiment.json"
+        specification.write_text(json.dumps(experiment), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "queue-boundary-run"),
+            "--invocation-key",
+            "9" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "runtime"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "runtime.queue_limit_exceeded"
+        ]
+        audit = json.loads(
+            _receipt_members(error["terminal_audit"])[
+                "runtime-terminal-audit"
+            ].read_text(encoding="utf-8")
+        )
+        assert audit["committed_trace_prefix"] == []
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.apply-snapshot-periodic-v1"
+        )
+        assert audit["refusing_event"]["reason"] == "runtime.queue_limit_exceeded"
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+        assert (
+            next(
+                row["value"]
+                for row in audit["rollback"]["state_after"]
+                if row["name"] == "effect_instance_id"
+            )
+            == 0
+        )
+        assert all(
+            record["event_spec"]["kind"] != "scheduled-transition"
+            for record in audit["event_catalog_prefix"]
+        )
+        assert audit["budget_counters"]["queue_events"] == 127
+
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
