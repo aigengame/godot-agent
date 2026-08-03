@@ -1614,6 +1614,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.capability_unsupported", "resolution"),
         ("runtime.step_limit_exceeded", "runtime"),
         ("runtime.numeric_overflow", "runtime"),
+        ("runtime.schedule_backward", "runtime"),
         ("evaluation.observation_unavailable", "evaluation"),
     }
     expected = {
