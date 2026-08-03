@@ -555,9 +555,7 @@ class TestKeyUserPath:
             experiment["scenarios"][0]["event_plan"][0]["entrypoint"] = (
                 f"effect.apply-{policy}-periodic"
             )
-            experiment["scenarios"][0]["event_plan"][1]["priority"] = (
-                combat_priority
-            )
+            experiment["scenarios"][0]["event_plan"][1]["priority"] = combat_priority
             return _run_experiment_variant(
                 tmp_path,
                 experiment,
@@ -623,16 +621,69 @@ class TestKeyUserPath:
         assert terminal_health(live_tick_first) == 75
         assert terminal_health(snapshot_combat_first) == 60
         assert terminal_health(snapshot_tick_first) == 60
-        metric_dataset = json.loads(
-            _receipt_members(live_receipt)["metric-dataset"].read_text(
-                encoding="utf-8"
+
+        def effect_formula_evaluations(trace: dict) -> list[dict]:
+            return [
+                evaluation
+                for event in trace["events"]
+                for evaluation in event["formula_evaluations"]
+                if evaluation["operation"]["package"] == "game.effect"
+            ]
+
+        live_combat_evaluations = effect_formula_evaluations(live_combat_first)
+        live_tick_evaluations = effect_formula_evaluations(live_tick_first)
+        assert [
+            (
+                evaluation["operation"]["id"],
+                {
+                    argument["parameter"]: argument["value"]
+                    for argument in evaluation["arguments"]
+                },
+                evaluation["result"],
             )
+            for evaluation in live_combat_evaluations
+        ] == [
+            (
+                "game.effect.tick-live-periodic-v1",
+                {"current_value": 90, "threshold": 85},
+                5,
+            ),
+            (
+                "game.effect.tick-live-periodic-v1",
+                {"current_value": 85, "threshold": 85},
+                0,
+            ),
+        ]
+        assert [evaluation["result"] for evaluation in live_tick_evaluations] == [
+            15,
+            0,
+        ]
+        snapshot_evaluations = effect_formula_evaluations(snapshot_combat_first)
+        assert [
+            (evaluation["operation"]["id"], evaluation["result"])
+            for evaluation in snapshot_evaluations
+        ] == [("game.effect.apply-snapshot-periodic-v1", 15)]
+        assert all(
+            evaluation["context"] == {"phase": "event", "frame": "pre-event-snapshot"}
+            and evaluation["frame_identity"]
+            == next(
+                event["snapshot_before_identity"]
+                for event in live_combat_first["events"]
+                if evaluation in event["formula_evaluations"]
+            )
+            for evaluation in live_combat_evaluations
         )
-        assert next(
-            sample["value"]
-            for sample in metric_dataset["samples"]
-            if sample["metric"] == "target_health_remaining"
-        ) == 85
+        metric_dataset = json.loads(
+            _receipt_members(live_receipt)["metric-dataset"].read_text(encoding="utf-8")
+        )
+        assert (
+            next(
+                sample["value"]
+                for sample in metric_dataset["samples"]
+                if sample["metric"] == "target_health_remaining"
+            )
+            == 85
+        )
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
