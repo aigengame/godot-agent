@@ -2244,6 +2244,91 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
         drifted_values,
     )
 
+    coordinated_proof = deepcopy(audit)
+    assert coordinated_proof["budget_counters"]["event_steps"] == 8
+    assert coordinated_proof["budget_counters"]["node_steps"] == 12
+    assert coordinated_proof["refusing_event"]["instruction_index"] == 2
+    assert len(coordinated_proof["refusing_event"]["attempted_calls"]) == 2
+    coordinated_proof["budget_counters"]["event_steps"] = 4
+    coordinated_proof["budget_counters"]["node_steps"] = 8
+    coordinated_proof["refusing_event"]["instruction_index"] = 1
+    coordinated_proof["refusing_event"]["attempted_calls"] = coordinated_proof[
+        "refusing_event"
+    ]["attempted_calls"][:1]
+    payload = {
+        key: value
+        for key, value in coordinated_proof.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    catalog = deepcopy(artifacts.members["snapshot-series"].value["event_catalog"])
+    events = deepcopy(artifacts.members["event-trace"].value["events"])
+    parent_event = next(
+        event
+        for event in events
+        if event["operation"] == "game.combat.plan-casts-v1"
+    )
+    action_cost = next(
+        fact for fact in parent_event["facts"] if fact["name"] == "action_cost"
+    )
+    action_cost["integer"] += 1
+    event_spec_contract = checked.kernel["meta_format"]["runtime_program"][
+        "scheduler"
+    ]["runtime_journal"]["event_spec"]
+    for schedule in parent_event["schedules"]:
+        next(
+            row for row in schedule["arguments"] if row["name"] == "action_cost"
+        )["value"] += 1
+        scheduled_record = next(
+            record for record in catalog if record["event_id"] == schedule["event_id"]
+        )
+        next(
+            row
+            for row in scheduled_record["event_spec"]["arguments"]
+            if row["name"] == "action_cost"
+        )["value"] += 1
+        scheduled_record["event_spec_identity"] = content_identity(
+            event_spec_contract["domain"],
+            scheduled_record["event_spec"],
+        )
+
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        catalog,
+        events,
+    )
+
 
 @pytest.mark.parametrize("schedule_shape", ["local", "nested"])
 def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
