@@ -608,6 +608,21 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 )
                 continue
             if kind_id == "scheduler-scenario":
+                mutation_detectors = kind.get("mutation_detectors")
+                if (
+                    not isinstance(mutation_detectors, list)
+                    or mutation_detectors != sorted(set(mutation_detectors))
+                    or not all(
+                        isinstance(detector, str) and detector
+                        for detector in mutation_detectors
+                    )
+                ):
+                    raise ValueError(
+                        "Kernel scheduler-vector mutation detector contract is incomplete"
+                    )
+                properties["detects_mutation"] = {
+                    "oneOf": [{"enum": mutation_detectors}, {"type": "null"}]
+                }
                 expect_members = kind.get("expect_members")
                 event_members = kind.get("event_members")
                 observation_members = kind.get("observation_members")

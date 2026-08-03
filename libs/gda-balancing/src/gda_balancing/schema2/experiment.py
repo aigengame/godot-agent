@@ -1331,7 +1331,6 @@ def _runtime_continuation(
     root_event_map_identity: str,
     resolved_runtime_profile_identity: str,
 ) -> dict[str, JsonValue]:
-    _runtime_journal_contract(checked)
     return cast(
         dict[str, JsonValue],
         {
@@ -2840,9 +2839,21 @@ def _evaluate_value_program_vector(
 
 
 def _evaluate_scheduler_vector(
-    kernel: dict[str, Any], vector: dict[str, Any]
+    kernel: dict[str, Any],
+    vector: dict[str, Any],
+    *,
+    mutation: str | None = None,
 ) -> dict[str, JsonValue]:
-    """Execute one closed scheduler-scenario conformance vector."""
+    """Execute one scheduler vector, optionally injecting one declared mutant."""
+    supported_mutations = {
+        "backward-scheduling",
+        "host-assigned-ordering",
+        "omitted-key",
+        "pre-commit-visibility",
+        "scenario-as-timestep",
+    }
+    if mutation is not None and mutation not in supported_mutations:
+        raise ValueError(f"unsupported scheduler mutation: {mutation}")
     scheduler = cast(
         dict[str, Any], kernel["meta_format"]["runtime_program"]["scheduler"]
     )
@@ -2877,11 +2888,23 @@ def _evaluate_scheduler_vector(
         parent_id = event["parent_id"]
         if parent_id is None:
             continue
-        signal = _schedule_position_signal(
-            scheduler, by_id[cast(str, parent_id)], event
-        )
+        parent = by_id[cast(str, parent_id)]
+        signal = _schedule_position_signal(scheduler, parent, event)
+        if (
+            mutation == "backward-scheduling"
+            and signal == scheduler["schedule"]["refusal_signals"]["backward"]
+        ):
+            signal = None
         if signal is not None:
             return refused(signal)
+
+    def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
+        if mutation == "host-assigned-ordering":
+            return (cast(str, event["id"]),)
+        runtime_key = _scheduler_ordering_key(scheduler, event)
+        if mutation == "omitted-key":
+            runtime_key = runtime_key[:-1]
+        return (scenario_order[cast(str, event["scenario"])], *runtime_key)
 
     admitted = sorted(
         (
@@ -2890,17 +2913,26 @@ def _evaluate_scheduler_vector(
             if event["status"] not in {"canceled", "completed"}
             and not event["cancel_requested"]
         ),
-        key=lambda event: (
-            scenario_order[cast(str, event["scenario"])],
-            *_scheduler_ordering_key(scheduler, event),
-        ),
+        key=ordering_key,
     )
     observations: list[dict[str, JsonValue]] = []
+    shared_state = next(iter(states.values()))
     for event in admitted:
         scenario = cast(str, event["scenario"])
-        before = states[scenario]
+        before = (
+            shared_state if mutation == "scenario-as-timestep" else states[scenario]
+        )
+        if mutation == "pre-commit-visibility":
+            before = next(
+                cast(int, row["value"])
+                for row in initial_states
+                if row["scenario"] == scenario
+            )
         after = before + cast(int, event["state_delta"])
-        states[scenario] = after
+        if mutation == "scenario-as-timestep":
+            shared_state = after
+        else:
+            states[scenario] = after
         observations.append(
             {
                 "event_id": cast(str, event["id"]),
@@ -2909,6 +2941,8 @@ def _evaluate_scheduler_vector(
                 "state_before": before,
             }
         )
+    if mutation == "scenario-as-timestep":
+        states = {scenario: shared_state for scenario in states}
     return {
         "event_order": [cast(str, event["id"]) for event in admitted],
         "observations": cast(JsonValue, observations),

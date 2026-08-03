@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:034cf2bee0c3de0f48da4c4372288f06e75e574250fcca5647d01a55ae3d6cfd"
+    "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -420,6 +420,7 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "expect_members",
         "id",
         "input_members",
+        "mutation_detectors",
         "observation_members",
         "required_members",
         "state_value_members",
@@ -495,6 +496,7 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         },
         "scheduler-scenario": {
             "category",
+            "detects_mutation",
             "expect",
             "id",
             "input",
@@ -557,6 +559,14 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "signal",
             "terminal_reason",
             "terminal_states",
+        ]
+        and kinds["scheduler-scenario"].get("mutation_detectors")
+        == [
+            "backward-scheduling",
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep",
         ]
         and kinds["scheduler-scenario"].get("event_members")
         == [
@@ -649,11 +659,17 @@ def _scheduler_scenario_vector_is_closed(
 ) -> bool:
     inp = vector.get("input")
     expect = vector.get("expect")
+    detects_mutation = vector.get("detects_mutation")
     if (
         not isinstance(inp, dict)
         or set(inp) != set(kind["input_members"])
         or not isinstance(expect, dict)
         or set(expect) != set(kind["expect_members"])
+        or (
+            detects_mutation not in kind["mutation_detectors"]
+            if vector.get("category") == "semantic-mutation"
+            else detects_mutation is not None
+        )
         or inp.get("terminal_condition") not in {"event-count-reached", "queue-drained"}
         or not isinstance(inp.get("initial_states"), list)
         or not inp["initial_states"]

@@ -871,7 +871,9 @@ def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch)
     "mutation",
     (
         "contract-expectation",
+        "missing-mutation-detector",
         "runtime-operation",
+        "unknown-mutation-detector",
         "unknown-kind",
     ),
 )
@@ -888,7 +890,18 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         )
         vector = _owned_vector(ldb, "game.resource.spend.effects")
         vector["expect"] = ["event.commit"]
-    elif mutation in {"runtime-operation", "unknown-kind"}:
+    elif mutation in {"missing-mutation-detector", "unknown-mutation-detector"}:
+        package = next(
+            item
+            for item in ldb["language"]["packages"]
+            if item["id"] == "standard.runtime"
+        )
+        vector = _owned_vector(ldb, "runtime.scheduler.mutation.omitted-key")
+        if mutation == "missing-mutation-detector":
+            vector.pop("detects_mutation")
+        else:
+            vector["detects_mutation"] = "host-invented-mutation"
+    else:
         package = next(
             item for item in ldb["language"]["packages"] if item["id"] == "game.combat"
         )

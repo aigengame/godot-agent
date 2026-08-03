@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:034cf2bee0c3de0f48da4c4372288f06e75e574250fcca5647d01a55ae3d6cfd",
+  "content_identity": "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3860,6 +3860,7 @@
           "id": "scheduler-scenario",
           "required_members": [
             "category",
+            "detects_mutation",
             "expect",
             "id",
             "input",
@@ -3877,6 +3878,13 @@
             "signal",
             "terminal_reason",
             "terminal_states"
+          ],
+          "mutation_detectors": [
+            "backward-scheduling",
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep"
           ],
           "event_members": [
             "cancel_requested",

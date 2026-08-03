@@ -532,11 +532,11 @@ jq '.samples[] | {
 }' "$METRIC_PATH"
 ```
 
-With the committed example values, the external-input root changes defense from `30` to `20`.
-The surviving critical cast then changes target health from `100` to `30`, and actor mana from
-`35` to `26`. The direct retry resolves with zero cost and zero damage, so its entrypoint result
-produces the Event-sourced `damage_dealt = 0` sample while leaving that state unchanged. These
-tutorial inputs are
+With the committed example values, the external-input root changes defense from `30` to `6`.
+The surviving critical cast then changes target health from `100` to `16`, and actor mana from
+`35` to `26`. The direct retry resolves with zero cost, `base_damage = 5`, and an Event-local
+critical threshold of `100`, so its entrypoint result produces the Event-sourced
+`damage_dealt = 4` sample and changes target health from `16` to `12`. These tutorial inputs are
 intentionally independent from the package's normative conformance-vector inputs: the public loop
 consumes the same admitted semantics without treating package evidence as product configuration.
 

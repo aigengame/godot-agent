@@ -307,7 +307,7 @@ class TestKeyUserPath:
                 for row in metrics["samples"]
                 if row["metric"] == "target_health_remaining"
             )
-            == 30
+            == 12
         )
         assert (
             next(
@@ -315,7 +315,7 @@ class TestKeyUserPath:
                 for row in metrics["samples"]
                 if row["metric"] == "damage_dealt"
             )
-            == 0
+            == 4
         )
         events = trace["events"]
         assert [
@@ -369,7 +369,7 @@ class TestKeyUserPath:
         )
         assert events[-1]["state_after"] == [
             {"name": "actor_mana", "value": 26},
-            {"name": "target_health", "value": 30},
+            {"name": "target_health", "value": 12},
         ]
         recovered = _run(
             "experiment",

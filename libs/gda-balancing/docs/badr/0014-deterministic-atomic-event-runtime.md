@@ -242,7 +242,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   meta-protocol but do not own the declared paths or concrete tokens. The complete role-to-path,
   member-shape, and relation mapping is content-addressed separately; an evaluator admits only a
   mapping identity it explicitly implements, so structural changes require a matching evaluator
-  capability update.
+  capability update. That component-contract identity does not separately pin concrete behavioral
+  token values: exact Kernel identity plus the complete scheduler conformance-vector suite protects
+  them, so every Kernel identity rotation must rerun both consumers before their support identity is
+  updated.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel

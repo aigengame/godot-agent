@@ -156,6 +156,81 @@ def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
         )
 
 
+def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
+    tmp_path, run_cli, monkeypatch
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    specification["scenarios"][0]["event_plan"].append(
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": "plan-casts",
+            "logical_time": 1,
+            "priority": 0,
+            "entrypoint": "combat.plan-casts",
+            "payload": [],
+        }
+    )
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    original_find = experiment_runtime_module.find_published_artifact
+    original_admit = experiment_runtime_module.admit_resolved_model
+    original_rir: dict[str, Any] | None = None
+
+    def find_with_conflicting_entrypoint(content_identity_value, artifact_kind, ldb):
+        nonlocal original_rir
+        artifact = original_find(content_identity_value, artifact_kind, ldb)
+        if artifact_kind != "rir-semantic-payload" or artifact is None:
+            return artifact
+        original_rir = artifact
+        conflicting = deepcopy(artifact)
+        entrypoints = {row["id"]: row for row in conflicting["entrypoints"]}
+        cast_targets = entrypoints["combat.cast"]["scenario_input_contract"]["targets"]
+        plan_targets = entrypoints["combat.plan-casts"]["scenario_input_contract"][
+            "targets"
+        ]
+        cast_target = next(
+            row for row in cast_targets if row["cardinality"] == "required"
+        )
+        plan_target = next(
+            row for row in plan_targets if row["target"] == cast_target["target"]
+        )
+        plan_target["cardinality"] = "optional"
+        return conflicting
+
+    def admit_original_model(artifacts, *, authority_context=None):
+        assert original_rir is not None
+        original_artifacts = {
+            **artifacts,
+            "rir-semantic-payload": original_rir,
+        }
+        return original_admit(
+            original_artifacts,
+            authority_context=authority_context,
+        )
+
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "find_published_artifact",
+        find_with_conflicting_entrypoint,
+    )
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "admit_resolved_model",
+        admit_original_model,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/scenarios/0/assignments"
+    assert diagnostic["message"] == "conflicting Scenario Input Contract rows"
+
+
 def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
     locator = next(
         item["locator"]
@@ -778,6 +853,15 @@ def _reference_evaluate_scheduler_vector(
     *,
     mutation: str | None = None,
 ) -> dict[str, Any]:
+    supported_mutations = {
+        "backward-scheduling",
+        "host-assigned-ordering",
+        "omitted-key",
+        "pre-commit-visibility",
+        "scenario-as-timestep",
+    }
+    if mutation is not None and mutation not in supported_mutations:
+        raise ValueError(f"unsupported scheduler mutation: {mutation}")
     scheduler = kernel["meta_format"]["runtime_program"]["scheduler"]
     events = deepcopy(vector["input"]["events"])
     initial_states = vector["input"]["initial_states"]
@@ -823,9 +907,10 @@ def _reference_evaluate_scheduler_vector(
                 scheduler["schedule"]["refusal_signals"]["illegal_same_time_priority"]
             )
 
-    phase_rank = {
-        phase: index for index, phase in enumerate(scheduler["ordering"][1]["rank"])
-    }
+    phase_order = next(
+        row["rank"] for row in scheduler["ordering"] if row["member"] == "phase"
+    )
+    phase_rank = {phase: index for index, phase in enumerate(phase_order)}
 
     def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
         if mutation == "host-assigned-ordering":
@@ -863,7 +948,7 @@ def _reference_evaluate_scheduler_vector(
         after = before + event["state_delta"]
         if mutation == "scenario-as-timestep":
             shared_state = after
-        elif mutation != "pre-commit-visibility":
+        else:
             states[scenario] = after
         observations.append(
             {
@@ -4685,7 +4770,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     }
     assert direct_cast_event.get("parent_event_id") is None
     assert direct_cast_event["outcome"]["id"] == "cast-resolved"
-    assert direct_cast_event["state_after"] == direct_cast_event["state_before"]
+    assert direct_cast_event["state_after"] != direct_cast_event["state_before"]
     assert (
         next(
             item["integer"]
@@ -4764,21 +4849,21 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
     assert cast_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 30},
+        {"name": "target_health", "value": 16},
     ]
     first_health = next(
         sample["value"]
         for sample in first_metrics["samples"]
         if sample["metric"] == "target_health_remaining"
     )
-    assert first_health == 30
+    assert first_health == 12
     assert (
         next(
             sample["value"]
             for sample in first_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 0
+        == 4
     )
 
     edited_source_value = deepcopy(source_value)
@@ -4940,14 +5025,14 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         )
         == 45
     )
-    assert tuned_health == 10 < first_health
+    assert tuned_health == 0 < first_health
     assert (
         next(
             sample["value"]
             for sample in tuned_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 0
+        == 10
     )
     assert next(
         event
@@ -4998,7 +5083,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     ]
     assert alternate_event["state_after"] == [
         {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 75},
+        {"name": "target_health", "value": 61},
     ]
     assert (
         next(
@@ -5006,7 +5091,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for sample in alternate_metrics["samples"]
             if sample["metric"] == "target_health_remaining"
         )
-        == 75
+        == 57
     )
     assert (
         next(
@@ -5014,7 +5099,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             for sample in alternate_metrics["samples"]
             if sample["metric"] == "damage_dealt"
         )
-        == 0
+        == 4
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -5513,12 +5598,16 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
         if vector.get("kind") == "scheduler-scenario"
     }
     mutation_vectors = {
-        "runtime.scheduler.mutation.omitted-key": "omitted-key",
-        "runtime.scheduler.mutation.host-ordering": "host-assigned-ordering",
-        "runtime.scheduler.mutation.precommit": "pre-commit-visibility",
-        "runtime.scheduler.mutation.backward": "backward-scheduling",
-        "runtime.scheduler.mutation.scenario-timestep": "scenario-as-timestep",
+        vector_id: vector["detects_mutation"]
+        for vector_id, vector in vectors.items()
+        if vector["category"] == "semantic-mutation"
     }
+    vector_contract = next(
+        kind
+        for kind in kernel["meta_format"]["package_vector"]["kinds"]
+        if kind["id"] == "scheduler-scenario"
+    )
+    assert set(mutation_vectors.values()) == set(vector_contract["mutation_detectors"])
     assert set(vectors) == {
         "runtime.scheduler.accept.total-order-visibility-cancellation",
         "runtime.scheduler.refuse.cancel-active",
@@ -5530,18 +5619,29 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
     ]
     assert len(set(mutation_inputs)) == len(mutation_inputs)
     for vector in vectors.values():
+        assert (vector["detects_mutation"] is not None) == (
+            vector["category"] == "semantic-mutation"
+        )
         production = experiment_runtime_module._evaluate_scheduler_vector(
             kernel, vector
         )
         reference = _reference_evaluate_scheduler_vector(kernel, vector)
         assert production == reference == vector["expect"]
     for vector_id, mutation in mutation_vectors.items():
-        mutated = _reference_evaluate_scheduler_vector(
-            kernel,
-            vectors[vector_id],
-            mutation=mutation,
-        )
-        assert mutated != vectors[vector_id]["expect"]
+        for candidate_id, candidate_mutation in mutation_vectors.items():
+            production = experiment_runtime_module._evaluate_scheduler_vector(
+                kernel,
+                vectors[candidate_id],
+                mutation=mutation,
+            )
+            reference = _reference_evaluate_scheduler_vector(
+                kernel,
+                vectors[candidate_id],
+                mutation=mutation,
+            )
+            detected = candidate_mutation == mutation
+            assert (production != vectors[candidate_id]["expect"]) is detected
+            assert (reference != vectors[candidate_id]["expect"]) is detected
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():
