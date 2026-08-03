@@ -276,6 +276,21 @@ def _unique_canonical_rows(rows: list[dict[str, Any]], member: str) -> bool:
     return len(values) == len(set(values))
 
 
+def _canonical_contract_union(
+    rows: list[dict[str, Any]],
+    *,
+    contract_name: str,
+) -> dict[bytes, dict[str, Any]]:
+    union: dict[bytes, dict[str, Any]] = {}
+    for row in rows:
+        identity = canonical_bytes(cast(JsonValue, row["target"]))
+        previous = union.get(identity)
+        if previous is not None and previous != row:
+            raise ValueError(f"conflicting {contract_name} rows")
+        union[identity] = row
+    return union
+
+
 def _artifact(
     checked: CheckedExperiment,
     artifact_kind: str,
@@ -300,57 +315,20 @@ def _runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
     return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
 
 
+def _kernel_scheduler_contract(kernel: dict[str, Any]) -> dict[str, Any]:
+    runtime = kernel.get("meta_format", {}).get("runtime_program")
+    scheduler = runtime.get("scheduler") if isinstance(runtime, dict) else None
+    if not isinstance(scheduler, dict):
+        raise ValueError("Kernel scheduler contract is absent")
+    return scheduler
+
+
 def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
     runtime = _runtime_contract(checked)
-    expected = {
-        "runtime_configuration": {
-            "lifecycle_states": [
-                "instantiated",
-                "initializing",
-                "step",
-                "event",
-                "terminated",
-            ],
-            "members": [
-                "lifecycle_state",
-                "step_boundary",
-                "scenario_cursor",
-                "event_catalog",
-                "pending_event_count",
-                "committed_trace",
-                "current_snapshot",
-                "state",
-                "rng",
-                "resource_ledger",
-                "next_enqueue_sequence",
-                "root_event_map_identity",
-                "resolved_runtime_profile_identity",
-            ],
-            "mutation": "internal-transition-only",
-        },
-        "transition": {
-            "input": "runtime-configuration",
-            "dispatch_count": 1,
-            "event_selection": "scheduler-order-head",
-            "transaction": "event-atomicity",
-            "result": ["runtime-configuration", "runtime-refusal"],
-        },
-        "step": {
-            "input": "runtime-configuration",
-            "advance": "repeat-transition",
-            "stop": [
-                "observation-boundary",
-                "logical-boundary",
-                "terminal",
-            ],
-            "result": "committed-boundary",
-        },
+    return {
+        member: cast(dict[str, Any], runtime[member])
+        for member in ("runtime_configuration", "transition", "step")
     }
-    if any(runtime.get(member) != contract for member, contract in expected.items()):
-        raise ValueError(
-            "Kernel Runtime lifecycle contract is unsupported or incomplete"
-        )
-    return expected
 
 
 def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
@@ -361,210 +339,7 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
 
 
 def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
-    scheduler = _runtime_contract(checked).get("scheduler")
-    expected_ordering = [
-        {"direction": "ascending", "member": "logical_time"},
-        {
-            "direction": "ascending",
-            "member": "phase",
-            "rank": ["input", "transition", "observation"],
-        },
-        {"direction": "descending", "member": "priority"},
-        {"direction": "ascending", "member": "enqueue_sequence"},
-    ]
-    expected_call_sites = {
-        "schedule": {
-            "domain": "runtime-schedule-call-site-v2",
-            "projection": [
-                "parent_event_id",
-                "parent_operation",
-                "site",
-                "operation",
-            ],
-        },
-        "cancel": {
-            "domain": "runtime-cancel-call-site-v2",
-            "projection": [
-                "canceling_event_id",
-                "operation",
-                "site",
-                "target_event_id",
-            ],
-        },
-    }
-    if (
-        not isinstance(scheduler, dict)
-        or scheduler.get("ordering") != expected_ordering
-        or scheduler.get("root_enqueue_sequence") != "authored-array-order"
-        or scheduler.get("step_boundary") != "next-observation-or-logical-boundary"
-        or scheduler.get("call_site_identity") != expected_call_sites
-        or scheduler.get("schedule")
-        != {
-            "child_phase": "transition",
-            "legal_position": "strictly-after-active-ordering-key",
-            "same_time_priority": "not-greater-than-active-priority",
-            "refusal_signals": {
-                "backward": "schedule-backward",
-                "hidden_input": "schedule-hidden-input",
-                "illegal_same_time_priority": ("schedule-illegal-same-time-priority"),
-            },
-        }
-        or scheduler.get("cancel")
-        != {
-            "admitted_target_states": ["pending", "provisional"],
-            "refusal_signals": {
-                "active": "cancel-active",
-                "completed": "cancel-completed",
-                "unknown": "cancel-unknown",
-            },
-        }
-        or scheduler.get("budget_members")
-        != {
-            "event_steps": "max_event_steps",
-            "logical_time": "max_logical_time",
-            "node_steps": "max_node_steps",
-            "queue_events": "max_queue_events",
-            "total_events": "max_total_events",
-            "zero_time_depth": "max_zero_time_depth",
-        }
-        or scheduler.get("root_admission_map")
-        != {
-            "members": ["scenario", "root_event_ref", "event_id"],
-            "order": "scenario-order-then-authored-array-order",
-        }
-        or scheduler.get("snapshot_identity")
-        != {
-            "domain": "runtime-snapshot-v2",
-            "projection": [
-                "experiment_identity",
-                "scenario_id",
-                "index",
-                "logical_time",
-                "event_id",
-                "values",
-                "continuation",
-            ],
-            "runtime_configuration_projection": {
-                "lifecycle_state": "continuation.lifecycle_state",
-                "step_boundary": "continuation.step_boundary",
-                "scenario_cursor": "continuation.scenario_cursor",
-                "event_catalog": "continuation.event_catalog",
-                "pending_event_count": "continuation.pending_event_count",
-                "committed_trace": "continuation.committed_trace",
-                "current_snapshot": "continuation.current_snapshot",
-                "state": "values",
-                "rng": "continuation.rng",
-                "resource_ledger": "continuation.resource_ledger",
-                "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                "root_event_map_identity": "continuation.root_event_map_identity",
-                "resolved_runtime_profile_identity": (
-                    "continuation.resolved_runtime_profile_identity"
-                ),
-            },
-        }
-        or scheduler.get("runtime_journal")
-        != {
-            "event_spec": {
-                "domain": "runtime-event-spec-v2",
-                "projection": "complete-admitted-event",
-            },
-            "event_catalog": {
-                "domain": "runtime-event-catalog-v2",
-                "projection": "append-only-admitted-event-chain",
-            },
-            "committed_trace": {
-                "domain": "runtime-committed-trace-v2",
-                "projection": (
-                    "append-only-committed-event-chain-without-snapshot-after"
-                ),
-            },
-            "root_event_map": {
-                "domain": "runtime-root-event-map-v2",
-                "projection": "complete-root-event-map",
-            },
-        }
-        or scheduler.get("external_input_identity")
-        != {
-            "domain": "runtime-external-input-v2",
-            "projection": [
-                "experiment_identity",
-                "scenario_id",
-                "root_event_ref",
-                "source_identity",
-                "source_sequence",
-                "facts",
-            ],
-        }
-        or scheduler.get("external_input_admission")
-        != {
-            "ordering": ["source_identity", "source_sequence"],
-            "sequence_origin": 0,
-            "continuity": "contiguous-per-source",
-        }
-        or scheduler.get("terminal_status")
-        != {
-            "members": [
-                "scenario",
-                "condition",
-                "reason",
-                "event_count",
-                "terminal_event_id",
-                "terminal_snapshot_identity",
-                "observation_event_ids",
-                "final_snapshot_identity",
-                "logical_time",
-            ],
-            "reasons": ["event-count-reached", "queue-drained"],
-        }
-        or scheduler.get("observation")
-        != {
-            "derivation": "exact-metric-array-order-at-terminal-boundary",
-            "entrypoint": "forbidden",
-            "phase": "observation",
-            "priority": 0,
-            "state_effects": "forbidden",
-        }
-    ):
-        raise ValueError("Kernel scheduler contract is unsupported or incomplete")
-    event_identity = scheduler.get("event_identity")
-    if (
-        not isinstance(event_identity, dict)
-        or event_identity.get("domain") != "runtime-event-v2"
-        or event_identity.get("variants")
-        != {
-            "root": [
-                "experiment_identity",
-                "scenario_id",
-                "root_event_ref",
-                "logical_time",
-                "phase",
-                "priority",
-                "enqueue_sequence",
-            ],
-            "scheduled": [
-                "experiment_identity",
-                "scenario_id",
-                "parent_event_id",
-                "call_site_identity",
-                "schedule_sequence",
-                "logical_time",
-                "phase",
-                "priority",
-                "enqueue_sequence",
-            ],
-            "observation": [
-                "experiment_identity",
-                "scenario_id",
-                "metric_definition_identity",
-                "logical_time",
-                "phase",
-                "priority",
-                "enqueue_sequence",
-            ],
-        }
-    ):
-        raise ValueError("Kernel Event identity contract is unsupported or incomplete")
-    return scheduler
+    return _kernel_scheduler_contract(checked.kernel)
 
 
 def _scenario_root_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
@@ -581,16 +356,17 @@ def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]
 
 def _scheduler_ordering_key(
     scheduler: dict[str, Any], event: dict[str, Any]
-) -> tuple[int, int, int, int]:
-    phase_rank = {
-        phase: index for index, phase in enumerate(scheduler["ordering"][1]["rank"])
-    }
-    return (
-        cast(int, event["logical_time"]),
-        phase_rank[cast(str, event["phase"])],
-        -cast(int, event["priority"]),
-        cast(int, event["enqueue_sequence"]),
-    )
+) -> tuple[int, ...]:
+    key: list[int] = []
+    for ordering in cast(list[dict[str, Any]], scheduler["ordering"]):
+        member = cast(str, ordering["member"])
+        if member == "phase":
+            rank = cast(list[str], ordering["rank"])
+            value = rank.index(cast(str, event[member]))
+        else:
+            value = cast(int, event[member])
+        key.append(-value if ordering["direction"] == "descending" else value)
+    return tuple(key)
 
 
 def _resolved_symbol_from_identity(identity: bytes) -> dict[str, JsonValue]:
@@ -669,26 +445,8 @@ def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
 
 def _runtime_journal_contract(checked: CheckedExperiment) -> dict[str, Any]:
     journal = _scheduler_contract(checked).get("runtime_journal")
-    expected = {
-        "event_spec": {
-            "domain": "runtime-event-spec-v2",
-            "projection": "complete-admitted-event",
-        },
-        "event_catalog": {
-            "domain": "runtime-event-catalog-v2",
-            "projection": "append-only-admitted-event-chain",
-        },
-        "committed_trace": {
-            "domain": "runtime-committed-trace-v2",
-            "projection": "append-only-committed-event-chain-without-snapshot-after",
-        },
-        "root_event_map": {
-            "domain": "runtime-root-event-map-v2",
-            "projection": "complete-root-event-map",
-        },
-    }
-    if journal != expected:
-        raise ValueError("Kernel Runtime journal contract is unsupported or incomplete")
+    if not isinstance(journal, dict):
+        raise ValueError("Kernel Runtime journal contract is absent")
     return cast(dict[str, Any], journal)
 
 
@@ -1613,18 +1371,13 @@ def _runtime_step_boundary(
         pending_events,
         key=lambda event: _scheduler_ordering_key(scheduler, event),
     )
-    at_step_boundary = (
-        next_event["phase"] == "observation"
-        or next_event["logical_time"] != active_logical_time
-    )
+    at_step_boundary = next_event["logical_time"] != active_logical_time
     if (
         terminal_maximum is not None
         and event_position >= terminal_maximum
         and at_step_boundary
     ):
         return "terminal" if "terminal" in stops else None
-    if next_event["phase"] == "observation":
-        return "observation-boundary" if "observation-boundary" in stops else None
     if next_event["logical_time"] != active_logical_time:
         return "logical-boundary" if "logical-boundary" in stops else None
     return None
@@ -1651,20 +1404,24 @@ def _schedule_position_signal(
 def _cancel_target_signal(scheduler: dict[str, Any], status: str) -> str | None:
     if status in scheduler["cancel"]["admitted_target_states"]:
         return None
-    return cast(
-        str, scheduler["cancel"]["refusal_signals"].get(status, "cancel-unknown")
-    )
+    return cast(str, scheduler["cancel"]["refusal_signals"][status])
 
 
 def _ordered_root_events(
     checked: CheckedExperiment,
     scenario: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    scheduler = _scheduler_contract(checked)
+    return _ordered_root_events_under(_scheduler_contract(checked), scenario)
+
+
+def _ordered_root_events_under(
+    scheduler: dict[str, Any], scenario: dict[str, Any]
+) -> list[dict[str, Any]]:
+    root_phases = cast(dict[str, str], scheduler["root_phases"])
     admitted = [
         {
             **event,
-            "phase": ("input" if event["kind"] == "external-input" else "transition"),
+            "phase": root_phases[cast(str, event["kind"])],
             "enqueue_sequence": sequence,
         }
         for sequence, event in enumerate(_scenario_root_events(scenario))
@@ -1673,36 +1430,28 @@ def _ordered_root_events(
 
 
 def _external_input_plan_is_admitted(
-    scenario: dict[str, Any], admission: dict[str, Any]
+    scenario: dict[str, Any], scheduler: dict[str, Any]
 ) -> bool:
-    if admission != {
-        "ordering": ["source_identity", "source_sequence"],
-        "sequence_origin": 0,
-        "continuity": "contiguous-per-source",
-    }:
-        raise ValueError("Kernel external-input admission contract is incomplete")
-    external_events = sorted(
-        (
-            {**event, "authored_sequence": authored_sequence}
-            for authored_sequence, event in enumerate(_scenario_root_events(scenario))
-            if event["kind"] == "external-input"
-        ),
-        key=lambda event: (
-            cast(int, event["logical_time"]),
-            -cast(int, event["priority"]),
-            cast(int, event["authored_sequence"]),
-        ),
+    admission = cast(dict[str, Any], scheduler["external_input_admission"])
+    ordering = cast(list[str], admission["ordering"])
+    source_members = ordering[:-1]
+    sequence_member = ordering[-1]
+    sequence_origin = cast(int, admission["sequence_origin"])
+    external_events = [
+        event
+        for event in _ordered_root_events_under(scheduler, scenario)
+        if event["kind"] == "external-input"
+    ]
+    source_coordinates = sorted(
+        {tuple(event[member] for member in source_members) for event in external_events}
     )
-    source_identities = sorted(
-        {cast(str, event["source_identity"]) for event in external_events}
-    )
-    for source_identity in source_identities:
+    for source_coordinate in source_coordinates:
         sequences = [
-            cast(int, event["source_sequence"])
+            cast(int, event[sequence_member])
             for event in external_events
-            if event["source_identity"] == source_identity
+            if tuple(event[member] for member in source_members) == source_coordinate
         ]
-        if sequences != list(range(len(sequences))):
+        if sequences != list(range(sequence_origin, sequence_origin + len(sequences))):
             return False
     return True
 
@@ -1712,7 +1461,8 @@ def _root_event_id(
     scenario_id: str,
     event: dict[str, Any],
 ) -> str:
-    identity = cast(dict[str, Any], _scheduler_contract(checked)["event_identity"])
+    scheduler = _scheduler_contract(checked)
+    identity = cast(dict[str, Any], scheduler["event_identity"])
     body = {
         "experiment_identity": checked.content_identity,
         "scenario_id": scenario_id,
@@ -1730,7 +1480,8 @@ def _scheduled_event_id(
     scenario_id: str,
     event: dict[str, Any],
 ) -> str:
-    identity = cast(dict[str, Any], _scheduler_contract(checked)["event_identity"])
+    scheduler = _scheduler_contract(checked)
+    identity = cast(dict[str, Any], scheduler["event_identity"])
     body = {
         "experiment_identity": checked.content_identity,
         "scenario_id": scenario_id,
@@ -1753,7 +1504,9 @@ def _observation_event_id(
     logical_time: int,
     enqueue_sequence: int,
 ) -> str:
-    identity = cast(dict[str, Any], _scheduler_contract(checked)["event_identity"])
+    scheduler = _scheduler_contract(checked)
+    identity = cast(dict[str, Any], scheduler["event_identity"])
+    observation = cast(dict[str, Any], scheduler["observation"])
     return _projected_runtime_identity(
         {
             "domain": identity["domain"],
@@ -1764,8 +1517,8 @@ def _observation_event_id(
             "scenario_id": scenario_id,
             "metric_definition_identity": metric_definition_identity,
             "logical_time": logical_time,
-            "phase": "observation",
-            "priority": 0,
+            "phase": observation["phase"],
+            "priority": observation["priority"],
             "enqueue_sequence": enqueue_sequence,
         },
     )
@@ -1968,9 +1721,7 @@ def check_experiment(
             )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
-        external_input_admission = kernel["meta_format"]["runtime_program"][
-            "scheduler"
-        ]["external_input_admission"]
+        scheduler = _kernel_scheduler_contract(kernel)
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
@@ -1980,9 +1731,7 @@ def check_experiment(
                 for event in event_plan
                 if event["kind"] == "external-input"
             )
-            or not _external_input_plan_is_admitted(
-                scenario, cast(dict[str, Any], external_input_admission)
-            )
+            or not _external_input_plan_is_admitted(scenario, scheduler)
         ):
             return _refusal(
                 stage="static",
@@ -2220,9 +1969,34 @@ def check_experiment(
                 entrypoint["scenario_input_contract"]["targets"],
             )
         ]
+        initializer_rows = [
+            initializer
+            for entrypoint in selected_entrypoints
+            for initializer in cast(
+                list[dict[str, Any]],
+                entrypoint["scenario_input_contract"]["initializers"],
+            )
+        ]
+        try:
+            scenario_contract = _canonical_contract_union(
+                contract_targets,
+                contract_name="Scenario Input Contract",
+            )
+            _canonical_contract_union(
+                initializer_rows,
+                contract_name="Scenario initializer contract",
+            )
+        except ValueError as err:
+            return _refusal(
+                stage="static",
+                code="language.source_contract_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}/assignments",
+                message=str(err),
+            )
         allowed = {
-            canonical_bytes(cast(JsonValue, row["target"])): row
-            for row in contract_targets
+            identity: row
+            for identity, row in scenario_contract.items()
             if row["owner"] == "experiment"
         }
         provided = {
@@ -2256,10 +2030,19 @@ def check_experiment(
                 entrypoint["external_fact_contract"]["targets"],
             )
         ]
-        allowed_external_facts = {
-            canonical_bytes(cast(JsonValue, row["target"])): row
-            for row in external_fact_targets
-        }
+        try:
+            allowed_external_facts = _canonical_contract_union(
+                external_fact_targets,
+                contract_name="external-fact contract",
+            )
+        except ValueError as err:
+            return _refusal(
+                stage="static",
+                code="language.source_contract_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}/event_plan",
+                message=str(err),
+            )
         for row in scenario["assignments"]:
             declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
             domain = declaration["domain"]
@@ -3871,11 +3654,20 @@ def evaluate_experiment(
                     )
                     continue
                 if operator == "cancel-event":
-                    target = instruction["event"]
+                    target_contract = node_contracts[instruction["node"]]["semantics"][
+                        "target_reference"
+                    ]
+                    target = instruction[target_contract["instruction_member"]]
+                    target_value_member = target_contract["value_member"]
+                    target_variable = target.get(target_value_member)
                     cancel_signals = _scheduler_contract(checked)["cancel"][
                         "refusal_signals"
                     ]
-                    if target["kind"] != "local" or target["local"] not in variables:
+                    if (
+                        target.get("kind") != target_contract["kind"]
+                        or not isinstance(target_variable, str)
+                        or target_variable not in variables
+                    ):
                         raise _RuntimeExecutionFault(
                             signal=cast(str, cancel_signals["unknown"]),
                             operation=selected_operation["id"],
@@ -3884,7 +3676,7 @@ def evaluate_experiment(
                             evaluation_site_identity=evaluation_site_identity,
                             instruction_index=instruction_index,
                         )
-                    target_event_id = variables[target["local"]]
+                    target_event_id = variables[target_variable]
                     target_status = (
                         "unknown"
                         if target_event_id in canceled_event_ids
@@ -4077,9 +3869,7 @@ def evaluate_experiment(
             next_enqueue_sequence_before = next_enqueue_sequence
             root_arguments: dict[str, Any] = {}
             root_state_references: dict[str, bytes] = {}
-            event_actual_values = (
-                actual_values if external_input else dict(actual_values)
-            )
+            event_actual_values = dict(actual_values)
             payload_values = (
                 {
                     canonical_bytes(cast(JsonValue, row["target"])): row["value"]
@@ -4123,7 +3913,7 @@ def evaluate_experiment(
             if external_input:
                 for fact in event_spec["facts"]:
                     identity = canonical_bytes(cast(JsonValue, fact["target"]))
-                    actual_values[identity] = fact["value"]
+                    event_actual_values[identity] = fact["value"]
             elif entrypoint is None:
                 root_arguments.update(event_spec["arguments"])
                 root_state_references.update(event_spec["state_references"])
@@ -4231,6 +4021,8 @@ def evaluate_experiment(
                         for identity, value in before.items()
                     },
                 )
+            if external_input:
+                actual_values.update(event_actual_values)
             for identity, value in state.items():
                 actual_values[identity] = value
                 event_actual_values[identity] = value
@@ -4486,6 +4278,7 @@ def evaluate_experiment(
         terminal_snapshot_identity = current_snapshot_identity
         terminal_event_count = event_position
         observation_event_ids: list[str] = []
+        observation_contract = cast(dict[str, Any], scheduler["observation"])
         for metric_index, metric in enumerate(checked.value["metrics"]):
             metric_identity = _metric_definition_identity(metric)
             observation_event_id = _observation_event_id(
@@ -4499,8 +4292,8 @@ def evaluate_experiment(
                 dict[str, JsonValue],
                 {
                     "logical_time": logical_time,
-                    "phase": "observation",
-                    "priority": 0,
+                    "phase": observation_contract["phase"],
+                    "priority": observation_contract["priority"],
                     "enqueue_sequence": next_enqueue_sequence,
                 },
             )
@@ -4942,6 +4735,7 @@ def _artifact_set_runtime_journals_are_valid(
     expected_root_map: list[dict[str, JsonValue]],
 ) -> bool:
     journal = _runtime_journal_contract(checked)
+    scheduler = _scheduler_contract(checked)
     snapshots = cast(list[dict[str, Any]], snapshot_series["snapshots"])
     events = cast(list[dict[str, JsonValue]], trace["events"])
     catalog = cast(list[dict[str, JsonValue]], snapshot_series["event_catalog"])
@@ -4981,7 +4775,6 @@ def _artifact_set_runtime_journals_are_valid(
         cast(str, journal["root_event_map"]["domain"]),
         cast(JsonValue, expected_root_map),
     )
-    phase_rank = {"input": 0, "transition": 1, "observation": 2}
     catalog_ids = {cast(str, row["event_id"]) for row in catalog}
     scheduled_ids = {
         cast(str, schedule["event_id"])
@@ -5005,15 +4798,9 @@ def _artifact_set_runtime_journals_are_valid(
         ):
             return False
         ordering_keys = [
-            (
-                cast(int, cast(dict[str, Any], event["ordering_key"])["logical_time"]),
-                phase_rank[
-                    cast(str, cast(dict[str, Any], event["ordering_key"])["phase"])
-                ],
-                -cast(int, cast(dict[str, Any], event["ordering_key"])["priority"]),
-                cast(
-                    int, cast(dict[str, Any], event["ordering_key"])["enqueue_sequence"]
-                ),
+            _scheduler_ordering_key(
+                scheduler,
+                cast(dict[str, Any], event["ordering_key"]),
             )
             for event in scenario_events
         ]
@@ -5076,24 +4863,9 @@ def _artifact_set_runtime_journals_are_valid(
                 if record["event_id"] not in committed_ids | canceled_ids
             ]
             pending_order = [
-                (
-                    cast(
-                        int,
-                        cast(dict[str, Any], record["ordering_key"])["logical_time"],
-                    ),
-                    phase_rank[
-                        cast(str, cast(dict[str, Any], record["ordering_key"])["phase"])
-                    ],
-                    -cast(
-                        int,
-                        cast(dict[str, Any], record["ordering_key"])["priority"],
-                    ),
-                    cast(
-                        int,
-                        cast(dict[str, Any], record["ordering_key"])[
-                            "enqueue_sequence"
-                        ],
-                    ),
+                _scheduler_ordering_key(
+                    scheduler,
+                    cast(dict[str, Any], record["ordering_key"]),
                 )
                 for record in pending_records
             ]
@@ -5211,14 +4983,10 @@ def _terminal_statuses_are_valid(
     return True
 
 
-def _runtime_ordering_tuple(ordering_key: dict[str, Any]) -> tuple[int, int, int, int]:
-    phase_rank = {"input": 0, "transition": 1, "observation": 2}
-    return (
-        cast(int, ordering_key["logical_time"]),
-        phase_rank[cast(str, ordering_key["phase"])],
-        -cast(int, ordering_key["priority"]),
-        cast(int, ordering_key["enqueue_sequence"]),
-    )
+def _runtime_ordering_tuple(
+    scheduler: dict[str, Any], ordering_key: dict[str, Any]
+) -> tuple[int, ...]:
+    return _scheduler_ordering_key(scheduler, ordering_key)
 
 
 def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
@@ -5507,6 +5275,7 @@ def _terminal_audit_is_valid(
     expected_root_map: list[dict[str, JsonValue]],
     reproduction_identity: str,
 ) -> bool:
+    scheduler = _scheduler_contract(checked)
     scenario_id = audit.get("scenario")
     scenario_rows = [
         (index, scenario)
@@ -5595,7 +5364,7 @@ def _terminal_audit_is_valid(
     seen_snapshot_after: set[str] = set()
     previous_event: dict[str, Any] | None = None
     previous_scenario: str | None = None
-    previous_ordering: tuple[int, int, int, int] | None = None
+    previous_ordering: tuple[int, ...] | None = None
     current_scenario_events: list[dict[str, Any]] = []
     for index, event in enumerate(events):
         event_id = cast(str, event["event_id"])
@@ -5618,7 +5387,10 @@ def _terminal_audit_is_valid(
             event_scenario = cast(str, previous_scenario)
         else:
             return False
-        ordering = _runtime_ordering_tuple(cast(dict[str, Any], event["ordering_key"]))
+        ordering = _runtime_ordering_tuple(
+            scheduler,
+            cast(dict[str, Any], event["ordering_key"]),
+        )
         if (
             event.get("index") != index
             or event_id in seen_event_ids
@@ -5709,8 +5481,8 @@ def _terminal_audit_is_valid(
         )
         expected_ordering_key = {
             "logical_time": last_snapshot["logical_time"],
-            "phase": "observation",
-            "priority": 0,
+            "phase": scheduler["observation"]["phase"],
+            "priority": scheduler["observation"]["priority"],
             "enqueue_sequence": continuation["next_enqueue_sequence"],
         }
         if (
@@ -5751,8 +5523,11 @@ def _terminal_audit_is_valid(
             audit.get("last_snapshot_identity")
             != last_event.get("snapshot_after_identity")
             or last_snapshot_values != last_event.get("state_after")
-            or _runtime_ordering_tuple(ordering_key)
-            < _runtime_ordering_tuple(cast(dict[str, Any], last_event["ordering_key"]))
+            or _runtime_ordering_tuple(scheduler, ordering_key)
+            < _runtime_ordering_tuple(
+                scheduler,
+                cast(dict[str, Any], last_event["ordering_key"]),
+            )
         ):
             return False
     expected_snapshot_event_id = (

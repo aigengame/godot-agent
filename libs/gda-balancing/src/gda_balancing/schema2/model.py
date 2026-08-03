@@ -3242,6 +3242,8 @@ def _assignment_policy(
                 not in {"forbidden", "optional", "required"}
                 or mode.get("event_payload_cardinality")
                 not in {"forbidden", "optional", "required"}
+                or mode.get("external_fact_cardinality")
+                not in {"forbidden", "optional", "required"}
                 or not isinstance(mode.get("override"), bool)
                 for mode in row["modes"]
             )
@@ -3280,6 +3282,7 @@ def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
     value_member = mode.get("value_member")
     cardinality = mode.get("experiment_cardinality")
     event_cardinality = mode.get("event_payload_cardinality")
+    external_fact_cardinality = mode.get("external_fact_cardinality")
     override = mode.get("override")
     initialization_is_coherent = (
         (
@@ -3307,11 +3310,11 @@ def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
             and override is False
         )
     )
-    return initialization_is_coherent and event_cardinality in {
-        "forbidden",
-        "optional",
-        "required",
-    }
+    return (
+        initialization_is_coherent
+        and event_cardinality in {"forbidden", "optional", "required"}
+        and external_fact_cardinality in {"forbidden", "optional", "required"}
+    )
 
 
 def _assignment_role_is_total(row: dict[str, Any]) -> bool:
@@ -3341,6 +3344,14 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
                 )
                 for mode in modes
             )
+            and all(
+                mode["external_fact_cardinality"] == "forbidden"
+                or (
+                    accesses == ["read"]
+                    and mode["initialization_source"] == "experiment"
+                )
+                for mode in modes
+            )
         )
     if row["binding_kind"] == "result":
         return (
@@ -3348,12 +3359,14 @@ def _assignment_role_is_total(row: dict[str, Any]) -> bool:
             and result is True
             and all(mode["initialization_source"] == "execution" for mode in modes)
             and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+            and all(mode["external_fact_cardinality"] == "forbidden" for mode in modes)
         )
     return (
         row["binding_kind"] == "internal"
         and not accesses
         and result is False
         and all(mode["event_payload_cardinality"] == "forbidden" for mode in modes)
+        and all(mode["external_fact_cardinality"] == "forbidden" for mode in modes)
     )
 
 
@@ -4229,16 +4242,21 @@ def _symbol_event_payload_contract(
 
 def _symbol_external_fact_contract(
     declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
     resolved_symbol: dict[str, JsonValue],
     target_identity: str,
 ) -> dict[str, JsonValue] | None:
-    if declaration["role"] != "input":
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
+        raise ValueError("Symbol has no total assignment-policy mode")
+    cardinality = cast(str, mode["external_fact_cardinality"])
+    if cardinality == "forbidden":
         return None
     return {
         "target": resolved_symbol,
         "target_identity": target_identity,
         "owner": "external-source",
-        "cardinality": "optional",
+        "cardinality": cardinality,
         "value_source": "external-input-fact",
         "value_contract": {
             member: cast(JsonValue, declaration[member])
@@ -4628,6 +4646,7 @@ def _resolved_entrypoints(
                 event_payload_targets[dependency_identity] = event_payload_target
             external_fact_target = _symbol_external_fact_contract(
                 dependency,
+                assignment_policy,
                 dependency_symbol,
                 dependency_identity,
             )
@@ -4745,6 +4764,7 @@ def _resolved_entrypoints(
                     event_payload_targets[operand_identity] = event_payload_target
                 external_fact_target = _symbol_external_fact_contract(
                     declaration,
+                    assignment_policy,
                     resolved_symbol,
                     operand_identity,
                 )
@@ -6146,6 +6166,7 @@ def _resolved_entrypoint_graph_is_admitted(
                 event_payload_targets[dependency_identity] = event_payload_target
             external_fact_target = _symbol_external_fact_contract(
                 dependency,
+                assignment_policy,
                 dependency_symbol,
                 dependency_identity,
             )
@@ -6250,6 +6271,7 @@ def _resolved_entrypoint_graph_is_admitted(
                     event_payload_targets[operand_identity] = event_payload_target
                 external_fact_target = _symbol_external_fact_contract(
                     declaration,
+                    assignment_policy,
                     cast(dict[str, JsonValue], symbol),
                     operand_identity,
                 )

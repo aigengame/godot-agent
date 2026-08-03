@@ -693,10 +693,11 @@ the total order. Models and packages cannot add or reorder phases.
 
 Runtime admission first resolves the Experiment's closed Executable Event plan. Every authored
 external-input or transition-invocation root member has a unique stable `root_event_ref`; canonical
-array order assigns initial enqueue sequence and Runtime-owned `event_id`, producing an explicit
-root-reference map before dispatch. Equal logical times are legal. Event identity, host-container
-iteration, wall clock, threads, and evaluator parallelism never break ties. Observation members are
-derived from exact Observation/Metric contracts and cannot choose a phase or Model entrypoint.
+array order assigns initial enqueue sequence and Runtime-owned `event_id`, while the Kernel
+scheduler contract maps each root kind to its phase. This produces an explicit root-reference map
+before dispatch. Equal logical times are legal. Event identity, host-container iteration, wall
+clock, threads, and evaluator parallelism never break ties. Observation members are derived from
+exact Observation/Metric contracts and cannot choose a phase or Model entrypoint.
 
 - An `input` event admits externally supplied, source-sequenced facts and cannot be scheduled by
   model operations.

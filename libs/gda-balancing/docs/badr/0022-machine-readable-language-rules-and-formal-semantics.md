@@ -240,6 +240,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   contract. Each assignment mode also owns its Event-payload cardinality: this slice permits an
   optional Event-local override only for read-only `parameter` and `input` operands initialized by
   the Experiment, while fixed, writable, derived, result, and internal values remain forbidden.
+  External-fact cardinality is a separate member of that same assignment mode rather than a host
+  inference from Symbol role: only read-only, Experiment-initialized operands may be exposed, and
+  result, writable, fixed, derived, and internal modes remain forbidden.
   Literal typing is a separate package-owned LDB authority: a root
   or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
   type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The

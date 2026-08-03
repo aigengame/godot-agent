@@ -105,12 +105,11 @@ refusal payload stage-aware and artifact-aware.
   nested-call prefix needed to derive the current Event charge from admitted RIR. Without rerunning
   the evaluator, Recovery walks the admitted RIR resource transitions through that first budget
   breach and treats those coordinates as evidence to compare, not path authority. Attempted Event
-  and node steps close
-  against the last committed resource ledger plus those independently derived current-Event and
-  applicable Formula charges; they are not merely bounded values.
-  Re-hashing independently wire-valid drift does not make it trusted recovery evidence. Only after commit does
-  the command emit the category-`refusal` envelope on stdout
-  with exit 2; stdout is not part of the artifact-store transaction. No completed Evaluation run,
+  and node steps close against the last committed resource ledger plus those independently derived
+  current-Event and applicable Formula charges; they are not merely bounded values. Re-hashing
+  independently wire-valid drift does not make it trusted recovery evidence. Only after commit does
+  the command emit the category-`refusal` envelope on stdout with exit 2; stdout is not part of the
+  artifact-store transaction. No completed Evaluation run,
   Metric dataset, success result, Verdict, or positive Evidence assertion is published. A receipt
   must resolve to bytes whose identity verifies; an unpublished digest is not a retrievable receipt.
   The terminal-audit set has a closed member-kind contract and may include already successful

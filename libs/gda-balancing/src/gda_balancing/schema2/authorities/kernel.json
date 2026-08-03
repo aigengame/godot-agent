@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c",
+  "content_identity": "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2574,22 +2574,30 @@
                                 "required"
                               ]
                             },
-                            "event_payload_cardinality": {
-                              "enum": [
-                                "forbidden",
-                                "optional",
-                                "required"
-                              ]
-                            }
+                    "event_payload_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    },
+                    "external_fact_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    }
                           },
                           "required_members": [
                             "id",
                             "initialization_source",
                             "value_member",
-                            "experiment_cardinality",
-                            "override",
-                            "event_payload_cardinality"
-                          ],
+                    "experiment_cardinality",
+                    "override",
+                    "event_payload_cardinality",
+                    "external_fact_cardinality"
+                  ],
                           "type": "closed-object"
                         },
                         "type": "list-of"
@@ -5561,7 +5569,13 @@
             "kind": "cancellation"
           },
           "semantics": {
-            "operator": "cancel-event"
+            "operator": "cancel-event",
+            "target_reference": {
+              "instruction_member": "event",
+              "kind": "local",
+              "producer_result_kind": "scheduled-event",
+              "value_member": "local"
+            }
           }
         }
       ],
@@ -6372,6 +6386,10 @@
           }
         ],
         "root_enqueue_sequence": "authored-array-order",
+        "root_phases": {
+          "external-input": "input",
+          "transition-invocation": "transition"
+        },
         "step_boundary": "next-observation-or-logical-boundary",
         "call_site_identity": {
           "schedule": {

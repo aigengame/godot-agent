@@ -157,10 +157,9 @@ Each transition-invocation member selects one exact `Model entrypoint` and carri
 derived Event-local payload; external-input members carry typed source-sequenced facts and select no
 entrypoint; observation members are derived from exact Observation/Metric contracts. It cannot
 select a raw LDB Operation, invent an input name, author another Runtime phase, or redefine a formal
-port or model symbol. It references an exact
-`Resolved Model` identity or a declared compatibility contract. Exact Resolved-Model binding is
-immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
-Resolved Model before execution and produce an identified
+port or model symbol. It references an exact `Resolved Model` identity or a declared compatibility
+contract. Exact Resolved-Model binding is immutable; compatibility binding may compare RIR semantic
+payloads but must resolve to one exact Resolved Model before execution and produce an identified
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
 identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
 specification is versioned and hashed independently so evidence identifies both model and
@@ -171,9 +170,9 @@ _Avoid_: experiment config, model overrides, scenario package
 The closed, bounded Experiment-owned plan for one scenario. Its authored root members are exactly
 `external-input` or `transition-invocation`; its `observation` members are derived from the exact
 Observation/Metric contracts. Every authored root has a unique `Root Event reference`, logical
-time, fixed phase, priority, and typed payload/facts contract. Runtime admission resolves the plan,
-assigns Event identities and enqueue sequence, and cannot add a scenario timeline or host callback
-(bADR-0012/0014/0018/0022).
+time, Kernel-mapped phase for its root kind, priority, and typed payload/facts contract. Runtime
+admission resolves the plan, assigns Event identities and enqueue sequence, and cannot add a
+scenario timeline, choose another phase, or call a host callback (bADR-0012/0014/0018/0022).
 _Avoid_: scenario loop, tick list, evaluator callback plan
 
 **Approval Record**:
@@ -542,7 +541,9 @@ refuse. This union is a derived projection, not a second Scenario Input Contract
 payloads and external facts never become initialization members. The LDB assignment mode derives a
 separate payload contract for each entrypoint: an admitted read-only, Experiment-initialized
 parameter or input may be overridden for one Event, while state and every other forbidden target
-cannot appear in that payload.
+cannot appear in that payload. The same mode independently declares external-fact cardinality;
+only an admitted read-only, Experiment-initialized operand may be exposed to an external-input
+root, and every other mode is forbidden.
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:

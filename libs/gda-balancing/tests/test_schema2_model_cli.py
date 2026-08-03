@@ -4906,6 +4906,40 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
     )
 
 
+def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
+    source = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    assignment_policy = checked.language_bundle["language"]["model_lowerings"][0][
+        "assignment_policy"
+    ]
+    modes = {
+        (row["role"], mode["id"]): mode["external_fact_cardinality"]
+        for row in assignment_policy["roles"]
+        for mode in row["modes"]
+    }
+    assert modes[("input", "experiment-required")] == "optional"
+    assert {
+        cardinality for (role, _mode), cardinality in modes.items() if role != "input"
+    } == {"forbidden"}
+
+    rir = cast(
+        dict[str, Any],
+        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+    )
+    entrypoint = next(
+        row
+        for row in cast(list[dict[str, Any]], rir["entrypoints"])
+        if row["id"] == "combat.cast"
+    )
+    assert {
+        row["target"]["name"]: row["cardinality"]
+        for row in entrypoint["external_fact_contract"]["targets"]
+    } == {"target_defense": "optional"}
+
+
 @pytest.mark.parametrize(
     ("member", "hidden_value"),
     (

@@ -27,7 +27,8 @@ Event trace + Snapshots + Metrics + Evaluation run
 The example models one bounded multi-Event scenario. An authored external-input root changes the
 defense fact, an authored `game.combat.plan-casts-v1` root schedules two child casts, the plan
 cancels one pending child, and the remaining `game.combat.cast-v1` child executes at logical time
-`1`. Runtime then derives the Metric's read-only observation Event. The game owns two
+`1`. A direct `combat.cast` root then executes at time `2`, binding its result to the Model's
+`damage_dealt` output. Runtime derives two read-only Metric observation Events. The game owns two
 pure Formulas in Model Source: `effective-accuracy` initializes a game-owned derived Symbol, while
 `mitigated-damage` fills the combat package's `damage-policy` Formula slot. The reusable Operation
 still owns Event control, RNG, state changes, outcomes, and commit/rollback. The files are:
@@ -37,8 +38,8 @@ still owns Event control, RNG, state changes, outcomes, and commit/rollback. The
   requirements, and the `combat.cast` / `combat.plan-casts` entrypoints that explicitly bind
   game-owned symbols to Operation ports.
 - [`experiment.json`](experiment.json): one exact scenario and evaluation policy. It binds the
-  built Model artifacts, authors the two root Events, assigns the generated one-time Scenario Input
-  Contract, supplies a seed, and defines the Metric and acceptance target.
+  built Model artifacts, authors the three root Events, assigns the generated one-time Scenario
+  Input Contract, supplies a seed, and defines snapshot- and Event-sourced Metrics and targets.
 
 This is a beginner-oriented product-feedback slice, not proof of general RPG or Roguelike
 coverage.
@@ -391,14 +392,15 @@ to produce a pair, then replace both adjacent members together.
 ## 5. Check the Experiment Specification
 
 The companion [`experiment.json`](experiment.json) binds the exact source, Build receipt,
-Resolved Model, Package Lock, and RIR identities produced by the build. Its `one-cast` scenario
-authors an external-input root and a `combat.plan-casts` transition root, then assigns the canonical
-union of their seven required initialization targets exactly once. It also owns:
+Resolved Model, Package Lock, and RIR identities produced by the build. Its `multi-cast` scenario
+authors an external-input root plus `combat.plan-casts` and `combat.cast` transition roots, then
+assigns the canonical union of their seven required initialization targets exactly once. It also
+owns:
 
 - the `standard.exact-int64-event-v1` Runtime profile request;
 - the effective RNG algorithm and seed;
-- the `one-cast` Scenario Input assignments and Named random streams;
-- the `target_health_remaining` Metric;
+- the `multi-cast` Scenario Input assignments and Named random streams;
+- the snapshot-sourced `target_health_remaining` and Event-sourced `damage_dealt` Metrics;
 - its target range and the all-Metrics acceptance policy.
 
 The Event plan deliberately separates concepts that are easy to conflate:
@@ -406,12 +408,13 @@ The Event plan deliberately separates concepts that are easy to conflate:
 - `root_event_ref` is the stable authored name in `experiment.json`; Runtime maps each root to its
   own `event_id` before dispatch. Scheduled children have Runtime ids and parent/call-site
   provenance, but no authored root reference.
-- `payload` is checked against the selected entrypoint's independently derived Event-local
-  contract. Here it explicitly overrides `base_damage` with the same tutorial value for the
-  `plan-casts` Event; trying to put writable `actor_mana` state there refuses before Runtime.
+- `payload` is checked against each selected entrypoint's independently derived Event-local
+  contract. The plan explicitly supplies `base_damage`; the direct retry supplies zero cost and
+  damage so it exposes an output without changing the terminal state. Trying to put writable
+  `actor_mana` state in either payload refuses before Runtime.
 - Logical time orders modeled Events; it is not a tick count and is unrelated to node-step or
-  per-Event resource budgets. Here the roots execute at time `0`, and the surviving child executes
-  at time `1`.
+  per-Event resource budgets. Here two roots execute at time `0`, the surviving child executes at
+  time `1`, and the direct retry root executes at time `2`.
 - Equal logical times are legal and serialized by phase (`input`, `transition`, `observation`),
   priority, then enqueue sequence. Each Event reads the Snapshot committed by the preceding Event,
   including another Event at the same logical time.
@@ -531,7 +534,9 @@ jq '.samples[] | {
 
 With the committed example values, the external-input root changes defense from `30` to `20`.
 The surviving critical cast then changes target health from `100` to `30`, and actor mana from
-`35` to `26`. These tutorial inputs are
+`35` to `26`. The direct retry resolves with zero cost and zero damage, so its entrypoint result
+produces the Event-sourced `damage_dealt = 0` sample while leaving that state unchanged. These
+tutorial inputs are
 intentionally independent from the package's normative conformance-vector inputs: the public loop
 consumes the same admitted semantics without treating package evidence as product configuration.
 
@@ -876,9 +881,9 @@ The dogfooding result is deliberately narrow:
 - **Confirmed:** exact Formula body/expression round trips, atomic Event commits, root mapping,
   deterministic ordering, schedule/cancel provenance, derived observations, and artifact recovery
   all execute through the public CLI.
-- **Refined and adopted:** the example observes the scheduled child's terminal Snapshot. A
-  scheduled Operation is not a Model entrypoint invocation, so it does not rebind its return value
-  to the `combat.cast` entrypoint's `damage_dealt` output Symbol.
+- **Refined and adopted:** the example observes the scheduled child through the terminal Snapshot
+  and the direct `combat.cast` root through its `damage_dealt` output. A scheduled Operation is not
+  a Model entrypoint invocation, so only the direct root rebinds its return value to that Symbol.
 - **Authored-example-only:** the mana, hit, critical, defense, and cast narrative demonstrates the
   generic contracts but proves no general RPG, Effect, Replay, or Evidence coverage.
 - **Gap-opened:** none. The example stays within the admitted scheduler and observation contracts;

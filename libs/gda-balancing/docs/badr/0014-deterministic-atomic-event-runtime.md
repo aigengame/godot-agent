@@ -53,6 +53,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   reference map, while later schedule operations return and trace their Runtime-owned child
   `event_id`.
 
+- **Root kind fixes phase through the Kernel contract.** The Kernel scheduler maps authored
+  `external-input` roots to `input` and `transition-invocation` roots to `transition`; the host
+  neither repeats that map nor assigns a phase from local conditionals. Observation phase and
+  priority are likewise Kernel-owned derived values.
+
 - **The three phases have non-overlapping ownership.** `input` admits the externally supplied,
   source-sequenced facts for that logical time and cannot be scheduled by model operations.
   `transition` executes model actions, effects, resource changes, combat, generation, and other
@@ -127,10 +132,14 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   parent Event, child Event, complete ordering key, and commit outcome.
 
 - **Cancellation is prospective and identity-based.** Every admitted event has a stable `event_id`.
+  The Kernel `schedule` node produces a scheduled-Event reference, and `cancel` consumes that
+  reference through its declared target-reference shape; the generic invocation operand inventory
+  does not broaden cancellation targets.
   Cancellation may target only an event that has not begun dispatch; canceling an absent, completed,
-  or active event follows the operation's declared typed outcome and never rewinds committed state.
-  Undo is represented by an explicit compensating event or a higher-level rollback model, not by
-  scheduler time travel.
+  or active event produces the LDB-owned Runtime refusal for that exact target state and never
+  rewinds committed state. A Domain operation may expose a typed alternative only where its declared
+  contract explicitly maps that refusal before the scheduler boundary. Undo is represented by an
+  explicit compensating event or a higher-level rollback model, not by scheduler time travel.
   Cancellation is buffered with the active transaction and traces the canceling Event/call site,
   target identity, and typed result. A successful commit removes only an admitted pending target;
   refusal restores both the queue and cancellation state.

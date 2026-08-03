@@ -55,6 +55,20 @@ def test_reference_consumer_rejects_non_string_runtime_binding_paths(
     )
 
 
+def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
+    authority = _authority_candidate()
+    runtime = authority["kernel"]["meta_format"]["runtime_program"]
+    nodes = {node["id"]: node for node in runtime["nodes"]}
+
+    assert nodes["schedule"]["result"]["kind"] == "scheduled-event"
+    assert nodes["cancel"]["semantics"]["target_reference"] == {
+        "instruction_member": "event",
+        "kind": "local",
+        "producer_result_kind": "scheduled-event",
+        "value_member": "local",
+    }
+
+
 def test_rir_semantic_projection_members_close_against_the_wire_schema():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]

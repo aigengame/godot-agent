@@ -124,6 +124,38 @@ def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
+    target = {
+        "model": "example.contract-union",
+        "module": "main",
+        "name": "shared",
+    }
+    rows = [
+        {
+            "target": target,
+            "target_identity": "sha256:" + ("1" * 64),
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": "required",
+            "override": False,
+        },
+        {
+            "target": target,
+            "target_identity": "sha256:" + ("1" * 64),
+            "owner": "experiment",
+            "initialization_source": "scenario-assignment",
+            "cardinality": "optional",
+            "override": True,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="conflicting Scenario Input Contract"):
+        experiment_runtime_module._canonical_contract_union(
+            rows,
+            contract_name="Scenario Input Contract",
+        )
+
+
 def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
     locator = next(
         item["locator"]
@@ -4582,31 +4614,43 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         None,
         "game.combat.plan-casts-v1",
         "game.combat.cast-v1",
+        "game.combat.cast-v1",
+        None,
         None,
     ]
     assert [event["ordering_key"]["logical_time"] for event in first_events] == [
         0,
         0,
         1,
-        1,
+        2,
+        2,
+        2,
     ]
     assert [event["ordering_key"]["phase"] for event in first_events] == [
         "input",
         "transition",
         "transition",
+        "transition",
+        "observation",
         "observation",
     ]
     input_event, plan_event, cast_event = first_events[:3]
+    direct_cast_event = first_events[3]
     assert first_trace["root_event_map"] == [
         {
-            "scenario": "one-cast",
+            "scenario": "multi-cast",
             "root_event_ref": "raise-defense",
             "event_id": input_event["event_id"],
         },
         {
-            "scenario": "one-cast",
+            "scenario": "multi-cast",
             "root_event_ref": "plan-casts",
             "event_id": plan_event["event_id"],
+        },
+        {
+            "scenario": "multi-cast",
+            "root_event_ref": "retry-cast",
+            "event_id": direct_cast_event["event_id"],
         },
     ]
     assert cast_event["parent_event_id"] == plan_event["event_id"]
@@ -4622,7 +4666,18 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     assert plan_event["schedules"][1]["event_id"] not in {
         event["event_id"] for event in first_events
     }
-    assert len(first_snapshots) == 5
+    assert direct_cast_event.get("parent_event_id") is None
+    assert direct_cast_event["outcome"]["id"] == "cast-resolved"
+    assert direct_cast_event["state_after"] == direct_cast_event["state_before"]
+    assert (
+        next(
+            item["integer"]
+            for item in direct_cast_event["facts"]
+            if item["name"] == "action_cost"
+        )
+        == 0
+    )
+    assert len(first_snapshots) == len(first_events) + 1
     assert [
         (event["snapshot_before_identity"], event["snapshot_after_identity"])
         for event in first_events
@@ -4631,7 +4686,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             first_snapshots[index]["snapshot_identity"],
             first_snapshots[index + 1]["snapshot_identity"],
         )
-        for index in range(4)
+        for index in range(len(first_events))
     ]
     recovered_exit, recovered_stdout, recovered_stderr = run_cli(
         [
@@ -4700,6 +4755,14 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         if sample["metric"] == "target_health_remaining"
     )
     assert first_health == 30
+    assert (
+        next(
+            sample["value"]
+            for sample in first_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 0
+    )
 
     edited_source_value = deepcopy(source_value)
     edited_source_value["manifest"]["version"] = "1.1.0"
@@ -4861,6 +4924,14 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         == 45
     )
     assert tuned_health == 10 < first_health
+    assert (
+        next(
+            sample["value"]
+            for sample in tuned_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 0
+    )
     assert next(
         event
         for event in tuned_trace["events"]
@@ -4919,6 +4990,14 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
             if sample["metric"] == "target_health_remaining"
         )
         == 75
+    )
+    assert (
+        next(
+            sample["value"]
+            for sample in alternate_metrics["samples"]
+            if sample["metric"] == "damage_dealt"
+        )
+        == 0
     )
     assert (
         alternate_trace["content_identity"] != first_trace["content_identity"]
@@ -5429,6 +5508,10 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
         "runtime.scheduler.refuse.cancel-completed",
         *mutation_vectors,
     }
+    mutation_inputs = [
+        canonical_bytes(vectors[vector_id]["input"]) for vector_id in mutation_vectors
+    ]
+    assert len(set(mutation_inputs)) == len(mutation_inputs)
     for vector in vectors.values():
         production = experiment_runtime_module._evaluate_scheduler_vector(
             kernel, vector
@@ -5727,9 +5810,7 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     ]
 
 
-def test_experiment_refuses_nonempty_external_inputs_until_the_slice_consumes_them(
-    tmp_path, run_cli
-):
+def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
     value["external_inputs"] = [{"channel": "player", "index": 0, "value": 1}]

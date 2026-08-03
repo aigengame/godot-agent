@@ -2,13 +2,13 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.multi-event",
   "version": "1.0.0",
-  "kernel_identity": "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c",
-  "language_bundle_identity": "sha256:f3aed28e6bd3ef3e4d1a32a7836766c7674849385c2c5d6508a231188e16e7ed",
+  "kernel_identity": "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b",
+  "language_bundle_identity": "sha256:27ffb614240d02be4ee6abf51ef6ce191d68ea4006b8098a6daf84d4f0404364",
   "model": {
     "source_identity": "sha256:567635b88135f3893530422b6956854bc15cbdfd8913be45b2130f7f2f3cb45b",
-    "build_receipt_identity": "sha256:87b909326eb4ae0a9581dfdb549078987d88f57b23c5d486a65ab72fba11b374",
-    "resolved_model_identity": "sha256:d5c926c2c417caef0657831ff441366c4a40d819dd03e342c77ae41ae3c73c4c",
-    "package_lock_identity": "sha256:53a4885418099608f3cfc9b3938c604755fa8ed99c058025c69ba175cb2d27a0",
+    "build_receipt_identity": "sha256:66a0eab3c2e77029a2e40fcb53dbf44261b3407209437a8f1e466563fa67f303",
+    "resolved_model_identity": "sha256:851f66d3e1ae4b29a7e1717f09fc08790182f493c292ab2f7ec336ed8a578c8c",
+    "package_lock_identity": "sha256:8c194caddf6c87898e0088c7fdb64a4898c9629e26aaaf60e2aa886e47183001",
     "rir_identity": "sha256:2969c43d726bd459e575bf5e6391958b1d026381949ebf57d6269f0820917ae5"
   },
   "runtime": {
@@ -59,7 +59,7 @@
   },
   "scenarios": [
     {
-      "id": "one-cast",
+      "id": "multi-cast",
       "event_plan": [
         {
           "kind": "external-input",
@@ -83,18 +83,43 @@
           "kind": "transition-invocation",
           "root_event_ref": "plan-casts",
           "logical_time": 0,
-      "priority": 0,
-      "entrypoint": "combat.plan-casts",
-      "payload": [
+          "priority": 0,
+          "entrypoint": "combat.plan-casts",
+          "payload": [
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "base_damage"
+              },
+              "value": 45
+            }
+          ]
+        },
         {
-          "target": {
-            "model": "example.rpg-combat-cast",
-            "module": "combat",
-            "name": "base_damage"
-          },
-          "value": 45
-        }
-      ]
+          "kind": "transition-invocation",
+          "root_event_ref": "retry-cast",
+          "logical_time": 2,
+          "priority": 0,
+          "entrypoint": "combat.cast",
+          "payload": [
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "action_cost"
+              },
+              "value": 0
+            },
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "base_damage"
+              },
+              "value": 0
+            }
+          ]
         }
       ],
       "assignments": [
@@ -188,6 +213,31 @@
       "target": {
         "minimum": 0,
         "maximum": 99
+      }
+    },
+    {
+      "id": "damage_dealt",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "event",
+        "name": "cast-resolved",
+        "member": "damage_dealt"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 1000
       }
     }
   ],

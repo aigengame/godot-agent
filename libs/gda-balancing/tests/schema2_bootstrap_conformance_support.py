@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c"
+    "sha256:3d70aa7e0934ef6cf1e8c2ee91e8f056ab1607f048f0926903c35a2bfd75ee4b"
 )
 
 
@@ -4296,6 +4296,8 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                 not in coherent_modes
                 or mode.get("event_payload_cardinality")
                 not in {"forbidden", "optional", "required"}
+                or mode.get("external_fact_cardinality")
+                not in {"forbidden", "optional", "required"}
                 for mode in modes
             )
             or len({mode["id"] for mode in modes}) != len(modes)
@@ -4324,6 +4326,14 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         )
                         for mode in modes
                     )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
+                        and not (
+                            accesses == ["read"]
+                            and mode["initialization_source"] == "experiment"
+                        )
+                        for mode in modes
+                    )
                 )
             )
             or (
@@ -4338,6 +4348,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                         mode["event_payload_cardinality"] != "forbidden"
                         for mode in modes
                     )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
                 )
             )
             or (
@@ -4347,6 +4361,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                     or result is not False
                     or any(
                         mode["event_payload_cardinality"] != "forbidden"
+                        for mode in modes
+                    )
+                    or any(
+                        mode["external_fact_cardinality"] != "forbidden"
                         for mode in modes
                     )
                 )
@@ -5264,234 +5282,10 @@ def _consumer_b_runtime_authority_is_closed(
             "vectors",
         }
         or runtime.get("closed") is not True
-        or runtime.get("scheduler")
-        != {
-            "event_identity": {
-                "domain": "runtime-event-v2",
-                "variants": {
-                    "root": [
-                        "experiment_identity",
-                        "scenario_id",
-                        "root_event_ref",
-                        "logical_time",
-                        "phase",
-                        "priority",
-                        "enqueue_sequence",
-                    ],
-                    "scheduled": [
-                        "experiment_identity",
-                        "scenario_id",
-                        "parent_event_id",
-                        "call_site_identity",
-                        "schedule_sequence",
-                        "logical_time",
-                        "phase",
-                        "priority",
-                        "enqueue_sequence",
-                    ],
-                    "observation": [
-                        "experiment_identity",
-                        "scenario_id",
-                        "metric_definition_identity",
-                        "logical_time",
-                        "phase",
-                        "priority",
-                        "enqueue_sequence",
-                    ],
-                },
-            },
-            "ordering": [
-                {"direction": "ascending", "member": "logical_time"},
-                {
-                    "direction": "ascending",
-                    "member": "phase",
-                    "rank": ["input", "transition", "observation"],
-                },
-                {"direction": "descending", "member": "priority"},
-                {"direction": "ascending", "member": "enqueue_sequence"},
-            ],
-            "root_enqueue_sequence": "authored-array-order",
-            "call_site_identity": {
-                "schedule": {
-                    "domain": "runtime-schedule-call-site-v2",
-                    "projection": [
-                        "parent_event_id",
-                        "parent_operation",
-                        "site",
-                        "operation",
-                    ],
-                },
-                "cancel": {
-                    "domain": "runtime-cancel-call-site-v2",
-                    "projection": [
-                        "canceling_event_id",
-                        "operation",
-                        "site",
-                        "target_event_id",
-                    ],
-                },
-            },
-            "schedule": {
-                "child_phase": "transition",
-                "legal_position": "strictly-after-active-ordering-key",
-                "same_time_priority": "not-greater-than-active-priority",
-                "refusal_signals": {
-                    "backward": "schedule-backward",
-                    "hidden_input": "schedule-hidden-input",
-                    "illegal_same_time_priority": (
-                        "schedule-illegal-same-time-priority"
-                    ),
-                },
-            },
-            "cancel": {
-                "admitted_target_states": ["pending", "provisional"],
-                "refusal_signals": {
-                    "active": "cancel-active",
-                    "completed": "cancel-completed",
-                    "unknown": "cancel-unknown",
-                },
-            },
-            "budget_members": {
-                "event_steps": "max_event_steps",
-                "logical_time": "max_logical_time",
-                "node_steps": "max_node_steps",
-                "queue_events": "max_queue_events",
-                "total_events": "max_total_events",
-                "zero_time_depth": "max_zero_time_depth",
-            },
-            "root_admission_map": {
-                "members": ["scenario", "root_event_ref", "event_id"],
-                "order": "scenario-order-then-authored-array-order",
-            },
-            "snapshot_identity": {
-                "domain": "runtime-snapshot-v2",
-                "projection": [
-                    "experiment_identity",
-                    "scenario_id",
-                    "index",
-                    "logical_time",
-                    "event_id",
-                    "values",
-                    "continuation",
-                ],
-                "runtime_configuration_projection": {
-                    "lifecycle_state": "continuation.lifecycle_state",
-                    "step_boundary": "continuation.step_boundary",
-                    "scenario_cursor": "continuation.scenario_cursor",
-                    "event_catalog": "continuation.event_catalog",
-                    "pending_event_count": "continuation.pending_event_count",
-                    "committed_trace": "continuation.committed_trace",
-                    "current_snapshot": "continuation.current_snapshot",
-                    "state": "values",
-                    "rng": "continuation.rng",
-                    "resource_ledger": "continuation.resource_ledger",
-                    "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-                    "root_event_map_identity": ("continuation.root_event_map_identity"),
-                    "resolved_runtime_profile_identity": (
-                        "continuation.resolved_runtime_profile_identity"
-                    ),
-                },
-            },
-            "runtime_journal": {
-                "event_spec": {
-                    "domain": "runtime-event-spec-v2",
-                    "projection": "complete-admitted-event",
-                },
-                "event_catalog": {
-                    "domain": "runtime-event-catalog-v2",
-                    "projection": "append-only-admitted-event-chain",
-                },
-                "committed_trace": {
-                    "domain": "runtime-committed-trace-v2",
-                    "projection": (
-                        "append-only-committed-event-chain-without-snapshot-after"
-                    ),
-                },
-                "root_event_map": {
-                    "domain": "runtime-root-event-map-v2",
-                    "projection": "complete-root-event-map",
-                },
-            },
-            "external_input_identity": {
-                "domain": "runtime-external-input-v2",
-                "projection": [
-                    "experiment_identity",
-                    "scenario_id",
-                    "root_event_ref",
-                    "source_identity",
-                    "source_sequence",
-                    "facts",
-                ],
-            },
-            "external_input_admission": {
-                "ordering": ["source_identity", "source_sequence"],
-                "sequence_origin": 0,
-                "continuity": "contiguous-per-source",
-            },
-            "terminal_status": {
-                "members": [
-                    "scenario",
-                    "condition",
-                    "reason",
-                    "event_count",
-                    "terminal_event_id",
-                    "terminal_snapshot_identity",
-                    "observation_event_ids",
-                    "final_snapshot_identity",
-                    "logical_time",
-                ],
-                "reasons": ["event-count-reached", "queue-drained"],
-            },
-            "observation": {
-                "derivation": "exact-metric-array-order-at-terminal-boundary",
-                "entrypoint": "forbidden",
-                "phase": "observation",
-                "priority": 0,
-                "state_effects": "forbidden",
-            },
-            "step_boundary": "next-observation-or-logical-boundary",
-        }
-        or runtime.get("runtime_configuration")
-        != {
-            "lifecycle_states": [
-                "instantiated",
-                "initializing",
-                "step",
-                "event",
-                "terminated",
-            ],
-            "members": [
-                "lifecycle_state",
-                "step_boundary",
-                "scenario_cursor",
-                "event_catalog",
-                "pending_event_count",
-                "committed_trace",
-                "current_snapshot",
-                "state",
-                "rng",
-                "resource_ledger",
-                "next_enqueue_sequence",
-                "root_event_map_identity",
-                "resolved_runtime_profile_identity",
-            ],
-            "mutation": "internal-transition-only",
-        }
-        or runtime.get("transition")
-        != {
-            "input": "runtime-configuration",
-            "dispatch_count": 1,
-            "event_selection": "scheduler-order-head",
-            "transaction": "event-atomicity",
-            "result": ["runtime-configuration", "runtime-refusal"],
-        }
-        or runtime.get("step")
-        != {
-            "input": "runtime-configuration",
-            "advance": "repeat-transition",
-            "stop": ["observation-boundary", "logical-boundary", "terminal"],
-            "result": "committed-boundary",
-        }
+        or not isinstance(runtime.get("scheduler"), dict)
+        or not isinstance(runtime.get("runtime_configuration"), dict)
+        or not isinstance(runtime.get("transition"), dict)
+        or not isinstance(runtime.get("step"), dict)
     ):
         return False
     nodes = runtime.get("nodes")
@@ -5621,6 +5415,34 @@ def _consumer_b_runtime_authority_is_closed(
                 )
             ):
                 return False
+    nodes_by_id = {node["id"]: node for node in nodes if isinstance(node, dict)}
+    cancel_semantics = nodes_by_id.get("cancel", {}).get("semantics")
+    cancel_target = (
+        cancel_semantics.get("target_reference")
+        if isinstance(cancel_semantics, dict)
+        else None
+    )
+    if (
+        not isinstance(cancel_target, dict)
+        or set(cancel_target)
+        != {
+            "instruction_member",
+            "kind",
+            "producer_result_kind",
+            "value_member",
+        }
+        or any(
+            not isinstance(cancel_target.get(member), str) or not cancel_target[member]
+            for member in cancel_target
+        )
+        or cancel_target["instruction_member"]
+        not in nodes_by_id["cancel"]["required_members"]
+        or not any(
+            node["result"]["kind"] == cancel_target["producer_result_kind"]
+            for node in nodes_by_id.values()
+        )
+    ):
+        return False
     rng = runtime.get("named_rng")
     if (
         runtime.get("numeric")
@@ -5761,7 +5583,6 @@ def _consumer_b_runtime_authority_is_closed(
         for operation in operations
         if isinstance(operation, dict) and isinstance(operation.get("id"), str)
     }
-    nodes_by_id = {node["id"]: node for node in nodes if isinstance(node, dict)}
 
     def referenced_outcomes(
         operation: dict[str, Any], stack: set[str]
@@ -5782,6 +5603,17 @@ def _consumer_b_runtime_authority_is_closed(
                 node["required_members"]
             ):
                 return None
+            if node["semantics"]["operator"] == "cancel-event":
+                target_contract = node["semantics"]["target_reference"]
+                target = instruction.get(target_contract["instruction_member"])
+                if (
+                    not isinstance(target, dict)
+                    or set(target) != {"kind", target_contract["value_member"]}
+                    or target.get("kind") != target_contract["kind"]
+                    or not isinstance(target.get(target_contract["value_member"]), str)
+                    or not target[target_contract["value_member"]]
+                ):
+                    return None
             outcome = instruction.get("outcome")
             if isinstance(outcome, str):
                 referenced.add(outcome)

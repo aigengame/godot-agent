@@ -300,6 +300,7 @@ class TestKeyUserPath:
         }
         metrics = json.loads(run_members["metric-dataset"].read_text())
         trace = json.loads(run_members["event-trace"].read_text())
+        snapshots = json.loads(run_members["snapshot-series"].read_text())["snapshots"]
         assert (
             next(
                 row["value"]
@@ -308,16 +309,79 @@ class TestKeyUserPath:
             )
             == 30
         )
-        assert [event["ordering_key"]["phase"] for event in trace["events"]] == [
-            "input",
-            "transition",
-            "transition",
-            "observation",
+        assert (
+            next(
+                row["value"]
+                for row in metrics["samples"]
+                if row["metric"] == "damage_dealt"
+            )
+            == 0
+        )
+        events = trace["events"]
+        assert [
+            (
+                event["ordering_key"]["logical_time"],
+                event["ordering_key"]["phase"],
+                event["ordering_key"]["priority"],
+                event["ordering_key"]["enqueue_sequence"],
+            )
+            for event in events
+        ] == [
+            (0, "input", 0, 0),
+            (0, "transition", 0, 1),
+            (1, "transition", 0, 3),
+            (2, "transition", 0, 2),
+            (2, "observation", 0, 5),
+            (2, "observation", 0, 6),
         ]
-        assert trace["events"][-1]["state_after"] == [
+        input_event, plan_event, scheduled_cast, root_cast = events[:4]
+        assert trace["root_event_map"] == [
+            {
+                "scenario": "multi-cast",
+                "root_event_ref": "raise-defense",
+                "event_id": input_event["event_id"],
+            },
+            {
+                "scenario": "multi-cast",
+                "root_event_ref": "plan-casts",
+                "event_id": plan_event["event_id"],
+            },
+            {
+                "scenario": "multi-cast",
+                "root_event_ref": "retry-cast",
+                "event_id": root_cast["event_id"],
+            },
+        ]
+        assert scheduled_cast["parent_event_id"] == plan_event["event_id"]
+        assert plan_event["schedules"][0]["event_id"] == scheduled_cast["event_id"]
+        assert plan_event["schedules"][1]["outcome"] == "canceled"
+        assert (
+            plan_event["cancellations"][0]["event_id"]
+            == (plan_event["schedules"][1]["event_id"])
+        )
+        assert root_cast["outcome"]["id"] == "cast-resolved"
+        assert len(snapshots) == len(events) + 1
+        assert all(
+            event["snapshot_before_identity"] == snapshots[index]["snapshot_identity"]
+            and event["snapshot_after_identity"]
+            == snapshots[index + 1]["snapshot_identity"]
+            for index, event in enumerate(events)
+        )
+        assert events[-1]["state_after"] == [
             {"name": "actor_mana", "value": 26},
             {"name": "target_health", "value": 30},
         ]
+        recovered = _run(
+            "experiment",
+            "run",
+            str(experiment_path),
+            "--out",
+            str(tmp_path / "evaluation-run.json"),
+            "--invocation-key",
+            "c" * 64,
+        )
+        assert (recovered.returncode, recovered.stderr) == (0, "")
+        assert json.loads(recovered.stdout) == run_receipt
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")
