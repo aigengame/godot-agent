@@ -174,8 +174,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   counts. Recovery replays those prefixes and cancellation provenance against the cross-bound Event
   Trace to reconstruct the exact pending queue. It also re-derives root entries from the checked
   Experiment, observations from their Metrics, and scheduled entries from the committed parent's
-  schedule provenance plus the exact RIR call site, Operation, ordering, arguments, and state
-  references; self-consistent fresh hashes are not Event admission. A growing queue or committed
+  schedule provenance plus the exact RIR call path/site, scheduling Operation, ordering, normalized
+  actual arguments, and state references. This provenance covers schedule nodes in a root Operation
+  or any admitted nested Operation and preserves `port`, `local`, and literal operand execution;
+  self-consistent fresh hashes are not Event admission. A growing queue or committed
   prefix is never copied into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is

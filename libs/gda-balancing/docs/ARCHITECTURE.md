@@ -717,7 +717,9 @@ materialize each complete normalized admitted Event specification once, bind its
 identity, and cross-bind the Event Trace used to revalidate every catalog/commit/cancellation prefix
 and reconstruct the exact pending queue. Catalog admission independently re-derives roots from the
 Experiment, observations from Metrics, and scheduled Events from committed parent provenance and
-the exact RIR schedule call site/operands; coordinated re-hashing cannot invent a different queue.
+the exact RIR scheduling Operation, nested call path/site, normalized actual arguments, and state
+references. Port, local, and literal schedule operands use this same provenance; coordinated
+re-hashing cannot invent a different queue.
 Snapshot Series do not duplicate growing pending or completed arrays at every boundary.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
@@ -768,7 +770,8 @@ artifacts, and admission failures before dispatch have no terminal audit.
 Recovery revalidates the set's internal Event-catalog/trace/Snapshot/state/rollback/refusing-event/
 Diagnostic closure as well as member identities. The audit materializes its exact catalog prefix,
 complete last Snapshot, and refusing Event specification so recovery can re-derive Event admission,
-recompute continuation journals and the Snapshot identity, and bind pending/resource counters; a
+recompute continuation journals and the Snapshot identity, bind a derived observation refusal to
+the next Metric/enqueue cursor, and close attempted steps against the committed resource ledger; a
 wire-valid, re-hashed cross-field mutation is not an authoritative refusal.
 
 An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a

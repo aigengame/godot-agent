@@ -887,6 +887,14 @@ def _scheduled_catalog_record_is_authoritative(
     if not 0 <= schedule_sequence < len(schedules):
         return False
     schedule = schedules[schedule_sequence]
+    schedule_parent_operation = schedule.get("parent_operation")
+    schedule_call_path = schedule.get("call_path")
+    if (
+        not isinstance(schedule_parent_operation, str)
+        or not isinstance(schedule_call_path, str)
+        or not schedule_call_path
+    ):
+        return False
     ordering_key = cast(dict[str, JsonValue], event_spec["ordering_key"])
     if (
         record["scenario"] != parent_record["scenario"]
@@ -894,6 +902,8 @@ def _scheduled_catalog_record_is_authoritative(
         or schedule.get("call_site_identity") != event_spec["call_site_identity"]
         or schedule.get("operation") != event_spec["operation"]
         or schedule.get("ordering_key") != ordering_key
+        or schedule.get("arguments") != event_spec["arguments"]
+        or schedule.get("state_references") != event_spec["state_references"]
         or _scheduled_event_id(
             checked,
             cast(str, record["scenario"]),
@@ -914,11 +924,18 @@ def _scheduled_catalog_record_is_authoritative(
         (
             row["definition"]
             for row in checked.rir["selected_semantics"]["operations"]
-            if row["definition"]["id"] == parent_operation
+            if row["definition"]["id"] == schedule_parent_operation
         ),
         None,
     )
     if operation is None:
+        return False
+    if schedule_parent_operation != parent_operation and not any(
+        call.get("site") == schedule_call_path
+        and cast(dict[str, JsonValue], call["operation"]).get("id")
+        == schedule_parent_operation
+        for call in cast(list[dict[str, JsonValue]], parent_event["calls"])
+    ):
         return False
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
     matching_instructions = []
@@ -929,11 +946,11 @@ def _scheduled_catalog_record_is_authoritative(
             cast(str, schedule_identity["domain"]),
             cast(
                 JsonValue,
-                {
-                    "parent_event_id": parent_id,
-                    "parent_operation": parent_operation,
-                    "site": instruction["site"],
-                    "operation": instruction["operation"],
+                    {
+                        "parent_event_id": parent_id,
+                        "parent_operation": schedule_parent_operation,
+                        "site": instruction["site"],
+                        "operation": instruction["operation"],
                 },
             ),
         )
@@ -942,28 +959,57 @@ def _scheduled_catalog_record_is_authoritative(
     if len(matching_instructions) != 1:
         return False
     instruction = matching_instructions[0]
-    parent_arguments = _committed_event_arguments(
-        checked,
-        parent_event,
-        parent_spec,
+    scheduled_argument_rows = cast(
+        list[dict[str, JsonValue]], schedule["arguments"]
     )
-    if parent_arguments is None:
+    scheduled_state_reference_rows = cast(
+        list[dict[str, JsonValue]], schedule["state_references"]
+    )
+    traced_arguments = {
+        cast(str, row["name"]): cast(JsonValue, row["value"])
+        for row in scheduled_argument_rows
+    }
+    traced_state_references = {
+        cast(str, row["name"]): cast(dict[str, JsonValue], row["target"])
+        for row in scheduled_state_reference_rows
+    }
+    instruction_ports = {
+        cast(str, binding["port"]) for binding in instruction["arguments"]
+    }
+    if set(traced_arguments) != instruction_ports or not set(
+        traced_state_references
+    ) <= instruction_ports:
         return False
-    arguments, state_references = parent_arguments
-    expected_arguments: dict[str, JsonValue] = {}
-    expected_state_references: dict[str, dict[str, JsonValue]] = {}
+    parent_arguments = (
+        _committed_event_arguments(checked, parent_event, parent_spec)
+        if schedule_parent_operation == parent_operation
+        else None
+    )
+    direct_arguments = parent_arguments[0] if parent_arguments is not None else {}
+    direct_state_references = (
+        parent_arguments[1] if parent_arguments is not None else {}
+    )
     for binding in instruction["arguments"]:
         name = cast(str, binding["port"])
         operand = cast(dict[str, Any], binding["operand"])
         if operand["kind"] == "port":
             source = cast(str, operand["port"])
-            if source not in arguments:
+            if parent_arguments is not None and (
+                source not in direct_arguments
+                or traced_arguments[name] != direct_arguments[source]
+                or traced_state_references.get(name)
+                != direct_state_references.get(source)
+            ):
                 return False
-            expected_arguments[name] = arguments[source]
-            if source in state_references:
-                expected_state_references[name] = state_references[source]
         elif operand["kind"] == "literal":
-            expected_arguments[name] = cast(JsonValue, operand["literal"])
+            if (
+                traced_arguments[name] != operand["literal"]
+                or name in traced_state_references
+            ):
+                return False
+        elif operand["kind"] == "local":
+            if name in traced_state_references:
+                return False
         else:
             return False
     expected_zero_time_depth = (
@@ -979,16 +1025,13 @@ def _scheduled_catalog_record_is_authoritative(
         == _scheduler_contract(checked)["schedule"]["child_phase"]
         and ordering_key["priority"] == instruction["priority"]
         and event_spec["zero_time_depth"] == expected_zero_time_depth
-        and event_spec["arguments"]
-        == [
-            {"name": name, "value": value}
-            for name, value in sorted(expected_arguments.items())
-        ]
-        and event_spec["state_references"]
-        == [
-            {"name": name, "target": target}
-            for name, target in sorted(expected_state_references.items())
-        ]
+        and scheduled_argument_rows
+        == sorted(scheduled_argument_rows, key=lambda row: cast(str, row["name"]))
+        and scheduled_state_reference_rows
+        == sorted(
+            scheduled_state_reference_rows,
+            key=lambda row: cast(str, row["name"]),
+        )
     )
 
 
@@ -3364,6 +3407,7 @@ def evaluate_experiment(
                     child_event["event_id"] = _scheduled_event_id(
                         checked, scenario["id"], child_event
                     )
+                    projected_child = _pending_event_projection(child_event)
                     buffered_children.append(child_event)
                     result_binding = instruction["result"]
                     variables[result_binding["name"]] = child_event["event_id"]
@@ -3371,7 +3415,11 @@ def evaluate_experiment(
                         {
                             "event_id": child_event["event_id"],
                             "call_site_identity": schedule_call_site_identity,
+                            "parent_operation": selected_operation["id"],
+                            "call_path": "/".join(call_path),
                             "operation": instruction["operation"],
+                            "arguments": projected_child["arguments"],
+                            "state_references": projected_child["state_references"],
                             "ordering_key": {
                                 "logical_time": child_event["logical_time"],
                                 "phase": child_event["phase"],
@@ -4729,6 +4777,60 @@ def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
     )
 
 
+def _formula_charge_through_evaluation_site(
+    checked: CheckedExperiment,
+    *,
+    phase: str,
+    evaluation_site_identity: str | None,
+) -> int | None:
+    if evaluation_site_identity is None:
+        return None
+    programs = [
+        program
+        for program in cast(
+            list[dict[str, Any]], checked.rir["initialization_programs"]
+        )
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
+    program_targets = {
+        canonical_bytes(cast(JsonValue, program["target"])) for program in programs
+    }
+    completed_targets: set[bytes] = set()
+    pending = list(programs)
+    consumed = 0
+    while pending:
+        progressed = False
+        for program in list(pending):
+            dependencies = {
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+                and canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                in program_targets
+            }
+            if not dependencies <= completed_targets:
+                continue
+            consumed += cast(int, program["resource_bounds"]["max_steps"])
+            program_sites = {
+                cast(str, cast(dict[str, Any], program["site"])["identity"]),
+                *(
+                    cast(str, row["evaluation_site_identity"])
+                    for row in cast(list[dict[str, Any]], program["body"])
+                ),
+            }
+            if evaluation_site_identity in program_sites:
+                return consumed
+            completed_targets.add(
+                canonical_bytes(cast(JsonValue, program["target"]))
+            )
+            pending.remove(program)
+            progressed = True
+        if not progressed:
+            return None
+    return None
+
+
 def _terminal_audit_is_valid(
     checked: CheckedExperiment,
     audit: dict[str, Any],
@@ -4926,6 +5028,7 @@ def _terminal_audit_is_valid(
     refusing_root = root_records.get(refusing_event_id)
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
     refusing_catalog_record = catalog_by_id.get(refusing_event_id)
+    continuation = cast(dict[str, Any], last_snapshot["continuation"])
     if refusing_catalog_record is not None:
         if (
             refusing_catalog_record["scenario"] != scenario_id
@@ -4934,22 +5037,35 @@ def _terminal_audit_is_valid(
             return False
     elif refusing_event_spec.get("kind") == "observation":
         metric_identity = cast(str, refusing_event_spec["metric_definition_identity"])
-        metric = next(
-            (
-                row
-                for row in checked.value["metrics"]
-                if _metric_definition_identity(row) == metric_identity
-            ),
-            None,
+        committed_observation_count = sum(
+            record["scenario"] == scenario_id
+            and cast(dict[str, JsonValue], record["event_spec"])["kind"]
+            == "observation"
+            for record in catalog
         )
+        metric = (
+            checked.value["metrics"][committed_observation_count]
+            if committed_observation_count < len(checked.value["metrics"])
+            else None
+        )
+        expected_ordering_key = {
+            "logical_time": last_snapshot["logical_time"],
+            "phase": "observation",
+            "priority": 0,
+            "enqueue_sequence": continuation["next_enqueue_sequence"],
+        }
         if (
             metric is None
+            or _metric_definition_identity(metric) != metric_identity
+            or ordering_key != expected_ordering_key
             or _observation_event_id(
                 checked,
                 cast(str, scenario_id),
                 metric_identity,
-                logical_time=cast(int, ordering_key["logical_time"]),
-                enqueue_sequence=cast(int, ordering_key["enqueue_sequence"]),
+                logical_time=cast(int, expected_ordering_key["logical_time"]),
+                enqueue_sequence=cast(
+                    int, expected_ordering_key["enqueue_sequence"]
+                ),
             )
             != refusing_event_id
         ):
@@ -4992,7 +5108,6 @@ def _terminal_audit_is_valid(
         if expected_last_event is not None
         else None
     )
-    continuation = cast(dict[str, Any], last_snapshot["continuation"])
     journal = _runtime_journal_contract(checked)
     scenario_catalog = [
         record for record in catalog if record["scenario"] == scenario_id
@@ -5084,27 +5199,56 @@ def _terminal_audit_is_valid(
         if row["id"] == checked.value["runtime"]["profile"]
     )
     bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
-    maximum_formula_charge = max(
-        (
-            cast(int, program["resource_bounds"]["max_steps"])
-            for program in checked.rir["initialization_programs"]
-        ),
-        default=0,
+    evaluation_site_identity = cast(
+        str | None, refusing_event.get("evaluation_site_identity")
     )
+    event_formula_charge = sum(
+        cast(int, program["resource_bounds"]["max_steps"])
+        for program in checked.rir["initialization_programs"]
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == "event"
+    )
+    event_formula_fault_charge = _formula_charge_through_evaluation_site(
+        checked,
+        phase="event",
+        evaluation_site_identity=evaluation_site_identity,
+    )
+    observation_formula_fault_charge = _formula_charge_through_evaluation_site(
+        checked,
+        phase="observation",
+        evaluation_site_identity=evaluation_site_identity,
+    )
+    if refusing_event_spec["kind"] == "observation":
+        exact_event_steps = 0
+        exact_node_steps = cast(int, ledger["node_steps"])
+    elif boundary_formula_refusal:
+        if observation_formula_fault_charge is None:
+            return False
+        exact_event_steps = cast(int, ledger["event_steps"])
+        exact_node_steps = (
+            cast(int, ledger["node_steps"]) + observation_formula_fault_charge
+        )
+    elif event_formula_fault_charge is not None:
+        exact_event_steps = 0
+        exact_node_steps = (
+            cast(int, ledger["node_steps"]) + event_formula_fault_charge
+        )
+    else:
+        if budget["event_steps"] <= 0:
+            return False
+        exact_event_steps = cast(int, budget["event_steps"])
+        exact_node_steps = (
+            cast(int, ledger["node_steps"])
+            + event_formula_charge
+            + exact_event_steps
+        )
     if (
         budget["total_events"] != len(scenario_catalog)
         or budget["queue_events"] != expected_queue_events
         or budget["zero_time_depth"]
         != cast(int, refusing_event_spec.get("zero_time_depth", 0))
+        or budget["event_steps"] != exact_event_steps
+        or budget["node_steps"] != exact_node_steps
         or budget["event_steps"] > bounds["max_event_steps"] + 1
-        or budget["node_steps"] < ledger["node_steps"]
-        or budget["node_steps"]
-        > bounds["max_node_steps"] + maximum_formula_charge
-        or (
-            refusing_event_spec["kind"] == "observation"
-            or boundary_formula_refusal
-        )
-        and budget["event_steps"] != ledger["event_steps"]
     ):
         return False
     return True
