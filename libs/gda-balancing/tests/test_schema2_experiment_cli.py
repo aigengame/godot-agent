@@ -18,6 +18,7 @@ import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation
+from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
 from gda_balancing.schema2.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
@@ -5642,6 +5643,58 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
             detected = candidate_mutation == mutation
             assert (production != vectors[candidate_id]["expect"]) is detected
             assert (reference != vectors[candidate_id]["expect"]) is detected
+
+
+def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
+    kernel, ldb = authority_module.load_authorities()
+    vector = next(
+        vector
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.runtime"
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "runtime.scheduler.mutation.omitted-key"
+    )
+
+    ordered = RuntimeScheduler.from_kernel(kernel).ordered_events(
+        vector["input"]["events"]
+    )
+
+    assert [event["id"] for event in ordered] == vector["expect"]["event_order"]
+
+
+def test_runtime_scheduler_seam_refuses_backward_scheduling():
+    kernel, ldb = authority_module.load_authorities()
+    vector = next(
+        vector
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.runtime"
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "runtime.scheduler.mutation.backward"
+    )
+    events = {event["id"]: event for event in vector["input"]["events"]}
+
+    signal = RuntimeScheduler.from_kernel(kernel).schedule_position_signal(
+        events["parent"], events["child"]
+    )
+
+    assert signal == vector["expect"]["signal"]
+
+
+def test_runtime_scheduler_seam_refuses_completed_cancellation():
+    kernel, ldb = authority_module.load_authorities()
+    vector = next(
+        vector
+        for vector_set in ldb.package_conformance_vector_sets
+        if vector_set["package_id"] == "standard.runtime"
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "runtime.scheduler.refuse.cancel-completed"
+    )
+
+    signal = RuntimeScheduler.from_kernel(kernel).cancel_target_signal(
+        vector["input"]["events"][0]["status"]
+    )
+
+    assert signal == vector["expect"]["signal"]
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():

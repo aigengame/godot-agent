@@ -40,6 +40,7 @@ from gda_balancing.schema2.model import (
     verify_artifact,
     wire_schema_identity,
 )
+from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
 _EVALUATOR_IMPLEMENTATION = "gda-balancing.deterministic-event-evaluator-v1"
@@ -316,11 +317,7 @@ def _runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
 
 
 def _kernel_scheduler_contract(kernel: dict[str, Any]) -> dict[str, Any]:
-    runtime = kernel.get("meta_format", {}).get("runtime_program")
-    scheduler = runtime.get("scheduler") if isinstance(runtime, dict) else None
-    if not isinstance(scheduler, dict):
-        raise ValueError("Kernel scheduler contract is absent")
-    return scheduler
+    return cast(dict[str, Any], RuntimeScheduler.from_kernel(kernel).contract)
 
 
 def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
@@ -362,21 +359,6 @@ def _scenario_transition_events(scenario: dict[str, Any]) -> list[dict[str, Any]
         for event in _scenario_root_events(scenario)
         if event["kind"] == "transition-invocation"
     ]
-
-
-def _scheduler_ordering_key(
-    scheduler: dict[str, Any], event: dict[str, Any]
-) -> tuple[int, ...]:
-    key: list[int] = []
-    for ordering in cast(list[dict[str, Any]], scheduler["ordering"]):
-        member = cast(str, ordering["member"])
-        if member == "phase":
-            rank = cast(list[str], ordering["rank"])
-            value = rank.index(cast(str, event[member]))
-        else:
-            value = cast(int, event[member])
-        key.append(-value if ordering["direction"] == "descending" else value)
-    return tuple(key)
 
 
 def _resolved_symbol_from_identity(identity: bytes) -> dict[str, JsonValue]:
@@ -1379,10 +1361,10 @@ def _runtime_step_boundary(
     if not pending_events:
         terminal = boundary_roles["terminal"]
         return terminal if terminal in stops else None
-    scheduler = _scheduler_contract(checked)
+    scheduler = RuntimeScheduler(_scheduler_contract(checked))
     next_event = min(
         pending_events,
-        key=lambda event: _scheduler_ordering_key(scheduler, event),
+        key=scheduler.ordering_key,
     )
     at_step_boundary = next_event["logical_time"] != active_logical_time
     if (
@@ -1396,30 +1378,6 @@ def _runtime_step_boundary(
         logical = boundary_roles["logical"]
         return logical if logical in stops else None
     return None
-
-
-def _schedule_position_signal(
-    scheduler: dict[str, Any],
-    parent: dict[str, Any],
-    child: dict[str, Any],
-) -> str | None:
-    signals = scheduler["schedule"]["refusal_signals"]
-    if child["phase"] != scheduler["schedule"]["child_phase"]:
-        return cast(str, signals["hidden_input"])
-    if child["logical_time"] < parent["logical_time"]:
-        return cast(str, signals["backward"])
-    if (
-        child["logical_time"] == parent["logical_time"]
-        and child["priority"] > parent["priority"]
-    ):
-        return cast(str, signals["illegal_same_time_priority"])
-    return None
-
-
-def _cancel_target_signal(scheduler: dict[str, Any], status: str) -> str | None:
-    if status in scheduler["cancel"]["admitted_target_states"]:
-        return None
-    return cast(str, scheduler["cancel"]["refusal_signals"][status])
 
 
 def _ordered_root_events(
@@ -1441,7 +1399,7 @@ def _ordered_root_events_under(
         }
         for sequence, event in enumerate(_scenario_root_events(scenario))
     ]
-    return sorted(admitted, key=lambda event: _scheduler_ordering_key(scheduler, event))
+    return RuntimeScheduler(scheduler).ordered_events(admitted)
 
 
 def _external_input_plan_is_admitted(
@@ -2857,6 +2815,7 @@ def _evaluate_scheduler_vector(
     scheduler = cast(
         dict[str, Any], kernel["meta_format"]["runtime_program"]["scheduler"]
     )
+    runtime_scheduler = RuntimeScheduler(scheduler)
     inp = cast(dict[str, Any], vector["input"])
     events = cast(list[dict[str, Any]], inp["events"])
     initial_states = cast(list[dict[str, Any]], inp["initial_states"])
@@ -2881,7 +2840,7 @@ def _evaluate_scheduler_vector(
     for event in events:
         if not event["cancel_requested"]:
             continue
-        signal = _cancel_target_signal(scheduler, cast(str, event["status"]))
+        signal = runtime_scheduler.cancel_target_signal(cast(str, event["status"]))
         if signal is not None:
             return refused(signal)
     for event in events:
@@ -2889,7 +2848,7 @@ def _evaluate_scheduler_vector(
         if parent_id is None:
             continue
         parent = by_id[cast(str, parent_id)]
-        signal = _schedule_position_signal(scheduler, parent, event)
+        signal = runtime_scheduler.schedule_position_signal(parent, event)
         if (
             mutation == "backward-scheduling"
             and signal == scheduler["schedule"]["refusal_signals"]["backward"]
@@ -2901,7 +2860,7 @@ def _evaluate_scheduler_vector(
     def ordering_key(event: dict[str, Any]) -> tuple[Any, ...]:
         if mutation == "host-assigned-ordering":
             return (cast(str, event["id"]),)
-        runtime_key = _scheduler_ordering_key(scheduler, event)
+        runtime_key = runtime_scheduler.ordering_key(event)
         if mutation == "omitted-key":
             runtime_key = runtime_key[:-1]
         return (scenario_order[cast(str, event["scenario"])], *runtime_key)
@@ -3217,6 +3176,7 @@ def evaluate_experiment(
     runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
     scheduler = _scheduler_contract(checked)
+    runtime_scheduler = RuntimeScheduler(scheduler)
     root_events_by_scenario: dict[str, list[dict[str, Any]]] = {}
     for scenario in checked.value["scenarios"]:
         ordered_events = _ordered_root_events(checked, scenario)
@@ -3622,8 +3582,7 @@ def evaluate_experiment(
                         )
 
                     child_phase = cast(str, scheduler["schedule"]["child_phase"])
-                    position_signal = _schedule_position_signal(
-                        scheduler,
+                    position_signal = runtime_scheduler.schedule_position_signal(
                         {
                             "logical_time": active_logical_time,
                             "phase": event_spec["phase"],
@@ -3749,8 +3708,8 @@ def evaluate_experiment(
                         )
                         else "unknown"
                     )
-                    cancel_signal = _cancel_target_signal(
-                        _scheduler_contract(checked), target_status
+                    cancel_signal = runtime_scheduler.cancel_target_signal(
+                        target_status
                     )
                     if cancel_signal is not None:
                         raise _RuntimeExecutionFault(
@@ -3882,9 +3841,7 @@ def evaluate_experiment(
         )
         last_logical_time: int | None = None
         while pending_events:
-            pending_events.sort(
-                key=lambda event: _scheduler_ordering_key(scheduler, event)
-            )
+            pending_events[:] = runtime_scheduler.ordered_events(pending_events)
             event_spec = pending_events.pop(0)
             last_logical_time = cast(int, event_spec["logical_time"])
             external_input = event_spec.get("kind") == "external-input"
@@ -4852,8 +4809,7 @@ def _artifact_set_runtime_journals_are_valid(
         ):
             return False
         ordering_keys = [
-            _scheduler_ordering_key(
-                scheduler,
+            RuntimeScheduler(scheduler).ordering_key(
                 cast(dict[str, Any], event["ordering_key"]),
             )
             for event in scenario_events
@@ -4917,8 +4873,7 @@ def _artifact_set_runtime_journals_are_valid(
                 if record["event_id"] not in committed_ids | canceled_ids
             ]
             pending_order = [
-                _scheduler_ordering_key(
-                    scheduler,
+                RuntimeScheduler(scheduler).ordering_key(
                     cast(dict[str, Any], record["ordering_key"]),
                 )
                 for record in pending_records
@@ -5040,7 +4995,7 @@ def _terminal_statuses_are_valid(
 def _runtime_ordering_tuple(
     scheduler: dict[str, Any], ordering_key: dict[str, Any]
 ) -> tuple[int, ...]:
-    return _scheduler_ordering_key(scheduler, ordering_key)
+    return RuntimeScheduler(scheduler).ordering_key(ordering_key)
 
 
 def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
