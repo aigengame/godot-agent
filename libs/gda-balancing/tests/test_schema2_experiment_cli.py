@@ -1313,7 +1313,10 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
 
     def record_formula_frame(*args, **kwargs):
         result = evaluate_programs(*args, **kwargs)
-        if kwargs.get("phase") == "event":
+        if (
+            kwargs.get("phase") == "event"
+            and kwargs["frame_identity"] not in event_frames
+        ):
             event_frames.append(kwargs["frame_identity"])
         return result
 

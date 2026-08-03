@@ -787,26 +787,130 @@ def _expected_root_event_catalog(
     return expected
 
 
-def _event_fact_values(event: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    values: dict[str, JsonValue] = {}
-    for row in cast(list[dict[str, JsonValue]], event["facts"]):
-        kind = row["kind"]
-        member = {"integer": "integer", "boolean": "boolean", "string": "string"}[
-            cast(str, kind)
-        ]
-        values[cast(str, row["name"])] = row[member]
-    return values
+def _authoritative_event_actual_values(
+    checked: CheckedExperiment,
+    event: dict[str, JsonValue],
+    event_spec: dict[str, JsonValue],
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> dict[bytes, int] | None:
+    declarations = _resolved_declarations(checked)
+    display_names = _resolved_display_names(declarations)
+    scenario = next(
+        (
+            row
+            for row in checked.value["scenarios"]
+            if row["id"] == scenario_id
+        ),
+        None,
+    )
+    if scenario is None:
+        return None
+    entrypoints = {
+        cast(str, row["id"]): row for row in checked.rir["entrypoints"]
+    }
+    actual_values: dict[bytes, int] = {}
+    try:
+        for root_event in _scenario_transition_events(scenario):
+            selected_entrypoint = entrypoints[cast(str, root_event["entrypoint"])]
+            contract = cast(
+                dict[str, Any], selected_entrypoint["scenario_input_contract"]
+            )
+            for initializer in cast(
+                list[dict[str, Any]], contract["initializers"]
+            ):
+                identity = canonical_bytes(
+                    cast(JsonValue, initializer["target"])
+                )
+                value = cast(int, initializer["value"])
+                if identity in actual_values and actual_values[identity] != value:
+                    return None
+                actual_values[identity] = value
+        for assignment in scenario["assignments"]:
+            actual_values[
+                canonical_bytes(cast(JsonValue, assignment["target"]))
+            ] = cast(int, assignment["value"])
+        _evaluate_initialization_programs(
+            checked,
+            actual_values,
+            consumed_steps=0,
+            runtime_limit=(1 << 63) - 1,
+            cache=None,
+            frame_token={"scenario": scenario_id, "recovery": "initialization"},
+            phase="initialization",
+        )
+        parent_index = cast(int, event["index"])
+        for prior_event in sorted(
+            events_by_id.values(), key=lambda row: cast(int, row["index"])
+        ):
+            if cast(int, prior_event["index"]) >= parent_index:
+                break
+            prior_record = catalog_by_id.get(cast(str, prior_event["event_id"]))
+            if prior_record is None or prior_record["scenario"] != scenario_id:
+                continue
+            prior_spec = cast(dict[str, JsonValue], prior_record["event_spec"])
+            if prior_spec["kind"] != "external-input":
+                continue
+            for fact in cast(list[dict[str, JsonValue]], prior_spec["facts"]):
+                actual_values[
+                    canonical_bytes(cast(JsonValue, fact["target"]))
+                ] = cast(int, fact["value"])
+        state_before = {
+            cast(str, row["name"]): cast(int, row["value"])
+            for row in cast(list[dict[str, JsonValue]], event["state_before"])
+        }
+        for identity, display_name in display_names.items():
+            if (
+                declarations[identity]["role"] == "state"
+                and display_name in state_before
+            ):
+                actual_values[identity] = state_before[display_name]
+        if event_spec["kind"] == "transition-invocation":
+            for payload in cast(
+                list[dict[str, JsonValue]], event_spec["payload"]
+            ):
+                actual_values[
+                    canonical_bytes(cast(JsonValue, payload["target"]))
+                ] = cast(int, payload["value"])
+        _evaluate_initialization_programs(
+            checked,
+            actual_values,
+            consumed_steps=0,
+            runtime_limit=(1 << 63) - 1,
+            cache=None,
+            frame_identity=cast(str, event["snapshot_before_identity"]),
+            phase="event",
+        )
+    except (KeyError, OverflowError, TypeError, ValueError, _InitializationProgramFault):
+        return None
+    return actual_values
 
 
 def _committed_event_arguments(
     checked: CheckedExperiment,
     event: dict[str, JsonValue],
     event_spec: dict[str, JsonValue],
-) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
-    state_before = {
-        cast(str, row["name"]): cast(JsonValue, row["value"])
-        for row in cast(list[dict[str, JsonValue]], event["state_before"])
-    }
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> tuple[
+    dict[str, JsonValue],
+    dict[str, dict[str, JsonValue]],
+    dict[bytes, int],
+] | None:
+    actual_values = _authoritative_event_actual_values(
+        checked,
+        event,
+        event_spec,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    if actual_values is None:
+        return None
     if event_spec["kind"] == "scheduled-transition":
         arguments = {
             cast(str, row["name"]): cast(JsonValue, row["value"])
@@ -820,15 +924,12 @@ def _committed_event_arguments(
                 list[dict[str, JsonValue]], event_spec["state_references"]
             )
         }
-        declarations = _resolved_declarations(checked)
-        display_names = _resolved_display_names(declarations)
         for name, target in state_references.items():
             identity = canonical_bytes(cast(JsonValue, target))
-            display_name = display_names.get(identity)
-            if display_name not in state_before:
+            if identity not in actual_values:
                 return None
-            arguments[name] = state_before[display_name]
-        return arguments, state_references
+            arguments[name] = actual_values[identity]
+        return arguments, state_references, actual_values
     if event_spec["kind"] != "transition-invocation":
         return None
     entrypoint = next(
@@ -842,8 +943,6 @@ def _committed_event_arguments(
     if entrypoint is None:
         return None
     declarations = _resolved_declarations(checked)
-    display_names = _resolved_display_names(declarations)
-    facts = _event_fact_values(event)
     arguments: dict[str, JsonValue] = {}
     state_references: dict[str, dict[str, JsonValue]] = {}
     for binding in entrypoint["arguments"]:
@@ -854,19 +953,16 @@ def _committed_event_arguments(
             continue
         target = cast(dict[str, JsonValue], operand["symbol"])
         identity = canonical_bytes(cast(JsonValue, target))
-        display_name = display_names.get(identity)
-        if display_name is None:
-            return None
         if declarations[identity]["role"] == "state":
-            if display_name not in state_before:
+            if identity not in actual_values:
                 return None
-            arguments[port] = state_before[display_name]
+            arguments[port] = actual_values[identity]
             state_references[port] = target
         else:
-            if display_name not in facts:
+            if identity not in actual_values:
                 return None
-            arguments[port] = facts[display_name]
-    return arguments, state_references
+            arguments[port] = actual_values[identity]
+    return arguments, state_references, actual_values
 
 
 def _replayed_schedule_arguments(
@@ -874,8 +970,19 @@ def _replayed_schedule_arguments(
     parent_event: dict[str, JsonValue],
     parent_spec: dict[str, JsonValue],
     target_schedule: dict[str, JsonValue],
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
 ) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
-    root_arguments = _committed_event_arguments(checked, parent_event, parent_spec)
+    root_arguments = _committed_event_arguments(
+        checked,
+        parent_event,
+        parent_spec,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
     parent_operation_id = parent_event.get("operation")
     if root_arguments is None or not isinstance(parent_operation_id, str):
         return None
@@ -901,12 +1008,7 @@ def _replayed_schedule_arguments(
             }
         )
     }
-    fact_values = _event_fact_values(parent_event)
-    actual_values = {
-        identity: fact_values[display_name]
-        for identity, display_name in display_names.items()
-        if display_name in fact_values
-    }
+    actual_values = root_arguments[2]
     calls = cast(list[dict[str, JsonValue]], parent_event["calls"])
     schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
     draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
@@ -1234,6 +1336,9 @@ def _scheduled_catalog_record_is_authoritative(
         parent_event,
         parent_spec,
         schedule,
+        scenario_id=cast(str, record["scenario"]),
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
     )
     if replayed_arguments is None:
         return False
@@ -1268,7 +1373,14 @@ def _scheduled_catalog_record_is_authoritative(
     ) <= instruction_ports:
         return False
     parent_arguments = (
-        _committed_event_arguments(checked, parent_event, parent_spec)
+        _committed_event_arguments(
+            checked,
+            parent_event,
+            parent_spec,
+            scenario_id=cast(str, record["scenario"]),
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
         if schedule_parent_operation == parent_operation
         else None
     )
@@ -5720,6 +5832,27 @@ def _terminal_audit_is_valid(
             cast(int, ledger["node_steps"]) + event_formula_fault_charge
         )
     else:
+        replayed_refusal = evaluate_experiment(checked)
+        if (
+            not isinstance(replayed_refusal, RuntimeRefusalOutcome)
+            or replayed_refusal.scenario_id != scenario_id
+            or replayed_refusal.refusing_event_id != refusing_event_id
+            or replayed_refusal.refusing_event_spec != refusing_event_spec
+            or list(replayed_refusal.refusing_attempted_calls)
+            != refusing_event.get("attempted_calls")
+            or replayed_refusal.refusing_operation
+            != refusing_event.get("operation")
+            or replayed_refusal.refusing_call_path
+            != refusing_event.get("call_path")
+            or replayed_refusal.refusing_call_site_identity
+            != refusing_event.get("call_site_identity")
+            or replayed_refusal.refusing_evaluation_site_identity
+            != refusing_event.get("evaluation_site_identity")
+            or replayed_refusal.refusing_instruction_index
+            != refusing_event.get("instruction_index")
+            or replayed_refusal.budget_counters != budget
+        ):
+            return False
         attempted_operation_charge = _attempted_operation_charge(
             checked,
             refusing_event,
