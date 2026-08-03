@@ -1945,6 +1945,122 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
         )
 
 
+def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    plan_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.combat.plan-casts-v1"
+    )
+    next(
+        instruction
+        for instruction in plan_operation["body"]
+        if instruction["node"] == "schedule"
+    )["logical_time"] = -1
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert outcome.committed_trace_prefix == ()
+    members = experiment_runtime_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["event_catalog_prefix"]
+    assert audit["last_snapshot_record"]["snapshot_identity"] == audit[
+        "last_snapshot_identity"
+    ]
+    assert audit["refusing_event"]["event_spec"]["event_id"] == audit[
+        "refusing_event"
+    ]["event_id"]
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    def reidentify(drifted_audit):
+        payload = {
+            key: value
+            for key, value in drifted_audit.items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        return experiment_runtime_module._artifact(
+            checked,
+            "runtime-terminal-audit",
+            payload,
+        ).value
+
+    coordinated_snapshot = deepcopy(audit)
+    replacement_snapshot_identity = "sha256:" + "0" * 64
+    coordinated_snapshot["last_snapshot_identity"] = replacement_snapshot_identity
+    coordinated_snapshot["last_snapshot_record"][
+        "snapshot_identity"
+    ] = replacement_snapshot_identity
+    coordinated_snapshot["refusing_event"][
+        "snapshot_before_identity"
+    ] = replacement_snapshot_identity
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_snapshot)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+    coordinated_event = deepcopy(audit)
+    replacement_event_id = "sha256:" + "1" * 64
+    coordinated_event["refusing_event"]["event_id"] = replacement_event_id
+    coordinated_event["refusing_event"]["event_spec"][
+        "event_id"
+    ] = replacement_event_id
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_event)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+    coordinated_budget = deepcopy(audit)
+    coordinated_budget["budget_counters"]["total_events"] += 1
+    last_snapshot = coordinated_budget["last_snapshot_record"]
+    last_snapshot["continuation"]["resource_ledger"]["total_events"] += 1
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    replacement_snapshot_identity = (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": last_snapshot["scenario"],
+                "index": last_snapshot["index"],
+                "logical_time": last_snapshot["logical_time"],
+                "event_id": last_snapshot["event_id"],
+                "values": last_snapshot["values"],
+                "continuation": last_snapshot["continuation"],
+            },
+        )
+    )
+    last_snapshot["snapshot_identity"] = replacement_snapshot_identity
+    coordinated_budget["last_snapshot_identity"] = replacement_snapshot_identity
+    coordinated_budget["refusing_event"][
+        "snapshot_before_identity"
+    ] = replacement_snapshot_identity
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = reidentify(coordinated_budget)
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
