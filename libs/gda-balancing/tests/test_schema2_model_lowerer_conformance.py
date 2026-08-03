@@ -4038,6 +4038,7 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
         "combat.enemy-attacks-player",
         "combat.player-attacks-enemy",
         "combat.player-attacks-enemy-and-cancels-counterattack",
+        "combat.player-plans-attacks",
     ]
     assert len(cast(list[Any], rir["call_sites"])) == 5
     assert admit_resolved_model(
