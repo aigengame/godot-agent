@@ -30,6 +30,9 @@ from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 )
+_RPG_PERIODIC_EFFECT_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
+)
 _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
@@ -450,6 +453,66 @@ class TestKeyUserPath:
         planner = trace["events"][1]
         assert planner["outcome"] == {"id": "planned", "kind": "success"}
         assert planner["cancellations"][0]["outcome"] == "canceled"
+        snapshots = json.loads(
+            _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
+        )["snapshots"]
+        assert len(snapshots) == len(trace["events"]) + 1
+
+    def test_periodic_effect_runs_one_complete_lifecycle_through_public_events(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "periodic-model"),
+            "--invocation-key",
+            "8" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+
+        receipt, trace = _run_experiment_variant(
+            tmp_path,
+            experiment,
+            name="periodic-effect",
+            invocation_key="9" * 64,
+        )
+
+        lifecycle = [
+            event["entrypoint"]["id"]
+            if event.get("entrypoint") is not None
+            else event["operation"]
+            for event in trace["events"]
+            if event["ordering_key"]["phase"] == "transition"
+            and event["operation"].startswith("game.effect.")
+        ]
+        assert lifecycle == [
+            "effect.apply-snapshot-periodic",
+            "game.effect.tick-snapshot-periodic-v1",
+            "game.effect.tick-snapshot-periodic-v1",
+            "game.effect.expire-periodic-v1",
+        ]
+        instance_ids = {
+            next(
+                row["value"]
+                for row in event["state_after"]
+                if row["name"] == "effect_instance_id"
+            )
+            for event in trace["events"]
+            if event["ordering_key"]["phase"] == "transition"
+        }
+        assert len(instance_ids) == 1
+        assert next(iter(instance_ids)) > 0
         snapshots = json.loads(
             _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
         )["snapshots"]
