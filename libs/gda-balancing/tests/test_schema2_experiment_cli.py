@@ -4342,7 +4342,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
                 for port, symbol in (
                     ("actor_resource", "actor_mana"),
                     ("action_cost", "action_cost"),
-                        ("accuracy", "effective_accuracy"),
+                    ("accuracy", "effective_accuracy"),
                     ("base_damage", "base_damage"),
                     ("critical_threshold", "critical_threshold"),
                     ("hit_defense", "hit_defense"),

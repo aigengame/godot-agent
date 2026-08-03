@@ -6390,9 +6390,7 @@ def _resolved_entrypoint_graph_is_admitted(
                     formal["access"] != "read"
                     or not isinstance(name, str)
                     or not name
-                    or not _operation_contract_matches(
-                        event_reference_contract, formal
-                    )
+                    or not _operation_contract_matches(event_reference_contract, formal)
                 ):
                     return False
                 expected_operand = {
