@@ -1539,6 +1539,16 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         == content_identity(event_spec_domain, row["event_spec"])
         for row in snapshot_series["event_catalog"]
     )
+    assert all(
+        experiment_runtime_module._event_catalog_record_is_valid(checked, row)
+        for row in snapshot_series["event_catalog"]
+    )
+    drifted_catalog_record = deepcopy(snapshot_series["event_catalog"][0])
+    drifted_catalog_record["event_spec"]["zero_time_depth"] += 1
+    assert not experiment_runtime_module._event_catalog_record_is_valid(
+        checked,
+        drifted_catalog_record,
+    )
     event_spec_members = {
         row["kind"]: set(row["event_spec"])
         for row in snapshot_series["event_catalog"]
