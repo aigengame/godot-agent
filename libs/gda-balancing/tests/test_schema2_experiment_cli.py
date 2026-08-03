@@ -426,6 +426,47 @@ def _reference_execute_event(
             }
         )
         pending_programs = list(resolved_initialization_programs or [])
+        reachable_formula_targets = {
+            (
+                operand["symbol"]["model"],
+                operand["symbol"]["module"],
+                operand["symbol"]["name"],
+            )
+            for binding in resolved_entrypoint["arguments"]
+            if (operand := binding["operand"])["kind"] == "symbol"
+        }
+        while True:
+            previous_target_count = len(reachable_formula_targets)
+            for program in pending_programs:
+                target = program["target"]
+                target_coordinate = (
+                    target["model"],
+                    target["module"],
+                    target["name"],
+                )
+                if target_coordinate not in reachable_formula_targets:
+                    continue
+                reachable_formula_targets.update(
+                    (
+                        operand["resolved_symbol"]["model"],
+                        operand["resolved_symbol"]["module"],
+                        operand["resolved_symbol"]["name"],
+                    )
+                    for row in program["inputs"]
+                    if (operand := row["operand"])["kind"] != "literal"
+                )
+            if len(reachable_formula_targets) == previous_target_count:
+                break
+        pending_programs = [
+            program
+            for program in pending_programs
+            if (
+                program["target"]["model"],
+                program["target"]["module"],
+                program["target"]["name"],
+            )
+            in reachable_formula_targets
+        ]
         while pending_programs:
             progressed = False
             for program in list(pending_programs):
@@ -3558,6 +3599,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
 
     checked = experiment_runtime_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    selected_entrypoints = [checked.rir["entrypoints"][0]]
     actual_values = {
         canonical_bytes(cast(Any, initializer["target"])): initializer["value"]
         for initializer in checked.rir["entrypoints"][0]["scenario_input_contract"][
@@ -3580,6 +3622,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         consumed_steps=0,
         runtime_limit=exact_charge,
         cache=cache,
+        selected_entrypoints=selected_entrypoints,
     )
     assert consumed == exact_charge
     derived_identity = canonical_bytes(
@@ -3610,6 +3653,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=cache,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )
@@ -3621,6 +3665,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=cache,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )
@@ -3634,6 +3679,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=None,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )

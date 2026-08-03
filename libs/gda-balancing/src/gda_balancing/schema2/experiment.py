@@ -559,10 +559,12 @@ def _authoritative_event_actual_values(
     if scenario is None:
         return None
     entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
+    scenario_entrypoints: list[dict[str, Any]] = []
     actual_values: dict[bytes, int] = {}
     try:
         for root_event in _scenario_transition_events(scenario):
             selected_entrypoint = entrypoints[cast(str, root_event["entrypoint"])]
+            scenario_entrypoints.append(selected_entrypoint)
             contract = cast(
                 dict[str, Any], selected_entrypoint["scenario_input_contract"]
             )
@@ -582,6 +584,7 @@ def _authoritative_event_actual_values(
             consumed_steps=0,
             runtime_limit=(1 << 63) - 1,
             cache=None,
+            selected_entrypoints=scenario_entrypoints,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
             phase="initialization",
         )
@@ -622,6 +625,7 @@ def _authoritative_event_actual_values(
             consumed_steps=0,
             runtime_limit=(1 << 63) - 1,
             cache=None,
+            selected_entrypoints=scenario_entrypoints,
             frame_identity=cast(str, event["snapshot_before_identity"]),
             phase="event",
         )
@@ -2852,6 +2856,47 @@ def _evaluate_value_program_vector(
     }
 
 
+def _formula_programs_reachable_from_entrypoints(
+    checked: CheckedExperiment,
+    selected_entrypoints: Sequence[dict[str, Any]],
+    *,
+    phase: str,
+) -> list[dict[str, Any]]:
+    """Project one lifecycle phase to the sites selected by a Scenario."""
+    programs = [
+        program
+        for program in cast(
+            list[dict[str, Any]], checked.rir["initialization_programs"]
+        )
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
+    reachable_targets = {
+        canonical_bytes(cast(JsonValue, operand["symbol"]))
+        for entrypoint in selected_entrypoints
+        for binding in cast(list[dict[str, Any]], entrypoint["arguments"])
+        if (operand := cast(dict[str, Any], binding["operand"]))["kind"] == "symbol"
+    }
+    while True:
+        previous_targets = len(reachable_targets)
+        for program in programs:
+            target = canonical_bytes(cast(JsonValue, program["target"]))
+            if target not in reachable_targets:
+                continue
+            reachable_targets.update(
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+            )
+        if len(reachable_targets) == previous_targets:
+            break
+    return [
+        program
+        for program in programs
+        if canonical_bytes(cast(JsonValue, program["target"])) in reachable_targets
+    ]
+
+
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],
@@ -2859,19 +2904,17 @@ def _evaluate_initialization_programs(
     consumed_steps: int,
     runtime_limit: int,
     cache: dict[bytes, int] | None,
+    selected_entrypoints: Sequence[dict[str, Any]],
     frame_token: JsonValue | None = None,
     frame_identity: str | None = None,
     phase: str = "initialization",
 ) -> int:
     """Evaluate closed generic programs in one authority-owned lifecycle frame."""
-    programs = [
-        program
-        for program in cast(
-            list[dict[str, Any]],
-            checked.rir["initialization_programs"],
-        )
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
-    ]
+    programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase=phase,
+    )
     if not programs:
         return consumed_steps
     available_identities = set(actual_values)
@@ -3253,6 +3296,7 @@ def evaluate_experiment(
                 consumed_steps=total_steps,
                 runtime_limit=runtime_limit,
                 cache=initialization_cache,
+                selected_entrypoints=scenario_entrypoints,
                 frame_token={
                     "scenario": scenario["id"],
                     "snapshot_index": len(snapshots),
@@ -3875,6 +3919,7 @@ def evaluate_experiment(
                         consumed_steps=total_steps,
                         runtime_limit=runtime_limit,
                         cache=initialization_cache,
+                        selected_entrypoints=scenario_entrypoints,
                         frame_identity=current_snapshot_identity,
                         phase="event",
                     )
@@ -4182,6 +4227,7 @@ def evaluate_experiment(
                     consumed_steps=total_steps,
                     runtime_limit=runtime_limit,
                     cache=initialization_cache,
+                    selected_entrypoints=scenario_entrypoints,
                     frame_identity=snapshot_identity,
                     phase="observation",
                 )
@@ -4993,16 +5039,15 @@ def _formula_charge_through_evaluation_site(
     *,
     phase: str,
     evaluation_site_identity: str | None,
+    selected_entrypoints: Sequence[dict[str, Any]],
 ) -> int | None:
     if evaluation_site_identity is None:
         return None
-    programs = [
-        program
-        for program in cast(
-            list[dict[str, Any]], checked.rir["initialization_programs"]
-        )
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
-    ]
+    programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase=phase,
+    )
     program_targets = {
         canonical_bytes(cast(JsonValue, program["target"])) for program in programs
     }
@@ -5618,20 +5663,36 @@ def _terminal_audit_is_valid(
     evaluation_site_identity = cast(
         str | None, refusing_event.get("evaluation_site_identity")
     )
+    scenario = next(
+        row for row in checked.value["scenarios"] if row["id"] == scenario_id
+    )
+    resolved_entrypoints = {
+        cast(str, row["id"]): row for row in checked.rir["entrypoints"]
+    }
+    selected_entrypoints = [
+        resolved_entrypoints[cast(str, event["entrypoint"])]
+        for event in _scenario_transition_events(scenario)
+    ]
+    event_formula_programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase="event",
+    )
     event_formula_charge = sum(
         cast(int, program["resource_bounds"]["max_steps"])
-        for program in checked.rir["initialization_programs"]
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == "event"
+        for program in event_formula_programs
     )
     event_formula_fault_charge = _formula_charge_through_evaluation_site(
         checked,
         phase="event",
         evaluation_site_identity=evaluation_site_identity,
+        selected_entrypoints=selected_entrypoints,
     )
     observation_formula_fault_charge = _formula_charge_through_evaluation_site(
         checked,
         phase="observation",
         evaluation_site_identity=evaluation_site_identity,
+        selected_entrypoints=selected_entrypoints,
     )
     if refusing_event_spec["kind"] == "observation":
         exact_event_steps = 0
