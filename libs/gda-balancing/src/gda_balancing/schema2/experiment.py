@@ -1013,6 +1013,50 @@ def _replayed_schedule_arguments(
     schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
     draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
     draw_index = 0
+    rng = _NamedRng(
+        cast(int, checked.value["seed"]["value"]),
+        cast(dict[str, Any], _runtime_contract(checked)["named_rng"]),
+    )
+
+    def consume_authoritative_draw(
+        traced: dict[str, JsonValue],
+    ) -> int | None:
+        try:
+            value, index, candidate, accepted = rng.draw(
+                cast(str, traced["stream"]),
+                cast(int, traced["minimum"]),
+                cast(int, traced["maximum"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        expected = {
+            "stream": traced["stream"],
+            "index": index,
+            "candidate_hex": rng.encode_candidate(candidate),
+            "accepted": accepted,
+            "minimum": traced["minimum"],
+            "maximum": traced["maximum"],
+            "value": value,
+        }
+        return value if traced == expected else None
+
+    for prior_event in sorted(
+        events_by_id.values(), key=lambda row: cast(int, row["index"])
+    ):
+        if cast(int, prior_event["index"]) >= cast(int, parent_event["index"]):
+            break
+        prior_record = catalog_by_id.get(cast(str, prior_event["event_id"]))
+        if prior_record is None:
+            return None
+        if prior_record["scenario"] != scenario_id:
+            continue
+        if any(
+            consume_authoritative_draw(draw) is None
+            for draw in cast(
+                list[dict[str, JsonValue]], prior_event["rng_draws"]
+            )
+        ):
+            return None
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     node_contracts = _runtime_nodes(checked)
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
@@ -1178,7 +1222,10 @@ def _replayed_schedule_arguments(
                     or draw["maximum"] != instruction["maximum"]
                 ):
                     return "", None, None
-                variables[instruction["target"]] = draw["value"]
+                value = consume_authoritative_draw(draw)
+                if value is None:
+                    return "", None, None
+                variables[instruction["target"]] = value
             elif node_contract["family"] == "expression":
                 _execute_value_instruction(
                     instruction,

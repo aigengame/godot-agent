@@ -720,7 +720,8 @@ Experiment, observations from Metrics, and scheduled Events from committed paren
 the exact RIR scheduling Operation, nested call path/site, normalized actual arguments, and state
 references. Recovery boundedly replays the admitted RIR path from the committed parent inputs and
 state, so port, local, and literal schedule operands are recomputed rather than trusted from the
-trace; coordinated re-hashing cannot invent a different queue.
+trace. Named-RNG-derived locals additionally replay from the checked seed through the independently
+verified committed draw prefix; coordinated re-hashing cannot invent a different queue.
 Snapshot Series do not duplicate growing pending or completed arrays at every boundary.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;

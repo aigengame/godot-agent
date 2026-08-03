@@ -178,7 +178,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   actual arguments, and state references. This provenance covers schedule nodes in a root Operation
   or any admitted nested Operation and preserves `port`, `local`, and literal operand execution.
   Recovery boundedly replays that admitted RIR path from the committed parent inputs and state to
-  recompute the schedule operands; the trace is evidence to check, not its own value authority.
+  recompute the schedule operands. A Named-RNG-derived local is recomputed from the checked seed and
+  independently verified committed draw prefix; the draw trace is evidence to check, not its own
+  value authority.
   Self-consistent fresh hashes are not Event admission. A growing queue or committed
   prefix is never copied into every Snapshot.
 

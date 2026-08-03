@@ -1111,7 +1111,9 @@ and recovery revalidates its identity plus catalog, commit, and cancellation pre
 the exact pending queue. Root, scheduled, and observation catalog entries must also rebind to their
 checked Experiment, committed parent plus exact RIR scheduling Operation/call path/site and
 normalized actual operands, or Metric authority respectively. Scheduled operands are independently
-recomputed by boundedly replaying that RIR path from committed parent inputs and state;
+recomputed by boundedly replaying that RIR path from committed parent inputs and state; a
+Named-RNG-derived local also replays from the checked seed through the verified committed draw
+prefix rather than trusting a traced draw value;
 self-consistent fresh hashes do not prove admission (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
