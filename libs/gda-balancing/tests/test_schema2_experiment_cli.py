@@ -17,6 +17,7 @@ import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.schema2.diagnostics import ArtifactLocation
 from gda_balancing.schema2.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
@@ -2274,7 +2275,9 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
     assert result.diagnostics[0].code == "language.source_contract_mismatch"
-    assert result.diagnostics[0].primary.pointer.endswith("/facts/0/target")
+    primary = result.diagnostics[0].primary
+    assert isinstance(primary, ArtifactLocation)
+    assert primary.pointer.endswith("/facts/0/target")
 
 
 def test_public_experiment_admits_external_input_before_transition_until_queue_drains(
