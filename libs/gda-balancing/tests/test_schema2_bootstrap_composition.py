@@ -268,21 +268,21 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         (
             "effect",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
@@ -296,14 +296,14 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
         (
             "argument-contract",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
         (
             "literal-contract",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.apply-damage.arguments"
             ),
         ),
@@ -489,6 +489,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
 
     assert set(runtime["fixed_value_contracts"]) == {
         "kernel-boolean",
+        "kernel-event-reference",
         "kernel-unit",
     }
     assert runtime["numeric"] == {
@@ -1089,7 +1090,7 @@ def test_reidentified_operation_result_source_cannot_invent_host_semantics():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1121,7 +1122,7 @@ def test_reidentified_operation_result_source_requires_its_exact_call_producer()
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1238,7 +1239,7 @@ def test_operation_result_source_refuses_a_non_successful_producer_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.cast-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.cast-v1.result.source",
     ) in first["diagnostics"]
 
 

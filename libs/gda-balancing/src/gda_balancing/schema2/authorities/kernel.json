@@ -858,7 +858,7 @@
             1
           ],
           "quote": "\"\n\\",
-          "\u00e9": "\u96ea"
+          "é": "雪"
         }
       },
       {
@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab",
+  "content_identity": "sha256:3a3bdae4555439d17e8b79b953f9fead95e13837a68974d8c60c08947b2e61d7",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2574,30 +2574,30 @@
                                 "required"
                               ]
                             },
-                    "event_payload_cardinality": {
-                      "enum": [
-                        "forbidden",
-                        "optional",
-                        "required"
-                      ]
-                    },
-                    "external_fact_cardinality": {
-                      "enum": [
-                        "forbidden",
-                        "optional",
-                        "required"
-                      ]
-                    }
+                            "event_payload_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
+                            },
+                            "external_fact_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
+                            }
                           },
                           "required_members": [
                             "id",
                             "initialization_source",
                             "value_member",
-                    "experiment_cardinality",
-                    "override",
-                    "event_payload_cardinality",
-                    "external_fact_cardinality"
-                  ],
+                            "experiment_cardinality",
+                            "override",
+                            "event_payload_cardinality",
+                            "external_fact_cardinality"
+                          ],
                           "type": "closed-object"
                         },
                         "type": "list-of"
@@ -4825,6 +4825,20 @@
             "version": "2.0.0"
           },
           "unit": "1"
+        },
+        "kernel-event-reference": {
+          "domain": {
+            "kind": "runtime-event"
+          },
+          "kind": "event-reference",
+          "numeric_policy": "exact-reference",
+          "representation": "EventRef",
+          "type": {
+            "id": "EventReference",
+            "package": "kernel",
+            "version": "2.0.0"
+          },
+          "unit": "1"
         }
       },
       "expression_nodes": [
@@ -5580,9 +5594,18 @@
             "operator": "cancel-event",
             "target_reference": {
               "instruction_member": "event",
-              "kind": "local",
-              "producer_result_kind": "scheduled-event",
-              "value_member": "local"
+              "variants": [
+                {
+                  "kind": "local",
+                  "producer_result_kind": "scheduled-event",
+                  "value_member": "local"
+                },
+                {
+                  "kind": "port",
+                  "value_contract": "kernel-event-reference",
+                  "value_member": "port"
+                }
+              ]
             }
           }
         }

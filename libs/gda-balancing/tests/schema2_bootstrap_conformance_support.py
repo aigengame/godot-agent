@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab"
+    "sha256:3a3bdae4555439d17e8b79b953f9fead95e13837a68974d8c60c08947b2e61d7"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -5622,6 +5622,18 @@ def _consumer_b_runtime_authority_is_closed(
             "domain": {"kind": "unit"},
             "numeric_policy": "exact-unit",
         },
+        "kernel-event-reference": {
+            "type": {
+                "package": "kernel",
+                "version": "2.0.0",
+                "id": "EventReference",
+            },
+            "representation": "EventRef",
+            "kind": "event-reference",
+            "unit": "1",
+            "domain": {"kind": "runtime-event"},
+            "numeric_policy": "exact-reference",
+        },
     }:
         return False
     assert isinstance(fixed_value_contracts, dict)
@@ -5737,25 +5749,42 @@ def _consumer_b_runtime_authority_is_closed(
         if isinstance(cancel_semantics, dict)
         else None
     )
+    cancel_variants = (
+        cancel_target.get("variants") if isinstance(cancel_target, dict) else None
+    )
     if (
         not isinstance(cancel_target, dict)
-        or set(cancel_target)
-        != {
-            "instruction_member",
-            "kind",
-            "producer_result_kind",
-            "value_member",
-        }
+        or set(cancel_target) != {"instruction_member", "variants"}
+        or not isinstance(cancel_target.get("instruction_member"), str)
+        or not cancel_target["instruction_member"]
+        or not isinstance(cancel_variants, list)
+        or len(cancel_variants) != 2
+        or {variant.get("kind") for variant in cancel_variants} != {"local", "port"}
         or any(
-            not isinstance(cancel_target.get(member), str) or not cancel_target[member]
-            for member in cancel_target
+            not isinstance(variant, dict)
+            or set(variant)
+            != (
+                {"kind", "value_member", "producer_result_kind"}
+                if variant.get("kind") == "local"
+                else {"kind", "value_member", "value_contract"}
+            )
+            or not isinstance(variant.get("value_member"), str)
+            or not variant["value_member"]
+            or (
+                variant.get("kind") == "local"
+                and not any(
+                    node["result"]["kind"] == variant.get("producer_result_kind")
+                    for node in nodes_by_id.values()
+                )
+            )
+            or (
+                variant.get("kind") == "port"
+                and variant.get("value_contract") not in fixed_value_contracts
+            )
+            for variant in cancel_variants
         )
         or cancel_target["instruction_member"]
         not in nodes_by_id["cancel"]["required_members"]
-        or not any(
-            node["result"]["kind"] == cancel_target["producer_result_kind"]
-            for node in nodes_by_id.values()
-        )
     ):
         return False
     rng = runtime.get("named_rng")
@@ -5911,6 +5940,11 @@ def _consumer_b_runtime_authority_is_closed(
         nested_stack = {*stack, operation_id}
         referenced: set[str] = set()
         produced_locals: dict[str, str] = {}
+        formal_ports = {
+            port.get("id"): port
+            for port in operation.get("inputs", [])
+            if isinstance(port, dict) and isinstance(port.get("id"), str)
+        }
         for instruction in body:
             if not isinstance(instruction, dict):
                 return None
@@ -5922,14 +5956,54 @@ def _consumer_b_runtime_authority_is_closed(
             if node["semantics"]["operator"] == "cancel-event":
                 target_contract = node["semantics"]["target_reference"]
                 target = instruction.get(target_contract["instruction_member"])
+                variants = {
+                    variant["kind"]: variant
+                    for variant in target_contract["variants"]
+                }
+                target_variant = (
+                    variants.get(target.get("kind"))
+                    if isinstance(target, dict)
+                    else None
+                )
+                target_value = (
+                    target.get(target_variant["value_member"])
+                    if isinstance(target_variant, dict)
+                    else None
+                )
                 if (
                     not isinstance(target, dict)
-                    or set(target) != {"kind", target_contract["value_member"]}
-                    or target.get("kind") != target_contract["kind"]
-                    or not isinstance(target.get(target_contract["value_member"]), str)
-                    or not target[target_contract["value_member"]]
-                    or produced_locals.get(target[target_contract["value_member"]])
-                    != target_contract["producer_result_kind"]
+                    or not isinstance(target_variant, dict)
+                    or set(target) != {"kind", target_variant["value_member"]}
+                    or not isinstance(target_value, str)
+                    or not target_value
+                    or (
+                        target_variant["kind"] == "local"
+                        and produced_locals.get(target_value)
+                        != target_variant["producer_result_kind"]
+                    )
+                    or (
+                        target_variant["kind"] == "port"
+                        and (
+                            target_value not in formal_ports
+                            or formal_ports[target_value].get("type")
+                            != fixed_value_contracts[
+                                target_variant["value_contract"]
+                            ].get("type")
+                            or any(
+                                formal_ports[target_value].get(member)
+                                != fixed_value_contracts[
+                                    target_variant["value_contract"]
+                                ].get(member)
+                                for member in (
+                                    "representation",
+                                    "kind",
+                                    "unit",
+                                    "domain",
+                                    "numeric_policy",
+                                )
+                            )
+                        )
+                    )
                 ):
                     return None
             outcome = instruction.get("outcome")
@@ -5946,7 +6020,7 @@ def _consumer_b_runtime_authority_is_closed(
                 invoked = operations_by_id.get(operation_ref["id"])
                 if not isinstance(invoked, dict):
                     return None
-                formal_ports = [
+                invoked_formal_ports = [
                     row.get("id")
                     for row in invoked.get("inputs", [])
                     if isinstance(row, dict)
@@ -5954,7 +6028,8 @@ def _consumer_b_runtime_authority_is_closed(
                 arguments = instruction.get("arguments")
                 if (
                     not isinstance(arguments, list)
-                    or [row.get("port") for row in arguments] != formal_ports
+                    or [row.get("port") for row in arguments]
+                    != invoked_formal_ports
                     or any(
                         not isinstance(row, dict)
                         or set(row) != {"port", "operand"}

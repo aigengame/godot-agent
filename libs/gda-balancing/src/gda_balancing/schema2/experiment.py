@@ -393,13 +393,21 @@ def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
             "facts": cast(JsonValue, event["facts"]),
         }
     if "entrypoint" in event:
-        return {
+        projected = cast(
+            dict[str, JsonValue],
+            {
             **common,
             "kind": "transition-invocation",
             "root_event_ref": cast(str, event["root_event_ref"]),
             "entrypoint": cast(str, event["entrypoint"]),
             "payload": cast(JsonValue, event["payload"]),
-        }
+            },
+        )
+        if event.get("event_references"):
+            projected["event_references"] = cast(
+                JsonValue, event["event_references"]
+            )
+        return projected
     return {
         **common,
         "kind": "scheduled-transition",
@@ -1700,6 +1708,11 @@ def check_experiment(
                 for event in event_plan
                 if event["kind"] == "external-input"
             )
+            or any(
+                not _unique_rows(event.get("event_references", []), "name")
+                for event in event_plan
+                if event["kind"] == "transition-invocation"
+            )
             or not _external_input_plan_is_admitted(scenario, scheduler)
         ):
             return _refusal(
@@ -1929,6 +1942,58 @@ def check_experiment(
                         identity=experiment_identity,
                         pointer=f"{payload_pointer}/{payload_index}/value",
                         message="Event-local payload is outside its declared domain",
+                    )
+            reference_contracts = cast(
+                list[dict[str, Any]], payload_contract["event_references"]
+            )
+            references = cast(
+                list[dict[str, str]], event.get("event_references", [])
+            )
+            reference_pointer = (
+                f"/scenarios/{scenario_index}/event_plan/{event_index}"
+                "/event_references"
+            )
+            allowed_reference_names = {
+                cast(str, row["name"]) for row in reference_contracts
+            }
+            provided_reference_names = {row["name"] for row in references}
+            required_reference_names = {
+                cast(str, row["name"])
+                for row in reference_contracts
+                if row["cardinality"] == "required"
+            }
+            if (
+                len(provided_reference_names) != len(references)
+                or not required_reference_names <= provided_reference_names
+                or not provided_reference_names <= allowed_reference_names
+            ):
+                return _refusal(
+                    stage="static",
+                    code="language.source_contract_mismatch",
+                    identity=experiment_identity,
+                    pointer=reference_pointer,
+                    message=(
+                        "Transition Event references do not exactly close the "
+                        "entrypoint contract"
+                    ),
+                )
+            root_references = {
+                cast(str, root["root_event_ref"])
+                for root in _scenario_root_events(scenario)
+            }
+            for reference_index, reference in enumerate(references):
+                if reference["root_event_ref"] not in root_references:
+                    return _refusal(
+                        stage="static",
+                        code="language.resolution_binding_mismatch",
+                        identity=experiment_identity,
+                        pointer=(
+                            f"{reference_pointer}/{reference_index}/root_event_ref"
+                        ),
+                        message=(
+                            "Event reference does not resolve to an admitted root "
+                            "Event in the same Scenario"
+                        ),
                     )
         contract_targets = [
             target
@@ -3049,11 +3114,18 @@ def evaluate_experiment(
     scheduler = _scheduler_contract(checked)
     runtime_scheduler = RuntimeScheduler(scheduler)
     root_events_by_scenario: dict[str, list[dict[str, Any]]] = {}
+    root_event_ids_by_scenario: dict[str, dict[str, str]] = {}
     for scenario in checked.value["scenarios"]:
         ordered_events = _ordered_root_events(checked, scenario)
         for root_event in ordered_events:
             root_event["event_id"] = _root_event_id(checked, scenario["id"], root_event)
         root_events_by_scenario[scenario["id"]] = ordered_events
+        root_event_ids_by_scenario[scenario["id"]] = {
+            cast(str, root_event["root_event_ref"]): cast(
+                str, root_event["event_id"]
+            )
+            for root_event in ordered_events
+        }
         root_event_map.extend(
             {
                 "scenario": scenario["id"],
@@ -3538,13 +3610,22 @@ def evaluate_experiment(
                         "target_reference"
                     ]
                     target = instruction[target_contract["instruction_member"]]
-                    target_value_member = target_contract["value_member"]
+                    target_variants = {
+                        variant["kind"]: variant
+                        for variant in target_contract["variants"]
+                    }
+                    target_variant = target_variants.get(target.get("kind"))
+                    target_value_member = (
+                        target_variant["value_member"]
+                        if target_variant is not None
+                        else ""
+                    )
                     target_variable = target.get(target_value_member)
                     cancel_signals = _scheduler_contract(checked)["cancel"][
                         "refusal_signals"
                     ]
                     if (
-                        target.get("kind") != target_contract["kind"]
+                        target_variant is None
                         or not isinstance(target_variable, str)
                         or target_variable not in variables
                     ):
@@ -3810,6 +3891,15 @@ def evaluate_experiment(
                         ]
                         if declaration["role"] == "state":
                             root_state_references[binding["port"]["name"]] = identity
+                    elif resolved_operand["kind"] == "event-reference":
+                        reference_bindings = {
+                            row["name"]: row["root_event_ref"]
+                            for row in event_spec.get("event_references", [])
+                        }
+                        root_event_ref = reference_bindings[resolved_operand["name"]]
+                        root_arguments[binding["port"]["name"]] = (
+                            root_event_ids_by_scenario[scenario["id"]][root_event_ref]
+                        )
                     else:
                         root_arguments[binding["port"]["name"]] = resolved_operand[
                             "value"
@@ -4663,8 +4753,17 @@ def _artifact_set_runtime_journals_are_valid(
         for event in events
         for schedule in cast(list[dict[str, JsonValue]], event["schedules"])
     }
-    if catalog_ids != {cast(str, event["event_id"]) for event in events} | (
-        scheduled_ids - {cast(str, event["event_id"]) for event in events}
+    canceled_ids = {
+        cast(str, cancellation["event_id"])
+        for event in events
+        for cancellation in cast(
+            list[dict[str, JsonValue]], event["cancellations"]
+        )
+    }
+    if catalog_ids != (
+        {cast(str, event["event_id"]) for event in events}
+        | scheduled_ids
+        | canceled_ids
     ):
         return False
     for scenario in checked.value["scenarios"]:

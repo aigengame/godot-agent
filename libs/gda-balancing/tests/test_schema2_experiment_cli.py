@@ -77,11 +77,12 @@ def test_tutorial_tuning_values_are_not_package_conformance_configuration():
     vector_values = {row["name"]: row["value"] for row in positive["input"]["values"]}
 
     assert {
-        name: tutorial_values[name]
-        for name in ("action_cost", "accuracy", "base_damage")
+        "action_cost": tutorial_values["player_action_cost"],
+        "accuracy": tutorial_values["player_accuracy"],
+        "base_damage": tutorial_values["player_base_damage"],
     } == {
         "action_cost": 9,
-        "accuracy": 25,
+        "accuracy": 1000,
         "base_damage": 45,
     }
     assert {
@@ -115,7 +116,20 @@ def _rpg_value(name: str, role: str) -> dict[str, Any]:
 
 
 def _rpg_model_source() -> dict[str, Any]:
-    return json.loads((_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8"))
+    _kernel, language_bundle = authority_module.load_authorities()
+    vectors = next(
+        vector_set["vector_definitions"]
+        for vector_set in language_bundle.package_conformance_vector_sets
+        if vector_set["package_id"] == "game.combat"
+        and vector_set["package_version"] == "2.1.0"
+    )
+    source_fixture = next(
+        vector["source_fixture"]
+        for vector in vectors
+        if vector["id"] == "game.combat.model-binding.positive"
+    )
+    assert source_fixture["mode"] == "literal"
+    return deepcopy(source_fixture["source"])
 
 
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
@@ -4274,7 +4288,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "id": "combat.cast",
             "operation": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
             },
             "arguments": [
@@ -4289,7 +4303,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
                 for port, symbol in (
                     ("actor_resource", "actor_mana"),
                     ("action_cost", "action_cost"),
-                    ("accuracy", "effective_accuracy"),
+                    ("accuracy", "accuracy"),
                     ("base_damage", "base_damage"),
                     ("critical_threshold", "critical_threshold"),
                     ("hit_defense", "hit_defense"),
@@ -5544,9 +5558,9 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         vector
         for vector in next(
             vector_set["vector_definitions"]
-            for vector_set in ldb.package_conformance_vector_sets
-            if vector_set["package_id"] == "game.combat"
-            and vector_set["package_version"] == "2.0.0"
+                for vector_set in ldb.package_conformance_vector_sets
+                if vector_set["package_id"] == "game.combat"
+                and vector_set["package_version"] == "2.1.0"
         )
         if vector.get("kind") == "runtime-scenario"
     ]

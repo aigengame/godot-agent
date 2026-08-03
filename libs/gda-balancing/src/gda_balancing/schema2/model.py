@@ -4574,6 +4574,7 @@ def _resolved_entrypoints(
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         event_payload_targets: dict[str, dict[str, JsonValue]] = {}
+        event_reference_targets: dict[str, dict[str, JsonValue]] = {}
         external_fact_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
 
@@ -4835,6 +4836,51 @@ def _resolved_entrypoints(
                         domains["actual_operand"], cast(JsonValue, operand_body)
                     ),
                 }
+            elif source_operand["kind"] == "event-reference":
+                event_reference_contract = checked.kernel["meta_format"][
+                    "runtime_program"
+                ]["fixed_value_contracts"]["kernel-event-reference"]
+                name = source_operand["name"]
+                if formal["access"] != "read" or not _operation_contract_matches(
+                    event_reference_contract, formal
+                ):
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "Event reference operand is incompatible with the formal "
+                        "value contract",
+                    )
+                operand_body = {
+                    "kind": "event-reference",
+                    "name": name,
+                }
+                operand_identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                )
+                previous_reference = event_reference_targets.get(name)
+                reference_contract = cast(
+                    dict[str, JsonValue],
+                    {
+                        "name": name,
+                        "operand_identity": operand_identity,
+                        "cardinality": "required",
+                    },
+                )
+                if (
+                    previous_reference is not None
+                    and previous_reference != reference_contract
+                ):
+                    raise _EntrypointBindingError(
+                        operand_pointer,
+                        "one Event reference name derived conflicting contracts",
+                    )
+                event_reference_targets[name] = reference_contract
             else:
                 raise _EntrypointBindingError(
                     operand_pointer,
@@ -4935,7 +4981,11 @@ def _resolved_entrypoints(
                     "targets": sorted(
                         event_payload_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
-                    )
+                    ),
+                    "event_references": sorted(
+                        event_reference_targets.values(),
+                        key=lambda row: cast(str, row["name"]),
+                    ),
                 },
                 "external_fact_contract": {
                     "targets": sorted(
@@ -6107,6 +6157,7 @@ def _resolved_entrypoint_graph_is_admitted(
         aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         event_payload_targets: dict[str, dict[str, JsonValue]] = {}
+        event_reference_targets: dict[str, dict[str, JsonValue]] = {}
         external_fact_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
@@ -6323,6 +6374,49 @@ def _resolved_entrypoint_graph_is_admitted(
                         domains["actual_operand"], cast(JsonValue, operand_body)
                     ),
                 }
+            elif operand.get("kind") == "event-reference":
+                event_reference_contract = kernel["meta_format"]["runtime_program"][
+                    "fixed_value_contracts"
+                ]["kernel-event-reference"]
+                name = operand.get("name")
+                operand_body = {
+                    "kind": "event-reference",
+                    "name": name,
+                }
+                operand_identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
+                if (
+                    formal["access"] != "read"
+                    or not isinstance(name, str)
+                    or not name
+                    or not _operation_contract_matches(
+                        event_reference_contract, formal
+                    )
+                ):
+                    return False
+                expected_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                )
+                reference_contract = cast(
+                    dict[str, JsonValue],
+                    {
+                        "name": name,
+                        "operand_identity": operand_identity,
+                        "cardinality": "required",
+                    },
+                )
+                previous_reference = event_reference_targets.get(name)
+                if (
+                    previous_reference is not None
+                    and previous_reference != reference_contract
+                ):
+                    return False
+                event_reference_targets[name] = reference_contract
             else:
                 return False
             expected_arguments.append(
@@ -6426,7 +6520,11 @@ def _resolved_entrypoint_graph_is_admitted(
                     "targets": sorted(
                         event_payload_targets.values(),
                         key=lambda row: cast(str, row["target_identity"]),
-                    )
+                    ),
+                    "event_references": sorted(
+                        event_reference_targets.values(),
+                        key=lambda row: cast(str, row["name"]),
+                    ),
                 },
                 "external_fact_contract": {
                     "targets": sorted(

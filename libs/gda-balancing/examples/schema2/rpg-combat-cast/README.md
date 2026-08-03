@@ -109,7 +109,7 @@ jq . examples/schema2/rpg-combat-cast/model-source.json
 The source requires two Domain packages:
 
 - `core.quantity@2.1.0` supplies the generic `Quantity` constructor imported by the source;
-- `game.combat@2.0.0` supplies the composed `game.combat.cast-v1` operation.
+- `game.combat@2.1.0` supplies the composed `game.combat.cast-v1` operation.
 
 `game.combat` declares `game.resource`, `game.check`, and `standard.runtime` as required
 dependencies. Resolution closes that transitive graph and selects capability providers from the

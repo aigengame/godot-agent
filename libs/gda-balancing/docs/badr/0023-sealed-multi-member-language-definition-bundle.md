@@ -46,10 +46,10 @@ admission boundary.
   treated as a peer authority.
 
 - **Each package has one independent physical directory.** The dot-separated package id maps to one
-  hyphenated directory under `packages/`. For coordinate `game.combat@2.0.0`, the directory is
+  hyphenated directory under `packages/`. For coordinate `game.combat@2.1.0`, the directory is
   `packages/game-combat/` and contains exactly
-  `game.combat@2.0.0.json` plus
-  `game.combat@2.0.0.conformance-vectors.json`. Directory names and locators are distribution
+  `game.combat@2.1.0.json` plus
+  `game.combat@2.1.0.conformance-vectors.json`. Directory names and locators are distribution
   metadata, not semantic membership or identity authority. Loaders follow only root and manifest
   descriptors; source/wheel inventory checks reject missing or undeclared directory members. The
   Kernel owns the package-id and version patterns used by root descriptors, manifests, vector

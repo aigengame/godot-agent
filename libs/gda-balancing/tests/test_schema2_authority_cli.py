@@ -1033,8 +1033,9 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         "game.check.critical-v1",
     }
     assert combat_operations == {
-        "game.combat.damage-v1",
+        "game.combat.cast-and-cancel-v1",
         "game.combat.cast-v1",
+        "game.combat.damage-v1",
         "game.combat.plan-casts-v1",
     }
     cast = next(
@@ -1073,7 +1074,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
             "invoke",
             {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.damage-v1",
             },
         ),

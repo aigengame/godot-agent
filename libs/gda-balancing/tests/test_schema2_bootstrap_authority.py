@@ -63,9 +63,18 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
     assert nodes["schedule"]["result"]["kind"] == "scheduled-event"
     assert nodes["cancel"]["semantics"]["target_reference"] == {
         "instruction_member": "event",
-        "kind": "local",
-        "producer_result_kind": "scheduled-event",
-        "value_member": "local",
+        "variants": [
+            {
+                "kind": "local",
+                "value_member": "local",
+                "producer_result_kind": "scheduled-event",
+            },
+            {
+                "kind": "port",
+                "value_member": "port",
+                "value_contract": "kernel-event-reference",
+            },
+        ],
     }
 
 
@@ -1252,7 +1261,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1291,7 +1300,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

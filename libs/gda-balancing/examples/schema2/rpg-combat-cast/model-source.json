@@ -12,7 +12,7 @@
     },
     {
       "id": "game.combat",
-      "version": "2.0.0"
+      "version": "2.1.0"
     }
   ],
   "modules": [
@@ -581,7 +581,7 @@
         "kind": "operation-slot",
         "operation": {
           "package": "game.combat",
-          "version": "2.0.0",
+          "version": "2.1.0",
           "id": "game.combat.damage-v1"
         },
         "slot": "damage-policy"
@@ -613,7 +613,7 @@
       "id": "combat.player-attacks-enemy",
       "operation": {
         "package": "game.combat",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "id": "game.combat.cast-v1"
       },
       "arguments": [
@@ -689,10 +689,96 @@
       }
     },
     {
+      "id": "combat.player-attacks-enemy-and-cancels-counterattack",
+      "operation": {
+        "package": "game.combat",
+        "version": "2.1.0",
+        "id": "game.combat.cast-and-cancel-v1"
+      },
+      "arguments": [
+        {
+          "port": "actor_resource",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_mana"
+          }
+        },
+        {
+          "port": "action_cost",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_action_cost"
+          }
+        },
+        {
+          "port": "accuracy",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_effective_accuracy"
+          }
+        },
+        {
+          "port": "base_damage",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_base_damage"
+          }
+        },
+        {
+          "port": "critical_threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_critical_threshold"
+          }
+        },
+        {
+          "port": "hit_defense",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_defense"
+          }
+        },
+        {
+          "port": "damage_mitigation",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_defense"
+          }
+        },
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_health"
+          }
+        },
+        {
+          "port": "cancel_target",
+          "operand": {
+            "kind": "event-reference",
+            "name": "counterattack"
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "combat",
+        "symbol": "player_damage_dealt"
+      }
+    },
+    {
       "id": "combat.enemy-attacks-player",
       "operation": {
         "package": "game.combat",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "id": "game.combat.cast-v1"
       },
       "arguments": [

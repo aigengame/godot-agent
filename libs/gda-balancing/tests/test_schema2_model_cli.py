@@ -1367,7 +1367,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 "kind": "operation-slot",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "id": "game.combat.damage-v1",
                 },
                 "slot": "damage-policy",
@@ -1422,7 +1422,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["kind"] == "operation-slot"
     assert binding["site"]["operation"] == {
         "package": "game.combat",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "id": "game.combat.damage-v1",
         "identity": binding["site"]["operation"]["identity"],
     }
@@ -1611,7 +1611,7 @@ def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_c
                 "node": "operation-call",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "id": "game.combat.cast-v1",
                 },
                 "arguments": [],
@@ -4607,7 +4607,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -4616,7 +4616,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "base_damage",
+                        "symbol": "player_base_damage",
                     },
                 },
                 {
@@ -4628,7 +4628,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "target_defense",
+                        "symbol": "enemy_defense",
                     },
                 },
                 {
@@ -4636,14 +4636,14 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "target_health",
+                        "symbol": "enemy_health",
                     },
                 },
             ],
             "result": {
-                "kind": "symbol",
-                "module": "combat",
-                "symbol": "damage_dealt",
+                    "kind": "symbol",
+                    "module": "combat",
+                    "symbol": "player_damage_dealt",
             },
         }
     ]
@@ -5059,21 +5059,21 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "effect",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
@@ -5087,7 +5087,7 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "argument-contract",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
@@ -5216,7 +5216,7 @@ def test_authority_admission_rejects_operation_closure_at_the_package_site():
     assert admission.admitted is False
     assert any(
         diagnostic.subject
-        == "language.operations.game.combat@2.0.0.game.combat.cast-v1.body.hit-check.effects"
+        == "language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.effects"
         for diagnostic in admission.diagnostics
     )
 

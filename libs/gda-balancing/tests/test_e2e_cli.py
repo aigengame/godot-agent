@@ -243,12 +243,17 @@ class TestKeyUserPath:
         assert entrypoints == {
             "combat.enemy-attacks-player": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
+            },
+            "combat.player-attacks-enemy-and-cancels-counterattack": {
+                "package": "game.combat",
+                "version": "2.1.0",
+                "id": "game.combat.cast-and-cancel-v1",
             },
             "combat.player-attacks-enemy": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
             },
         }
@@ -256,6 +261,7 @@ class TestKeyUserPath:
             row["id"]: {
                 argument["port"]["name"]: argument["operand"]["symbol"]["name"]
                 for argument in row["arguments"]
+                if argument["operand"]["kind"] == "symbol"
             }
             for row in rir["entrypoints"]
         }
@@ -270,6 +276,16 @@ class TestKeyUserPath:
                 "damage_mitigation": "player_defense",
                 "target_health": "player_health",
             },
+            "combat.player-attacks-enemy-and-cancels-counterattack": {
+                "actor_resource": "player_mana",
+                "action_cost": "player_action_cost",
+                "accuracy": "player_effective_accuracy",
+                "base_damage": "player_base_damage",
+                "critical_threshold": "player_critical_threshold",
+                "hit_defense": "enemy_defense",
+                "damage_mitigation": "enemy_defense",
+                "target_health": "enemy_health",
+            },
             "combat.player-attacks-enemy": {
                 "actor_resource": "player_mana",
                 "action_cost": "player_action_cost",
@@ -280,6 +296,23 @@ class TestKeyUserPath:
                 "damage_mitigation": "enemy_defense",
                 "target_health": "enemy_health",
             },
+        }
+        cancel_entrypoint = next(
+            row
+            for row in rir["entrypoints"]
+            if row["id"]
+            == "combat.player-attacks-enemy-and-cancels-counterattack"
+        )
+        assert next(
+            row for row in cancel_entrypoint["arguments"] if row["port"]["name"] == "cancel_target"
+        )["operand"] == {
+            "kind": "event-reference",
+            "name": "counterattack",
+            "identity": next(
+                row
+                for row in cancel_entrypoint["arguments"]
+                if row["port"]["name"] == "cancel_target"
+            )["operand"]["identity"],
         }
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
@@ -586,6 +619,140 @@ class TestKeyUserPath:
             ("enemy-attacks-player", 0, 0),
             ("player-attacks-enemy", 0, 1),
         ]
+
+    def test_reciprocal_combat_can_explicitly_cancel_an_admitted_root_event(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "1" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        cancellation = json.loads(
+            (example / "experiment.json").read_text(encoding="utf-8")
+        )
+        cancellation["id"] = "example.rpg-combat-cast.explicit-cancellation"
+        cancellation["metrics"] = cancellation["metrics"][:2]
+        requirements = cancellation["runtime"]["required_evaluator"]
+        requirements["instruction_nodes"].append("cancel")
+        requirements["effects"].append("event.cancel")
+        first_root, second_root = cancellation["scenarios"][0]["event_plan"]
+        first_root["entrypoint"] = (
+            "combat.player-attacks-enemy-and-cancels-counterattack"
+        )
+        first_root["event_references"] = [
+            {
+                "name": "counterattack",
+                "root_event_ref": second_root["root_event_ref"],
+            }
+        ]
+
+        receipt, trace = _run_experiment_variant(
+            tmp_path,
+            cancellation,
+            name="explicit-cancellation",
+            invocation_key="2" * 64,
+        )
+
+        root_ids = {
+            row["root_event_ref"]: row["event_id"] for row in trace["root_event_map"]
+        }
+        transition_events = [
+            event for event in trace["events"] if event["operation"] is not None
+        ]
+        assert [event["root_event_ref"] for event in transition_events] == [
+            "player-attacks-enemy"
+        ]
+        event = transition_events[0]
+        assert event["outcome"] == {
+            "id": "cast-resolved-and-canceled",
+            "kind": "success",
+        }
+        assert event["cancellations"] == [
+            {
+                "call_site_identity": event["cancellations"][0][
+                    "call_site_identity"
+                ],
+                "event_id": root_ids["enemy-attacks-player"],
+                "outcome": "canceled",
+            }
+        ]
+        assert root_ids["enemy-attacks-player"] not in {
+            row["event_id"] for row in trace["events"]
+        }
+        assert event["state_after"] == [
+            {"name": "enemy_health", "value": 63},
+            {"name": "enemy_mana", "value": 30},
+            {"name": "player_health", "value": 100},
+            {"name": "player_mana", "value": 26},
+        ]
+        snapshots = json.loads(
+            _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
+        )["snapshots"]
+        assert snapshots[1]["continuation"]["pending_event_count"] == 0
+
+    def test_reciprocal_combat_does_not_infer_defeat_or_cancel_eligibility(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "3" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        no_cancellation = json.loads(
+            (example / "experiment.json").read_text(encoding="utf-8")
+        )
+        no_cancellation["id"] = "example.rpg-combat-cast.no-inferred-defeat"
+        enemy_health = next(
+            row
+            for row in no_cancellation["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "enemy_health"
+        )
+        enemy_health["value"] = 37
+
+        _receipt, trace = _run_experiment_variant(
+            tmp_path,
+            no_cancellation,
+            name="no-inferred-defeat",
+            invocation_key="4" * 64,
+        )
+
+        transition_events = [
+            event for event in trace["events"] if event["operation"] is not None
+        ]
+        assert [event["root_event_ref"] for event in transition_events] == [
+            "player-attacks-enemy",
+            "enemy-attacks-player",
+        ]
+        first_event, second_event = transition_events
+        assert first_event["state_after"] == second_event["state_before"]
+        assert {row["name"]: row["value"] for row in second_event["state_before"]}[
+            "enemy_health"
+        ] == 0
+        assert all(event["cancellations"] == [] for event in transition_events)
+        assert all(
+            event["outcome"] == {"id": "cast-resolved", "kind": "success"}
+            for event in transition_events
+        )
+        assert {row["name"]: row["value"] for row in second_event["state_after"]}[
+            "player_health"
+        ] == 86
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")

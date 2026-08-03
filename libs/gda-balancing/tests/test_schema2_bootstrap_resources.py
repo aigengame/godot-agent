@@ -98,7 +98,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.0.0"})
+    check["dependencies"]["required"].append({"id": "game.combat", "version": "2.1.0"})
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 
