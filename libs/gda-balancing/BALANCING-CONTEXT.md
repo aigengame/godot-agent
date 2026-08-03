@@ -977,7 +977,9 @@ typed outcome requirements, normative vectors, and a complete abstract-role cont
 evaluator-consumed scheduler, Runtime-configuration, transition, and step object and relationship.
 LDB Operations compose these nodes and own their domain-specific typed outcome algebra; evaluator
 code implements the role meta-protocol and contract but does not add fields, outcomes, constants,
-paths, or behavior (bADR-0014/0022).
+paths, or behavior. The complete role-to-structure mapping is content-addressed, and an evaluator
+admits only a mapping identity it explicitly implements; concrete Kernel values remain outside
+that implementation capability identity (bADR-0014/0022).
 _Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
 
 **Resolved Runtime profile**:

@@ -663,7 +663,10 @@ The Kernel's Runtime-program component contract likewise closes every evaluator-
 Runtime-configuration, transition, and step object behind required abstract roles, then declares
 the relations among phase, lifecycle, and boundary inventories. Bootstrap consumers implement only
 that role meta-protocol; component paths, member shapes, inventories, and concrete values remain
-Kernel authority.
+Kernel authority. The complete role-to-structure mapping has its own content identity, and an
+evaluator admits only a mapping identity it explicitly implements; changing a path, member shape,
+or relation therefore requires an evaluator capability update without turning concrete authority
+values into host constants.
 
 The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
 its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,

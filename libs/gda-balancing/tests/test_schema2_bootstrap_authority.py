@@ -79,6 +79,9 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
         "empty-schedule-policy",
         "missing-scheduler-component-contract",
         "missing-relations-with-invented-root-phase",
+        "renamed-schedule-object",
+        "renamed-schedule-child-phase",
+        "spoofed-root-phase-relation-role",
         "missing-root-phase-map",
     ),
 )
@@ -88,6 +91,7 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
     authority = _authority_candidate()
     kernel = authority["kernel"]
     runtime = kernel["meta_format"]["runtime_program"]
+    structural_contract_mutation = False
     if mutation == "arbitrary-runtime-configuration":
         runtime["runtime_configuration"] = {"host": "invented"}
     elif mutation == "invalid-lifecycle-role":
@@ -105,11 +109,61 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
             for relation in runtime["component_contract"]["relations"]
             if relation["component"] != "scheduler"
         ]
+        structural_contract_mutation = True
     elif mutation == "missing-relations-with-invented-root-phase":
         runtime["component_contract"]["relations"] = []
         runtime["scheduler"]["root_phases"]["external-input"] = "host-invented"
+        structural_contract_mutation = True
+    elif mutation == "renamed-schedule-object":
+        runtime["scheduler"]["schedule_policy"] = runtime["scheduler"].pop("schedule")
+        objects = runtime["component_contract"]["components"]["scheduler"]["objects"]
+        root_members = objects[""]["member_types"]
+        root_members["schedule_policy"] = root_members.pop("schedule")
+        objects["schedule_policy"] = objects.pop("schedule")
+        objects["schedule_policy.refusal_signals"] = objects.pop(
+            "schedule.refusal_signals"
+        )
+        next(
+            relation
+            for relation in runtime["component_contract"]["relations"]
+            if relation["role"] == "scheduled-child-phase"
+        )["value_path"] = "schedule_policy.child_phase"
+        structural_contract_mutation = True
+    elif mutation == "renamed-schedule-child-phase":
+        schedule = runtime["scheduler"]["schedule"]
+        schedule["child_phase_v2"] = schedule.pop("child_phase")
+        schedule_members = runtime["component_contract"]["components"]["scheduler"][
+            "objects"
+        ]["schedule"]["member_types"]
+        schedule_members["child_phase_v2"] = schedule_members.pop("child_phase")
+        next(
+            relation
+            for relation in runtime["component_contract"]["relations"]
+            if relation["role"] == "scheduled-child-phase"
+        )["value_path"] = "schedule.child_phase_v2"
+        structural_contract_mutation = True
+    elif mutation == "spoofed-root-phase-relation-role":
+        runtime["scheduler"]["root_phases"]["external-input"] = "host-invented"
+        relations = runtime["component_contract"]["relations"]
+        observation = next(
+            relation
+            for relation in relations
+            if relation["role"] == "observation-phase"
+        )
+        root_index = next(
+            index
+            for index, relation in enumerate(relations)
+            if relation["role"] == "root-phases"
+        )
+        relations[root_index] = {**observation, "role": "root-phases"}
+        structural_contract_mutation = True
     else:
         del runtime["scheduler"]["root_phases"]
+    if structural_contract_mutation:
+        component_contract = runtime["component_contract"]
+        component_contract["content_identity"] = bootstrap_support._identity(
+            component_contract["version"], component_contract
+        )
     _reidentify(kernel, authority["language_bundle"])
     monkeypatch.setattr(
         production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
@@ -152,6 +206,43 @@ def test_two_consumers_refuse_cancel_target_without_a_prior_schedule_producer():
         "kernel.vector_mismatch",
         "language.runtime",
     ) in first["diagnostics"]
+
+
+def test_runtime_component_contract_identity_is_an_evaluator_capability():
+    authority = _authority_candidate()
+    contract = authority["kernel"]["meta_format"]["runtime_program"][
+        "component_contract"
+    ]
+
+    assert contract["content_identity"] == bootstrap_support._identity(
+        contract["version"], contract
+    )
+    assert (
+        contract["content_identity"]
+        == production_bootstrap._SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+        == bootstrap_support._SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+    )
+
+
+def test_two_consumers_accept_a_kernel_owned_boundary_token_change(monkeypatch):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    step = kernel["meta_format"]["runtime_program"]["step"]
+    step["boundaries"][0] = "kernel-owned-initial"
+    step["boundary_roles"]["initial"] = "kernel-owned-initial"
+    _reidentify(kernel, authority["language_bundle"])
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+    monkeypatch.setattr(
+        bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+
+    first = _consumer_a(kernel, authority["language_bundle"])
+    second = _consumer_b(kernel, authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is True
 
 
 def test_rir_semantic_projection_members_close_against_the_wire_schema():

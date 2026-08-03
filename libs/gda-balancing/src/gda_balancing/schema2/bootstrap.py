@@ -51,7 +51,10 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740"
+    "sha256:034cf2bee0c3de0f48da4c4372288f06e75e574250fcca5647d01a55ae3d6cfd"
+)
+_SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
+    "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7716,7 +7719,35 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
         "step-stops",
     }
     contract = runtime.get("component_contract")
-    if not isinstance(contract, dict) or set(contract) != {"components", "relations"}:
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "components",
+            "content_identity",
+            "relations",
+            "version",
+        }
+        or contract.get("version") != "runtime-component-meta-contract-v1"
+        or contract.get("content_identity")
+        != _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+    ):
+        return False
+    try:
+        observed_contract_identity = content_identity(
+            cast(str, contract["version"]),
+            cast(
+                JsonValue,
+                {
+                    member: value
+                    for member, value in contract.items()
+                    if member != "content_identity"
+                },
+            ),
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+    if observed_contract_identity != contract["content_identity"]:
         return False
     components = contract.get("components")
     relations = contract.get("relations")

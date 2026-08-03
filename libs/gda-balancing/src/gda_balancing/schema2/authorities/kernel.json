@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740",
+  "content_identity": "sha256:034cf2bee0c3de0f48da4c4372288f06e75e574250fcca5647d01a55ae3d6cfd",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6538,6 +6538,8 @@
         }
       },
       "component_contract": {
+        "content_identity": "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798",
+        "version": "runtime-component-meta-contract-v1",
         "components": {
           "runtime_configuration": {
             "role": "runtime-configuration",

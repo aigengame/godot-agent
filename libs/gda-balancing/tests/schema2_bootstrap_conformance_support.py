@@ -37,7 +37,10 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740"
+    "sha256:034cf2bee0c3de0f48da4c4372288f06e75e574250fcca5647d01a55ae3d6cfd"
+)
+_SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
+    "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
 )
 
 
@@ -5350,10 +5353,16 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
         "step-stops",
     }
     declaration = runtime.get("component_contract")
-    if not isinstance(declaration, dict) or set(declaration) != {
-        "components",
-        "relations",
-    }:
+    if (
+        not isinstance(declaration, dict)
+        or set(declaration)
+        != {"components", "content_identity", "relations", "version"}
+        or declaration.get("version") != "runtime-component-meta-contract-v1"
+        or declaration.get("content_identity")
+        != _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+        or _safe_identity(declaration["version"], declaration)
+        != declaration["content_identity"]
+    ):
         return False
     component_specs = declaration.get("components")
     relation_specs = declaration.get("relations")

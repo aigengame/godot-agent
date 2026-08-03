@@ -239,7 +239,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Its Runtime-program component contract names the complete scheduler, Runtime-configuration,
   transition, and step role set; closes every nested object consumed by execution; and relates
   lifecycle, boundary, and scheduler-phase inventories. Hosts implement this abstract role
-  meta-protocol but do not own the declared paths or concrete tokens.
+  meta-protocol but do not own the declared paths or concrete tokens. The complete role-to-path,
+  member-shape, and relation mapping is content-addressed separately; an evaluator admits only a
+  mapping identity it explicitly implements, so structural changes require a matching evaluator
+  capability update.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel
