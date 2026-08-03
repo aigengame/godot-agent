@@ -1170,6 +1170,72 @@ def test_public_experiment_orders_same_time_root_events_and_commits_between_them
     assert len(_member(receipt, "snapshot-series")["snapshots"]) == 4
 
 
+def test_event_count_terminates_only_after_same_time_transitions_drain(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            "kind": "transition-invocation",
+            "root_event_ref": root_event_ref,
+            "logical_time": 0,
+            "priority": priority,
+            "entrypoint": "combat.cast",
+            "payload": [],
+        }
+        for root_event_ref, priority in (
+            ("low-priority-cast", 0),
+            ("high-priority-cast", 10),
+        )
+    ]
+    scenario["terminal_condition"] = {"kind": "event-count", "maximum": 1}
+    specification["metrics"] = [
+        _metric_contract(
+            {
+                "id": "terminal_health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "same-time-terminal-boundary"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    events = trace["events"]
+    runtime_events = [event for event in events if event["observation"] is None]
+    assert [event["root_event_ref"] for event in runtime_events] == [
+        "high-priority-cast",
+        "low-priority-cast",
+    ]
+    assert events[-1]["observation"]["metric"] == "terminal_health"
+    assert trace["terminal_statuses"][0]["event_count"] == 2
+    assert trace["terminal_statuses"][0]["condition"]["maximum"] == 1
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    assert snapshots[-2]["continuation"]["pending_event_count"] == 0
+
+
 def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
     source_value = _rpg_model_source()
     source_path = tmp_path / "scheduled-combat-model.json"
