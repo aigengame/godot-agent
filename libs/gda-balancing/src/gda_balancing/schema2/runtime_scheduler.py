@@ -18,7 +18,12 @@ class RuntimeScheduler:
 
     @classmethod
     def from_kernel(cls, kernel: Mapping[str, Any]) -> RuntimeScheduler:
-        runtime = kernel.get("meta_format", {}).get("runtime_program")
+        meta_format = kernel.get("meta_format")
+        runtime = (
+            meta_format.get("runtime_program")
+            if isinstance(meta_format, Mapping)
+            else None
+        )
         scheduler = runtime.get("scheduler") if isinstance(runtime, Mapping) else None
         if not isinstance(scheduler, Mapping):
             raise ValueError("Kernel scheduler contract is absent")

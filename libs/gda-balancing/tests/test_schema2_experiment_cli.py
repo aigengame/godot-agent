@@ -23,9 +23,10 @@ from gda_balancing.schema2.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
 )
-from schema2_scheduler_conformance_support import (
+from schema2_scheduler_production_support import (
     evaluate_runtime_scheduler_vector,
     require_complete_scheduler_detector_bindings,
+    scheduler_detector_inventory,
 )
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -5638,6 +5639,21 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
         "runtime.scheduler.refuse.cancel-completed",
         *mutation_vectors,
     }
+    non_semantic_detections = {
+        "runtime.scheduler.accept.total-order-visibility-cancellation": {
+            "host-assigned-ordering",
+            "omitted-key",
+            "pre-commit-visibility",
+            "scenario-as-timestep",
+        },
+        "runtime.scheduler.refuse.cancel-active": set(),
+        "runtime.scheduler.refuse.cancel-completed": set(),
+    }
+    assert set(non_semantic_detections) == {
+        vector_id
+        for vector_id, vector in vectors.items()
+        if vector["category"] != "semantic-mutation"
+    }
     mutation_inputs = [
         canonical_bytes(vectors[vector_id]["input"]) for vector_id in mutation_vectors
     ]
@@ -5663,28 +5679,56 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
             )
             production_detected = production != candidate["expect"]
             reference_detected = reference != candidate["expect"]
-            assert production_detected is reference_detected
-            if candidate["category"] == "semantic-mutation":
-                assert production_detected is (
-                    candidate["detects_mutation"] == mutation
-                ), candidate_id
+            expected_detected = (
+                candidate["detects_mutation"] == mutation
+                if candidate["category"] == "semantic-mutation"
+                else mutation in non_semantic_detections[candidate_id]
+            )
+            assert production_detected is expected_detected, candidate_id
+            assert reference_detected is expected_detected, candidate_id
 
 
 def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
-    kernel, ldb = authority_module.load_authorities()
-    vector = next(
-        vector
-        for vector_set in ldb.package_conformance_vector_sets
-        if vector_set["package_id"] == "standard.runtime"
-        for vector in vector_set["vector_definitions"]
-        if vector["id"] == "runtime.scheduler.mutation.omitted-key"
-    )
+    kernel, _ldb = authority_module.load_authorities()
+    events = [
+        {
+            "id": "observation",
+            "logical_time": 1,
+            "phase": "observation",
+            "priority": 1,
+            "enqueue_sequence": 0,
+        },
+        {
+            "id": "later-enqueue",
+            "logical_time": 1,
+            "phase": "transition",
+            "priority": 0,
+            "enqueue_sequence": 2,
+        },
+        {
+            "id": "higher-priority",
+            "logical_time": 1,
+            "phase": "transition",
+            "priority": 1,
+            "enqueue_sequence": 1,
+        },
+        {
+            "id": "earlier-time",
+            "logical_time": 0,
+            "phase": "transition",
+            "priority": 0,
+            "enqueue_sequence": 3,
+        },
+    ]
 
-    ordered = RuntimeScheduler.from_kernel(kernel).ordered_events(
-        vector["input"]["events"]
-    )
+    ordered = RuntimeScheduler.from_kernel(kernel).ordered_events(events)
 
-    assert [event["id"] for event in ordered] == vector["expect"]["event_order"]
+    assert [event["id"] for event in ordered] == [
+        "earlier-time",
+        "higher-priority",
+        "later-enqueue",
+        "observation",
+    ]
 
 
 def test_runtime_scheduler_seam_refuses_backward_scheduling():
@@ -5750,6 +5794,32 @@ def test_scheduler_conformance_harness_refuses_unexpected_detector_implementatio
             {**declared, "host-invented-mutation": object()},
             consumer="reference",
         )
+
+
+@pytest.mark.parametrize(
+    "detectors",
+    [
+        (),
+        [],
+        ["z-last", "a-first"],
+        ["duplicate", "duplicate"],
+        ["", "valid"],
+        [1, "valid"],
+    ],
+    ids=["not-list", "empty", "unsorted", "duplicate", "empty-name", "non-string"],
+)
+def test_scheduler_detector_inventory_refuses_a_nonclosed_declaration(detectors):
+    kernel, _ldb = authority_module.load_authorities()
+    altered_kernel = deepcopy(kernel)
+    vector_contract = next(
+        kind
+        for kind in altered_kernel["meta_format"]["package_vector"]["kinds"]
+        if kind["id"] == "scheduler-scenario"
+    )
+    vector_contract["mutation_detectors"] = detectors
+
+    with pytest.raises(ValueError, match="detector inventory is not closed"):
+        scheduler_detector_inventory(altered_kernel)
 
 
 def test_reference_scheduler_consumer_refuses_an_unimplemented_kernel_detector():

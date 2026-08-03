@@ -316,10 +316,6 @@ def _runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
     return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
 
 
-def _kernel_scheduler_contract(kernel: dict[str, Any]) -> dict[str, Any]:
-    return cast(dict[str, Any], RuntimeScheduler.from_kernel(kernel).contract)
-
-
 def _runtime_execution_contract(checked: CheckedExperiment) -> dict[str, Any]:
     runtime = _runtime_contract(checked)
     return {
@@ -345,8 +341,8 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     }
 
 
-def _scheduler_contract(checked: CheckedExperiment) -> dict[str, Any]:
-    return _kernel_scheduler_contract(checked.kernel)
+def _scheduler_contract(checked: CheckedExperiment) -> Mapping[str, Any]:
+    return RuntimeScheduler.from_kernel(checked.kernel).contract
 
 
 def _scenario_root_events(scenario: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1388,7 +1384,7 @@ def _ordered_root_events(
 
 
 def _ordered_root_events_under(
-    scheduler: dict[str, Any], scenario: dict[str, Any]
+    scheduler: Mapping[str, Any], scenario: dict[str, Any]
 ) -> list[dict[str, Any]]:
     root_phases = cast(dict[str, str], scheduler["root_phases"])
     admitted = [
@@ -1403,7 +1399,7 @@ def _ordered_root_events_under(
 
 
 def _external_input_plan_is_admitted(
-    scenario: dict[str, Any], scheduler: dict[str, Any]
+    scenario: dict[str, Any], scheduler: Mapping[str, Any]
 ) -> bool:
     admission = cast(dict[str, Any], scheduler["external_input_admission"])
     ordering = cast(list[str], admission["ordering"])
@@ -1694,7 +1690,7 @@ def check_experiment(
             )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
-        scheduler = _kernel_scheduler_contract(kernel)
+        scheduler = RuntimeScheduler.from_kernel(kernel).contract
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
@@ -4622,6 +4618,7 @@ def _artifact_set_runtime_journals_are_valid(
 ) -> bool:
     journal = _runtime_journal_contract(checked)
     scheduler = _scheduler_contract(checked)
+    runtime_scheduler = RuntimeScheduler(scheduler)
     snapshots = cast(list[dict[str, Any]], snapshot_series["snapshots"])
     events = cast(list[dict[str, JsonValue]], trace["events"])
     catalog = cast(list[dict[str, JsonValue]], snapshot_series["event_catalog"])
@@ -4684,7 +4681,7 @@ def _artifact_set_runtime_journals_are_valid(
         ):
             return False
         ordering_keys = [
-            RuntimeScheduler(scheduler).ordering_key(
+            runtime_scheduler.ordering_key(
                 cast(dict[str, Any], event["ordering_key"]),
             )
             for event in scenario_events
@@ -4748,7 +4745,7 @@ def _artifact_set_runtime_journals_are_valid(
                 if record["event_id"] not in committed_ids | canceled_ids
             ]
             pending_order = [
-                RuntimeScheduler(scheduler).ordering_key(
+                runtime_scheduler.ordering_key(
                     cast(dict[str, Any], record["ordering_key"]),
                 )
                 for record in pending_records
@@ -4865,12 +4862,6 @@ def _terminal_statuses_are_valid(
         ):
             return False
     return True
-
-
-def _runtime_ordering_tuple(
-    scheduler: dict[str, Any], ordering_key: dict[str, Any]
-) -> tuple[int, ...]:
-    return RuntimeScheduler(scheduler).ordering_key(ordering_key)
 
 
 def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
@@ -5160,6 +5151,7 @@ def _terminal_audit_is_valid(
     reproduction_identity: str,
 ) -> bool:
     scheduler = _scheduler_contract(checked)
+    runtime_scheduler = RuntimeScheduler(scheduler)
     scenario_id = audit.get("scenario")
     scenario_rows = [
         (index, scenario)
@@ -5271,9 +5263,8 @@ def _terminal_audit_is_valid(
             event_scenario = cast(str, previous_scenario)
         else:
             return False
-        ordering = _runtime_ordering_tuple(
-            scheduler,
-            cast(dict[str, Any], event["ordering_key"]),
+        ordering = runtime_scheduler.ordering_key(
+            cast(dict[str, Any], event["ordering_key"])
         )
         if (
             event.get("index") != index
@@ -5407,9 +5398,8 @@ def _terminal_audit_is_valid(
             audit.get("last_snapshot_identity")
             != last_event.get("snapshot_after_identity")
             or last_snapshot_values != last_event.get("state_after")
-            or _runtime_ordering_tuple(scheduler, ordering_key)
-            < _runtime_ordering_tuple(
-                scheduler,
+            or runtime_scheduler.ordering_key(ordering_key)
+            < runtime_scheduler.ordering_key(
                 cast(dict[str, Any], last_event["ordering_key"]),
             )
         ):

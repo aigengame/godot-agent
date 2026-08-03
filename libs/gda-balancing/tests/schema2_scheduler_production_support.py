@@ -1,4 +1,4 @@
-"""Scheduler conformance harness shared by the test-side consumers."""
+"""Production scheduler adapter and detector checks for conformance tests."""
 
 from __future__ import annotations
 
@@ -12,18 +12,19 @@ from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
 
 @dataclass(frozen=True)
 class _RuntimeSchedulerMutation:
-    ordering: str = "kernel"
     allow_backward: bool = False
-    visibility: str = "committed"
-    state_scope: str = "scenario"
+    order_by_event_id: bool = False
+    omit_enqueue_sequence: bool = False
+    read_initial_state: bool = False
+    share_scenario_state: bool = False
 
 
 _PRODUCTION_SCHEDULER_MUTATIONS = {
     "backward-scheduling": _RuntimeSchedulerMutation(allow_backward=True),
-    "host-assigned-ordering": _RuntimeSchedulerMutation(ordering="event-id"),
-    "omitted-key": _RuntimeSchedulerMutation(ordering="omit-final-key"),
-    "pre-commit-visibility": _RuntimeSchedulerMutation(visibility="initial"),
-    "scenario-as-timestep": _RuntimeSchedulerMutation(state_scope="shared"),
+    "host-assigned-ordering": _RuntimeSchedulerMutation(order_by_event_id=True),
+    "omitted-key": _RuntimeSchedulerMutation(omit_enqueue_sequence=True),
+    "pre-commit-visibility": _RuntimeSchedulerMutation(read_initial_state=True),
+    "scenario-as-timestep": _RuntimeSchedulerMutation(share_scenario_state=True),
 }
 
 
@@ -36,8 +37,8 @@ def scheduler_detector_inventory(kernel: Mapping[str, Any]) -> tuple[str, ...]:
     if (
         not isinstance(detectors, list)
         or not detectors
-        or detectors != sorted(set(detectors))
         or not all(isinstance(detector, str) and detector for detector in detectors)
+        or detectors != sorted(set(detectors))
     ):
         raise ValueError("Kernel scheduler detector inventory is not closed")
     return tuple(detectors)
@@ -125,10 +126,10 @@ def evaluate_runtime_scheduler_vector(
                 return refused(signal)
 
     def ordering_key(event: Mapping[str, Any]) -> tuple[Any, ...]:
-        if mutant.ordering == "event-id":
+        if mutant.order_by_event_id:
             return (event["id"],)
         runtime_key = scheduler.ordering_key(event)
-        if mutant.ordering == "omit-final-key":
+        if mutant.omit_enqueue_sequence:
             runtime_key = runtime_key[:-1]
         return (scenario_order[event["scenario"]], *runtime_key)
 
@@ -145,13 +146,13 @@ def evaluate_runtime_scheduler_vector(
     shared_state = next(iter(states.values()))
     for event in admitted:
         scenario = event["scenario"]
-        before = shared_state if mutant.state_scope == "shared" else states[scenario]
-        if mutant.visibility == "initial":
+        before = shared_state if mutant.share_scenario_state else states[scenario]
+        if mutant.read_initial_state:
             before = next(
                 row["value"] for row in initial_states if row["scenario"] == scenario
             )
         after = before + event["state_delta"]
-        if mutant.state_scope == "shared":
+        if mutant.share_scenario_state:
             shared_state = after
         else:
             states[scenario] = after
@@ -163,7 +164,7 @@ def evaluate_runtime_scheduler_vector(
                 "state_before": before,
             }
         )
-    if mutant.state_scope == "shared":
+    if mutant.share_scenario_state:
         states = {scenario: shared_state for scenario in states}
     return {
         "event_order": [event["id"] for event in admitted],
