@@ -43,6 +43,39 @@ def _run(*argv: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([_console_script(), *argv], capture_output=True, text=True)
 
 
+def _receipt_members(receipt: dict) -> dict[str, Path]:
+    return {
+        row["logical_name"]: Path(row["locator"])
+        for row in receipt["member_locators"]
+    }
+
+
+def _run_experiment_variant(
+    tmp_path: Path,
+    experiment: dict,
+    *,
+    name: str,
+    invocation_key: str,
+) -> tuple[dict, dict]:
+    specification_path = tmp_path / f"{name}.json"
+    specification_path.write_text(json.dumps(experiment), encoding="utf-8")
+    result = _run(
+        "experiment",
+        "run",
+        str(specification_path),
+        "--out",
+        str(tmp_path / name),
+        "--invocation-key",
+        invocation_key,
+    )
+    assert (result.returncode, result.stderr) == (0, ""), result.stdout
+    receipt = json.loads(result.stdout)
+    trace = json.loads(
+        _receipt_members(receipt)["event-trace"].read_text(encoding="utf-8")
+    )
+    return receipt, trace
+
+
 class TestEntryPoints:
     def test_both_entry_points_agree_on_the_valid_row(self):
         console = _run("version")
@@ -467,6 +500,92 @@ class TestKeyUserPath:
         )
         assert (recovered.returncode, recovered.stderr) == (0, "")
         assert json.loads(recovered.stdout) == run_receipt
+
+    def test_reciprocal_combat_distinguishes_priority_from_admission_order(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "d" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+
+        priority_variant = json.loads(json.dumps(baseline))
+        priority_variant["id"] = "example.rpg-combat-cast.priority-vector"
+        priority_variant["scenarios"][0]["event_plan"][1]["priority"] = 1
+        first_receipt, priority_trace = _run_experiment_variant(
+            tmp_path,
+            priority_variant,
+            name="priority-vector",
+            invocation_key="e" * 64,
+        )
+        recovered_receipt, recovered_trace = _run_experiment_variant(
+            tmp_path,
+            priority_variant,
+            name="priority-vector",
+            invocation_key="e" * 64,
+        )
+
+        assert recovered_receipt == first_receipt
+        assert recovered_trace == priority_trace
+        assert [
+            (row["root_event_ref"], row["event_id"])
+            for row in priority_trace["root_event_map"]
+        ] == [
+            ("player-attacks-enemy", priority_trace["root_event_map"][0]["event_id"]),
+            ("enemy-attacks-player", priority_trace["root_event_map"][1]["event_id"]),
+        ]
+        priority_events = [
+            event for event in priority_trace["events"] if event["operation"] is not None
+        ]
+        assert [
+            (
+                event["root_event_ref"],
+                event["ordering_key"]["priority"],
+                event["ordering_key"]["enqueue_sequence"],
+            )
+            for event in priority_events
+        ] == [
+            ("enemy-attacks-player", 1, 1),
+            ("player-attacks-enemy", 0, 0),
+        ]
+
+        admission_variant = json.loads(json.dumps(baseline))
+        admission_variant["id"] = "example.rpg-combat-cast.admission-order-vector"
+        admission_variant["scenarios"][0]["event_plan"].reverse()
+        _receipt, admission_trace = _run_experiment_variant(
+            tmp_path,
+            admission_variant,
+            name="admission-order-vector",
+            invocation_key="f" * 64,
+        )
+        admission_events = [
+            event for event in admission_trace["events"] if event["operation"] is not None
+        ]
+        assert [row["root_event_ref"] for row in admission_trace["root_event_map"]] == [
+            "enemy-attacks-player",
+            "player-attacks-enemy",
+        ]
+        assert [
+            (
+                event["root_event_ref"],
+                event["ordering_key"]["priority"],
+                event["ordering_key"]["enqueue_sequence"],
+            )
+            for event in admission_events
+        ] == [
+            ("enemy-attacks-player", 0, 0),
+            ("player-attacks-enemy", 0, 1),
+        ]
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")
