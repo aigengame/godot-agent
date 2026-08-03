@@ -45,8 +45,7 @@ def _run(*argv: str) -> subprocess.CompletedProcess[str]:
 
 def _receipt_members(receipt: dict) -> dict[str, Path]:
     return {
-        row["logical_name"]: Path(row["locator"])
-        for row in receipt["member_locators"]
+        row["logical_name"]: Path(row["locator"]) for row in receipt["member_locators"]
     }
 
 
@@ -236,9 +235,7 @@ class TestKeyUserPath:
             if row["logical_name"] == "rir-semantic-payload"
         )
         rir = json.loads(rir_path.read_text(encoding="utf-8"))
-        entrypoints = {
-            row["id"]: row["operation"] for row in rir["entrypoints"]
-        }
+        entrypoints = {row["id"]: row["operation"] for row in rir["entrypoints"]}
 
         assert entrypoints == {
             "combat.enemy-attacks-player": {
@@ -300,20 +297,43 @@ class TestKeyUserPath:
         cancel_entrypoint = next(
             row
             for row in rir["entrypoints"]
-            if row["id"]
-            == "combat.player-attacks-enemy-and-cancels-counterattack"
+            if row["id"] == "combat.player-attacks-enemy-and-cancels-counterattack"
         )
-        assert next(
-            row for row in cancel_entrypoint["arguments"] if row["port"]["name"] == "cancel_target"
-        )["operand"] == {
+        cancel_operand = next(
+            row
+            for row in cancel_entrypoint["arguments"]
+            if row["port"]["name"] == "cancel_target"
+        )["operand"]
+        assert cancel_operand == {
             "kind": "event-reference",
             "name": "counterattack",
-            "identity": next(
-                row
-                for row in cancel_entrypoint["arguments"]
-                if row["port"]["name"] == "cancel_target"
-            )["operand"]["identity"],
+            "identity": cancel_operand["identity"],
         }
+        assert cancel_operand["identity"].startswith("sha256:")
+        derived_formula_bindings = {
+            row["site"]["resolved_symbol"]["name"]: row["formula"]["identity"]
+            for row in rir["formula_bindings"]
+            if row["site"]["kind"] == "derived-symbol"
+        }
+        assert {
+            "player_effective_accuracy",
+            "enemy_effective_accuracy",
+        } <= derived_formula_bindings.keys()
+        assert len(set(derived_formula_bindings.values())) == 1
+        explanation = json.loads(
+            _receipt_members(receipt)["model-explanation"].read_text(encoding="utf-8")
+        )
+        accuracy_explanation = next(
+            row
+            for row in explanation["formula_explanations"]
+            if row["id"] == "effective-accuracy"
+        )
+        assert {
+            operand["operand"]["resolved_symbol"]["name"]
+            for site in accuracy_explanation["evaluation_sites"]
+            for operand in site["operands"]
+            if operand["operand"]["kind"] == "symbol"
+        } == {"enemy_accuracy", "player_accuracy"}
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
@@ -442,12 +462,12 @@ class TestKeyUserPath:
         assert {row["metric"]: row["value"] for row in metrics["samples"]} == {
             "enemy_damage_dealt": 14,
             "enemy_health_remaining": 63,
+            "enemy_resource_remaining": 23,
             "player_damage_dealt": 37,
             "player_health_remaining": 86,
+            "player_resource_remaining": 26,
         }
-        assert {
-            row["metric"]: row["dimensions"] for row in metrics["samples"]
-        } == {
+        assert {row["metric"]: row["dimensions"] for row in metrics["samples"]} == {
             "enemy_damage_dealt": [
                 {"name": "entity", "value": "enemy"},
                 {"name": "role", "value": "attacker"},
@@ -456,6 +476,10 @@ class TestKeyUserPath:
                 {"name": "entity", "value": "enemy"},
                 {"name": "role", "value": "defender"},
             ],
+            "enemy_resource_remaining": [
+                {"name": "entity", "value": "enemy"},
+                {"name": "role", "value": "attacker"},
+            ],
             "player_damage_dealt": [
                 {"name": "entity", "value": "player"},
                 {"name": "role", "value": "attacker"},
@@ -463,6 +487,10 @@ class TestKeyUserPath:
             "player_health_remaining": [
                 {"name": "entity", "value": "player"},
                 {"name": "role", "value": "defender"},
+            ],
+            "player_resource_remaining": [
+                {"name": "entity", "value": "player"},
+                {"name": "role", "value": "attacker"},
             ],
         }
         events = trace["events"]
@@ -481,6 +509,8 @@ class TestKeyUserPath:
             (0, "observation", 0, 3),
             (0, "observation", 0, 4),
             (0, "observation", 0, 5),
+            (0, "observation", 0, 6),
+            (0, "observation", 0, 7),
         ]
         player_attack, enemy_attack = events[:2]
         assert trace["root_event_map"] == [
@@ -503,6 +533,28 @@ class TestKeyUserPath:
             event["outcome"] == {"id": "cast-resolved", "kind": "success"}
             for event in events[:2]
         )
+        assert (
+            player_attack["entrypoint"]["identity"]
+            != enemy_attack["entrypoint"]["identity"]
+        )
+        assert all(
+            call["call_site_identity"].startswith("sha256:")
+            and all(
+                argument["formal_port_identity"].startswith("sha256:")
+                and argument["actual_operand_identity"].startswith("sha256:")
+                for argument in call["arguments"]
+            )
+            for event in events[:2]
+            for call in event["calls"]
+        )
+        assert [draw["stream"] for draw in player_attack["rng_draws"]] == [
+            "hit",
+            "critical",
+        ]
+        assert [draw["stream"] for draw in enemy_attack["rng_draws"]] == [
+            "hit",
+            "critical",
+        ]
         assert enemy_attack["state_before"] == player_attack["state_after"]
         player_facts = {row["name"] for row in player_attack["facts"]}
         enemy_facts = {row["name"] for row in enemy_attack["facts"]}
@@ -561,6 +613,7 @@ class TestKeyUserPath:
             name="priority-vector",
             invocation_key="e" * 64,
         )
+        first_trace_bytes = _receipt_members(first_receipt)["event-trace"].read_bytes()
         recovered_receipt, recovered_trace = _run_experiment_variant(
             tmp_path,
             priority_variant,
@@ -570,6 +623,10 @@ class TestKeyUserPath:
 
         assert recovered_receipt == first_receipt
         assert recovered_trace == priority_trace
+        assert (
+            _receipt_members(recovered_receipt)["event-trace"].read_bytes()
+            == first_trace_bytes
+        )
         assert [
             (row["root_event_ref"], row["event_id"])
             for row in priority_trace["root_event_map"]
@@ -578,7 +635,9 @@ class TestKeyUserPath:
             ("enemy-attacks-player", priority_trace["root_event_map"][1]["event_id"]),
         ]
         priority_events = [
-            event for event in priority_trace["events"] if event["operation"] is not None
+            event
+            for event in priority_trace["events"]
+            if event["operation"] is not None
         ]
         assert [
             (
@@ -602,7 +661,9 @@ class TestKeyUserPath:
             invocation_key="f" * 64,
         )
         admission_events = [
-            event for event in admission_trace["events"] if event["operation"] is not None
+            event
+            for event in admission_trace["events"]
+            if event["operation"] is not None
         ]
         assert [row["root_event_ref"] for row in admission_trace["root_event_map"]] == [
             "enemy-attacks-player",
@@ -619,6 +680,7 @@ class TestKeyUserPath:
             ("enemy-attacks-player", 0, 0),
             ("player-attacks-enemy", 0, 1),
         ]
+        assert admission_trace["content_identity"] != priority_trace["content_identity"]
 
     def test_reciprocal_combat_can_explicitly_cancel_an_admitted_root_event(
         self, tmp_path, monkeypatch
@@ -678,9 +740,7 @@ class TestKeyUserPath:
         }
         assert event["cancellations"] == [
             {
-                "call_site_identity": event["cancellations"][0][
-                    "call_site_identity"
-                ],
+                "call_site_identity": event["cancellations"][0]["call_site_identity"],
                 "event_id": root_ids["enemy-attacks-player"],
                 "outcome": "canceled",
             }
@@ -753,6 +813,286 @@ class TestKeyUserPath:
         assert {row["name"]: row["value"] for row in second_event["state_after"]}[
             "player_health"
         ] == 86
+
+    def test_rpg_combat_example_distinguishes_one_way_and_alternative_outcomes(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "6" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+
+        one_way = json.loads(json.dumps(baseline))
+        one_way["id"] = "example.rpg-combat-cast.one-way"
+        one_way["scenarios"][0]["event_plan"] = one_way["scenarios"][0]["event_plan"][
+            :1
+        ]
+        one_way_assignment_names = {
+            "enemy_defense",
+            "enemy_health",
+            "player_accuracy",
+            "player_action_cost",
+            "player_base_damage",
+            "player_critical_threshold",
+            "player_mana",
+        }
+        one_way["scenarios"][0]["assignments"] = [
+            row
+            for row in one_way["scenarios"][0]["assignments"]
+            if row["target"]["name"] in one_way_assignment_names
+        ]
+        one_way["metrics"] = [
+            metric
+            for metric in one_way["metrics"]
+            if metric["id"]
+            in {
+                "enemy_health_remaining",
+                "player_damage_dealt",
+                "player_resource_remaining",
+            }
+        ]
+        _receipt, one_way_trace = _run_experiment_variant(
+            tmp_path,
+            one_way,
+            name="one-way",
+            invocation_key="7" * 64,
+        )
+        one_way_event = next(
+            event for event in one_way_trace["events"] if event["operation"] is not None
+        )
+        assert one_way_event["outcome"] == {"id": "cast-resolved", "kind": "success"}
+        assert one_way_event["state_after"] == [
+            {"name": "enemy_health", "value": 63},
+            {"name": "player_mana", "value": 26},
+        ]
+
+        def alternative_variant(identifier: str, assignment: str, value: int) -> dict:
+            variant = json.loads(json.dumps(one_way))
+            variant["id"] = f"example.rpg-combat-cast.{identifier}"
+            variant["metrics"] = [
+                metric
+                for metric in variant["metrics"]
+                if metric["observation"]["source"] == "snapshot"
+            ]
+            next(
+                row
+                for row in variant["scenarios"][0]["assignments"]
+                if row["target"]["name"] == assignment
+            )["value"] = value
+            return variant
+
+        miss = alternative_variant("miss", "player_accuracy", 0)
+        next(
+            row
+            for row in miss["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "enemy_defense"
+        )["value"] = 1000
+        _receipt, miss_trace = _run_experiment_variant(
+            tmp_path,
+            miss,
+            name="miss",
+            invocation_key="8" * 64,
+        )
+        miss_event = next(
+            event for event in miss_trace["events"] if event["operation"] is not None
+        )
+        assert miss_event["outcome"] == {"id": "miss", "kind": "gameplay-alternative"}
+        assert miss_event["state_after"] == miss_event["state_before"]
+        assert [draw["stream"] for draw in miss_event["rng_draws"]] == ["hit"]
+
+        insufficient = alternative_variant("insufficient-resource", "player_mana", 0)
+        _receipt, insufficient_trace = _run_experiment_variant(
+            tmp_path,
+            insufficient,
+            name="insufficient-resource",
+            invocation_key="9" * 64,
+        )
+        insufficient_event = next(
+            event
+            for event in insufficient_trace["events"]
+            if event["operation"] is not None
+        )
+        assert insufficient_event["outcome"] == {
+            "id": "insufficient-resource",
+            "kind": "gameplay-alternative",
+        }
+        assert insufficient_event["state_after"] == insufficient_event["state_before"]
+        assert insufficient_event["rng_draws"] == []
+
+    def test_one_actor_bound_value_changes_only_its_reciprocal_feedback(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "a" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+        baseline_receipt, baseline_trace = _run_experiment_variant(
+            tmp_path,
+            baseline,
+            name="baseline-feedback",
+            invocation_key="b" * 64,
+        )
+        tuned = json.loads(json.dumps(baseline))
+        tuned["id"] = "example.rpg-combat-cast.player-damage-tuned"
+        next(
+            row
+            for row in tuned["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "player_base_damage"
+        )["value"] = 55
+        tuned_receipt, tuned_trace = _run_experiment_variant(
+            tmp_path,
+            tuned,
+            name="tuned-feedback",
+            invocation_key="c" * 64,
+        )
+
+        assert tuned["kernel_identity"] == baseline["kernel_identity"]
+        assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
+        assert tuned["model"] == baseline["model"]
+        assert tuned["runtime"] == baseline["runtime"]
+        assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
+        baseline_metrics = json.loads(
+            _receipt_members(baseline_receipt)["metric-dataset"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_metrics = json.loads(
+            _receipt_members(tuned_receipt)["metric-dataset"].read_text(
+                encoding="utf-8"
+            )
+        )
+        baseline_values = {
+            row["metric"]: row["value"] for row in baseline_metrics["samples"]
+        }
+        tuned_values = {row["metric"]: row["value"] for row in tuned_metrics["samples"]}
+        assert {
+            metric: tuned_values[metric]
+            for metric in tuned_values
+            if tuned_values[metric] != baseline_values[metric]
+        } == {
+            "enemy_health_remaining": 53,
+            "player_damage_dealt": 47,
+        }
+        assert [
+            event["outcome"]
+            for event in tuned_trace["events"]
+            if event["operation"] is not None
+        ] == [
+            {"id": "cast-resolved", "kind": "success"},
+            {"id": "cast-resolved", "kind": "success"},
+        ]
+
+    def test_reciprocal_combat_refuses_invalid_authored_event_contracts(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+        built = _run(
+            "model",
+            "build",
+            str(example / "model-source.json"),
+            "--out",
+            str(tmp_path / "reciprocal-model"),
+            "--invocation-key",
+            "d" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+        baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+
+        duplicate_root = json.loads(json.dumps(baseline))
+        duplicate_root["scenarios"][0]["event_plan"][1]["root_event_ref"] = (
+            duplicate_root["scenarios"][0]["event_plan"][0]["root_event_ref"]
+        )
+        undeclared_entrypoint = json.loads(json.dumps(baseline))
+        undeclared_entrypoint["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+            "combat.host-invented"
+        )
+        missing_assignment = json.loads(json.dumps(baseline))
+        missing_assignment["scenarios"][0]["assignments"].pop()
+        incompatible_payload = json.loads(json.dumps(baseline))
+        incompatible_payload["scenarios"][0]["event_plan"][0]["payload"] = [
+            {
+                "target": baseline["scenarios"][0]["assignments"][0]["target"],
+                "value": 35,
+            }
+        ]
+        authored_phase = json.loads(json.dumps(baseline))
+        authored_phase["scenarios"][0]["event_plan"][0]["phase"] = "transition"
+
+        for index, (name, variant, stage, code) in enumerate(
+            (
+                (
+                    "duplicate-root",
+                    duplicate_root,
+                    "static",
+                    "language.source_contract_mismatch",
+                ),
+                (
+                    "undeclared-entrypoint",
+                    undeclared_entrypoint,
+                    "resolution",
+                    "language.resolution_binding_mismatch",
+                ),
+                (
+                    "missing-assignment",
+                    missing_assignment,
+                    "static",
+                    "language.source_contract_mismatch",
+                ),
+                (
+                    "incompatible-payload",
+                    incompatible_payload,
+                    "static",
+                    "language.source_contract_mismatch",
+                ),
+                (
+                    "authored-phase",
+                    authored_phase,
+                    "static",
+                    "language.source_contract_mismatch",
+                ),
+            )
+        ):
+            specification = tmp_path / f"{name}.json"
+            specification.write_text(json.dumps(variant), encoding="utf-8")
+            output = tmp_path / f"{name}-artifacts"
+            result = _run(
+                "experiment",
+                "run",
+                str(specification),
+                "--out",
+                str(output),
+                "--invocation-key",
+                f"{index + 1:064x}",
+            )
+            assert (result.returncode, result.stderr) == (2, "")
+            error = json.loads(result.stdout)["error"]
+            assert (error["stage"], error["diagnostics"][0]["code"]) == (
+                stage,
+                code,
+            )
+            assert not output.exists()
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")

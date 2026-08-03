@@ -5957,8 +5957,7 @@ def _consumer_b_runtime_authority_is_closed(
                 target_contract = node["semantics"]["target_reference"]
                 target = instruction.get(target_contract["instruction_member"])
                 variants = {
-                    variant["kind"]: variant
-                    for variant in target_contract["variants"]
+                    variant["kind"]: variant for variant in target_contract["variants"]
                 }
                 target_variant = (
                     variants.get(target.get("kind"))
@@ -5967,7 +5966,7 @@ def _consumer_b_runtime_authority_is_closed(
                 )
                 target_value = (
                     target.get(target_variant["value_member"])
-                    if isinstance(target_variant, dict)
+                    if isinstance(target, dict) and isinstance(target_variant, dict)
                     else None
                 )
                 if (
@@ -6028,8 +6027,7 @@ def _consumer_b_runtime_authority_is_closed(
                 arguments = instruction.get("arguments")
                 if (
                     not isinstance(arguments, list)
-                    or [row.get("port") for row in arguments]
-                    != invoked_formal_ports
+                    or [row.get("port") for row in arguments] != invoked_formal_ports
                     or any(
                         not isinstance(row, dict)
                         or set(row) != {"port", "operand"}

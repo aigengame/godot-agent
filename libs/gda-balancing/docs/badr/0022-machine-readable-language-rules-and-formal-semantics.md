@@ -184,6 +184,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   each declared lifecycle Event against that Event's pre-event Snapshot. `live` never means
   visibility of uncommitted writes.
 
+  A Resolved Model may contain lifecycle sites reachable from different entrypoints. Each Scenario
+  evaluates only the closed site subset reachable from its selected entrypoints and admitted
+  explicit inputs. A site reachable only from an unselected entrypoint neither executes nor creates
+  an ambient Scenario-input requirement; selecting two directional entrypoints evaluates the union.
+
   Repeating the same evaluation-site identity with the same Initialization-frame or Snapshot
   identity, canonical explicit operand values, and Numeric profile derives the same pure semantic
   value or non-resource refusal and the same deterministic charge vector. Each dynamic evaluation,

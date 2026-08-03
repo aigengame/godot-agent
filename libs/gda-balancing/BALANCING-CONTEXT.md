@@ -1064,6 +1064,15 @@ have Runtime Event identities and parent/call-site provenance but no invented ro
 (bADR-0014/0018/0022).
 _Avoid_: Event id, array index, host object identity
 
+**Event reference**:
+A typed Runtime-Event value passed through an explicit Model entrypoint operand. Model Source names
+the operand's role, such as `counterattack`; the Experiment binds that role to one authored Root
+Event reference in the same Scenario; and Runtime resolves the binding to the already admitted
+Event's stable `event_id` before dispatch. It is neither ambient queue lookup nor permission to
+infer a target from time, ordering, combatant name, or game state. A Kernel node such as `cancel`
+may consume it only through its declared Event-reference port contract (bADR-0014/0022).
+_Avoid_: next Event, queue cursor, Root Event reference (the authored name), raw Event id
+
 **Signal**:
 An ephemeral typed fact emitted during one Event transaction to subscribers declared statically in
 the Model Source Package and compiled into the Resolved Model's static subscription table. The

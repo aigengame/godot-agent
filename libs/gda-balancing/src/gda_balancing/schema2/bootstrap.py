@@ -5359,7 +5359,7 @@ def _operation_composition_diagnostic_subjects(
                     )
                     target_value = (
                         target.get(target_variant["value_member"])
-                        if isinstance(target_variant, dict)
+                        if isinstance(target, dict) and isinstance(target_variant, dict)
                         else None
                     )
                     if (
@@ -8464,8 +8464,7 @@ def _runtime_authority_is_closed(
                 target_contract = node["semantics"]["target_reference"]
                 target = instruction.get(target_contract["instruction_member"])
                 variants = {
-                    variant["kind"]: variant
-                    for variant in target_contract["variants"]
+                    variant["kind"]: variant for variant in target_contract["variants"]
                 }
                 target_variant = (
                     variants.get(target.get("kind"))
@@ -8474,7 +8473,7 @@ def _runtime_authority_is_closed(
                 )
                 target_value = (
                     target.get(target_variant["value_member"])
-                    if isinstance(target_variant, dict)
+                    if isinstance(target, dict) and isinstance(target_variant, dict)
                     else None
                 )
                 if (
@@ -8494,9 +8493,7 @@ def _runtime_authority_is_closed(
                             target_value not in formal_ports
                             or not _operation_value_contract_matches(
                                 formal_ports[target_value],
-                                fixed_value_contracts[
-                                    target_variant["value_contract"]
-                                ],
+                                fixed_value_contracts[target_variant["value_contract"]],
                             )
                         )
                     )

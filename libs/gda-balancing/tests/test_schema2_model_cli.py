@@ -4641,9 +4641,9 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                 },
             ],
             "result": {
-                    "kind": "symbol",
-                    "module": "combat",
-                    "symbol": "player_damage_dealt",
+                "kind": "symbol",
+                "module": "combat",
+                "symbol": "player_damage_dealt",
             },
         }
     ]

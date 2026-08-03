@@ -396,17 +396,15 @@ def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
         projected = cast(
             dict[str, JsonValue],
             {
-            **common,
-            "kind": "transition-invocation",
-            "root_event_ref": cast(str, event["root_event_ref"]),
-            "entrypoint": cast(str, event["entrypoint"]),
-            "payload": cast(JsonValue, event["payload"]),
+                **common,
+                "kind": "transition-invocation",
+                "root_event_ref": cast(str, event["root_event_ref"]),
+                "entrypoint": cast(str, event["entrypoint"]),
+                "payload": cast(JsonValue, event["payload"]),
             },
         )
         if event.get("event_references"):
-            projected["event_references"] = cast(
-                JsonValue, event["event_references"]
-            )
+            projected["event_references"] = cast(JsonValue, event["event_references"])
         return projected
     return {
         **common,
@@ -1946,12 +1944,9 @@ def check_experiment(
             reference_contracts = cast(
                 list[dict[str, Any]], payload_contract["event_references"]
             )
-            references = cast(
-                list[dict[str, str]], event.get("event_references", [])
-            )
+            references = cast(list[dict[str, str]], event.get("event_references", []))
             reference_pointer = (
-                f"/scenarios/{scenario_index}/event_plan/{event_index}"
-                "/event_references"
+                f"/scenarios/{scenario_index}/event_plan/{event_index}/event_references"
             )
             allowed_reference_names = {
                 cast(str, row["name"]) for row in reference_contracts
@@ -2879,6 +2874,31 @@ def _evaluate_initialization_programs(
     ]
     if not programs:
         return consumed_steps
+    available_identities = set(actual_values)
+    reachable_programs: list[dict[str, Any]] = []
+    unresolved_programs = list(programs)
+    while unresolved_programs:
+        progressed = False
+        for program in list(unresolved_programs):
+            dependencies = {
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+            }
+            if not dependencies <= available_identities:
+                continue
+            reachable_programs.append(program)
+            available_identities.add(
+                canonical_bytes(cast(JsonValue, program["target"]))
+            )
+            unresolved_programs.remove(program)
+            progressed = True
+        if not progressed:
+            break
+    programs = reachable_programs
+    if not programs:
+        return consumed_steps
     program_targets = {
         canonical_bytes(cast(JsonValue, program["target"])) for program in programs
     }
@@ -3121,9 +3141,7 @@ def evaluate_experiment(
             root_event["event_id"] = _root_event_id(checked, scenario["id"], root_event)
         root_events_by_scenario[scenario["id"]] = ordered_events
         root_event_ids_by_scenario[scenario["id"]] = {
-            cast(str, root_event["root_event_ref"]): cast(
-                str, root_event["event_id"]
-            )
+            cast(str, root_event["root_event_ref"]): cast(str, root_event["event_id"])
             for root_event in ordered_events
         }
         root_event_map.extend(
@@ -4756,9 +4774,7 @@ def _artifact_set_runtime_journals_are_valid(
     canceled_ids = {
         cast(str, cancellation["event_id"])
         for event in events
-        for cancellation in cast(
-            list[dict[str, JsonValue]], event["cancellations"]
-        )
+        for cancellation in cast(list[dict[str, JsonValue]], event["cancellations"])
     }
     if catalog_ids != (
         {cast(str, event["event_id"]) for event in events}

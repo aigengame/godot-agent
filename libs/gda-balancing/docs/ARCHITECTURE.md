@@ -1108,7 +1108,21 @@ result before handing the public artifact contract downstream:
 | Refined—adopted | Package-owned Operation notation initially sat inside a runtime-semantic authority path, so a spelling-only mutation changed the Package Release semantic identity. The Kernel package contract now projects an explicit per-release non-runtime extension inventory out of semantic closure while retaining it in Package Release content, whole-LDB, Lock, and downstream exact identities. | Kernel Package Release semantic projection and bADR-0024 identity contract; dual bootstrap consumers and rebuild tooling updated |
 | Authored-example only | The `effective-accuracy` minimum, mitigation policy, fixed seeds, and the `60 → 90` damage comparison are useful Formula-authoring witnesses, not a complete RPG stat library, arbitrary scripting claim, or general Formula catalog. | RPG example; retain without generalizing |
 
-### 12.8 Architecture consequence
+### 12.8 Reciprocal same-time Event dogfooding
+
+Issue #595 composed the permanent cast into two same-time directional roots and classified the
+product feedback before broader Action/Combat work:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | Two exact Model entrypoints reverse player/enemy operands over the same directional `game.combat.cast-v1`; Runtime admits both roots, derives transition phase, assigns stable ids/enqueue sequence, commits after each Event, and makes the later Event read the earlier committed Snapshot. | Model Source, Experiment, and bADR-0014 Runtime ordering; retained |
+| Refined—adopted | Package-owned cancellation could address a child scheduled in the active transaction but could not address a distinct root Event already admitted by #594. The Kernel now owns one fixed Event-reference contract and a closed `cancel` target union; Model Source names the reference role, Experiment binds it to a same-Scenario Root Event reference, and Runtime resolves it to the admitted id. | Kernel Runtime program, `standard.schema@2.2.0`, `game.combat@2.1.0`, compiler/Experiment closure, and dual bootstrap consumers; machine authority updated |
+| Refined—adopted | Artifact-set journal admission assumed every cataloged root eventually appeared in the committed trace, so a valid canceled root made a freshly produced set fail its own semantic re-admission. Canceled ids now close the authoritative catalog set and every Snapshot continuation proves them as canceled rather than pending or committed. | Runtime journal validation and Snapshot/Event-trace schemas; conformance updated |
+| Refined—adopted | A Scenario selecting only one directional entrypoint still tried to evaluate initialization Formula sites reachable only from the other entrypoint and misreported missing inputs as a cycle. Lifecycle evaluation now selects the explicit-input-reachable site closure for the Scenario's selected entrypoints. | bADR-0022 lifecycle Formula evaluation and Runtime evaluator; regression coverage added |
+| Confirmed—narrowly | Priority-only and admission-order-only variants produce distinct deterministic ordering/trace identities; exact recovery is byte-stable. Explicit cancellation removes only the pending counterattack, while the no-cancellation vector still dispatches an actor whose health-like value reached zero. | Experiment vectors and public Event/Snapshot artifacts; retained without inventing defeat policy |
+| Authored-example only | Player/enemy values, same-time exchange, miss/resource alternatives, cancellation choice, and six Metrics are feedback witnesses, not a complete Action interruption, turn, defeat, RPG, Replay, Evidence, or general same-time-combat contract. | Reciprocal combat tutorial; retain without generalizing |
+
+### 12.9 Architecture consequence
 
 The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
 mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the

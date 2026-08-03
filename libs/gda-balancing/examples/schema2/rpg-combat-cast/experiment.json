@@ -267,6 +267,74 @@
       }
     },
     {
+      "id": "player_resource_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "player"
+        },
+        {
+          "name": "role",
+          "value": "attacker"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "player_mana"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 1000
+      }
+    },
+    {
+      "id": "enemy_resource_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "enemy"
+        },
+        {
+          "name": "role",
+          "value": "attacker"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "enemy_mana"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 1000
+      }
+    },
+    {
       "id": "player_damage_dealt",
       "kind": "scalar",
       "unit": "1",
