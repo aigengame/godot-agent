@@ -1630,6 +1630,58 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
     }
 
 
+def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_scheduled_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
+    values = {name: deepcopy(member.value) for name, member in evaluation.members.items()}
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    snapshot_payload = {
+        key: value
+        for key, value in values["snapshot-series"].items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    snapshot_payload["event_trace_identity"] = "sha256:" + ("0" * 64)
+    drifted_snapshots = experiment_runtime_module._artifact(
+        checked, "snapshot-series", snapshot_payload
+    )
+    values["snapshot-series"] = drifted_snapshots.value
+    primary_payload = {
+        key: value
+        for key, value in values["evaluation-run"].items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    primary_payload["snapshot_series_identity"] = drifted_snapshots.content_identity
+    values["evaluation-run"] = experiment_runtime_module._artifact(
+        checked, "evaluation-run", primary_payload
+    ).value
+
+    assert all(
+        experiment_runtime_module.validate_experiment_member(checked, name, value)
+        for name, value in values.items()
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
+
+
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
@@ -6047,6 +6099,56 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             **error["diagnostics"][0],
         }
     assert out.exists()
+
+
+def test_committed_recovery_requires_semantic_artifact_set_revalidation(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    out = tmp_path / "semantic-recovery.json"
+    key = "8" * 64
+    argv = [
+        "experiment",
+        "run",
+        str(specification),
+        "--out",
+        str(out),
+        "--invocation-key",
+        key,
+    ]
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault="after-commit"
+        ),
+    )
+    first_exit, first_stdout, first_stderr = run_cli(argv, registry=(faulting,))
+    assert (first_exit, first_stdout) == (4, "")
+    assert json.loads(first_stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "validate_experiment_artifact_set",
+        lambda _checked, _artifacts: False,
+    )
+
+    def evaluator_must_not_run(_checked):
+        raise AssertionError("semantically invalid recovery reran the evaluator")
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "evaluate_experiment",
+        evaluator_must_not_run,
+    )
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        argv,
+        registry=(experiment_command_module.EXPERIMENT_RUN,),
+    )
+
+    assert (recovered_exit, recovered_stdout) == (4, "")
+    assert json.loads(recovered_stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
 
 
 @pytest.mark.parametrize(
