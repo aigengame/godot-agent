@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178",
+  "content_identity": "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6540,78 +6540,278 @@
       "component_contract": {
         "components": {
           "runtime_configuration": {
+            "role": "runtime-configuration",
             "objects": {
               "": {
-                "lifecycle_roles": "object",
-                "lifecycle_states": "string-list",
-                "members": "string-list",
-                "mutation": "string"
+                "role": "root",
+                "member_types": {
+                  "lifecycle_roles": "object",
+                  "lifecycle_states": "string-list",
+                  "members": "string-list",
+                  "mutation": "string"
+                }
               },
               "lifecycle_roles": {
-                "active": "string",
-                "ready": "string",
-                "terminal": "string"
+                "role": "lifecycle-roles",
+                "member_types": {
+                  "active": "string",
+                  "ready": "string",
+                  "terminal": "string"
+                }
               }
             }
           },
           "scheduler": {
+            "role": "scheduler",
             "objects": {
               "": {
-                "budget_members": "object",
-                "call_site_identity": "object",
-                "cancel": "object",
-                "event_identity": "object",
-                "external_input_admission": "object",
-                "external_input_identity": "object",
-                "observation": "object",
-                "ordering": "array",
-                "root_admission_map": "object",
-                "root_enqueue_sequence": "string",
-                "root_phases": "object",
-                "runtime_journal": "object",
-                "schedule": "object",
-                "snapshot_identity": "object",
-                "step_boundary": "string",
-                "terminal_status": "object"
+                "role": "root",
+                "member_types": {
+                  "budget_members": "object",
+                  "call_site_identity": "object",
+                  "cancel": "object",
+                  "event_identity": "object",
+                  "external_input_admission": "object",
+                  "external_input_identity": "object",
+                  "observation": "object",
+                  "ordering": "ordering-list",
+                  "root_admission_map": "object",
+                  "root_enqueue_sequence": "string",
+                  "root_phases": "object",
+                  "runtime_journal": "object",
+                  "schedule": "object",
+                  "snapshot_identity": "object",
+                  "step_boundary": "string",
+                  "terminal_status": "object"
+                }
+              },
+              "budget_members": {
+                "role": "budget-members",
+                "member_types": {
+                  "event_steps": "string",
+                  "logical_time": "string",
+                  "node_steps": "string",
+                  "queue_events": "string",
+                  "total_events": "string",
+                  "zero_time_depth": "string"
+                }
+              },
+              "call_site_identity": {
+                "role": "call-site-identities",
+                "member_types": {
+                  "cancel": "object",
+                  "schedule": "object"
+                }
+              },
+              "call_site_identity.cancel": {
+                "role": "cancel-call-site-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
+              },
+              "call_site_identity.schedule": {
+                "role": "schedule-call-site-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
+              },
+              "cancel": {
+                "role": "cancel-policy",
+                "member_types": {
+                  "admitted_target_states": "string-list",
+                  "refusal_signals": "object"
+                }
+              },
+              "cancel.refusal_signals": {
+                "role": "cancel-refusal-signals",
+                "member_types": {
+                  "active": "string",
+                  "completed": "string",
+                  "unknown": "string"
+                }
+              },
+              "event_identity": {
+                "role": "event-identity",
+                "member_types": {
+                  "domain": "string",
+                  "variants": "object"
+                }
+              },
+              "event_identity.variants": {
+                "role": "event-identity-variants",
+                "member_types": {
+                  "observation": "string-list",
+                  "root": "string-list",
+                  "scheduled": "string-list"
+                }
+              },
+              "external_input_admission": {
+                "role": "external-input-admission",
+                "member_types": {
+                  "continuity": "string",
+                  "ordering": "string-list",
+                  "sequence_origin": "integer"
+                }
+              },
+              "external_input_identity": {
+                "role": "external-input-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list"
+                }
               },
               "observation": {
-                "derivation": "string",
-                "entrypoint": "string",
-                "phase": "string",
-                "priority": "integer",
-                "state_effects": "string"
+                "role": "observation-policy",
+                "member_types": {
+                  "derivation": "string",
+                  "entrypoint": "string",
+                  "phase": "string",
+                  "priority": "integer",
+                  "state_effects": "string"
+                }
+              },
+              "root_admission_map": {
+                "role": "root-admission-map",
+                "member_types": {
+                  "members": "string-list",
+                  "order": "string"
+                }
               },
               "root_phases": {
-                "external-input": "string",
-                "transition-invocation": "string"
+                "role": "root-phase-map",
+                "member_types": {
+                  "external-input": "string",
+                  "transition-invocation": "string"
+                }
+              },
+              "runtime_journal": {
+                "role": "runtime-journal",
+                "member_types": {
+                  "committed_trace": "object",
+                  "event_catalog": "object",
+                  "event_spec": "object",
+                  "root_event_map": "object"
+                }
+              },
+              "runtime_journal.committed_trace": {
+                "role": "committed-trace-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.event_catalog": {
+                "role": "event-catalog-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.event_spec": {
+                "role": "event-spec-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "runtime_journal.root_event_map": {
+                "role": "root-event-map-journal",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string"
+                }
+              },
+              "schedule": {
+                "role": "schedule-policy",
+                "member_types": {
+                  "child_phase": "string",
+                  "legal_position": "string",
+                  "refusal_signals": "object",
+                  "same_time_priority": "string"
+                }
+              },
+              "schedule.refusal_signals": {
+                "role": "schedule-refusal-signals",
+                "member_types": {
+                  "backward": "string",
+                  "hidden_input": "string",
+                  "illegal_same_time_priority": "string"
+                }
+              },
+              "snapshot_identity": {
+                "role": "snapshot-identity",
+                "member_types": {
+                  "domain": "string",
+                  "projection": "string-list",
+                  "runtime_configuration_projection": "object"
+                }
+              },
+              "snapshot_identity.runtime_configuration_projection": {
+                "role": "runtime-configuration-projection",
+                "member_types": {
+                  "committed_trace": "string",
+                  "current_snapshot": "string",
+                  "event_catalog": "string",
+                  "lifecycle_state": "string",
+                  "next_enqueue_sequence": "string",
+                  "pending_event_count": "string",
+                  "resolved_runtime_profile_identity": "string",
+                  "resource_ledger": "string",
+                  "rng": "string",
+                  "root_event_map_identity": "string",
+                  "scenario_cursor": "string",
+                  "state": "string",
+                  "step_boundary": "string"
+                }
+              },
+              "terminal_status": {
+                "role": "terminal-status",
+                "member_types": {
+                  "members": "string-list",
+                  "reasons": "string-list"
+                }
               }
             }
           },
           "step": {
+            "role": "step",
             "objects": {
               "": {
-                "advance": "string",
-                "boundary_roles": "object",
-                "input": "string",
-                "result": "string",
-                "stop": "string-list"
+                "role": "root",
+                "member_types": {
+                  "advance": "string",
+                  "boundaries": "string-list",
+                  "boundary_roles": "object",
+                  "input": "string",
+                  "result": "string",
+                  "stop": "string-list"
+                }
               },
               "boundary_roles": {
-                "initial": "string",
-                "logical": "string",
-                "observation": "string",
-                "terminal": "string"
+                "role": "boundary-roles",
+                "member_types": {
+                  "initial": "string",
+                  "logical": "string",
+                  "observation": "string",
+                  "terminal": "string"
+                }
               }
             }
           },
           "transition": {
+            "role": "transition",
             "objects": {
               "": {
-                "dispatch_count": "integer",
-                "event_selection": "string",
-                "input": "string",
-                "result": "string-list",
-                "transaction": "string"
+                "role": "root",
+                "member_types": {
+                  "dispatch_count": "integer",
+                  "event_selection": "string",
+                  "input": "string",
+                  "result": "string-list",
+                  "transaction": "string"
+                }
               }
             }
           }
@@ -6622,30 +6822,47 @@
             "excluded_keys": [],
             "kind": "mapping-values-in-list",
             "list_path": "lifecycle_states",
-            "mapping_path": "lifecycle_roles"
+            "mapping_path": "lifecycle_roles",
+            "role": "lifecycle-states"
           },
           {
             "component": "step",
-            "excluded_keys": [
-              "initial"
-            ],
+            "excluded_keys": [],
             "kind": "mapping-values-in-list",
+            "list_path": "boundaries",
+            "mapping_path": "boundary_roles",
+            "role": "step-boundaries"
+          },
+          {
+            "component": "step",
+            "kind": "list-values-in-list",
             "list_path": "stop",
-            "mapping_path": "boundary_roles"
+            "role": "step-stops",
+            "values_path": "boundaries"
           },
           {
             "component": "scheduler",
             "kind": "mapping-values-in-ranked-ordering",
             "mapping_path": "root_phases",
             "ordering_member": "phase",
-            "ordering_path": "ordering"
+            "ordering_path": "ordering",
+            "role": "root-phases"
           },
           {
             "component": "scheduler",
             "kind": "value-in-ranked-ordering",
             "ordering_member": "phase",
             "ordering_path": "ordering",
+            "role": "observation-phase",
             "value_path": "observation.phase"
+          },
+          {
+            "component": "scheduler",
+            "kind": "value-in-ranked-ordering",
+            "ordering_member": "phase",
+            "ordering_path": "ordering",
+            "role": "scheduled-child-phase",
+            "value_path": "schedule.child_phase"
           }
         ]
       },
@@ -6692,6 +6909,12 @@
       "step": {
         "input": "runtime-configuration",
         "advance": "repeat-transition",
+        "boundaries": [
+          "initial",
+          "observation-boundary",
+          "logical-boundary",
+          "terminal"
+        ],
         "boundary_roles": {
           "initial": "initial",
           "logical": "logical-boundary",

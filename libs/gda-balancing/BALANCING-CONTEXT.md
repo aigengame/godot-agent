@@ -973,9 +973,11 @@ _Avoid_: environment, evaluator configuration, resolved execution identity
 The Schema-major Kernel-owned, closed machine contract for irreducible runtime nodes and laws. It
 enumerates each node's exact fields, operator, result/transition kind, refusals, and resource charge,
 plus Numeric bounds, Named-stream RNG derivation/state/sampling/bias/trace laws, Event atomicity,
-typed outcome requirements, and normative vectors. LDB Operations compose these nodes and own their
-domain-specific typed outcome algebra; evaluator code implements the contract but does not add
-fields, outcomes, constants, or behavior (bADR-0014/0022).
+typed outcome requirements, normative vectors, and a complete abstract-role contract for every
+evaluator-consumed scheduler, Runtime-configuration, transition, and step object and relationship.
+LDB Operations compose these nodes and own their domain-specific typed outcome algebra; evaluator
+code implements the role meta-protocol and contract but does not add fields, outcomes, constants,
+paths, or behavior (bADR-0014/0022).
 _Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
 
 **Resolved Runtime profile**:

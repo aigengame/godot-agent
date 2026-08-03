@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178"
+    "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740"
 )
 
 
@@ -5268,6 +5268,30 @@ def _consumer_b_active_profile_is_closed(
 
 
 def _consumer_b_component_shape_matches(value: Any, declared_type: Any) -> bool:
+    if declared_type == "ordering-list":
+        if not isinstance(value, list) or not value:
+            return False
+        members: list[str] = []
+        for item in value:
+            if (
+                not isinstance(item, dict)
+                or set(item)
+                not in ({"direction", "member"}, {"direction", "member", "rank"})
+                or item.get("direction") not in {"ascending", "descending"}
+                or not isinstance(item.get("member"), str)
+                or not item["member"]
+            ):
+                return False
+            members.append(item["member"])
+            rank = item.get("rank")
+            if "rank" in item and (
+                not isinstance(rank, list)
+                or not rank
+                or any(not isinstance(entry, str) or not entry for entry in rank)
+                or len(rank) != len(set(rank))
+            ):
+                return False
+        return len(members) == len(set(members))
     checks = {
         "object": lambda candidate: isinstance(candidate, dict),
         "array": lambda candidate: isinstance(candidate, list),
@@ -5286,6 +5310,45 @@ def _consumer_b_component_shape_matches(value: Any, declared_type: Any) -> bool:
 
 
 def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
+    expected_object_roles = {
+        "runtime-configuration": {"lifecycle-roles", "root"},
+        "scheduler": {
+            "budget-members",
+            "call-site-identities",
+            "cancel-call-site-identity",
+            "cancel-policy",
+            "cancel-refusal-signals",
+            "committed-trace-journal",
+            "event-catalog-journal",
+            "event-identity",
+            "event-identity-variants",
+            "event-spec-journal",
+            "external-input-admission",
+            "external-input-identity",
+            "observation-policy",
+            "root",
+            "root-admission-map",
+            "root-event-map-journal",
+            "root-phase-map",
+            "runtime-configuration-projection",
+            "runtime-journal",
+            "schedule-call-site-identity",
+            "schedule-policy",
+            "schedule-refusal-signals",
+            "snapshot-identity",
+            "terminal-status",
+        },
+        "step": {"boundary-roles", "root"},
+        "transition": {"root"},
+    }
+    expected_relation_roles = {
+        "lifecycle-states",
+        "observation-phase",
+        "root-phases",
+        "scheduled-child-phase",
+        "step-boundaries",
+        "step-stops",
+    }
     declaration = runtime.get("component_contract")
     if not isinstance(declaration, dict) or set(declaration) != {
         "components",
@@ -5297,6 +5360,7 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
     if not isinstance(component_specs, dict) or not isinstance(relation_specs, list):
         return False
     resolved_components: dict[str, dict[str, Any]] = {}
+    observed_component_roles: set[str] = set()
     for name, spec in component_specs.items():
         candidate = runtime.get(name)
         object_specs = spec.get("objects") if isinstance(spec, dict) else None
@@ -5305,13 +5369,27 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
             or not name
             or not isinstance(candidate, dict)
             or not isinstance(spec, dict)
-            or set(spec) != {"objects"}
+            or set(spec) != {"objects", "role"}
             or not isinstance(object_specs, dict)
             or "" not in object_specs
+            or not isinstance(spec.get("role"), str)
+            or not spec["role"]
+            or spec["role"] in observed_component_roles
         ):
             return False
+        component_role = spec["role"]
+        observed_component_roles.add(component_role)
         resolved_components[name] = candidate
-        for coordinate, fields in object_specs.items():
+        observed_object_roles: set[str] = set()
+        for coordinate, object_spec in object_specs.items():
+            fields = (
+                object_spec.get("member_types")
+                if isinstance(object_spec, dict)
+                else None
+            )
+            object_role = (
+                object_spec.get("role") if isinstance(object_spec, dict) else None
+            )
             observed = (
                 candidate
                 if coordinate == ""
@@ -5319,6 +5397,11 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
             )
             if (
                 not isinstance(coordinate, str)
+                or not isinstance(object_spec, dict)
+                or set(object_spec) != {"member_types", "role"}
+                or not isinstance(object_role, str)
+                or not object_role
+                or object_role in observed_object_roles
                 or not isinstance(fields, dict)
                 or not isinstance(observed, dict)
                 or set(observed) != set(fields)
@@ -5332,12 +5415,26 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
                 )
             ):
                 return False
+            observed_object_roles.add(object_role)
+        if observed_object_roles != expected_object_roles.get(component_role):
+            return False
+    if observed_component_roles != set(expected_object_roles):
+        return False
+    observed_relation_roles: set[str] = set()
     for relation in relation_specs:
         if not isinstance(relation, dict):
             return False
         component = resolved_components.get(cast(str, relation.get("component")))
         if component is None:
             return False
+        relation_role = relation.get("role")
+        if (
+            not isinstance(relation_role, str)
+            or not relation_role
+            or relation_role in observed_relation_roles
+        ):
+            return False
+        observed_relation_roles.add(relation_role)
         kind = relation.get("kind")
         if kind == "mapping-values-in-list":
             if set(relation) != {
@@ -5346,6 +5443,7 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
                 "kind",
                 "list_path",
                 "mapping_path",
+                "role",
             }:
                 return False
             source = _consumer_b_path(
@@ -5365,6 +5463,23 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
                 <= set(destination)
             ):
                 return False
+        elif kind == "list-values-in-list":
+            if set(relation) != {
+                "component",
+                "kind",
+                "list_path",
+                "role",
+                "values_path",
+            }:
+                return False
+            source = _consumer_b_path(component, cast(str, relation.get("list_path")))
+            values = _consumer_b_path(component, cast(str, relation.get("values_path")))
+            if (
+                not isinstance(source, list)
+                or not isinstance(values, list)
+                or not set(source) <= set(values)
+            ):
+                return False
         elif kind in {
             "mapping-values-in-ranked-ordering",
             "value-in-ranked-ordering",
@@ -5379,6 +5494,7 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
                 "kind",
                 "ordering_member",
                 "ordering_path",
+                "role",
                 coordinate_member,
             }:
                 return False
@@ -5415,7 +5531,7 @@ def _consumer_b_component_contract_matches(runtime: dict[str, Any]) -> bool:
                 return False
         else:
             return False
-    return True
+    return observed_relation_roles == expected_relation_roles
 
 
 def _consumer_b_runtime_authority_is_closed(

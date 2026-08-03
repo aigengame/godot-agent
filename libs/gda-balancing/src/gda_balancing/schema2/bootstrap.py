@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:302cf04b1ee5414d7e900f350f1a2308ab9adcf5bba6f4abd7c628b328902178"
+    "sha256:a968e72ce3acd74c5daaf369d0a22ff25bac0851c1c928c51ec61603e1047740"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7633,6 +7633,30 @@ def _active_runtime_profile_matches_contract(
 
 
 def _runtime_component_value_has_type(value: Any, expected: Any) -> bool:
+    if expected == "ordering-list":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(row, dict)
+                and set(row)
+                in ({"direction", "member"}, {"direction", "member", "rank"})
+                and row.get("direction") in {"ascending", "descending"}
+                and isinstance(row.get("member"), str)
+                and bool(row["member"])
+                and (
+                    "rank" not in row
+                    or (
+                        isinstance(row["rank"], list)
+                        and bool(row["rank"])
+                        and all(isinstance(item, str) and item for item in row["rank"])
+                        and len(row["rank"]) == len(set(row["rank"]))
+                    )
+                )
+                for row in value
+            )
+            and len({row["member"] for row in value}) == len(value)
+        )
     return (
         (expected == "object" and isinstance(value, dict))
         or (expected == "array" and isinstance(value, list))
@@ -7652,6 +7676,45 @@ def _runtime_component_value_has_type(value: Any, expected: Any) -> bool:
 
 
 def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
+    required_object_roles = {
+        "runtime-configuration": {"lifecycle-roles", "root"},
+        "scheduler": {
+            "budget-members",
+            "call-site-identities",
+            "cancel-call-site-identity",
+            "cancel-policy",
+            "cancel-refusal-signals",
+            "committed-trace-journal",
+            "event-catalog-journal",
+            "event-identity",
+            "event-identity-variants",
+            "event-spec-journal",
+            "external-input-admission",
+            "external-input-identity",
+            "observation-policy",
+            "root",
+            "root-admission-map",
+            "root-event-map-journal",
+            "root-phase-map",
+            "runtime-configuration-projection",
+            "runtime-journal",
+            "schedule-call-site-identity",
+            "schedule-policy",
+            "schedule-refusal-signals",
+            "snapshot-identity",
+            "terminal-status",
+        },
+        "step": {"boundary-roles", "root"},
+        "transition": {"root"},
+    }
+    required_relation_roles = {
+        "lifecycle-states",
+        "observation-phase",
+        "root-phases",
+        "scheduled-child-phase",
+        "step-boundaries",
+        "step-stops",
+    }
     contract = runtime.get("component_contract")
     if not isinstance(contract, dict) or set(contract) != {"components", "relations"}:
         return False
@@ -7663,6 +7726,7 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
         or not isinstance(relations, list)
     ):
         return False
+    component_roles: dict[str, str] = {}
     for component_name, component_contract in components.items():
         component = runtime.get(component_name)
         objects = (
@@ -7675,15 +7739,36 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
             or not component_name
             or not isinstance(component, dict)
             or not isinstance(component_contract, dict)
-            or set(component_contract) != {"objects"}
+            or set(component_contract) != {"objects", "role"}
             or not isinstance(objects, dict)
             or "" not in objects
+            or not isinstance(component_contract.get("role"), str)
+            or not component_contract["role"]
+            or component_contract["role"] in component_roles
         ):
             return False
-        for path, member_types in objects.items():
+        component_role = cast(str, component_contract["role"])
+        component_roles[component_role] = component_name
+        object_roles: set[str] = set()
+        for path, object_contract in objects.items():
             value = component if path == "" else _runtime_contract_path(component, path)
+            member_types = (
+                object_contract.get("member_types")
+                if isinstance(object_contract, dict)
+                else None
+            )
+            object_role = (
+                object_contract.get("role")
+                if isinstance(object_contract, dict)
+                else None
+            )
             if (
                 not isinstance(path, str)
+                or not isinstance(object_contract, dict)
+                or set(object_contract) != {"member_types", "role"}
+                or not isinstance(object_role, str)
+                or not object_role
+                or object_role in object_roles
                 or not isinstance(value, dict)
                 or not isinstance(member_types, dict)
                 or set(value) != set(member_types)
@@ -7695,6 +7780,12 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
                 )
             ):
                 return False
+            object_roles.add(object_role)
+        if object_roles != required_object_roles.get(component_role):
+            return False
+    if set(component_roles) != set(required_object_roles):
+        return False
+    relation_roles: set[str] = set()
     for relation in relations:
         if not isinstance(relation, dict):
             return False
@@ -7703,6 +7794,14 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
         runtime_component = runtime.get(component_name)
         if not isinstance(component, dict) or not isinstance(runtime_component, dict):
             return False
+        relation_role = relation.get("role")
+        if (
+            not isinstance(relation_role, str)
+            or not relation_role
+            or relation_role in relation_roles
+        ):
+            return False
+        relation_roles.add(relation_role)
         kind = relation.get("kind")
         if kind == "mapping-values-in-list":
             if set(relation) != {
@@ -7711,6 +7810,7 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
                 "kind",
                 "list_path",
                 "mapping_path",
+                "role",
             }:
                 return False
             mapping = _runtime_contract_path(
@@ -7732,6 +7832,28 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
             ):
                 return False
             continue
+        if kind == "list-values-in-list":
+            if set(relation) != {
+                "component",
+                "kind",
+                "list_path",
+                "role",
+                "values_path",
+            }:
+                return False
+            source = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("list_path"))
+            )
+            values = _runtime_contract_path(
+                runtime_component, cast(str, relation.get("values_path"))
+            )
+            if (
+                not isinstance(source, list)
+                or not isinstance(values, list)
+                or not set(source) <= set(values)
+            ):
+                return False
+            continue
         if kind in {
             "mapping-values-in-ranked-ordering",
             "value-in-ranked-ordering",
@@ -7741,6 +7863,7 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
                 "kind",
                 "ordering_member",
                 "ordering_path",
+                "role",
                 (
                     "mapping_path"
                     if kind == "mapping-values-in-ranked-ordering"
@@ -7783,7 +7906,7 @@ def _runtime_component_contract_is_closed(runtime: dict[str, Any]) -> bool:
                 return False
             continue
         return False
-    return True
+    return relation_roles == required_relation_roles
 
 
 def _runtime_authority_is_closed(

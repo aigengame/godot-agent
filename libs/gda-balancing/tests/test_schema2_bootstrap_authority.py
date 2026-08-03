@@ -75,6 +75,10 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
         "arbitrary-runtime-configuration",
         "invalid-lifecycle-role",
         "invalid-observation-phase",
+        "invented-initial-boundary",
+        "empty-schedule-policy",
+        "missing-scheduler-component-contract",
+        "missing-relations-with-invented-root-phase",
         "missing-root-phase-map",
     ),
 )
@@ -90,6 +94,20 @@ def test_two_consumers_refuse_reidentified_runtime_component_drift(
         runtime["runtime_configuration"]["lifecycle_roles"]["active"] = "host-invented"
     elif mutation == "invalid-observation-phase":
         runtime["scheduler"]["observation"]["phase"] = "host-invented"
+    elif mutation == "invented-initial-boundary":
+        runtime["step"]["boundary_roles"]["initial"] = "host-invented"
+    elif mutation == "empty-schedule-policy":
+        runtime["scheduler"]["schedule"] = {}
+    elif mutation == "missing-scheduler-component-contract":
+        del runtime["component_contract"]["components"]["scheduler"]
+        runtime["component_contract"]["relations"] = [
+            relation
+            for relation in runtime["component_contract"]["relations"]
+            if relation["component"] != "scheduler"
+        ]
+    elif mutation == "missing-relations-with-invented-root-phase":
+        runtime["component_contract"]["relations"] = []
+        runtime["scheduler"]["root_phases"]["external-input"] = "host-invented"
     else:
         del runtime["scheduler"]["root_phases"]
     _reidentify(kernel, authority["language_bundle"])

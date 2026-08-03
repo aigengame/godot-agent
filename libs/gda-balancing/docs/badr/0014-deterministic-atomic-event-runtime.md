@@ -236,6 +236,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   refers back to the generated profile, so the three identities are distinct and acyclic. The
   Kernel also declares the active-definition member/binding shape and positive-bound contract;
   concrete bound values remain LDB content and are never duplicated as host constants.
+  Its Runtime-program component contract names the complete scheduler, Runtime-configuration,
+  transition, and step role set; closes every nested object consumed by execution; and relates
+  lifecycle, boundary, and scheduler-phase inventories. Hosts implement this abstract role
+  meta-protocol but do not own the declared paths or concrete tokens.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel

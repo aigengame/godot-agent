@@ -1834,6 +1834,12 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
     assert runtime_program["step"] == {
         "input": "runtime-configuration",
         "advance": "repeat-transition",
+        "boundaries": [
+            "initial",
+            "observation-boundary",
+            "logical-boundary",
+            "terminal",
+        ],
         "boundary_roles": {
             "initial": "initial",
             "logical": "logical-boundary",

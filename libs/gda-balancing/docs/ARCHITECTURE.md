@@ -659,6 +659,11 @@ three-node identity graph rather than relying on an embedded value comparison. T
 active-definition contract supplies the required member set, Runtime/RNG bindings, budget scopes,
 and positive-bound shape; the LDB supplies the concrete bound values. Hosts interpret that contract
 instead of carrying a peer profile schema or copied budget constants.
+The Kernel's Runtime-program component contract likewise closes every evaluator-consumed scheduler,
+Runtime-configuration, transition, and step object behind required abstract roles, then declares
+the relations among phase, lifecycle, and boundary inventories. Bootstrap consumers implement only
+that role meta-protocol; component paths, member shapes, inventories, and concrete values remain
+Kernel authority.
 
 The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
 its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,
