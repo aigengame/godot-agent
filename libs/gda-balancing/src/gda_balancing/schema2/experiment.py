@@ -6,6 +6,7 @@ import hashlib
 import json
 import platform
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -717,6 +718,7 @@ def _event_catalog_record(
     event: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     contract = _runtime_journal_contract(checked)["event_spec"]
+    event_spec = cast(dict[str, JsonValue], deepcopy(event))
     return cast(
         dict[str, JsonValue],
         {
@@ -724,11 +726,40 @@ def _event_catalog_record(
             "event_id": event["event_id"],
             "kind": event["kind"],
             "ordering_key": event["ordering_key"],
+            "event_spec": event_spec,
             "event_spec_identity": content_identity(
                 cast(str, contract["domain"]),
-                cast(JsonValue, event),
+                cast(JsonValue, event_spec),
             ),
         },
+    )
+
+
+def _event_catalog_record_is_valid(
+    checked: CheckedExperiment,
+    record: dict[str, Any],
+) -> bool:
+    event_spec = record.get("event_spec")
+    if (
+        set(record)
+        != {
+            "scenario",
+            "event_id",
+            "kind",
+            "ordering_key",
+            "event_spec",
+            "event_spec_identity",
+        }
+        or not isinstance(event_spec, dict)
+        or record.get("event_id") != event_spec.get("event_id")
+        or record.get("kind") != event_spec.get("kind")
+        or record.get("ordering_key") != event_spec.get("ordering_key")
+    ):
+        return False
+    contract = _runtime_journal_contract(checked)["event_spec"]
+    return record.get("event_spec_identity") == content_identity(
+        cast(str, contract["domain"]),
+        cast(JsonValue, event_spec),
     )
 
 
@@ -4089,6 +4120,10 @@ def _artifact_set_runtime_journals_are_valid(
         snapshot_series.get("event_trace_identity") != trace.get("content_identity")
         or snapshot_series.get("root_event_map") != expected_root_map
         or trace.get("root_event_map") != expected_root_map
+        or any(
+            not _event_catalog_record_is_valid(checked, record)
+            for record in catalog
+        )
         or len({cast(str, row.get("event_id")) for row in catalog}) != len(catalog)
         or any(snapshot.get("index") != index for index, snapshot in enumerate(snapshots))
         or any(event.get("index") != index for index, event in enumerate(events))
@@ -4158,7 +4193,7 @@ def _artifact_set_runtime_journals_are_valid(
         trace_prefixes = [
             _empty_runtime_journal_identity(journal["committed_trace"])
         ]
-        canceled_prefix_counts = [0]
+        canceled_prefixes: list[set[str]] = [set()]
         canceled: set[str] = set()
         for event in scenario_events:
             trace_prefixes.append(
@@ -4174,7 +4209,7 @@ def _artifact_set_runtime_journals_are_valid(
                     list[dict[str, JsonValue]], event["cancellations"]
                 )
             )
-            canceled_prefix_counts.append(len(canceled))
+            canceled_prefixes.append(set(canceled))
         for position, snapshot in enumerate(scenario_snapshots):
             continuation = cast(dict[str, Any], snapshot["continuation"])
             catalog_ref = cast(dict[str, Any], continuation["event_catalog"])
@@ -4186,11 +4221,74 @@ def _artifact_set_runtime_journals_are_valid(
                 or not isinstance(trace_count, int)
                 or not 0 <= catalog_count < len(catalog_prefixes)
                 or trace_count != position
-                or catalog_ref.get("prefix_identity")
+            ):
+                return False
+            catalog_prefix = scenario_catalog[:catalog_count]
+            committed_ids = {
+                cast(str, event["event_id"])
+                for event in scenario_events[:trace_count]
+            }
+            canceled_ids = canceled_prefixes[trace_count]
+            catalog_prefix_ids = {
+                cast(str, record["event_id"]) for record in catalog_prefix
+            }
+            if (
+                not committed_ids.isdisjoint(canceled_ids)
+                or not committed_ids | canceled_ids <= catalog_prefix_ids
+            ):
+                return False
+            pending_records = [
+                record
+                for record in catalog_prefix
+                if record["event_id"] not in committed_ids | canceled_ids
+            ]
+            pending_order = [
+                (
+                    cast(
+                        int,
+                        cast(dict[str, Any], record["ordering_key"])["logical_time"],
+                    ),
+                    phase_rank[
+                        cast(str, cast(dict[str, Any], record["ordering_key"])["phase"])
+                    ],
+                    -cast(
+                        int,
+                        cast(dict[str, Any], record["ordering_key"])["priority"],
+                    ),
+                    cast(
+                        int,
+                        cast(dict[str, Any], record["ordering_key"])[
+                            "enqueue_sequence"
+                        ],
+                    ),
+                )
+                for record in pending_records
+            ]
+            next_pending_id = (
+                cast(
+                    str,
+                    pending_records[pending_order.index(min(pending_order))]["event_id"],
+                )
+                if pending_order
+                else None
+            )
+            next_committed_id = (
+                cast(str, scenario_events[trace_count]["event_id"])
+                if trace_count < len(scenario_events)
+                else None
+            )
+            if (
+                catalog_ref.get("prefix_identity")
                 != catalog_prefixes[catalog_count]
                 or trace_ref.get("prefix_identity") != trace_prefixes[trace_count]
                 or continuation.get("pending_event_count")
-                != catalog_count - trace_count - canceled_prefix_counts[trace_count]
+                != len(pending_records)
+                or len(set(pending_order)) != len(pending_order)
+                or (
+                    next_committed_id is not None
+                    and next_committed_id in catalog_prefix_ids
+                    and next_pending_id != next_committed_id
+                )
                 or continuation.get("root_event_map_identity") != root_map_identity
                 or continuation.get("resolved_runtime_profile_identity")
                 != resolved_runtime_profile_identity

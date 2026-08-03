@@ -165,9 +165,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Runtime continuation: lifecycle and `step` boundary, Scenario cursor, admitted/pending Event
   catalog, committed trace, current Snapshot coordinate, Named RNG state, resource ledger, next
   enqueue sequence, root-Event map, and Resolved Runtime profile identity. Materialized Snapshot
-  Series encode the Event catalog once and bind each boundary to append-only catalog/trace prefix
-  identities and counts. Recovery replays those prefixes against the cross-bound Event Trace; a
-  growing queue or committed prefix is never copied into every Snapshot.
+  Series encode every complete normalized admitted Event specification once, with its independently
+  recomputable identity, and bind each boundary to append-only catalog/trace prefix identities and
+  counts. Recovery replays those prefixes and cancellation provenance against the cross-bound Event
+  Trace to reconstruct the exact pending queue; a growing queue or committed prefix is never copied
+  into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic

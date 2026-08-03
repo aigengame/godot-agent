@@ -711,8 +711,10 @@ state values and the resumable Runtime continuation (lifecycle/`step` boundary, 
 admitted-Event catalog and committed-trace prefix identities, pending count, Snapshot coordinate,
 Named RNG state, scoped resource ledger, enqueue cursor, root-map identity, and Resolved Runtime
 profile identity), so equal state values cannot conceal different future execution. Snapshot Series
-materialize each Event catalog record once and cross-bind the Event Trace used to revalidate every
-prefix; they do not duplicate growing pending or completed arrays at every boundary.
+materialize each complete normalized admitted Event specification once, bind its recomputable
+identity, and cross-bind the Event Trace used to revalidate every catalog/commit/cancellation prefix
+and reconstruct the exact pending queue; they do not duplicate growing pending or completed arrays
+at every boundary.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
 commit makes each uncanceled child queue-visible under the same law and traces its
