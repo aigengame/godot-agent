@@ -1108,7 +1108,9 @@ only at declared checkpoints without changing semantics. A materialized Snapshot
 binds the selected Runtime profile plus append-only admitted-Event and committed-trace prefix
 identities; the Snapshot Series stores each complete normalized admitted Event specification once,
 and recovery revalidates its identity plus catalog, commit, and cancellation prefixes to reconstruct
-the exact pending queue rather than copying a growing queue or trace into every boundary (bADR-0014).
+the exact pending queue. Root, scheduled, and observation catalog entries must also rebind to their
+checked Experiment, committed parent/RIR schedule call site, or Metric authority respectively;
+self-consistent fresh hashes do not prove admission (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
 **Runtime refusal**:

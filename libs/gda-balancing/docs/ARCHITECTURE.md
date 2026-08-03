@@ -715,8 +715,10 @@ Named RNG state, scoped resource ledger, enqueue cursor, root-map identity, and 
 profile identity), so equal state values cannot conceal different future execution. Snapshot Series
 materialize each complete normalized admitted Event specification once, bind its recomputable
 identity, and cross-bind the Event Trace used to revalidate every catalog/commit/cancellation prefix
-and reconstruct the exact pending queue; they do not duplicate growing pending or completed arrays
-at every boundary.
+and reconstruct the exact pending queue. Catalog admission independently re-derives roots from the
+Experiment, observations from Metrics, and scheduled Events from committed parent provenance and
+the exact RIR schedule call site/operands; coordinated re-hashing cannot invent a different queue.
+Snapshot Series do not duplicate growing pending or completed arrays at every boundary.
 
 A successful schedule operation provisionally admits and returns a Runtime-owned child `event_id`;
 commit makes each uncanceled child queue-visible under the same law and traces its

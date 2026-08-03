@@ -172,8 +172,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Series encode every complete normalized admitted Event specification once, with its independently
   recomputable identity, and bind each boundary to append-only catalog/trace prefix identities and
   counts. Recovery replays those prefixes and cancellation provenance against the cross-bound Event
-  Trace to reconstruct the exact pending queue; a growing queue or committed prefix is never copied
-  into every Snapshot.
+  Trace to reconstruct the exact pending queue. It also re-derives root entries from the checked
+  Experiment, observations from their Metrics, and scheduled entries from the committed parent's
+  schedule provenance plus the exact RIR call site, Operation, ordering, arguments, and state
+  references; self-consistent fresh hashes are not Event admission. A growing queue or committed
+  prefix is never copied into every Snapshot.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic

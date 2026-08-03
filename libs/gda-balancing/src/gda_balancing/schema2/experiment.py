@@ -763,6 +763,278 @@ def _event_catalog_record_is_valid(
     )
 
 
+def _expected_root_event_catalog(
+    checked: CheckedExperiment,
+) -> dict[str, dict[str, JsonValue]]:
+    expected: dict[str, dict[str, JsonValue]] = {}
+    for scenario in checked.value["scenarios"]:
+        for authored in _ordered_root_events(checked, scenario):
+            event = dict(authored)
+            event["event_id"] = _root_event_id(checked, scenario["id"], event)
+            record = _event_catalog_record(
+                checked,
+                cast(str, scenario["id"]),
+                _pending_event_projection(event),
+            )
+            expected[cast(str, event["event_id"])] = record
+    return expected
+
+
+def _event_fact_values(event: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    values: dict[str, JsonValue] = {}
+    for row in cast(list[dict[str, JsonValue]], event["facts"]):
+        kind = row["kind"]
+        member = {"integer": "integer", "boolean": "boolean", "string": "string"}[
+            cast(str, kind)
+        ]
+        values[cast(str, row["name"])] = row[member]
+    return values
+
+
+def _committed_event_arguments(
+    checked: CheckedExperiment,
+    event: dict[str, JsonValue],
+    event_spec: dict[str, JsonValue],
+) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+    state_before = {
+        cast(str, row["name"]): cast(JsonValue, row["value"])
+        for row in cast(list[dict[str, JsonValue]], event["state_before"])
+    }
+    if event_spec["kind"] == "scheduled-transition":
+        arguments = {
+            cast(str, row["name"]): cast(JsonValue, row["value"])
+            for row in cast(list[dict[str, JsonValue]], event_spec["arguments"])
+        }
+        state_references = {
+            cast(str, row["name"]): cast(
+                dict[str, JsonValue], row["target"]
+            )
+            for row in cast(
+                list[dict[str, JsonValue]], event_spec["state_references"]
+            )
+        }
+        declarations = _resolved_declarations(checked)
+        display_names = _resolved_display_names(declarations)
+        for name, target in state_references.items():
+            identity = canonical_bytes(cast(JsonValue, target))
+            display_name = display_names.get(identity)
+            if display_name not in state_before:
+                return None
+            arguments[name] = state_before[display_name]
+        return arguments, state_references
+    if event_spec["kind"] != "transition-invocation":
+        return None
+    entrypoint = next(
+        (
+            row
+            for row in checked.rir["entrypoints"]
+            if row["id"] == event_spec["entrypoint"]
+        ),
+        None,
+    )
+    if entrypoint is None:
+        return None
+    declarations = _resolved_declarations(checked)
+    display_names = _resolved_display_names(declarations)
+    facts = _event_fact_values(event)
+    arguments: dict[str, JsonValue] = {}
+    state_references: dict[str, dict[str, JsonValue]] = {}
+    for binding in entrypoint["arguments"]:
+        port = cast(str, binding["port"]["name"])
+        operand = cast(dict[str, Any], binding["operand"])
+        if operand["kind"] != "symbol":
+            arguments[port] = cast(JsonValue, operand["value"])
+            continue
+        target = cast(dict[str, JsonValue], operand["symbol"])
+        identity = canonical_bytes(cast(JsonValue, target))
+        display_name = display_names.get(identity)
+        if display_name is None:
+            return None
+        if declarations[identity]["role"] == "state":
+            if display_name not in state_before:
+                return None
+            arguments[port] = state_before[display_name]
+            state_references[port] = target
+        else:
+            if display_name not in facts:
+                return None
+            arguments[port] = facts[display_name]
+    return arguments, state_references
+
+
+def _scheduled_catalog_record_is_authoritative(
+    checked: CheckedExperiment,
+    record: dict[str, JsonValue],
+    *,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> bool:
+    event_spec = cast(dict[str, JsonValue], record["event_spec"])
+    parent_id = cast(str, event_spec["parent_event_id"])
+    parent_event = events_by_id.get(parent_id)
+    parent_record = catalog_by_id.get(parent_id)
+    if parent_event is None or parent_record is None:
+        return False
+    parent_spec = cast(dict[str, JsonValue], parent_record["event_spec"])
+    parent_operation = parent_event.get("operation")
+    if not isinstance(parent_operation, str):
+        return False
+    schedule_sequence = cast(int, event_spec["schedule_sequence"])
+    schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
+    if not 0 <= schedule_sequence < len(schedules):
+        return False
+    schedule = schedules[schedule_sequence]
+    ordering_key = cast(dict[str, JsonValue], event_spec["ordering_key"])
+    if (
+        schedule.get("event_id") != event_spec["event_id"]
+        or schedule.get("call_site_identity") != event_spec["call_site_identity"]
+        or schedule.get("operation") != event_spec["operation"]
+        or schedule.get("ordering_key") != ordering_key
+        or _scheduled_event_id(
+            checked,
+            cast(str, record["scenario"]),
+            {
+                "parent_event_id": parent_id,
+                "call_site_identity": event_spec["call_site_identity"],
+                "schedule_sequence": schedule_sequence,
+                "logical_time": ordering_key["logical_time"],
+                "phase": ordering_key["phase"],
+                "priority": ordering_key["priority"],
+                "enqueue_sequence": ordering_key["enqueue_sequence"],
+            },
+        )
+        != event_spec["event_id"]
+    ):
+        return False
+    operation = next(
+        (
+            row["definition"]
+            for row in checked.rir["selected_semantics"]["operations"]
+            if row["definition"]["id"] == parent_operation
+        ),
+        None,
+    )
+    if operation is None:
+        return False
+    schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
+    matching_instructions = []
+    for instruction in operation["body"]:
+        if instruction["node"] != "schedule":
+            continue
+        call_site_identity = content_identity(
+            cast(str, schedule_identity["domain"]),
+            cast(
+                JsonValue,
+                {
+                    "parent_event_id": parent_id,
+                    "parent_operation": parent_operation,
+                    "site": instruction["site"],
+                    "operation": instruction["operation"],
+                },
+            ),
+        )
+        if call_site_identity == event_spec["call_site_identity"]:
+            matching_instructions.append(instruction)
+    if len(matching_instructions) != 1:
+        return False
+    instruction = matching_instructions[0]
+    parent_arguments = _committed_event_arguments(
+        checked,
+        parent_event,
+        parent_spec,
+    )
+    if parent_arguments is None:
+        return False
+    arguments, state_references = parent_arguments
+    expected_arguments: dict[str, JsonValue] = {}
+    expected_state_references: dict[str, dict[str, JsonValue]] = {}
+    for binding in instruction["arguments"]:
+        name = cast(str, binding["port"])
+        operand = cast(dict[str, Any], binding["operand"])
+        if operand["kind"] == "port":
+            source = cast(str, operand["port"])
+            if source not in arguments:
+                return False
+            expected_arguments[name] = arguments[source]
+            if source in state_references:
+                expected_state_references[name] = state_references[source]
+        elif operand["kind"] == "literal":
+            expected_arguments[name] = cast(JsonValue, operand["literal"])
+        else:
+            return False
+    expected_zero_time_depth = (
+        cast(int, parent_spec.get("zero_time_depth", 0)) + 1
+        if ordering_key["logical_time"]
+        == cast(dict[str, JsonValue], parent_spec["ordering_key"])["logical_time"]
+        else 0
+    )
+    return (
+        event_spec["operation"] == instruction["operation"]
+        and ordering_key["logical_time"] == instruction["logical_time"]
+        and ordering_key["phase"]
+        == _scheduler_contract(checked)["schedule"]["child_phase"]
+        and ordering_key["priority"] == instruction["priority"]
+        and event_spec["zero_time_depth"] == expected_zero_time_depth
+        and event_spec["arguments"]
+        == [
+            {"name": name, "value": value}
+            for name, value in sorted(expected_arguments.items())
+        ]
+        and event_spec["state_references"]
+        == [
+            {"name": name, "target": target}
+            for name, target in sorted(expected_state_references.items())
+        ]
+    )
+
+
+def _event_catalog_records_are_authoritative(
+    checked: CheckedExperiment,
+    catalog: list[dict[str, JsonValue]],
+    events: list[dict[str, JsonValue]],
+) -> bool:
+    expected_roots = _expected_root_event_catalog(checked)
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    events_by_id = {cast(str, row["event_id"]): row for row in events}
+    if any(catalog_by_id.get(event_id) != record for event_id, record in expected_roots.items()):
+        return False
+    metric_identities = {
+        _metric_definition_identity(metric) for metric in checked.value["metrics"]
+    }
+    for record in catalog:
+        event_spec = cast(dict[str, JsonValue], record["event_spec"])
+        kind = event_spec["kind"]
+        if kind in {"external-input", "transition-invocation"}:
+            if record["event_id"] not in expected_roots:
+                return False
+        elif kind == "scheduled-transition":
+            if not _scheduled_catalog_record_is_authoritative(
+                checked,
+                record,
+                catalog_by_id=catalog_by_id,
+                events_by_id=events_by_id,
+            ):
+                return False
+        else:
+            metric_identity = cast(str, event_spec["metric_definition_identity"])
+            ordering_key = cast(dict[str, JsonValue], event_spec["ordering_key"])
+            if (
+                metric_identity not in metric_identities
+                or _observation_event_id(
+                    checked,
+                    cast(str, record["scenario"]),
+                    metric_identity,
+                    logical_time=cast(int, ordering_key["logical_time"]),
+                    enqueue_sequence=cast(int, ordering_key["enqueue_sequence"]),
+                )
+                != event_spec["event_id"]
+                or ordering_key["phase"] != "observation"
+                or ordering_key["priority"] != 0
+            ):
+                return False
+    return True
+
+
 def _runtime_continuation(
     checked: CheckedExperiment,
     *,
@@ -1707,6 +1979,15 @@ def _resolved_display_names(
             else f"{symbol['model']}:{symbol['module']}:{symbol['name']}"
         )
     return result
+
+
+def _resolved_declarations(
+    checked: CheckedExperiment,
+) -> dict[bytes, dict[str, Any]]:
+    return {
+        canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
+        for row in checked.rir["declarations"]
+    }
 
 
 def _resolved_int_rows(
@@ -4126,6 +4407,7 @@ def _artifact_set_runtime_journals_are_valid(
             not _event_catalog_record_is_valid(checked, record)
             for record in catalog
         )
+        or not _event_catalog_records_are_authoritative(checked, catalog, events)
         or len({cast(str, row.get("event_id")) for row in catalog}) != len(catalog)
         or any(snapshot.get("index") != index for index, snapshot in enumerate(snapshots))
         or any(event.get("index") != index for index, event in enumerate(events))
