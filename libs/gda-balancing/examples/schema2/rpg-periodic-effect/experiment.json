@@ -1,0 +1,187 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.rpg-periodic-effect.snapshot",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "language_bundle_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "model": {
+    "source_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "build_receipt_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "resolved_model_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "package_lock_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "rir_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260804
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-fragment",
+        "event-program"
+      ],
+      "instruction_nodes": [
+        "constant",
+        "copy",
+        "draw",
+        "maximum",
+        "schedule",
+        "subtract",
+        "subtract-state",
+        "write-state"
+      ],
+      "effects": [
+        "event.commit",
+        "event.schedule",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "scenarios": [
+    {
+      "id": "snapshot-periodic",
+      "named_streams": [
+        "effect-instance"
+      ],
+      "terminal_condition": {
+        "kind": "queue-drained"
+      },
+      "assignments": [
+        {
+          "target": {
+            "model": "example.rpg-periodic-effect",
+            "module": "effect",
+            "name": "target_health"
+          },
+          "value": 100
+        },
+        {
+          "target": {
+            "model": "example.rpg-periodic-effect",
+            "module": "effect",
+            "name": "magnitude_threshold"
+          },
+          "value": 85
+        }
+      ],
+      "event_plan": [
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "apply-snapshot-effect",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "effect.apply-snapshot-periodic",
+          "payload": []
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "target_health_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "policy",
+          "value": "snapshot"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "target_health"
+      },
+      "target": {
+        "minimum": 70,
+        "maximum": 70
+      }
+    },
+    {
+      "id": "effect_active_terminal",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "policy",
+          "value": "snapshot"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "effect_active"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 0
+      }
+    },
+    {
+      "id": "effect_instance_id_terminal",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "policy",
+          "value": "snapshot"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "effect_instance_id"
+      },
+      "target": {
+        "minimum": 1,
+        "maximum": 2147483647
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}
