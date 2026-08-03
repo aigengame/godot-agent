@@ -30,6 +30,24 @@ from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 )
+_PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
+    {
+        "enemy_defense",
+        "enemy_health",
+        "player_accuracy",
+        "player_action_cost",
+        "player_base_damage",
+        "player_critical_threshold",
+        "player_mana",
+    }
+)
+_PLAYER_ATTACK_METRIC_IDS = frozenset(
+    {
+        "enemy_health_remaining",
+        "player_damage_dealt",
+        "player_resource_remaining",
+    }
+)
 
 
 def _console_script() -> str:
@@ -111,6 +129,23 @@ def _build_reciprocal_example(
     )
     assert (result.returncode, result.stderr) == (0, ""), result.stdout
     return _RPG_COMBAT_EXAMPLE, json.loads(result.stdout)
+
+
+def _one_way_variant(baseline: dict, identifier: str) -> dict:
+    variant = json.loads(json.dumps(baseline))
+    variant["id"] = identifier
+    variant["scenarios"][0]["event_plan"] = variant["scenarios"][0]["event_plan"][:1]
+    variant["scenarios"][0]["assignments"] = [
+        row
+        for row in variant["scenarios"][0]["assignments"]
+        if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
+    ]
+    variant["metrics"] = [
+        metric
+        for metric in variant["metrics"]
+        if metric["id"] in _PLAYER_ATTACK_METRIC_IDS
+    ]
+    return variant
 
 
 class TestEntryPoints:
@@ -248,25 +283,10 @@ class TestKeyUserPath:
         }
 
     def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
-        source = (
-            Path(__file__).parents[1]
-            / "examples"
-            / "schema2"
-            / "rpg-combat-cast"
-            / "model-source.json"
+        _example, receipt = _build_reciprocal_example(
+            tmp_path,
+            invocation_key="5" * 64,
         )
-        built = _run(
-            "model",
-            "build",
-            str(source),
-            "--out",
-            str(tmp_path / "reciprocal-model"),
-            "--invocation-key",
-            "5" * 64,
-        )
-
-        assert (built.returncode, built.stderr) == (0, "")
-        receipt = json.loads(built.stdout)
         rir_path = next(
             Path(row["locator"])
             for row in receipt["member_locators"]
@@ -290,6 +310,11 @@ class TestKeyUserPath:
                 "package": "game.combat",
                 "version": "2.1.0",
                 "id": "game.combat.cast-v1",
+            },
+            "combat.player-plans-attacks": {
+                "package": "game.combat",
+                "version": "2.1.0",
+                "id": "game.combat.plan-casts-v1",
             },
         }
         directional_bindings = {
@@ -322,6 +347,16 @@ class TestKeyUserPath:
                 "target_health": "enemy_health",
             },
             "combat.player-attacks-enemy": {
+                "actor_resource": "player_mana",
+                "action_cost": "player_action_cost",
+                "accuracy": "player_effective_accuracy",
+                "base_damage": "player_base_damage",
+                "critical_threshold": "player_critical_threshold",
+                "hit_defense": "enemy_defense",
+                "damage_mitigation": "enemy_defense",
+                "target_health": "enemy_health",
+            },
+            "combat.player-plans-attacks": {
                 "actor_resource": "player_mana",
                 "action_cost": "player_action_cost",
                 "accuracy": "player_effective_accuracy",
@@ -372,6 +407,53 @@ class TestKeyUserPath:
             for operand in site["operands"]
             if operand["operand"]["kind"] == "symbol"
         } == {"enemy_accuracy", "player_accuracy"}
+
+    def test_rpg_combat_keeps_external_input_and_multi_time_scheduling_public(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example, _receipt = _build_reciprocal_example(
+            tmp_path,
+            invocation_key="6" * 64,
+        )
+        companion = json.loads(
+            (example / "multi-time-experiment.json").read_text(encoding="utf-8")
+        )
+
+        receipt, trace = _run_experiment_variant(
+            tmp_path,
+            companion,
+            name="multi-time-companion",
+            invocation_key="7" * 64,
+        )
+
+        assert [row["root_event_ref"] for row in trace["root_event_map"]] == [
+            "raise-enemy-defense",
+            "plan-player-casts",
+            "retry-player-cast",
+        ]
+        assert [
+            (
+                event.get("root_event_ref"),
+                event["ordering_key"]["logical_time"],
+                event["ordering_key"]["phase"],
+            )
+            for event in trace["events"]
+            if event["ordering_key"]["phase"] != "observation"
+        ] == [
+            ("raise-enemy-defense", 0, "input"),
+            ("plan-player-casts", 0, "transition"),
+            (None, 1, "transition"),
+            ("retry-player-cast", 2, "transition"),
+        ]
+        planner = trace["events"][1]
+        assert planner["outcome"] == {"id": "planned", "kind": "success"}
+        assert planner["cancellations"][0]["outcome"] == "canceled"
+        snapshots = json.loads(
+            _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
+        )["snapshots"]
+        assert len(snapshots) == len(trace["events"]) + 1
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
@@ -815,6 +897,56 @@ class TestKeyUserPath:
         )["snapshots"]
         assert snapshots[1]["continuation"]["pending_event_count"] == 0
 
+    def test_reciprocal_event_reference_refuses_active_root_as_not_pending(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        example, _build_receipt = _build_reciprocal_example(
+            tmp_path,
+            invocation_key="3" * 64,
+        )
+        active = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
+        active["id"] = "example.rpg-combat-cast.cancel-active-root"
+        first_root = active["scenarios"][0]["event_plan"][0]
+        first_root["entrypoint"] = (
+            "combat.player-attacks-enemy-and-cancels-counterattack"
+        )
+        first_root["event_references"] = [
+            {
+                "name": "counterattack",
+                "root_event_ref": first_root["root_event_ref"],
+            }
+        ]
+        requirements = active["runtime"]["required_evaluator"]
+        requirements["instruction_nodes"].append("cancel")
+        requirements["effects"].append("event.cancel")
+        specification = tmp_path / "cancel-active-root.json"
+        specification.write_text(json.dumps(active), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "cancel-active-root"),
+            "--invocation-key",
+            "4" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert (error["stage"], error["diagnostics"][0]["code"]) == (
+            "runtime",
+            "runtime.cancel_active",
+        )
+        assert set(_receipt_members(error["terminal_audit"])) == {
+            "evaluator-capability-manifest",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "runtime-terminal-audit",
+        }
+
     def test_reciprocal_combat_does_not_infer_defeat_or_cancel_eligibility(
         self, tmp_path, monkeypatch
     ):
@@ -874,35 +1006,10 @@ class TestKeyUserPath:
         )
         baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
 
-        one_way = json.loads(json.dumps(baseline))
-        one_way["id"] = "example.rpg-combat-cast.one-way"
-        one_way["scenarios"][0]["event_plan"] = one_way["scenarios"][0]["event_plan"][
-            :1
-        ]
-        one_way_assignment_names = {
-            "enemy_defense",
-            "enemy_health",
-            "player_accuracy",
-            "player_action_cost",
-            "player_base_damage",
-            "player_critical_threshold",
-            "player_mana",
-        }
-        one_way["scenarios"][0]["assignments"] = [
-            row
-            for row in one_way["scenarios"][0]["assignments"]
-            if row["target"]["name"] in one_way_assignment_names
-        ]
-        one_way["metrics"] = [
-            metric
-            for metric in one_way["metrics"]
-            if metric["id"]
-            in {
-                "enemy_health_remaining",
-                "player_damage_dealt",
-                "player_resource_remaining",
-            }
-        ]
+        one_way = _one_way_variant(
+            baseline,
+            "example.rpg-combat-cast.one-way",
+        )
         one_way_receipt, one_way_trace = _run_experiment_variant(
             tmp_path,
             one_way,
@@ -998,45 +1105,15 @@ class TestKeyUserPath:
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
         example = _RPG_COMBAT_EXAMPLE
         baseline = json.loads((example / "experiment.json").read_text(encoding="utf-8"))
-        one_way_assignment_names = {
-            "enemy_defense",
-            "enemy_health",
-            "player_accuracy",
-            "player_action_cost",
-            "player_base_damage",
-            "player_critical_threshold",
-            "player_mana",
-        }
-
-        def one_way_variant(identifier: str) -> dict:
-            variant = json.loads(json.dumps(baseline))
-            variant["id"] = identifier
-            variant["scenarios"][0]["event_plan"] = variant["scenarios"][0][
-                "event_plan"
-            ][:1]
-            variant["scenarios"][0]["assignments"] = [
-                row
-                for row in variant["scenarios"][0]["assignments"]
-                if row["target"]["name"] in one_way_assignment_names
-            ]
-            variant["metrics"] = [
-                metric
-                for metric in variant["metrics"]
-                if metric["id"]
-                in {
-                    "enemy_health_remaining",
-                    "player_damage_dealt",
-                    "player_resource_remaining",
-                }
-            ]
-            return variant
-
         _example, normal_build_receipt = _build_reciprocal_example(
             tmp_path,
             invocation_key="a" * 64,
             output_name="normal-model",
         )
-        normal = one_way_variant("example.rpg-combat-cast.selected-site-control")
+        normal = _one_way_variant(
+            baseline,
+            "example.rpg-combat-cast.selected-site-control",
+        )
         _bind_experiment_to_build(normal, normal_build_receipt)
         normal_receipt, normal_trace = _run_experiment_variant(
             tmp_path,
@@ -1082,7 +1159,10 @@ class TestKeyUserPath:
             "c" * 64,
         )
         assert (literal_build.returncode, literal_build.stderr) == (0, "")
-        literal = one_way_variant("example.rpg-combat-cast.unselected-literal-site")
+        literal = _one_way_variant(
+            baseline,
+            "example.rpg-combat-cast.unselected-literal-site",
+        )
         _bind_experiment_to_build(literal, json.loads(literal_build.stdout))
         literal_receipt, literal_trace = _run_experiment_variant(
             tmp_path,
@@ -1209,51 +1289,16 @@ class TestKeyUserPath:
             "enemy": ambiguous_root_order["scenarios"][0]["event_plan"][1],
         }
 
-        scheduling_source = json.loads(
-            (example / "model-source.json").read_text(encoding="utf-8")
-        )
-        plan_entrypoint = json.loads(json.dumps(scheduling_source["entrypoints"][0]))
-        plan_entrypoint["id"] = "combat.player-plans-attacks"
-        plan_entrypoint["operation"] = {
-            "package": "game.combat",
-            "version": "2.1.0",
-            "id": "game.combat.plan-casts-v1",
-        }
-        plan_entrypoint["result"] = {"kind": "discard"}
-        scheduling_source["entrypoints"].append(plan_entrypoint)
-        scheduling_source_path = tmp_path / "backward-scheduling-model.json"
-        scheduling_source_path.write_text(
-            json.dumps(scheduling_source), encoding="utf-8"
-        )
-        scheduling_build = _run(
-            "model",
-            "build",
-            str(scheduling_source_path),
-            "--out",
-            str(tmp_path / "backward-scheduling-model"),
-            "--invocation-key",
-            "e" * 64,
-        )
-        assert (scheduling_build.returncode, scheduling_build.stderr) == (0, "")
         backward_time = json.loads(json.dumps(baseline))
         backward_time["id"] = "example.rpg-combat-cast.backward-time"
         backward_root = backward_time["scenarios"][0]["event_plan"][0]
         backward_root["entrypoint"] = "combat.player-plans-attacks"
         backward_root["logical_time"] = 3
         backward_time["scenarios"][0]["event_plan"] = [backward_root]
-        player_assignment_names = {
-            "enemy_defense",
-            "enemy_health",
-            "player_accuracy",
-            "player_action_cost",
-            "player_base_damage",
-            "player_critical_threshold",
-            "player_mana",
-        }
         backward_time["scenarios"][0]["assignments"] = [
             row
             for row in backward_time["scenarios"][0]["assignments"]
-            if row["target"]["name"] in player_assignment_names
+            if row["target"]["name"] in _PLAYER_ATTACK_ASSIGNMENT_NAMES
         ]
         backward_time["runtime"]["required_evaluator"]["instruction_nodes"].extend(
             ["cancel", "schedule"]
@@ -1263,11 +1308,6 @@ class TestKeyUserPath:
             ["event.cancel", "event.schedule"]
         )
         backward_time["runtime"]["required_evaluator"]["effects"].sort()
-        _bind_experiment_to_build(
-            backward_time,
-            json.loads(scheduling_build.stdout),
-        )
-
         for index, (name, variant, stage, code) in enumerate(
             (
                 (

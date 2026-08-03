@@ -858,7 +858,7 @@
             1
           ],
           "quote": "\"\n\\",
-          "é": "雪"
+          "\u00e9": "\u96ea"
         }
       },
       {
@@ -2574,30 +2574,30 @@
                                 "required"
                               ]
                             },
-                            "event_payload_cardinality": {
-                              "enum": [
-                                "forbidden",
-                                "optional",
-                                "required"
-                              ]
-                            },
-                            "external_fact_cardinality": {
-                              "enum": [
-                                "forbidden",
-                                "optional",
-                                "required"
-                              ]
-                            }
+                    "event_payload_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    },
+                    "external_fact_cardinality": {
+                      "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                      ]
+                    }
                           },
                           "required_members": [
                             "id",
                             "initialization_source",
                             "value_member",
-                            "experiment_cardinality",
-                            "override",
-                            "event_payload_cardinality",
-                            "external_fact_cardinality"
-                          ],
+                    "experiment_cardinality",
+                    "override",
+                    "event_payload_cardinality",
+                    "external_fact_cardinality"
+                  ],
                           "type": "closed-object"
                         },
                         "type": "list-of"

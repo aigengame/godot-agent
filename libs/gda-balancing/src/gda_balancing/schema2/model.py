@@ -4837,41 +4837,24 @@ def _resolved_entrypoints(
                     ),
                 }
             elif source_operand["kind"] == "event-reference":
-                event_reference_contract = checked.kernel["meta_format"][
-                    "runtime_program"
-                ]["fixed_value_contracts"]["kernel-event-reference"]
-                name = source_operand["name"]
-                if formal["access"] != "read" or not _operation_contract_matches(
-                    event_reference_contract, formal
-                ):
+                event_reference = _resolved_event_reference_operand(
+                    source_operand,
+                    formal,
+                    checked.kernel,
+                    domains,
+                )
+                if event_reference is None:
                     raise _EntrypointBindingError(
                         operand_pointer,
                         "Event reference operand is incompatible with the formal "
                         "value contract",
                     )
-                operand_body = {
-                    "kind": "event-reference",
-                    "name": name,
-                }
-                operand_identity = content_identity(
-                    domains["actual_operand"], cast(JsonValue, operand_body)
-                )
-                resolved_operand = {
-                    **operand_body,
-                    "identity": operand_identity,
-                }
+                resolved_operand, operand_identity, reference_contract = event_reference
                 aliases.setdefault(operand_identity, []).append(
                     (cast(str, formal["id"]), cast(str, formal["access"]))
                 )
+                name = cast(str, reference_contract["name"])
                 previous_reference = event_reference_targets.get(name)
-                reference_contract = cast(
-                    dict[str, JsonValue],
-                    {
-                        "name": name,
-                        "operand_identity": operand_identity,
-                        "cardinality": "required",
-                    },
-                )
                 if (
                     previous_reference is not None
                     and previous_reference != reference_contract
@@ -5017,6 +5000,44 @@ def _operation_contract_matches(
             "domain",
             "numeric_policy",
         )
+    )
+
+
+def _resolved_event_reference_operand(
+    operand: dict[str, Any],
+    formal: dict[str, Any],
+    kernel: dict[str, Any],
+    domains: dict[str, str],
+) -> tuple[dict[str, JsonValue], str, dict[str, JsonValue]] | None:
+    name = operand.get("name")
+    event_reference_contract = kernel["meta_format"]["runtime_program"][
+        "fixed_value_contracts"
+    ]["kernel-event-reference"]
+    if (
+        formal.get("access") != "read"
+        or not isinstance(name, str)
+        or not name
+        or not _operation_contract_matches(event_reference_contract, formal)
+    ):
+        return None
+    operand_body = cast(
+        dict[str, JsonValue],
+        {
+            "kind": "event-reference",
+            "name": name,
+        },
+    )
+    operand_identity = content_identity(
+        domains["actual_operand"], cast(JsonValue, operand_body)
+    )
+    return (
+        {**operand_body, "identity": operand_identity},
+        operand_identity,
+        {
+            "name": name,
+            "operand_identity": operand_identity,
+            "cardinality": "required",
+        },
     )
 
 
@@ -6375,39 +6396,19 @@ def _resolved_entrypoint_graph_is_admitted(
                     ),
                 }
             elif operand.get("kind") == "event-reference":
-                event_reference_contract = kernel["meta_format"]["runtime_program"][
-                    "fixed_value_contracts"
-                ]["kernel-event-reference"]
-                name = operand.get("name")
-                operand_body = {
-                    "kind": "event-reference",
-                    "name": name,
-                }
-                operand_identity = content_identity(
-                    domains["actual_operand"], cast(JsonValue, operand_body)
+                event_reference = _resolved_event_reference_operand(
+                    cast(dict[str, Any], operand),
+                    formal,
+                    kernel,
+                    domains,
                 )
-                if (
-                    formal["access"] != "read"
-                    or not isinstance(name, str)
-                    or not name
-                    or not _operation_contract_matches(event_reference_contract, formal)
-                ):
+                if event_reference is None:
                     return False
-                expected_operand = {
-                    **operand_body,
-                    "identity": operand_identity,
-                }
+                expected_operand, operand_identity, reference_contract = event_reference
                 aliases.setdefault(operand_identity, []).append(
                     (cast(str, formal["id"]), cast(str, formal["access"]))
                 )
-                reference_contract = cast(
-                    dict[str, JsonValue],
-                    {
-                        "name": name,
-                        "operand_identity": operand_identity,
-                        "cardinality": "required",
-                    },
-                )
+                name = cast(str, reference_contract["name"])
                 previous_reference = event_reference_targets.get(name)
                 if (
                     previous_reference is not None

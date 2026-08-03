@@ -112,6 +112,9 @@ _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
     "runtime.reason.step-limit",
     "runtime.reason.numeric-overflow",
     "runtime.reason.schedule-backward",
+    "runtime.reason.cancel-active",
+    "runtime.reason.cancel-completed",
+    "runtime.reason.cancel-unknown",
     "evaluation.reason.observation-unavailable",
 )
 EXPERIMENT_CHECK_REFUSAL_CATALOG = refusal_catalog_for_reasons(

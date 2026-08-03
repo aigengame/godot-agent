@@ -1,0 +1,264 @@
+{
+  "schema_version": "2.0.0",
+  "id": "example.rpg-combat-cast.multi-time-companion",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:3a3bdae4555439d17e8b79b953f9fead95e13837a68974d8c60c08947b2e61d7",
+  "language_bundle_identity": "sha256:68c0c4e129bd2a9c1c9dfcee5683d5ce640c0dfe1382eed2038412bf8345a16f",
+  "model": {
+    "source_identity": "sha256:9754a18e47b61d779dcafc6cc48dd174e2990cfc8de57589475992c7e0f31fea",
+    "build_receipt_identity": "sha256:ef529d857d929733676822e54cfb4bdc68e8eca0f074c28c63613d51786945c5",
+    "resolved_model_identity": "sha256:379d9c444d8e37cde438a0105dbee01e92a919e64276fc682c48ada4bf155522",
+    "package_lock_identity": "sha256:75caee73bdef9130be205a98d1783b9daa9928ad889b718febc7afb9f2524819",
+    "rir_identity": "sha256:9bfe93f45e86475caeb0d25f38bac760fe91c6328475f1260ccb29ffddd58b3e"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "operation_kinds": [
+        "event-fragment",
+        "event-program"
+      ],
+      "instruction_nodes": [
+        "add",
+        "cancel",
+        "constant",
+        "copy",
+        "draw",
+        "if",
+        "invoke",
+        "less-than-or-equal",
+        "maximum",
+        "multiply",
+        "precondition-greater-than-or-equal",
+        "schedule",
+        "subtract",
+        "subtract-state"
+      ],
+      "effects": [
+        "event.cancel",
+        "event.commit",
+        "event.schedule",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260726
+  },
+  "scenarios": [
+    {
+      "id": "multi-time-player-casts",
+      "named_streams": [
+        "critical",
+        "hit"
+      ],
+      "terminal_condition": {
+        "kind": "queue-drained"
+      },
+      "assignments": [
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_mana"
+          },
+          "value": 35
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_action_cost"
+          },
+          "value": 9
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_accuracy"
+          },
+          "value": 1000
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_base_damage"
+          },
+          "value": 45
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "player_critical_threshold"
+          },
+          "value": 0
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_defense"
+          },
+          "value": 30
+        },
+        {
+          "target": {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": "enemy_health"
+          },
+          "value": 100
+        }
+      ],
+      "event_plan": [
+        {
+          "kind": "external-input",
+          "root_event_ref": "raise-enemy-defense",
+          "logical_time": 0,
+          "priority": 0,
+          "source_identity": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "source_sequence": 0,
+          "facts": [
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "enemy_defense"
+              },
+              "value": 6
+            }
+          ]
+        },
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "plan-player-casts",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "combat.player-plans-attacks",
+          "payload": []
+        },
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "retry-player-cast",
+          "logical_time": 2,
+          "priority": 0,
+          "entrypoint": "combat.player-attacks-enemy",
+          "payload": [
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "player_action_cost"
+              },
+              "value": 0
+            },
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "player_base_damage"
+              },
+              "value": 5
+            },
+            {
+              "target": {
+                "model": "example.rpg-combat-cast",
+                "module": "combat",
+                "name": "player_critical_threshold"
+              },
+              "value": 100
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "enemy_health_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "enemy"
+        },
+        {
+          "name": "role",
+          "value": "defender"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "enemy_health"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 100
+      }
+    },
+    {
+      "id": "player_resource_remaining",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [
+        {
+          "name": "entity",
+          "value": "player"
+        },
+        {
+          "name": "role",
+          "value": "attacker"
+        }
+      ],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
+      "observation": {
+        "source": "snapshot",
+        "name": "terminal",
+        "member": "player_mana"
+      },
+      "target": {
+        "minimum": 0,
+        "maximum": 1000
+      }
+    }
+  ],
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  }
+}

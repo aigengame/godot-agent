@@ -2917,29 +2917,28 @@ def _evaluate_initialization_programs(
     )
     if not programs:
         return consumed_steps
+    # A selected site can still depend on an explicit input absent from this
+    # Scenario. Remove that open branch and every dependent branch, but keep a
+    # closed cycle intact so the evaluator's invariant guard can reject it.
     available_identities = set(actual_values)
-    reachable_programs: list[dict[str, Any]] = []
-    unresolved_programs = list(programs)
-    while unresolved_programs:
-        progressed = False
-        for program in list(unresolved_programs):
-            dependencies = {
+    while programs:
+        program_targets = {
+            canonical_bytes(cast(JsonValue, program["target"])) for program in programs
+        }
+        closed_programs = [
+            program
+            for program in programs
+            if {
                 canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
                 for row in cast(list[dict[str, Any]], program["inputs"])
                 if (operand := cast(dict[str, Any], row["operand"]))["kind"]
                 != "literal"
             }
-            if not dependencies <= available_identities:
-                continue
-            reachable_programs.append(program)
-            available_identities.add(
-                canonical_bytes(cast(JsonValue, program["target"]))
-            )
-            unresolved_programs.remove(program)
-            progressed = True
-        if not progressed:
+            <= available_identities | program_targets
+        ]
+        if len(closed_programs) == len(programs):
             break
-    programs = reachable_programs
+        programs = closed_programs
     if not programs:
         return consumed_steps
     program_targets = {

@@ -3684,6 +3684,63 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         == exact_charge
     )
     assert without_cache[derived_identity] == 32
+
+    cyclic_rir = deepcopy(checked.rir)
+    template_program = next(
+        program
+        for program in cyclic_rir["initialization_programs"]
+        if program["site"]["context"]["phase"] == "initialization"
+    )
+    cycle_a = {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "cycle_a",
+    }
+    cycle_b = {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "cycle_b",
+    }
+
+    def cyclic_program(target: dict[str, str], dependency: dict[str, str]) -> dict:
+        program = deepcopy(template_program)
+        program["target"] = target
+        program["inputs"] = [
+            {
+                "name": "base",
+                "operand": {
+                    "kind": "symbol",
+                    "resolved_symbol": dependency,
+                },
+            }
+        ]
+        return program
+
+    cyclic_rir["initialization_programs"] = [
+        cyclic_program(cycle_a, cycle_b),
+        cyclic_program(cycle_b, cycle_a),
+    ]
+    cyclic_entrypoint = deepcopy(selected_entrypoints[0])
+    next(
+        binding
+        for binding in cyclic_entrypoint["arguments"]
+        if binding["operand"]["kind"] == "symbol"
+    )["operand"]["symbol"] = cycle_a
+    cyclic_checked = replace(checked, rir=cyclic_rir)
+
+    with pytest.raises(
+        ValueError,
+        match="admitted initialization program graph is cyclic",
+    ):
+        experiment_runtime_module._evaluate_initialization_programs(
+            cyclic_checked,
+            {},
+            consumed_steps=0,
+            runtime_limit=exact_charge,
+            cache=None,
+            selected_entrypoints=[cyclic_entrypoint],
+        )
+
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)

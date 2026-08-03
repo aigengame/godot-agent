@@ -689,6 +689,83 @@
       }
     },
     {
+      "id": "combat.player-plans-attacks",
+      "operation": {
+        "package": "game.combat",
+        "version": "2.1.0",
+        "id": "game.combat.plan-casts-v1"
+      },
+      "arguments": [
+        {
+          "port": "actor_resource",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_mana"
+          }
+        },
+        {
+          "port": "action_cost",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_action_cost"
+          }
+        },
+        {
+          "port": "accuracy",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_effective_accuracy"
+          }
+        },
+        {
+          "port": "base_damage",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_base_damage"
+          }
+        },
+        {
+          "port": "critical_threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "player_critical_threshold"
+          }
+        },
+        {
+          "port": "hit_defense",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_defense"
+          }
+        },
+        {
+          "port": "damage_mitigation",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_defense"
+          }
+        },
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "combat",
+            "symbol": "enemy_health"
+          }
+        }
+      ],
+      "result": {
+        "kind": "discard"
+      }
+    },
+    {
       "id": "combat.player-attacks-enemy-and-cancels-counterattack",
       "operation": {
         "package": "game.combat",
