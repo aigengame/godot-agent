@@ -1511,6 +1511,16 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         "root_event_map_identity",
         "resolved_runtime_profile_identity",
     }
+    snapshot_wire_schema = next(
+        row["schema"]
+        for row in checked.language_bundle["language"]["artifact_wire_schemas"]
+        if row["artifact_kind"] == "snapshot-series"
+    )
+    continuation_schema = snapshot_wire_schema["properties"]["snapshots"]["items"][
+        "properties"
+    ]["continuation"]
+    assert set(continuation_schema["properties"]) == runtime_members
+    assert set(continuation_schema["required"]) == runtime_members
     assert all(set(snapshot["continuation"]) == runtime_members for snapshot in snapshots)
     snapshot_series = artifacts.members["snapshot-series"].value
     assert snapshot_series["event_trace_identity"] == artifacts.members[
