@@ -21,6 +21,40 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
+@pytest.mark.parametrize(
+    ("binding_group", "member"),
+    (
+        ("runtime_member_bindings", "evaluation"),
+        ("rng_member_bindings", "algorithm"),
+    ),
+)
+def test_reference_consumer_rejects_non_string_runtime_binding_paths(
+    binding_group, member
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    profile_contract = kernel["meta_format"]["runtime_profile_definition"]
+    runtime = kernel["meta_format"]["runtime_program"]
+    profile = next(
+        row
+        for row in authority["language_bundle"]["language"]["runtime_profiles"]
+        if row["evaluation"] == runtime["version"]
+    )
+    assert bootstrap_support._consumer_b_active_profile_is_closed(
+        profile,
+        profile_contract,
+        runtime,
+    )
+
+    profile_contract["active_runtime"][binding_group][member] = None
+
+    assert not bootstrap_support._consumer_b_active_profile_is_closed(
+        profile,
+        profile_contract,
+        runtime,
+    )
+
+
 def test_rir_semantic_projection_members_close_against_the_wire_schema():
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
