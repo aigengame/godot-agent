@@ -1609,6 +1609,38 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         experiment_runtime_module._event_catalog_record_is_valid(checked, row)
         for row in snapshot_series["event_catalog"]
     )
+    assert experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        snapshot_series["event_catalog"],
+        events,
+    )
+    coordinated_root_drift = deepcopy(snapshot_series["event_catalog"])
+    coordinated_root_drift[0]["event_spec"]["entrypoint"] = "combat.cast"
+    coordinated_root_drift[0]["event_spec_identity"] = content_identity(
+        event_spec_domain,
+        coordinated_root_drift[0]["event_spec"],
+    )
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        coordinated_root_drift,
+        events,
+    )
+    coordinated_schedule_drift = deepcopy(snapshot_series["event_catalog"])
+    scheduled_record = next(
+        row
+        for row in coordinated_schedule_drift
+        if row["kind"] == "scheduled-transition"
+    )
+    scheduled_record["event_spec"]["arguments"][0]["value"] += 1
+    scheduled_record["event_spec_identity"] = content_identity(
+        event_spec_domain,
+        scheduled_record["event_spec"],
+    )
+    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+        checked,
+        coordinated_schedule_drift,
+        events,
+    )
     drifted_catalog_record = deepcopy(snapshot_series["event_catalog"][0])
     drifted_catalog_record["event_spec"]["zero_time_depth"] += 1
     assert not experiment_runtime_module._event_catalog_record_is_valid(
