@@ -655,7 +655,10 @@ Numeric profile, RNG algorithm and streams, scheduler/effect policy, and resourc
 The Kernel declares the Runtime-profile-definition identity domain; admission hashes the complete
 selected definition and the Resolved Runtime profile binds that identity. The definition,
 Evaluator Capability Manifest, and Resolved Runtime profile therefore form an explicit acyclic
-three-node identity graph rather than relying on an embedded value comparison.
+three-node identity graph rather than relying on an embedded value comparison. The Kernel's
+active-definition contract supplies the required member set, Runtime/RNG bindings, budget scopes,
+and positive-bound shape; the LDB supplies the concrete bound values. Hosts interpret that contract
+instead of carrying a peer profile schema or copied budget constants.
 
 The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
 its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,

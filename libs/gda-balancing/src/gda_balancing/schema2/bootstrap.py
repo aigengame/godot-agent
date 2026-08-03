@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5ecb89f2128c3cc68b1b9f93378b9e26775d38f0e3936703992ccb83aeed7625"
+    "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -7505,6 +7505,98 @@ def _authority_wire_schema_projection_is_closed(kernel: dict[str, Any]) -> bool:
     }
 
 
+def _runtime_contract_path(runtime: dict[str, Any], path: str) -> Any:
+    value: Any = runtime
+    for member in path.split("."):
+        if not isinstance(value, dict) or member not in value:
+            return None
+        value = value[member]
+    return value
+
+
+def _active_runtime_profile_matches_contract(
+    profile: dict[str, Any],
+    contract: dict[str, Any],
+    runtime: dict[str, Any],
+) -> bool:
+    active = contract.get("active_runtime")
+    if not isinstance(active, dict) or set(active) != {
+        "required_members",
+        "optional_members",
+        "runtime_member_bindings",
+        "rng_member_bindings",
+        "budget_scopes",
+        "resource_bounds",
+    }:
+        return False
+    required = active.get("required_members")
+    optional = active.get("optional_members")
+    runtime_bindings = active.get("runtime_member_bindings")
+    rng_bindings = active.get("rng_member_bindings")
+    budget_scopes = active.get("budget_scopes")
+    resource_contract = active.get("resource_bounds")
+    if (
+        not isinstance(required, list)
+        or not required
+        or not all(isinstance(member, str) and member for member in required)
+        or len(required) != len(set(required))
+        or not isinstance(optional, list)
+        or not all(isinstance(member, str) and member for member in optional)
+        or len(optional) != len(set(optional))
+        or set(required) & set(optional)
+        or set(profile) - set(optional) != set(required)
+        or not isinstance(runtime_bindings, dict)
+        or not runtime_bindings
+        or not set(runtime_bindings) <= set(required)
+        or not all(isinstance(path, str) and path for path in runtime_bindings.values())
+        or not isinstance(rng_bindings, dict)
+        or not rng_bindings
+        or "rng" not in required
+        or not isinstance(profile.get("rng"), dict)
+        or set(profile["rng"]) != set(rng_bindings)
+        or not all(isinstance(path, str) and path for path in rng_bindings.values())
+        or "budget_scopes" not in required
+        or not isinstance(budget_scopes, dict)
+        or not budget_scopes
+        or not all(
+            isinstance(member, str)
+            and member
+            and isinstance(scope, str)
+            and scope
+            for member, scope in budget_scopes.items()
+        )
+        or profile.get("budget_scopes") != budget_scopes
+        or "resource_bounds" not in required
+        or not isinstance(resource_contract, dict)
+        or set(resource_contract) != {"members", "value_contract"}
+        or resource_contract.get("value_contract") != "positive-integer"
+    ):
+        return False
+    resource_members = resource_contract.get("members")
+    resource_bounds = profile.get("resource_bounds")
+    if (
+        not isinstance(resource_members, list)
+        or not resource_members
+        or not all(isinstance(member, str) and member for member in resource_members)
+        or len(resource_members) != len(set(resource_members))
+        or not isinstance(resource_bounds, dict)
+        or set(resource_bounds) != set(resource_members)
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in resource_bounds.values()
+        )
+    ):
+        return False
+    return all(
+        profile.get(member) == _runtime_contract_path(runtime, cast(str, path))
+        for member, path in runtime_bindings.items()
+    ) and all(
+        cast(dict[str, Any], profile["rng"]).get(member)
+        == _runtime_contract_path(runtime, cast(str, path))
+        for member, path in rng_bindings.items()
+    )
+
+
 def _runtime_authority_is_closed(
     kernel: dict[str, Any],
     language_bundle: dict[str, Any],
@@ -7516,11 +7608,11 @@ def _runtime_authority_is_closed(
     )
     if (
         not isinstance(runtime, dict)
-        or profile_identity
-        != {
-            "domain": "runtime-profile-definition-v1",
-            "projection": "complete-definition",
-        }
+        or not isinstance(profile_identity, dict)
+        or set(profile_identity) != {"domain", "projection", "active_runtime"}
+        or not isinstance(profile_identity.get("domain"), str)
+        or not profile_identity["domain"]
+        or profile_identity.get("projection") != "complete-definition"
         or set(runtime)
         != {
             "closed",
@@ -8097,34 +8189,12 @@ def _runtime_authority_is_closed(
     for profile in profiles:
         if not isinstance(profile, dict):
             return False
-        if profile.get("evaluation") == runtime["version"] and (
-            profile.get("runtime_program_version") != runtime["version"]
-            or profile.get("numeric_law") != numeric["id"]
-            or profile.get("rng")
-            != {
-                "algorithm": rng["algorithm"],
-                "interval_sampling": rng["interval_sampling"]["mapping"],
-                "bias_policy": rng["interval_sampling"]["bias_policy"],
-            }
-            or profile.get("budget_scopes")
-            != {
-                "event_steps": "per-event-transaction",
-                "logical_time": "per-event",
-                "node_steps": "per-run",
-                "operation_steps": "per-operation-invocation",
-                "queue_events": "pending-and-provisional",
-                "total_events": "per-scenario",
-                "zero_time_depth": "per-descendant-chain",
-            }
-            or profile.get("resource_bounds")
-            != {
-                "max_event_steps": 256,
-                "max_logical_time": (1 << 63) - 1,
-                "max_node_steps": 4096,
-                "max_queue_events": 128,
-                "max_total_events": 1024,
-                "max_zero_time_depth": 32,
-            }
+        if profile.get("evaluation") == runtime["version"] and not (
+            _active_runtime_profile_matches_contract(
+                profile,
+                profile_identity,
+                runtime,
+            )
         ):
             return False
     kinds = set(outcomes["kinds"])

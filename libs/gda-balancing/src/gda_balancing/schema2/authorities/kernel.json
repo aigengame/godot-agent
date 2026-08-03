@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:5ecb89f2128c3cc68b1b9f93378b9e26775d38f0e3936703992ccb83aeed7625",
+  "content_identity": "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -6721,7 +6721,54 @@
     },
     "runtime_profile_definition": {
       "domain": "runtime-profile-definition-v1",
-      "projection": "complete-definition"
+      "projection": "complete-definition",
+      "active_runtime": {
+        "required_members": [
+          "id",
+          "version",
+          "evaluation",
+          "numeric_policy",
+          "runtime_program_version",
+          "numeric_law",
+          "rng",
+          "budget_scopes",
+          "effects",
+          "resource_bounds"
+        ],
+        "optional_members": [
+          "extensions"
+        ],
+        "runtime_member_bindings": {
+          "evaluation": "version",
+          "runtime_program_version": "version",
+          "numeric_law": "numeric.id"
+        },
+        "rng_member_bindings": {
+          "algorithm": "named_rng.algorithm",
+          "interval_sampling": "named_rng.interval_sampling.mapping",
+          "bias_policy": "named_rng.interval_sampling.bias_policy"
+        },
+        "budget_scopes": {
+          "event_steps": "per-event-transaction",
+          "logical_time": "per-event",
+          "node_steps": "per-run",
+          "operation_steps": "per-operation-invocation",
+          "queue_events": "pending-and-provisional",
+          "total_events": "per-scenario",
+          "zero_time_depth": "per-descendant-chain"
+        },
+        "resource_bounds": {
+          "members": [
+            "max_event_steps",
+            "max_logical_time",
+            "max_node_steps",
+            "max_queue_events",
+            "max_total_events",
+            "max_zero_time_depth"
+          ],
+          "value_contract": "positive-integer"
+        }
+      }
     },
     "json_pointer": {
       "encoding": "RFC6901",

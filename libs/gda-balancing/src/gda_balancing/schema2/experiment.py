@@ -1723,7 +1723,7 @@ def _runtime_profile_definition_identity(
     contract = checked.kernel["meta_format"].get("runtime_profile_definition")
     if (
         not isinstance(contract, dict)
-        or set(contract) != {"domain", "projection"}
+        or set(contract) != {"domain", "projection", "active_runtime"}
         or not isinstance(contract.get("domain"), str)
         or not contract["domain"]
         or contract.get("projection") != "complete-definition"

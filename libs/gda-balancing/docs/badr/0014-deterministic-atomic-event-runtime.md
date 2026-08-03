@@ -209,7 +209,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   The Kernel owns the definition identity domain and its complete-definition projection. Runtime
   admission derives that identity from the selected LDB definition and binds it into the Resolved
   Runtime profile alongside the Evaluator Capability Manifest identity. Neither authority artifact
-  refers back to the generated profile, so the three identities are distinct and acyclic.
+  refers back to the generated profile, so the three identities are distinct and acyclic. The
+  Kernel also declares the active-definition member/binding shape and positive-bound contract;
+  concrete bound values remain LDB content and are never duplicated as host constants.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel

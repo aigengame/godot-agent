@@ -960,7 +960,9 @@ scheduler/phase semantics, budget vocabulary and accounting units, Named-stream 
 `Numeric profile`, complete RNG sampling law, permitted effect sets, primitive requirements,
 overflow behavior, and portability constraints. It contains no bundle identity, evaluator build,
 host platform, or deployment fact, so it cannot form an identity cycle with its owning bundle
-(bADR-0014/0022).
+(bADR-0014/0022). Its required shape and Runtime/RNG bindings come from the Kernel's
+active-definition contract, while its concrete positive resource-bound values remain LDB content;
+host constants are not a peer profile authority.
 _Avoid_: environment, evaluator configuration, resolved execution identity
 
 **Runtime program contract**:

@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:5ecb89f2128c3cc68b1b9f93378b9e26775d38f0e3936703992ccb83aeed7625"
+    "sha256:55cc7590a8fb14352c3c280681af40c5890222d670305be370f61efcb6c83c6c"
 )
 
 
@@ -5146,6 +5146,88 @@ def _consumer_b_authority_wire_schema_projection_is_closed(
     }
 
 
+def _consumer_b_path(source: dict[str, Any], coordinate: str) -> Any:
+    current: Any = source
+    for component in coordinate.split("."):
+        if not isinstance(current, dict) or component not in current:
+            return None
+        current = current[component]
+    return current
+
+
+def _consumer_b_active_profile_is_closed(
+    profile: dict[str, Any],
+    definition_contract: dict[str, Any],
+    runtime: dict[str, Any],
+) -> bool:
+    active = definition_contract.get("active_runtime")
+    if not isinstance(active, dict):
+        return False
+    required = active.get("required_members")
+    optional = active.get("optional_members")
+    bindings = active.get("runtime_member_bindings")
+    rng_bindings = active.get("rng_member_bindings")
+    scopes = active.get("budget_scopes")
+    bounds_contract = active.get("resource_bounds")
+    if (
+        set(active)
+        != {
+            "required_members",
+            "optional_members",
+            "runtime_member_bindings",
+            "rng_member_bindings",
+            "budget_scopes",
+            "resource_bounds",
+        }
+        or not isinstance(required, list)
+        or not required
+        or not all(isinstance(item, str) and item for item in required)
+        or len(required) != len(set(required))
+        or not isinstance(optional, list)
+        or not all(isinstance(item, str) and item for item in optional)
+        or len(optional) != len(set(optional))
+        or set(required) & set(optional)
+        or set(profile) - set(optional) != set(required)
+        or not isinstance(bindings, dict)
+        or not bindings
+        or not set(bindings) <= set(required)
+        or not isinstance(rng_bindings, dict)
+        or not rng_bindings
+        or set(profile.get("rng", {})) != set(rng_bindings)
+        or not isinstance(scopes, dict)
+        or not scopes
+        or profile.get("budget_scopes") != scopes
+        or not isinstance(bounds_contract, dict)
+        or set(bounds_contract) != {"members", "value_contract"}
+        or bounds_contract.get("value_contract") != "positive-integer"
+    ):
+        return False
+    bound_names = bounds_contract.get("members")
+    bounds = profile.get("resource_bounds")
+    if (
+        not isinstance(bound_names, list)
+        or not bound_names
+        or not all(isinstance(item, str) and item for item in bound_names)
+        or len(bound_names) != len(set(bound_names))
+        or not isinstance(bounds, dict)
+        or set(bounds) != set(bound_names)
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in bounds.values()
+        )
+    ):
+        return False
+    return all(
+        profile.get(member) == _consumer_b_path(runtime, path)
+        for member, path in bindings.items()
+        if isinstance(path, str)
+    ) and all(
+        profile["rng"].get(member) == _consumer_b_path(runtime, path)
+        for member, path in rng_bindings.items()
+        if isinstance(path, str)
+    )
+
+
 def _consumer_b_runtime_authority_is_closed(
     kernel: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
@@ -5156,11 +5238,10 @@ def _consumer_b_runtime_authority_is_closed(
     )
     if (
         not isinstance(runtime, dict)
-        or profile_identity
-        != {
-            "domain": "runtime-profile-definition-v1",
-            "projection": "complete-definition",
-        }
+        or not isinstance(profile_identity, dict)
+        or set(profile_identity) != {"domain", "projection", "active_runtime"}
+        or profile_identity.get("domain") != "runtime-profile-definition-v1"
+        or profile_identity.get("projection") != "complete-definition"
         or set(runtime)
         != {
             "closed",
@@ -5663,29 +5744,13 @@ def _consumer_b_runtime_authority_is_closed(
         ):
             return False
     for profile in ldb.get("language", {}).get("runtime_profiles", []):
-        if profile.get("evaluation") == runtime.get("version") and (
-            profile.get("runtime_program_version") != runtime.get("version")
-            or profile.get("numeric_law") != runtime["numeric"]["id"]
-            or profile.get("rng", {}).get("algorithm") != rng["algorithm"]
-            or profile.get("budget_scopes")
-            != {
-                "event_steps": "per-event-transaction",
-                "logical_time": "per-event",
-                "node_steps": "per-run",
-                "operation_steps": "per-operation-invocation",
-                "queue_events": "pending-and-provisional",
-                "total_events": "per-scenario",
-                "zero_time_depth": "per-descendant-chain",
-            }
-            or profile.get("resource_bounds")
-            != {
-                "max_event_steps": 256,
-                "max_logical_time": (1 << 63) - 1,
-                "max_node_steps": 4096,
-                "max_queue_events": 128,
-                "max_total_events": 1024,
-                "max_zero_time_depth": 32,
-            }
+        if profile.get("evaluation") == runtime.get("version") and not (
+            isinstance(profile, dict)
+            and _consumer_b_active_profile_is_closed(
+                profile,
+                profile_identity,
+                runtime,
+            )
         ):
             return False
     kinds = set(runtime["outcome_contract"]["kinds"])
