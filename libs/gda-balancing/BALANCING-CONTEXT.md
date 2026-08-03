@@ -951,7 +951,10 @@ _Avoid_: FMI runtime, process lifecycle, implicit evaluator state
 The public boundary-directed advance that dispatches as many totally ordered atomic Events as
 needed to reach the next declared observation or logical boundary. An internal scheduler transition
 dispatches one Event; `event-steps` counts Operation work and is neither a Runtime step nor logical
-time. There is no universal tick (bADR-0014/0020/0022).
+time. Reaching an Event-count terminal threshold drains the active logical-time transition phase
+before terminating at the next Runtime-step boundary; the threshold cannot introduce an
+observation ahead of a pending same-time transition. There is no universal tick
+(bADR-0014/0020/0022).
 _Avoid_: tick, one Event dispatch, scenario step
 
 **Runtime profile definition**:

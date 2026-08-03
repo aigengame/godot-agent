@@ -830,8 +830,6 @@ def _runtime_step_boundary(
 ) -> str | None:
     contract = _runtime_execution_contract(checked)["step"]
     stops = cast(list[str], contract["stop"])
-    if terminal_maximum is not None and event_position >= terminal_maximum:
-        return "terminal" if "terminal" in stops else None
     if not pending_events:
         return "terminal" if "terminal" in stops else None
     scheduler = _scheduler_contract(checked)
@@ -839,6 +837,16 @@ def _runtime_step_boundary(
         pending_events,
         key=lambda event: _scheduler_ordering_key(scheduler, event),
     )
+    at_step_boundary = (
+        next_event["phase"] == "observation"
+        or next_event["logical_time"] != active_logical_time
+    )
+    if (
+        terminal_maximum is not None
+        and event_position >= terminal_maximum
+        and at_step_boundary
+    ):
+        return "terminal" if "terminal" in stops else None
     if next_event["phase"] == "observation":
         return "observation-boundary" if "observation-boundary" in stops else None
     if next_event["logical_time"] != active_logical_time:
@@ -1184,13 +1192,9 @@ def check_experiment(
             )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         event_plan = _scenario_root_events(scenario)
-        terminal_condition = scenario["terminal_condition"]
         external_input_admission = kernel["meta_format"]["runtime_program"][
             "scheduler"
         ]["external_input_admission"]
-        event_count_too_small = terminal_condition[
-            "kind"
-        ] == "event-count" and terminal_condition["maximum"] < len(event_plan)
         if (
             not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
@@ -1203,7 +1207,6 @@ def check_experiment(
             or not _external_input_plan_is_admitted(
                 scenario, cast(dict[str, Any], external_input_admission)
             )
-            or event_count_too_small
         ):
             return _refusal(
                 stage="static",
@@ -1216,8 +1219,7 @@ def check_experiment(
                 ),
                 message=(
                     "The deterministic-event-v1 slice requires unique assignments, "
-                    "unique streams, input facts and root Event references, with an "
-                    "Event-count bound admitting every authored root Event"
+                    "unique streams, input facts and root Event references"
                 ),
             )
     for metric_index, metric in enumerate(value["metrics"]):
@@ -3226,9 +3228,7 @@ def evaluate_experiment(
             else None
         )
         last_logical_time: int | None = None
-        while pending_events and (
-            terminal_maximum is None or event_position < terminal_maximum
-        ):
+        while pending_events:
             pending_events.sort(
                 key=lambda event: _scheduler_ordering_key(scheduler, event)
             )
@@ -3646,6 +3646,8 @@ def evaluate_experiment(
                         for identity, value in state.items()
                     },
                 )
+            if step_boundary == "terminal":
+                break
         scenario_terminal_states[scenario["id"]] = {
             display_names[identity]: value for identity, value in state.items()
         }
@@ -4364,7 +4366,7 @@ def _terminal_statuses_are_valid(
         condition = cast(dict[str, Any], status["condition"])
         if condition["kind"] == "event-count" and (
             status["reason"] != "event-count-reached"
-            or status["event_count"] != condition["maximum"]
+            or status["event_count"] < condition["maximum"]
         ):
             return False
         if condition["kind"] == "queue-drained" and (

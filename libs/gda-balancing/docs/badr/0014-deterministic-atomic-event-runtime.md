@@ -65,8 +65,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - **Public `step` is boundary-directed.** One internal scheduler transition dispatches exactly one
   atomic Event. A public `step` repeatedly applies those transitions until the next declared
   observation or logical boundary, then returns the newly committed boundary. Queue drain and the
-  Experiment's declared multi-step terminal condition end a run. `event-steps` is an Operation
-  resource counter, not logical time; there is no fixed tick.
+  Experiment's declared multi-step terminal condition end a run. An `event-count.maximum` is the
+  first eligible termination count, not permission to cut a phase in half: after reaching it, the
+  Runtime drains the active logical-time transition phase and terminates at the next `step`
+  boundary, so the reported Event count can exceed that threshold but cannot advance into the next
+  logical time. `event-steps` is an Operation resource counter, not logical time; there is no fixed
+  tick.
 
 - **Each event is one atomic transaction over the latest committed state.** Dispatch reads the
   snapshot produced by the previous successful event, including events at the same logical time.

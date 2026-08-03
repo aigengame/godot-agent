@@ -678,6 +678,8 @@ One execution instance follows a closed lifecycle:
    creates and validates Snapshot 0;
 3. `event` applies one internal scheduler transition and dispatches one atomic Event;
 4. public `step` applies those transitions until the next declared observation or logical boundary;
+   an Event-count terminal threshold becomes effective only at such a boundary, after the active
+   logical-time transition phase drains;
 5. `terminated` seals terminal trace, Snapshot, Metrics, and evidence identities; and
 6. reset discards the instance and initializes a new one from the same immutable artifacts rather
    than mutating RIR.
