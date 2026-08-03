@@ -134,6 +134,25 @@ def _build_reciprocal_example(
     return _RPG_COMBAT_EXAMPLE, json.loads(result.stdout)
 
 
+def _build_periodic_effect_example(
+    tmp_path: Path,
+    *,
+    invocation_key: str,
+    output_name: str = "periodic-model",
+) -> dict:
+    result = _run(
+        "model",
+        "build",
+        str(_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json"),
+        "--out",
+        str(tmp_path / output_name),
+        "--invocation-key",
+        invocation_key,
+    )
+    assert (result.returncode, result.stderr) == (0, ""), result.stdout
+    return json.loads(result.stdout)
+
+
 def _one_way_variant(baseline: dict, identifier: str) -> dict:
     variant = json.loads(json.dumps(baseline))
     variant["id"] = identifier
@@ -463,17 +482,10 @@ class TestKeyUserPath:
     ):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
-        built = _run(
-            "model",
-            "build",
-            str(_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json"),
-            "--out",
-            str(tmp_path / "periodic-model"),
-            "--invocation-key",
-            "8" * 64,
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="8" * 64,
         )
-        assert (built.returncode, built.stderr) == (0, ""), built.stdout
-        build_receipt = json.loads(built.stdout)
         experiment = json.loads(
             (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
                 encoding="utf-8"
@@ -517,6 +529,110 @@ class TestKeyUserPath:
             _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
         )["snapshots"]
         assert len(snapshots) == len(trace["events"]) + 1
+
+    def test_periodic_effect_snapshot_and_live_policies_observe_same_time_order(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="a" * 64,
+            output_name="periodic-policy-model",
+        )
+        baseline = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "same-time-experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(baseline, build_receipt)
+
+        def run_policy(
+            *, policy: str, combat_priority: int, name: str, key: str
+        ) -> tuple[dict, dict]:
+            experiment = json.loads(json.dumps(baseline))
+            experiment["id"] = f"example.rpg-periodic-effect.{name}"
+            experiment["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+                f"effect.apply-{policy}-periodic"
+            )
+            experiment["scenarios"][0]["event_plan"][1]["priority"] = (
+                combat_priority
+            )
+            return _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=name,
+                invocation_key=key,
+            )
+
+        live_receipt, live_combat_first = run_policy(
+            policy="live",
+            combat_priority=0,
+            name="live-combat-first",
+            key="b" * 64,
+        )
+        _live_tick_first_receipt, live_tick_first = run_policy(
+            policy="live",
+            combat_priority=-1,
+            name="live-tick-first",
+            key="c" * 64,
+        )
+        _snapshot_receipt, snapshot_combat_first = run_policy(
+            policy="snapshot",
+            combat_priority=0,
+            name="snapshot-combat-first",
+            key="d" * 64,
+        )
+        _snapshot_tick_first_receipt, snapshot_tick_first = run_policy(
+            policy="snapshot",
+            combat_priority=-1,
+            name="snapshot-tick-first",
+            key="e" * 64,
+        )
+
+        def time_one_operations(trace: dict) -> list[str]:
+            return [
+                event["operation"]
+                for event in trace["events"]
+                if event["ordering_key"]["phase"] == "transition"
+                and event["ordering_key"]["logical_time"] == 1
+            ]
+
+        assert time_one_operations(live_combat_first) == [
+            "game.combat.cast-v1",
+            "game.effect.tick-live-periodic-v1",
+        ]
+        assert time_one_operations(live_tick_first) == [
+            "game.effect.tick-live-periodic-v1",
+            "game.combat.cast-v1",
+        ]
+
+        def terminal_health(trace: dict) -> int:
+            expiry = next(
+                event
+                for event in trace["events"]
+                if event["operation"] == "game.effect.expire-periodic-v1"
+            )
+            return next(
+                row["value"]
+                for row in expiry["state_after"]
+                if row["name"] == "target_health"
+            )
+
+        assert terminal_health(live_combat_first) == 85
+        assert terminal_health(live_tick_first) == 75
+        assert terminal_health(snapshot_combat_first) == 60
+        assert terminal_health(snapshot_tick_first) == 60
+        metric_dataset = json.loads(
+            _receipt_members(live_receipt)["metric-dataset"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert next(
+            sample["value"]
+            for sample in metric_dataset["samples"]
+            if sample["metric"] == "target_health_remaining"
+        ) == 85
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))

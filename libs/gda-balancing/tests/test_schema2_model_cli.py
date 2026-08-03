@@ -2027,6 +2027,44 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
     assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/site"
 
 
+def test_model_check_reaches_formula_slots_through_scheduled_operations(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-periodic-effect/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["package_requirements"] = [
+        requirement
+        for requirement in source_document["package_requirements"]
+        if requirement["id"] in {"core.quantity", "game.effect"}
+    ]
+    source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "periodic-magnitude"
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"].get("operation", {}).get("id")
+        == "game.effect.tick-live-periodic-v1"
+    ]
+    source_document["entrypoints"] = [
+        entrypoint
+        for entrypoint in source_document["entrypoints"]
+        if entrypoint["id"] == "effect.apply-live-periodic"
+    ]
+    source = tmp_path / "scheduled-operation-slot.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, ""), stdout
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
