@@ -13,6 +13,7 @@ import jsonschema
 
 import gda_balancing.commands.experiment as experiment_command_module
 import gda_balancing.schema2.authority as authority_module
+import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
@@ -1628,6 +1629,33 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
         ],
         "result": "committed-boundary",
     }
+
+
+def test_runtime_profile_bounds_are_ldb_owned_under_the_kernel_shape():
+    kernel, language_bundle = authority_module.load_authorities()
+    profile_contract = kernel["meta_format"]["runtime_profile_definition"]
+    assert profile_contract["active_runtime"]["resource_bounds"] == {
+        "members": [
+            "max_event_steps",
+            "max_logical_time",
+            "max_node_steps",
+            "max_queue_events",
+            "max_total_events",
+            "max_zero_time_depth",
+        ],
+        "value_contract": "positive-integer",
+    }
+    profile = next(
+        row
+        for row in language_bundle["language"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    profile["resource_bounds"]["max_event_steps"] += 1
+
+    assert bootstrap_module._runtime_authority_is_closed(kernel, language_bundle)
+
+    del profile["resource_bounds"]["max_queue_events"]
+    assert not bootstrap_module._runtime_authority_is_closed(kernel, language_bundle)
 
 
 def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
