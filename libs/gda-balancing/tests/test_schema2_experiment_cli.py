@@ -1389,9 +1389,7 @@ def _write_built_periodic_experiment(tmp_path, run_cli):
         (_PERIODIC_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
     specification["kernel_identity"] = build_record["kernel_identity"]
-    specification["language_bundle_identity"] = build_record[
-        "language_bundle_identity"
-    ]
+    specification["language_bundle_identity"] = build_record["language_bundle_identity"]
     specification["model"] = {
         "source_identity": build_record["source_identity"],
         "build_receipt_identity": build_record["content_identity"],
@@ -7067,9 +7065,7 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
 def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
     tmp_path, run_cli, monkeypatch, fault
 ):
-    specification, _build_receipt = _write_built_periodic_experiment(
-        tmp_path, run_cli
-    )
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
     out = tmp_path / f"periodic-{fault}.json"
     key = "8" * 64
     argv = [
@@ -7146,9 +7142,7 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
 def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     tmp_path, run_cli
 ):
-    specification, build_receipt = _write_built_periodic_experiment(
-        tmp_path, run_cli
-    )
+    specification, build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
     exit_code, stdout, stderr = run_cli(
         [
             "experiment",
@@ -7207,9 +7201,7 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
         "identity": evaluation["evaluation_site_identity"],
     }
     assert evaluation["frame_identity"] == apply_event["snapshot_before_identity"]
-    magnitude = _reference_evaluate_formula_document(
-        formula, evaluation["arguments"]
-    )
+    magnitude = _reference_evaluate_formula_document(formula, evaluation["arguments"])
     assert magnitude == evaluation["result"] == 15
 
     policy = periodic["magnitude"]["policy"]
@@ -7224,21 +7216,19 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     for scheduled, child in zip(apply_event["schedules"], children, strict=True):
         assert child["event_id"] == scheduled["event_id"]
         assert child["parent_event_id"] == apply_event["event_id"]
-        assert child["schedule_call_site_identity"] == scheduled[
-            "call_site_identity"
-        ]
+        assert child["schedule_call_site_identity"] == scheduled["call_site_identity"]
         assert child["ordering_key"] == scheduled["ordering_key"]
         assert child["operation"] == scheduled["operation"]["id"]
 
-    reference_state = {
-        row["name"]: row["value"] for row in apply_event["state_before"]
-    }
+    reference_state = {row["name"]: row["value"] for row in apply_event["state_before"]}
     instance = apply_event["rng_draws"][0]
     instance_contract = periodic["instance"]
     assert instance["stream"] == instance_contract["stream"]
-    assert instance_contract["minimum"] <= instance["value"] <= instance_contract[
-        "maximum"
-    ]
+    assert (
+        instance_contract["minimum"]
+        <= instance["value"]
+        <= instance_contract["maximum"]
+    )
     reference_state["effect_active"] = 1
     reference_state["effect_instance_id"] = instance["value"]
     assert apply_event["state_after"] == [
@@ -7260,9 +7250,7 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
             for name, value in sorted(reference_state.items())
         ]
 
-    assert snapshots[0]["snapshot_identity"] == apply_event[
-        "snapshot_before_identity"
-    ]
+    assert snapshots[0]["snapshot_identity"] == apply_event["snapshot_before_identity"]
     assert snapshots[0]["values"] == apply_event["state_before"]
     lifecycle_snapshots = {
         row["event_id"]: row for row in snapshots if row["event_id"] is not None
@@ -7271,9 +7259,7 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
         snapshot = lifecycle_snapshots[event["event_id"]]
         assert snapshot["snapshot_identity"] == event["snapshot_after_identity"]
         assert snapshot["values"] == event["state_after"]
-    assert {
-        sample["member"]: sample["value"] for sample in metrics
-    } == reference_state
+    assert {sample["member"]: sample["value"] for sample in metrics} == reference_state
 
 
 @pytest.mark.parametrize("outcome", ["success", "verdict", "runtime"])
