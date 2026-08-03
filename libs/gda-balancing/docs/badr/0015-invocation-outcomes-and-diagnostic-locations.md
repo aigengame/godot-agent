@@ -95,8 +95,12 @@ refusal payload stage-aware and artifact-aware.
   under bADR-0021. Semantic admission revalidates the audit's internal closure, not only member
   schemas and top-level identities: trace indexes and per-Scenario Snapshot/state chains, the last
   Snapshot and rollback equality, refusing-event index/Snapshot/order, terminal condition, budget
-  coordinate, Diagnostic code/stage/location, and reproduction receipt must agree. Re-hashing
-  independently wire-valid drift does not make it trusted recovery evidence. Only after commit does
+  coordinate, Diagnostic code/stage/location, and reproduction receipt must agree. The audit
+  therefore carries the admitted Event-catalog prefix, the complete last Snapshot record, and the
+  complete refusing Event specification. Recovery re-derives catalog membership from the checked
+  Experiment, Metrics, committed parent Events, and RIR schedule sites; it then recomputes the
+  Snapshot identity, continuation journals, pending set, and exact catalog/trace/resource counts.
+  Re-hashing independently wire-valid drift does not make it trusted recovery evidence. Only after commit does
   the command emit the category-`refusal` envelope on stdout
   with exit 2; stdout is not part of the artifact-store transaction. No completed Evaluation run,
   Metric dataset, success result, Verdict, or positive Evidence assertion is published. A receipt
@@ -206,9 +210,10 @@ refusal payload stage-aware and artifact-aware.
   Event dispatch. Assert exit 2 on stdout with stage `runtime`, exact frame/site provenance, no
   `terminal_audit`, no Event/Snapshot/trace artifact, and no success/Verdict/Evidence publication.
 - Validate the terminal-audit artifact itself, not only its set membership: require the committed
-  trace prefix, last Snapshot, refusing event, rollback facts, complete Diagnostic location,
-  Resolved Runtime profile, and exact reproduction identities, with negative vectors for every
-  missing or mismatched reference.
+  trace and admitted-Event-catalog prefixes, complete last Snapshot and refusing Event specification,
+  rollback facts, complete Diagnostic location, Resolved Runtime profile, and exact reproduction
+  identities. Include coordinated fresh-hash vectors for Snapshot identity/continuation/budgets and
+  refusing Event identity/specification, not only individually mismatched references.
 - Fail terminal-audit publication before commit and assert `internal_error`/exit 4 with no receipt;
   fail or crash after commit but before envelope delivery and assert recovery/retry returns the
   committed refusal without rerunning the model.

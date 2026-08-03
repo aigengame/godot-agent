@@ -90,13 +90,16 @@ class RuntimeRefusalOutcome:
     scenario_id: str
     scenario_index: int
     committed_trace_prefix: tuple[dict[str, JsonValue], ...]
+    event_catalog_prefix: tuple[dict[str, JsonValue], ...]
     root_event_map: tuple[dict[str, JsonValue], ...]
     terminal_condition: dict[str, JsonValue]
     last_snapshot_identity: str
+    last_snapshot_record: dict[str, JsonValue]
     budget_counters: dict[str, int]
     last_state: dict[str, int]
     refusing_event_index: int
     refusing_event_id: str
+    refusing_event_spec: dict[str, JsonValue]
     refusing_ordering_key: dict[str, JsonValue]
     refusing_snapshot_before_identity: str
     refusing_entrypoint_id: str
@@ -886,7 +889,8 @@ def _scheduled_catalog_record_is_authoritative(
     schedule = schedules[schedule_sequence]
     ordering_key = cast(dict[str, JsonValue], event_spec["ordering_key"])
     if (
-        schedule.get("event_id") != event_spec["event_id"]
+        record["scenario"] != parent_record["scenario"]
+        or schedule.get("event_id") != event_spec["event_id"]
         or schedule.get("call_site_identity") != event_spec["call_site_identity"]
         or schedule.get("operation") != event_spec["operation"]
         or schedule.get("ordering_key") != ordering_key
@@ -992,11 +996,26 @@ def _event_catalog_records_are_authoritative(
     checked: CheckedExperiment,
     catalog: list[dict[str, JsonValue]],
     events: list[dict[str, JsonValue]],
+    *,
+    required_root_scenarios: set[str] | None = None,
 ) -> bool:
     expected_roots = _expected_root_event_catalog(checked)
     catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
     events_by_id = {cast(str, row["event_id"]): row for row in events}
-    if any(catalog_by_id.get(event_id) != record for event_id, record in expected_roots.items()):
+    required_roots = {
+        event_id: record
+        for event_id, record in expected_roots.items()
+        if required_root_scenarios is None
+        or record["scenario"] in required_root_scenarios
+    }
+    if any(
+        catalog_by_id.get(event_id) != record
+        for event_id, record in required_roots.items()
+    ) or len(catalog_by_id) != len(catalog):
+        return False
+    if required_root_scenarios is not None and any(
+        record["scenario"] not in required_root_scenarios for record in catalog
+    ):
         return False
     metric_identities = {
         _metric_definition_identity(metric) for metric in checked.value["metrics"]
@@ -1005,7 +1024,7 @@ def _event_catalog_records_are_authoritative(
         event_spec = cast(dict[str, JsonValue], record["event_spec"])
         kind = event_spec["kind"]
         if kind in {"external-input", "transition-invocation"}:
-            if record["event_id"] not in expected_roots:
+            if expected_roots.get(cast(str, record["event_id"])) != record:
                 return False
         elif kind == "scheduled-transition":
             if not _scheduled_catalog_record_is_authoritative(
@@ -1018,8 +1037,18 @@ def _event_catalog_records_are_authoritative(
         else:
             metric_identity = cast(str, event_spec["metric_definition_identity"])
             ordering_key = cast(dict[str, JsonValue], event_spec["ordering_key"])
+            event = events_by_id.get(cast(str, event_spec["event_id"]))
+            observation = (
+                cast(dict[str, JsonValue], event["observation"])
+                if event is not None and event.get("observation") is not None
+                else None
+            )
             if (
                 metric_identity not in metric_identities
+                or event is None
+                or observation is None
+                or event["ordering_key"] != ordering_key
+                or observation["metric_definition_identity"] != metric_identity
                 or _observation_event_id(
                     checked,
                     cast(str, record["scenario"]),
@@ -2344,14 +2373,17 @@ def runtime_terminal_audit_members(
                 "evaluator_manifest_identity": evaluator.content_identity,
                 "scenario": outcome.scenario_id,
                 "committed_trace_prefix": list(outcome.committed_trace_prefix),
+                "event_catalog_prefix": list(outcome.event_catalog_prefix),
                 "root_event_map": list(outcome.root_event_map),
                 "terminal_condition": outcome.terminal_condition,
                 "last_snapshot_identity": outcome.last_snapshot_identity,
+                "last_snapshot_record": outcome.last_snapshot_record,
                 "budget_counters": cast(JsonValue, outcome.budget_counters),
                 "last_snapshot": _int_rows(outcome.last_state),
                 "refusing_event": {
                     "index": outcome.refusing_event_index,
                     "event_id": outcome.refusing_event_id,
+                    "event_spec": outcome.refusing_event_spec,
                     "ordering_key": outcome.refusing_ordering_key,
                     "snapshot_before_identity": (
                         outcome.refusing_snapshot_before_identity
@@ -2766,9 +2798,11 @@ def _runtime_refusal_outcome(
     code: str,
     message: str,
     events: list[dict[str, JsonValue]],
+    event_catalog: list[dict[str, JsonValue]],
     root_event_map: list[dict[str, JsonValue]],
     terminal_condition: dict[str, JsonValue],
     last_snapshot_identity: str,
+    last_snapshot_record: dict[str, JsonValue],
     budget_counters: dict[str, int],
     entrypoint_id: str,
     entrypoint_identity: str,
@@ -2777,6 +2811,7 @@ def _runtime_refusal_outcome(
     call_site_identity: str | None,
     evaluation_site_identity: str | None,
     refusing_event_id: str,
+    refusing_event_spec: dict[str, JsonValue],
     refusing_ordering_key: dict[str, JsonValue],
     refusing_snapshot_before_identity: str,
     state_before: dict[str, int],
@@ -2794,13 +2829,16 @@ def _runtime_refusal_outcome(
         scenario_id=scenario_id,
         scenario_index=scenario_index,
         committed_trace_prefix=tuple(dict(event) for event in events),
+        event_catalog_prefix=tuple(deepcopy(record) for record in event_catalog),
         root_event_map=tuple(dict(row) for row in root_event_map),
         terminal_condition=dict(terminal_condition),
         last_snapshot_identity=last_snapshot_identity,
+        last_snapshot_record=deepcopy(last_snapshot_record),
         budget_counters=dict(budget_counters),
         last_state=dict(state_before),
         refusing_event_index=len(events),
         refusing_event_id=refusing_event_id,
+        refusing_event_spec=deepcopy(refusing_event_spec),
         refusing_ordering_key=dict(refusing_ordering_key),
         refusing_snapshot_before_identity=refusing_snapshot_before_identity,
         refusing_entrypoint_id=entrypoint_id,
@@ -3652,9 +3690,11 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
+                    event_catalog=event_catalog,
                     root_event_map=root_event_map,
                     terminal_condition=terminal_condition,
                     last_snapshot_identity=current_snapshot_identity,
+                    last_snapshot_record=snapshots[-1],
                     budget_counters={
                         "event_steps": event_steps,
                         "logical_time": cast(int, event_spec["logical_time"]),
@@ -3680,6 +3720,7 @@ def evaluate_experiment(
                     call_site_identity=fault.call_site_identity,
                     evaluation_site_identity=fault.evaluation_site_identity,
                     refusing_event_id=event_id,
+                    refusing_event_spec=_pending_event_projection(event_spec),
                     refusing_ordering_key=cast(
                         dict[str, JsonValue],
                         {
@@ -3882,9 +3923,11 @@ def evaluate_experiment(
                     code=code,
                     message=message,
                     events=events,
+                    event_catalog=event_catalog,
                     root_event_map=root_event_map,
                     terminal_condition=terminal_condition,
                     last_snapshot_identity=current_snapshot_identity,
+                    last_snapshot_record=snapshots[-1],
                     budget_counters={
                         "event_steps": event_steps,
                         "logical_time": cast(int, event_spec["logical_time"]),
@@ -3912,6 +3955,7 @@ def evaluate_experiment(
                     call_site_identity=None,
                     evaluation_site_identity=fault.evaluation_site_identity,
                     refusing_event_id=event_id,
+                    refusing_event_spec=_pending_event_projection(event_spec),
                     refusing_ordering_key=cast(
                         dict[str, JsonValue],
                         {
@@ -3963,6 +4007,15 @@ def evaluate_experiment(
                     "enqueue_sequence": next_enqueue_sequence,
                 },
             )
+            observation_event_spec = cast(
+                dict[str, JsonValue],
+                {
+                    "event_id": observation_event_id,
+                    "kind": "observation",
+                    "ordering_key": observation_ordering_key,
+                    "metric_definition_identity": metric_identity,
+                },
+            )
             if admitted_event_count + 1 > runtime_bounds["max_total_events"]:
                 return _runtime_refusal_outcome(
                     checked,
@@ -3971,11 +4024,13 @@ def evaluate_experiment(
                     code=_diagnostic_for_signal(checked, "event-limit", "runtime"),
                     message="Runtime scheduler refused event-limit",
                     events=events,
+                    event_catalog=event_catalog,
                     root_event_map=root_event_map,
                     terminal_condition=terminal_condition,
                     last_snapshot_identity=current_snapshot_identity,
+                    last_snapshot_record=snapshots[-1],
                     budget_counters={
-                        "event_steps": event_steps,
+                        "event_steps": 0,
                         "logical_time": logical_time,
                         "node_steps": total_steps,
                         "queue_events": len(pending_events),
@@ -3989,6 +4044,7 @@ def evaluate_experiment(
                     call_site_identity=None,
                     evaluation_site_identity=None,
                     refusing_event_id=observation_event_id,
+                    refusing_event_spec=observation_event_spec,
                     refusing_ordering_key=observation_ordering_key,
                     refusing_snapshot_before_identity=current_snapshot_identity,
                     state_before={
@@ -3998,15 +4054,6 @@ def evaluate_experiment(
                 )
             admitted_event_count += 1
             next_enqueue_sequence += 1
-            observation_event_spec = cast(
-                dict[str, JsonValue],
-                {
-                    "event_id": observation_event_id,
-                    "kind": "observation",
-                    "ordering_key": observation_ordering_key,
-                    "metric_definition_identity": metric_identity,
-                },
-            )
             observation_catalog_record = _event_catalog_record(
                 checked,
                 scenario["id"],
@@ -4700,8 +4747,10 @@ def _terminal_audit_is_valid(
     scenario_index, scenario = scenario_rows[0]
     diagnostic = cast(dict[str, Any], audit["diagnostic"])
     refusing_event = cast(dict[str, Any], audit["refusing_event"])
+    refusing_event_spec = cast(dict[str, Any], refusing_event["event_spec"])
     rollback = cast(dict[str, Any], audit["rollback"])
-    last_snapshot = cast(list[dict[str, Any]], audit["last_snapshot"])
+    last_snapshot_values = cast(list[dict[str, Any]], audit["last_snapshot"])
+    last_snapshot = cast(dict[str, Any], audit["last_snapshot_record"])
     state_before = cast(list[dict[str, Any]], rollback["state_before"])
     state_after = cast(list[dict[str, Any]], rollback["state_after"])
     runtime_diagnostics = {
@@ -4726,8 +4775,14 @@ def _terminal_audit_is_valid(
         or diagnostic.get("related") != []
         or rollback.get("committed") is not False
         or state_before != state_after
-        or state_before != last_snapshot
-        or not _runtime_state_rows_are_valid(last_snapshot)
+        or state_before != last_snapshot_values
+        or last_snapshot.get("values") != last_snapshot_values
+        or not _runtime_state_rows_are_valid(last_snapshot_values)
+        or audit.get("last_snapshot_identity")
+        != last_snapshot.get("snapshot_identity")
+        or refusing_event.get("event_id") != refusing_event_spec.get("event_id")
+        or refusing_event.get("ordering_key")
+        != refusing_event_spec.get("ordering_key")
     ):
         return False
     budget = cast(dict[str, Any], audit["budget_counters"])
@@ -4748,14 +4803,27 @@ def _terminal_audit_is_valid(
     ):
         return False
 
-    root_records = {
-        cast(str, row["event_id"]): row for row in expected_root_map
-    }
+    root_records = {cast(str, row["event_id"]): row for row in expected_root_map}
     scenario_positions = {
         cast(str, row["id"]): index
         for index, row in enumerate(checked.value["scenarios"])
     }
     events = cast(list[dict[str, Any]], audit["committed_trace_prefix"])
+    catalog = cast(list[dict[str, JsonValue]], audit["event_catalog_prefix"])
+    required_root_scenarios = {
+        cast(str, row["id"])
+        for row in checked.value["scenarios"][: scenario_index + 1]
+    }
+    if (
+        any(not _event_catalog_record_is_valid(checked, record) for record in catalog)
+        or not _event_catalog_records_are_authoritative(
+            checked,
+            catalog,
+            cast(list[dict[str, JsonValue]], events),
+            required_root_scenarios=required_root_scenarios,
+        )
+    ):
+        return False
     if refusing_event.get("index") != len(events):
         return False
     event_scenarios: dict[str, str] = {}
@@ -4826,27 +4894,219 @@ def _terminal_audit_is_valid(
         previous_scenario = event_scenario
         previous_ordering = ordering
 
-    refusing_event_id = cast(str, refusing_event["event_id"])
-    refusing_root = root_records.get(refusing_event_id)
+    required_root_ids = {
+        event_id
+        for event_id, record in root_records.items()
+        if record["scenario"] in required_root_scenarios
+    }
+    scheduled_ids = {
+        cast(str, schedule["event_id"])
+        for event in events
+        for schedule in cast(list[dict[str, JsonValue]], event["schedules"])
+    }
+    committed_observation_ids = {
+        cast(str, event["event_id"])
+        for event in events
+        if event.get("observation") is not None
+    }
+    catalog_ids = {cast(str, record["event_id"]) for record in catalog}
     if (
-        refusing_event_id in seen_event_ids
-        or refusing_root is not None
-        and refusing_root["scenario"] != scenario_id
-        or budget["total_events"] < len(current_scenario_events)
+        catalog_ids
+        != required_root_ids | scheduled_ids | committed_observation_ids
+        or any(
+            record["scenario"]
+            != event_scenarios.get(cast(str, record["event_id"]))
+            for record in catalog
+            if record["event_id"] in event_scenarios
+        )
     ):
         return False
+
+    refusing_event_id = cast(str, refusing_event["event_id"])
+    refusing_root = root_records.get(refusing_event_id)
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    refusing_catalog_record = catalog_by_id.get(refusing_event_id)
+    if refusing_catalog_record is not None:
+        if (
+            refusing_catalog_record["scenario"] != scenario_id
+            or refusing_catalog_record["event_spec"] != refusing_event_spec
+        ):
+            return False
+    elif refusing_event_spec.get("kind") == "observation":
+        metric_identity = cast(str, refusing_event_spec["metric_definition_identity"])
+        metric = next(
+            (
+                row
+                for row in checked.value["metrics"]
+                if _metric_definition_identity(row) == metric_identity
+            ),
+            None,
+        )
+        if (
+            metric is None
+            or _observation_event_id(
+                checked,
+                cast(str, scenario_id),
+                metric_identity,
+                logical_time=cast(int, ordering_key["logical_time"]),
+                enqueue_sequence=cast(int, ordering_key["enqueue_sequence"]),
+            )
+            != refusing_event_id
+        ):
+            return False
+    else:
+        return False
+    boundary_formula_refusal = (
+        refusing_event_id in seen_event_ids
+        and bool(current_scenario_events)
+        and current_scenario_events[-1]["event_id"] == refusing_event_id
+        and refusing_event.get("evaluation_site_identity") is not None
+    )
+    if (
+        refusing_event_id in seen_event_ids
+        and not boundary_formula_refusal
+        or refusing_root is not None
+        and refusing_root["scenario"] != scenario_id
+    ):
+        return False
+    expected_last_event = (
+        current_scenario_events[-1] if current_scenario_events else None
+    )
     if current_scenario_events:
         last_event = current_scenario_events[-1]
         if (
             audit.get("last_snapshot_identity")
             != last_event.get("snapshot_after_identity")
-            or last_snapshot != last_event.get("state_after")
+            or last_snapshot_values != last_event.get("state_after")
             or _runtime_ordering_tuple(ordering_key)
             < _runtime_ordering_tuple(
                 cast(dict[str, Any], last_event["ordering_key"])
             )
         ):
             return False
+    expected_snapshot_event_id = (
+        expected_last_event["event_id"] if expected_last_event is not None else None
+    )
+    expected_snapshot_logical_time = (
+        cast(dict[str, Any], expected_last_event["ordering_key"])["logical_time"]
+        if expected_last_event is not None
+        else None
+    )
+    continuation = cast(dict[str, Any], last_snapshot["continuation"])
+    journal = _runtime_journal_contract(checked)
+    scenario_catalog = [
+        record for record in catalog if record["scenario"] == scenario_id
+    ]
+    catalog_identity = _empty_runtime_journal_identity(journal["event_catalog"])
+    for record in scenario_catalog:
+        catalog_identity = _extend_runtime_journal_identity(
+            journal["event_catalog"], catalog_identity, record
+        )
+    trace_identity = _empty_runtime_journal_identity(journal["committed_trace"])
+    canceled_ids: set[str] = set()
+    for event in current_scenario_events:
+        trace_identity = _extend_runtime_journal_identity(
+            journal["committed_trace"],
+            trace_identity,
+            _committed_event_projection(cast(dict[str, JsonValue], event)),
+        )
+        canceled_ids.update(
+            cast(str, cancellation["event_id"])
+            for cancellation in cast(list[dict[str, Any]], event["cancellations"])
+        )
+    committed_ids = {
+        cast(str, event["event_id"]) for event in current_scenario_events
+    }
+    pending_ids = {
+        cast(str, record["event_id"])
+        for record in scenario_catalog
+        if record["event_id"] not in committed_ids | canceled_ids
+    }
+    root_map_identity = content_identity(
+        cast(str, journal["root_event_map"]["domain"]),
+        cast(JsonValue, expected_root_map),
+    )
+    catalog_ref = cast(dict[str, Any], continuation["event_catalog"])
+    trace_ref = cast(dict[str, Any], continuation["committed_trace"])
+    current_snapshot_ref = cast(dict[str, Any], continuation["current_snapshot"])
+    ledger = cast(dict[str, Any], continuation["resource_ledger"])
+    next_enqueue_sequence = (
+        max(
+            cast(int, cast(dict[str, Any], record["ordering_key"])["enqueue_sequence"])
+            for record in scenario_catalog
+        )
+        + 1
+    )
+    if (
+        last_snapshot.get("scenario") != scenario_id
+        or last_snapshot.get("index") != len(events) + scenario_index
+        or last_snapshot.get("event_id") != expected_snapshot_event_id
+        or last_snapshot.get("logical_time") != expected_snapshot_logical_time
+        or catalog_ref
+        != {"count": len(scenario_catalog), "prefix_identity": catalog_identity}
+        or trace_ref
+        != {
+            "count": len(current_scenario_events),
+            "prefix_identity": trace_identity,
+        }
+        or continuation.get("pending_event_count") != len(pending_ids)
+        or current_snapshot_ref
+        != {
+            "index": last_snapshot["index"],
+            "event_id": expected_snapshot_event_id,
+            "logical_time": expected_snapshot_logical_time,
+        }
+        or ledger.get("queue_events") != len(pending_ids)
+        or ledger.get("total_events") != len(scenario_catalog)
+        or continuation.get("next_enqueue_sequence") != next_enqueue_sequence
+        or continuation.get("scenario_cursor") != scenario_index
+        or continuation.get("root_event_map_identity") != root_map_identity
+        or _projected_runtime_identity(
+            _scheduler_contract(checked)["snapshot_identity"],
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": cast(str, scenario_id),
+                "index": last_snapshot["index"],
+                "logical_time": last_snapshot["logical_time"],
+                "event_id": last_snapshot["event_id"],
+                "values": last_snapshot["values"],
+                "continuation": continuation,
+            },
+        )
+        != last_snapshot["snapshot_identity"]
+    ):
+        return False
+    refusing_is_pending = refusing_event_id in pending_ids
+    expected_queue_events = len(pending_ids) - (1 if refusing_is_pending else 0)
+    runtime_profile = next(
+        row
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == checked.value["runtime"]["profile"]
+    )
+    bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
+    maximum_formula_charge = max(
+        (
+            cast(int, program["resource_bounds"]["max_steps"])
+            for program in checked.rir["initialization_programs"]
+        ),
+        default=0,
+    )
+    if (
+        budget["total_events"] != len(scenario_catalog)
+        or budget["queue_events"] != expected_queue_events
+        or budget["zero_time_depth"]
+        != cast(int, refusing_event_spec.get("zero_time_depth", 0))
+        or budget["event_steps"] > bounds["max_event_steps"] + 1
+        or budget["node_steps"] < ledger["node_steps"]
+        or budget["node_steps"]
+        > bounds["max_node_steps"] + maximum_formula_charge
+        or (
+            refusing_event_spec["kind"] == "observation"
+            or boundary_formula_refusal
+        )
+        and budget["event_steps"] != ledger["event_steps"]
+    ):
+        return False
     return True
 
 
