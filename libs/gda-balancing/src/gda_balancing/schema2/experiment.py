@@ -4380,6 +4380,194 @@ def _terminal_statuses_are_valid(
     return True
 
 
+def _runtime_ordering_tuple(ordering_key: dict[str, Any]) -> tuple[int, int, int, int]:
+    phase_rank = {"input": 0, "transition": 1, "observation": 2}
+    return (
+        cast(int, ordering_key["logical_time"]),
+        phase_rank[cast(str, ordering_key["phase"])],
+        -cast(int, ordering_key["priority"]),
+        cast(int, ordering_key["enqueue_sequence"]),
+    )
+
+
+def _runtime_state_rows_are_valid(rows: list[dict[str, Any]]) -> bool:
+    names = [row.get("name") for row in rows]
+    if not all(isinstance(name, str) and name for name in names):
+        return False
+    typed_names = cast(list[str], names)
+    return typed_names == sorted(typed_names) and len(set(typed_names)) == len(
+        typed_names
+    )
+
+
+def _terminal_audit_is_valid(
+    checked: CheckedExperiment,
+    audit: dict[str, Any],
+    *,
+    expected_root_map: list[dict[str, JsonValue]],
+    reproduction_identity: str,
+) -> bool:
+    scenario_id = audit.get("scenario")
+    scenario_rows = [
+        (index, scenario)
+        for index, scenario in enumerate(checked.value["scenarios"])
+        if scenario["id"] == scenario_id
+    ]
+    if len(scenario_rows) != 1:
+        return False
+    scenario_index, scenario = scenario_rows[0]
+    diagnostic = cast(dict[str, Any], audit["diagnostic"])
+    refusing_event = cast(dict[str, Any], audit["refusing_event"])
+    rollback = cast(dict[str, Any], audit["rollback"])
+    last_snapshot = cast(list[dict[str, Any]], audit["last_snapshot"])
+    state_before = cast(list[dict[str, Any]], rollback["state_before"])
+    state_after = cast(list[dict[str, Any]], rollback["state_after"])
+    runtime_diagnostics = {
+        row["code"]
+        for row in checked.language_bundle["diagnostics"]
+        if row["stage"] == "runtime"
+    }
+    if (
+        audit.get("terminal_condition") != scenario["terminal_condition"]
+        or audit.get("reproduction_receipt_identity") != reproduction_identity
+        or audit.get("last_snapshot_identity")
+        != refusing_event.get("snapshot_before_identity")
+        or refusing_event.get("reason") != diagnostic.get("code")
+        or diagnostic.get("stage") != "runtime"
+        or diagnostic.get("code") not in runtime_diagnostics
+        or diagnostic.get("primary")
+        != {
+            "kind": "artifact",
+            "content_identity": checked.content_identity,
+            "pointer": f"/scenarios/{scenario_index}/entrypoint",
+        }
+        or diagnostic.get("related") != []
+        or rollback.get("committed") is not False
+        or state_before != state_after
+        or state_before != last_snapshot
+        or not _runtime_state_rows_are_valid(last_snapshot)
+    ):
+        return False
+    budget = cast(dict[str, Any], audit["budget_counters"])
+    ordering_key = cast(dict[str, Any], refusing_event["ordering_key"])
+    if (
+        budget.get("logical_time") != ordering_key.get("logical_time")
+        or any(
+            not isinstance(budget.get(member), int) or budget[member] < 0
+            for member in (
+                "event_steps",
+                "logical_time",
+                "node_steps",
+                "queue_events",
+                "total_events",
+                "zero_time_depth",
+            )
+        )
+    ):
+        return False
+
+    root_records = {
+        cast(str, row["event_id"]): row for row in expected_root_map
+    }
+    scenario_positions = {
+        cast(str, row["id"]): index
+        for index, row in enumerate(checked.value["scenarios"])
+    }
+    events = cast(list[dict[str, Any]], audit["committed_trace_prefix"])
+    if refusing_event.get("index") != len(events):
+        return False
+    event_scenarios: dict[str, str] = {}
+    seen_event_ids: set[str] = set()
+    seen_snapshot_after: set[str] = set()
+    previous_event: dict[str, Any] | None = None
+    previous_scenario: str | None = None
+    previous_ordering: tuple[int, int, int, int] | None = None
+    current_scenario_events: list[dict[str, Any]] = []
+    for index, event in enumerate(events):
+        event_id = cast(str, event["event_id"])
+        root_record = root_records.get(event_id)
+        if root_record is not None:
+            event_scenario = cast(str, root_record["scenario"])
+            if event.get("root_event_ref") != root_record["root_event_ref"]:
+                return False
+        elif "parent_event_id" in event:
+            event_scenario = event_scenarios.get(cast(str, event["parent_event_id"]), "")
+            if not event_scenario:
+                return False
+        elif event.get("observation") is not None and previous_event is not None:
+            if (
+                event.get("snapshot_before_identity")
+                != previous_event.get("snapshot_after_identity")
+            ):
+                return False
+            event_scenario = cast(str, previous_scenario)
+        else:
+            return False
+        ordering = _runtime_ordering_tuple(
+            cast(dict[str, Any], event["ordering_key"])
+        )
+        if (
+            event.get("index") != index
+            or event_id in seen_event_ids
+            or event.get("snapshot_after_identity") in seen_snapshot_after
+            or not _runtime_state_rows_are_valid(
+                cast(list[dict[str, Any]], event["state_before"])
+            )
+            or not _runtime_state_rows_are_valid(
+                cast(list[dict[str, Any]], event["state_after"])
+            )
+        ):
+            return False
+        if event_scenario == previous_scenario:
+            if (
+                previous_event is None
+                or event.get("snapshot_before_identity")
+                != previous_event.get("snapshot_after_identity")
+                or event.get("state_before") != previous_event.get("state_after")
+                or previous_ordering is None
+                or ordering < previous_ordering
+            ):
+                return False
+        elif (
+            root_record is None
+            or previous_scenario is not None
+            and scenario_positions[event_scenario]
+            <= scenario_positions[previous_scenario]
+        ):
+            return False
+        event_scenarios[event_id] = event_scenario
+        seen_event_ids.add(event_id)
+        seen_snapshot_after.add(cast(str, event["snapshot_after_identity"]))
+        if event_scenario == scenario_id:
+            current_scenario_events.append(event)
+        previous_event = event
+        previous_scenario = event_scenario
+        previous_ordering = ordering
+
+    refusing_event_id = cast(str, refusing_event["event_id"])
+    refusing_root = root_records.get(refusing_event_id)
+    if (
+        refusing_event_id in seen_event_ids
+        or refusing_root is not None
+        and refusing_root["scenario"] != scenario_id
+        or budget["total_events"] < len(current_scenario_events)
+    ):
+        return False
+    if current_scenario_events:
+        last_event = current_scenario_events[-1]
+        if (
+            audit.get("last_snapshot_identity")
+            != last_event.get("snapshot_after_identity")
+            or last_snapshot != last_event.get("state_after")
+            or _runtime_ordering_tuple(ordering_key)
+            < _runtime_ordering_tuple(
+                cast(dict[str, Any], last_event["ordering_key"])
+            )
+        ):
+            return False
+    return True
+
+
 def validate_experiment_artifact_set(
     checked: CheckedExperiment, artifacts: dict[str, dict[str, Any]]
 ) -> bool:
@@ -4414,6 +4602,12 @@ def validate_experiment_artifact_set(
                 and audit.get("evaluator_manifest_identity")
                 == evaluator.content_identity
                 and audit.get("root_event_map") == _expected_root_event_map(checked)
+                and _terminal_audit_is_valid(
+                    checked,
+                    audit,
+                    expected_root_map=_expected_root_event_map(checked),
+                    reproduction_identity=reproduction.content_identity,
+                )
             )
         if primary_names not in (
             {

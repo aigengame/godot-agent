@@ -92,7 +92,12 @@ refusal payload stage-aware and artifact-aware.
   and returns its content-identity/locator receipt. The set identifies the ordered committed trace
   prefix, last committed Snapshot, refusing event, rollback facts, Diagnostic, Resolved Runtime
   profile, and exact reproduction identities. It is committed as one refusal-only publication
-  under bADR-0021. Only after commit does the command emit the category-`refusal` envelope on stdout
+  under bADR-0021. Semantic admission revalidates the audit's internal closure, not only member
+  schemas and top-level identities: trace indexes and per-Scenario Snapshot/state chains, the last
+  Snapshot and rollback equality, refusing-event index/Snapshot/order, terminal condition, budget
+  coordinate, Diagnostic code/stage/location, and reproduction receipt must agree. Re-hashing
+  independently wire-valid drift does not make it trusted recovery evidence. Only after commit does
+  the command emit the category-`refusal` envelope on stdout
   with exit 2; stdout is not part of the artifact-store transaction. No completed Evaluation run,
   Metric dataset, success result, Verdict, or positive Evidence assertion is published. A receipt
   must resolve to bytes whose identity verifies; an unpublished digest is not a retrievable receipt.

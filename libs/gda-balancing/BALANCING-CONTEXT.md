@@ -1122,7 +1122,10 @@ committed terminal-audit artifact set, and the run stops (bADR-0014). Both are `
 refusals with exit 2 on stdout; only the post-dispatch variant carries the retrievable terminal-audit
 receipt. Failure to publish a required post-dispatch set before commit is an `internal` command
 outcome, while failure after commit leaves the set recoverable by its durable invocation identity
-(bADR-0015/0021).
+(bADR-0015/0021). Recovery admits the terminal audit only when its trace/Snapshot/state chain,
+rollback equality, refusing-Event coordinate, terminal condition, budgets, Diagnostic, and
+reproduction receipt close internally; member-level wire validity and fresh hashes are
+insufficient.
 _Avoid_: crash, validation refusal, skipped event
 
 **Named random stream**:

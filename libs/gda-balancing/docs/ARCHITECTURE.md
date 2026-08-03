@@ -763,6 +763,9 @@ retrievable, and verifiable **terminal-audit artifact set**. bADR-0015 exclusive
 closed member and binding contract. At the architecture level, it is a refusal-only publication: it
 must not publish fabricated or half-complete Evaluation, Metric, Replay, or Evidence success
 artifacts, and admission failures before dispatch have no terminal audit.
+Recovery revalidates the set's internal trace/Snapshot/state/rollback/refusing-event/Diagnostic
+closure as well as member identities; a wire-valid, re-hashed cross-field mutation is not an
+authoritative refusal.
 
 An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
 `runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric
