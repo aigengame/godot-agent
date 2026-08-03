@@ -1316,8 +1316,11 @@ def test_public_experiment_schedules_a_child_and_cancels_a_pending_child(
         "scenario": "one-cast",
         "condition": {"kind": "event-count", "maximum": 2},
         "reason": "event-count-reached",
-        "terminal_event_id": events[-1]["event_id"],
-        "terminal_snapshot_identity": snapshots[-1]["snapshot_identity"],
+        "event_count": 2,
+        "terminal_event_id": events[-2]["event_id"],
+        "terminal_snapshot_identity": snapshots[-2]["snapshot_identity"],
+        "observation_event_ids": [events[-1]["event_id"]],
+        "final_snapshot_identity": snapshots[-1]["snapshot_identity"],
         "logical_time": 1,
     }
     assert trace["terminal_statuses"] == [terminal_status]
@@ -1476,48 +1479,77 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     ]
     assert snapshot_contract["runtime_configuration_projection"] == {
         "lifecycle_state": "continuation.lifecycle_state",
+        "step_boundary": "continuation.step_boundary",
         "scenario_cursor": "continuation.scenario_cursor",
-        "pending_events": "continuation.pending_events",
-        "completed_events": "continuation.completed_events",
+        "event_catalog": "continuation.event_catalog",
+        "pending_event_count": "continuation.pending_event_count",
+        "committed_trace": "continuation.committed_trace",
         "current_snapshot": "continuation.current_snapshot",
         "state": "values",
         "rng": "continuation.rng",
         "resource_ledger": "continuation.resource_ledger",
         "next_enqueue_sequence": "continuation.next_enqueue_sequence",
-        "root_event_map": "continuation.root_event_map",
+        "root_event_map_identity": "continuation.root_event_map_identity",
+        "resolved_runtime_profile_identity": (
+            "continuation.resolved_runtime_profile_identity"
+        ),
     }
     snapshots = artifacts.members["snapshot-series"].value["snapshots"]
     events = artifacts.members["event-trace"].value["events"]
     runtime_members = {
         "lifecycle_state",
+        "step_boundary",
         "scenario_cursor",
-        "pending_events",
-        "completed_events",
+        "event_catalog",
+        "pending_event_count",
+        "committed_trace",
         "current_snapshot",
         "rng",
         "resource_ledger",
         "next_enqueue_sequence",
-        "root_event_map",
+        "root_event_map_identity",
+        "resolved_runtime_profile_identity",
     }
     assert all(set(snapshot["continuation"]) == runtime_members for snapshot in snapshots)
-    assert [
-        event["event_id"]
-        for event in snapshots[0]["continuation"]["pending_events"]
-    ] == [events[0]["event_id"]]
-    assert snapshots[0]["continuation"]["completed_events"] == []
-    assert [
-        event["event_id"]
-        for event in snapshots[1]["continuation"]["pending_events"]
-    ] == [events[1]["event_id"]]
-    assert snapshots[1]["continuation"]["completed_events"] == [
-        events[0]["event_id"]
-    ]
-    assert snapshots[2]["continuation"]["completed_events"] == [
+    snapshot_series = artifacts.members["snapshot-series"].value
+    assert snapshot_series["event_trace_identity"] == artifacts.members[
+        "event-trace"
+    ].content_identity
+    catalog_ids = [row["event"]["event_id"] for row in snapshot_series["event_catalog"]]
+    assert len(catalog_ids) == len(set(catalog_ids))
+    assert set(catalog_ids) == {
         events[0]["event_id"],
         events[1]["event_id"],
+        events[0]["schedules"][1]["event_id"],
+        events[2]["event_id"],
+    }
+    assert snapshots[0]["continuation"]["event_catalog"]["count"] == 1
+    assert snapshots[0]["continuation"]["pending_event_count"] == 1
+    assert snapshots[0]["continuation"]["committed_trace"]["count"] == 0
+    assert snapshots[1]["continuation"]["event_catalog"]["count"] == 3
+    assert snapshots[1]["continuation"]["pending_event_count"] == 1
+    assert snapshots[1]["continuation"]["committed_trace"]["count"] == 1
+    assert snapshots[2]["continuation"]["committed_trace"]["count"] == 2
+    assert snapshots[-1]["continuation"]["committed_trace"]["count"] == 3
+    assert all(
+        snapshot["continuation"]["resolved_runtime_profile_identity"]
+        == artifacts.members["resolved-runtime-profile"].content_identity
+        for snapshot in snapshots
+    )
+    assert [snapshot["continuation"]["lifecycle_state"] for snapshot in snapshots] == [
+        "step",
+        "step",
+        "step",
+        "terminated",
+    ]
+    assert [snapshot["continuation"]["step_boundary"] for snapshot in snapshots] == [
+        "initial",
+        "logical-boundary",
+        "terminal",
+        "terminal",
     ]
     altered = deepcopy(snapshots[1]["continuation"])
-    altered["pending_events"] = []
+    altered["committed_trace"]["prefix_identity"] = "sha256:" + ("0" * 64)
     assert experiment_runtime_module._projected_runtime_identity(
         snapshot_contract,
         {
@@ -1540,22 +1572,40 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
         "lifecycle_states": [
             "instantiated",
             "initializing",
+            "step",
             "event",
             "terminated",
         ],
         "members": [
             "lifecycle_state",
+            "step_boundary",
             "scenario_cursor",
-            "pending_events",
-            "completed_events",
+            "event_catalog",
+            "pending_event_count",
+            "committed_trace",
             "current_snapshot",
             "state",
             "rng",
             "resource_ledger",
             "next_enqueue_sequence",
-            "root_event_map",
+            "root_event_map_identity",
+            "resolved_runtime_profile_identity",
         ],
         "mutation": "internal-transition-only",
+    }
+    assert runtime_program["scheduler"]["runtime_journal"] == {
+        "event_catalog": {
+            "domain": "runtime-event-catalog-v2",
+            "projection": "append-only-admitted-event-chain",
+        },
+        "committed_trace": {
+            "domain": "runtime-committed-trace-v2",
+            "projection": "append-only-committed-event-chain-without-snapshot-after",
+        },
+        "root_event_map": {
+            "domain": "runtime-root-event-map-v2",
+            "projection": "complete-root-event-map",
+        },
     }
     assert runtime_program["transition"] == {
         "input": "runtime-configuration",
