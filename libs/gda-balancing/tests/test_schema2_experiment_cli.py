@@ -2061,6 +2061,201 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
 
 
+def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["event_spec"]["kind"] == "observation"
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    refusing = drifted_audit["refusing_event"]
+    ordering_key = refusing["event_spec"]["ordering_key"]
+    ordering_key["enqueue_sequence"] += 1
+    refusing["ordering_key"] = deepcopy(ordering_key)
+    metric_identity = refusing["event_spec"]["metric_definition_identity"]
+    replacement_event_id = experiment_runtime_module._observation_event_id(
+        checked,
+        drifted_audit["scenario"],
+        metric_identity,
+        logical_time=ordering_key["logical_time"],
+        enqueue_sequence=ordering_key["enqueue_sequence"],
+    )
+    refusing["event_id"] = replacement_event_id
+    refusing["event_spec"]["event_id"] = replacement_event_id
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_event_steps"] = 0
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
+    assert audit["budget_counters"]["event_steps"] > 0
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    drifted_audit = deepcopy(audit)
+    drifted_audit["budget_counters"]["event_steps"] = 0
+    drifted_audit["budget_counters"]["node_steps"] = drifted_audit[
+        "last_snapshot_record"
+    ]["continuation"]["resource_ledger"]["node_steps"]
+    payload = {
+        key: value
+        for key, value in drifted_audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    drifted_values = deepcopy(values)
+    drifted_values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked,
+        "runtime-terminal-audit",
+        payload,
+    ).value
+
+    assert experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        drifted_values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked,
+        drifted_values,
+    )
+
+
+@pytest.mark.parametrize("schedule_shape", ["local", "nested"])
+def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
+    tmp_path, run_cli, schedule_shape
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    schedule = deepcopy(
+        next(
+            instruction
+            for instruction in operations["game.combat.plan-casts-v1"]["body"]
+            if instruction["node"] == "schedule"
+        )
+    )
+    schedule["site"] = f"review-{schedule_shape}-schedule"
+    schedule["operation"] = {
+        "package": "game.resource",
+        "version": "1.0.1",
+        "id": "game.resource.spend-v1",
+    }
+    schedule["result"] = {"kind": "local", "name": "review_scheduled_event"}
+    damage_operation = operations["game.combat.damage-v1"]
+    if schedule_shape == "local":
+        constant_index = next(
+            index
+            for index, instruction in enumerate(damage_operation["body"])
+            if instruction.get("target") == "critical_multiplier"
+        )
+        schedule["arguments"] = [
+            {
+                "port": "resource",
+                "operand": {"kind": "literal", "literal": 10},
+            },
+            {
+                "port": "cost",
+                "operand": {"kind": "local", "local": "critical_multiplier"},
+            },
+        ]
+        damage_operation["body"].insert(constant_index + 1, schedule)
+    else:
+        schedule["arguments"] = [
+            {
+                "port": "resource",
+                "operand": {"kind": "literal", "literal": 1},
+            },
+            {
+                "port": "cost",
+                "operand": {"kind": "literal", "literal": 1},
+            },
+        ]
+        damage_operation["body"].insert(0, schedule)
+    damage_operation["resource_bounds"]["max_steps"] = 10_000
+    checked = replace(checked, rir=rir)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in artifacts.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
