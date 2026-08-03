@@ -21,6 +21,132 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
 
 
+def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "game.effect"
+    )
+    operations = {
+        operation["id"]: operation
+        for operation in ldb["language"]["operations"]
+        if operation["id"].startswith("game.effect.")
+    }
+    expected = {
+        "game.effect.apply-snapshot-periodic-v1": {
+            "version": "1.0.0",
+            "variant": "bounded-periodic-v1",
+            "stage": "apply",
+            "timing": {
+                "duration": 3,
+                "period": 1,
+                "tick_times": [1, 2],
+                "expiry_time": 3,
+            },
+            "magnitude": {
+                "policy": "snapshot",
+                "evaluate_at": "apply",
+                "read_at": "captured-value",
+                "frame": "pre-event-snapshot",
+            },
+            "instance": {
+                "kind": "named-rng-draw",
+                "stream": "effect-instance",
+                "minimum": 1,
+                "maximum": 2147483647,
+            },
+        },
+        "game.effect.apply-live-periodic-v1": {
+            "version": "1.0.0",
+            "variant": "bounded-periodic-v1",
+            "stage": "apply",
+            "timing": {
+                "duration": 3,
+                "period": 1,
+                "tick_times": [1, 2],
+                "expiry_time": 3,
+            },
+            "magnitude": {
+                "policy": "live",
+                "evaluate_at": "tick",
+                "read_at": "pre-event-snapshot",
+                "frame": "pre-event-snapshot",
+            },
+            "instance": {
+                "kind": "named-rng-draw",
+                "stream": "effect-instance",
+                "minimum": 1,
+                "maximum": 2147483647,
+            },
+        },
+    }
+    vectors = {
+        vector["id"]: vector
+        for vector in _package_vector_set(ldb, package)["vector_definitions"]
+    }
+
+    for operation_id, contract in expected.items():
+        operation = operations[operation_id]
+        assert operation["extensions"]["game.effect.periodic"] == contract
+        vector_id = f"{operation_id}.periodic-contract"
+        assert vectors[vector_id] == {
+            "category": "positive",
+            "expect": operation["extensions"],
+            "id": vector_id,
+            "kind": "operation-contract",
+            "operation": operation_id,
+            "probe": {"path": "extensions"},
+        }
+        assert vector_id in operation["vectors"]
+        scheduled = [
+            instruction
+            for instruction in operation["body"]
+            if instruction["node"] == "schedule"
+        ]
+        assert [
+            instruction["logical_time"]
+            for instruction in scheduled
+            if instruction["operation"]["id"].startswith("game.effect.tick-")
+        ] == contract["timing"]["tick_times"]
+        assert (
+            next(
+                instruction["logical_time"]
+                for instruction in scheduled
+                if instruction["operation"]["id"] == "game.effect.expire-periodic-v1"
+            )
+            == contract["timing"]["expiry_time"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("member", "invalid"),
+    (("duration", 0), ("period", 0), ("period", 4)),
+)
+def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
+    member, invalid
+):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            operation["extensions"]["game.effect.periodic"]["timing"][member] = invalid
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
 @pytest.mark.parametrize(
     ("binding_group", "member"),
     (
