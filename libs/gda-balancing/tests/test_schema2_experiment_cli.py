@@ -1839,6 +1839,80 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     )
 
 
+def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
+    tmp_path, run_cli
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 2
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_runtime_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    def drift_refusing_index(audit):
+        audit["refusing_event"]["index"] += 1
+
+    def drift_snapshot_binding(audit):
+        audit["refusing_event"]["snapshot_before_identity"] = "sha256:" + "0" * 64
+
+    def drift_rollback_state(audit):
+        audit["rollback"]["state_after"][0]["value"] += 1
+
+    def drift_reason(audit):
+        audit["refusing_event"]["reason"] = "runtime.queue_limit_exceeded"
+
+    def drift_trace_index(audit):
+        audit["committed_trace_prefix"][0]["index"] += 1
+
+    for mutate in (
+        drift_refusing_index,
+        drift_snapshot_binding,
+        drift_rollback_state,
+        drift_reason,
+        drift_trace_index,
+    ):
+        drifted_values = deepcopy(values)
+        audit = drifted_values["runtime-terminal-audit"]
+        payload = {
+            key: value
+            for key, value in audit.items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        mutate(payload)
+        drifted = experiment_runtime_module._artifact(
+            checked, "runtime-terminal-audit", payload
+        )
+        drifted_values["runtime-terminal-audit"] = drifted.value
+
+        assert experiment_runtime_module.validate_experiment_member(
+            checked,
+            "runtime-terminal-audit",
+            drifted.value,
+        )
+        assert not experiment_runtime_module.validate_experiment_artifact_set(
+            checked,
+            drifted_values,
+        )
+
+
 def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
     specification = json.loads(specification_path.read_text(encoding="utf-8"))
