@@ -35,9 +35,12 @@ Three versioned files make “coverage unchanged” executable:
   optimized suite;
 - `schema2-bootstrap-migration-map.json` binds that snapshot's test/vector
   digests, records declared file moves, and executes the one-to-many migration
-  of the former reason loop into 98 stable `<reason>-<mutation>` test ids;
-- `schema2-coverage-claims-v1.json` adds 15 high-risk cross-boundary claim
-  families and 305 current machine-authority subjects. Every subject names its
+  of the former reason loop into 98 stable `<reason>-<mutation>` test ids. It
+  also pins the accepted claim-contract digest and records every reviewed
+  contract change as a digest-to-digest migration;
+- `schema2-coverage-claims-v1.json` adds 19 high-risk cross-boundary claim
+  families and 333 current machine-authority and public-process subjects. Every
+  subject names its
   witness coverage and closes its own independent-domain minimum. Fixed
   package vectors, Kernel laws, Language rules, diagnostic reasons, and model
   vectors are resolved from the live admitted authority rather than copied
@@ -49,7 +52,8 @@ current shard union to equal the current unfiltered collection with no overlap,
 missing test, unexpected test, or missing packaged vector. `verify-claims`
 requires every subject's declared witnesses and independent domains, rejects a
 single test relabelled as multiple domains, closes live authority inventories,
-and binds each expansion back to its claim. `verify-outcomes` rejects every
+rejects empty subjects/witnesses and minimums below one, requires an explicit
+claim-contract migration, and binds each expansion back to its claim. `verify-outcomes` rejects every
 non-baseline skip and every xfail. Pytest also uses strict xfail and rejects
 `xfail(strict=False)` during collection.
 
@@ -84,7 +88,11 @@ requires exactly one JUnit and wall report for every shard and exactly one
 executed row for every current test id. Its unified JSON rejects failures,
 unexpected skips, every xfail, duplicate/missing tests, and incomplete shards;
 it also publishes per-file totals, the 50 slowest nodes, the critical shard,
-parallel critical-path wall time, and cumulative test seconds.
+the parallel test-process critical path, and cumulative test seconds. That
+timer begins immediately before pytest and ends immediately after it; setup,
+summary generation, and artifact upload are deliberately excluded. Complete
+required-path latency is calculated separately from GitHub Actions job
+timestamps by the protocol below.
 
 An affecting PR runs inventory/claims, seven semantic runners, one smoke
 runner, and the stable `gda-balancing required` aggregate. Scheduled and
@@ -134,12 +142,16 @@ Two optimizations are admitted:
    loader IO and admission. Fresh load measured roughly 0.95-1.46 seconds;
    `mutable_pair()` measured roughly 0.16 seconds.
 2. The built-wheel test still compares every packaged authority JSON member
-   byte-for-byte and still executes the installed wheel through `python -m`.
+   byte-for-byte and installs the wheel into an isolated venv that reuses only
+   the invoking locked uv environment's third-party dependency set. An origin
+   assertion proves `gda_balancing` itself resolves inside that venv. The test
+   executes both the generated `gda-balancing` console script and the installed
+   `python -m gda_balancing` entry point.
    Exhaustive package `list/get` behavior remains in its independent public
    command test. The installed wheel now executes every root-declared
    `package get` through one isolated batched dispatch process, while a separate
-   real `python -m ... package list` retains cold entry-point evidence. This
-   reduced the exhaustive wheel test from 108.76 seconds to 17.28 seconds
+   two real `package list` processes retain cold entry-point evidence. This
+   reduced the exhaustive wheel test from 108.76 seconds to 18.57 seconds
    without substituting a source-tree witness for installed-artifact behavior.
 
 The earlier 671.369-second single run was useful for selecting the approach but

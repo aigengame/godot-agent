@@ -28,21 +28,7 @@ _RPG_MODEL_SOURCE = (
 _AUTHORITY_COMMANDS = tuple(
     descriptor
     for descriptor in REGISTRY
-    if (descriptor.group, descriptor.command)
-    in {
-        (None, "version"),
-        ("schema", "get"),
-        ("experiment", "check"),
-        ("experiment", "run"),
-        ("model", "check"),
-        ("model", "build"),
-        ("model", "migrate"),
-        ("template", "list"),
-        ("template", "get"),
-        ("template", "instantiate"),
-        ("package", "list"),
-        ("package", "get"),
-    }
+    if (descriptor.group, descriptor.command) != (None, "manifest")
 )
 
 

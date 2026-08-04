@@ -203,12 +203,93 @@ def digest(rows: set[str]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def claim_contract_digest(ledger: dict[str, object]) -> str:
+    """Hash the complete versioned claim contract, excluding prose metadata."""
+    encoded = json.dumps(
+        {
+            "version": ledger.get("version"),
+            "claims": ledger.get("claims"),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def claim_contract_migration_closure(
+    *,
+    accepted_digest: object,
+    current_digest: str,
+    migrations: object,
+) -> dict[str, object]:
+    """Require each claim-contract change to traverse an explicit review record."""
+    problems: list[str] = []
+    if not isinstance(accepted_digest, str) or len(accepted_digest) != 64:
+        problems.append("accepted_claim_contract_digest must be a SHA-256 digest")
+        pointer = ""
+    else:
+        pointer = accepted_digest
+    if not isinstance(migrations, list):
+        problems.append("claim_contract_migrations must be a list")
+        migrations = []
+    rows: list[dict[str, object]] = []
+    for index, declaration in enumerate(migrations):
+        row_problems: list[str] = []
+        if not isinstance(declaration, dict):
+            row_problems.append("migration must be an object")
+            declaration = {}
+        from_digest = declaration.get("from_digest")
+        to_digest = declaration.get("to_digest")
+        issue = declaration.get("issue")
+        reason = declaration.get("reason")
+        if from_digest != pointer:
+            row_problems.append("from_digest does not continue the accepted chain")
+        if not isinstance(to_digest, str) or len(to_digest) != 64:
+            row_problems.append("to_digest must be a SHA-256 digest")
+        if not isinstance(issue, str) or not issue.strip():
+            row_problems.append("issue must be non-empty")
+        if not isinstance(reason, str) or not reason.strip():
+            row_problems.append("reason must be non-empty")
+        if not row_problems:
+            pointer = to_digest
+        rows.append(
+            {
+                "index": index,
+                "from_digest": from_digest,
+                "to_digest": to_digest,
+                "issue": issue,
+                "reason": reason,
+                "problems": row_problems,
+                "closed": not row_problems,
+            }
+        )
+        problems.extend(f"migration {index}: {problem}" for problem in row_problems)
+    if pointer != current_digest:
+        problems.append("migration chain does not end at the current claim contract")
+    return {
+        "accepted_digest": accepted_digest,
+        "current_digest": current_digest,
+        "migrations": rows,
+        "problems": problems,
+        "closed": not problems,
+    }
+
+
 def authority_claim_subjects(
     source: str, *, current_package_vector_ids: set[str]
 ) -> list[str]:
     """Resolve claim subjects from the current admitted machine authority."""
     if source == "authority.package_vector_ids":
         return sorted(current_package_vector_ids)
+    if source == "surface.public_authority_command_names":
+        from gda_balancing.commands import REGISTRY
+
+        return sorted(
+            " ".join(part for part in (descriptor.group, descriptor.command) if part)
+            for descriptor in REGISTRY
+            if (descriptor.group, descriptor.command) != (None, "manifest")
+        )
 
     from gda_balancing.schema2.authority import packaged_authority_context
 
@@ -317,6 +398,7 @@ def verify_claims(
         else current_package_vector_ids
     )
     rows: list[dict[str, object]] = []
+    invalid_claim_structures: list[dict[str, object]] = []
     seen_claim_ids: set[str] = set()
     duplicate_claim_ids: set[str] = set()
     for claim in ledger["claims"]:
@@ -334,7 +416,9 @@ def verify_claims(
         elif (
             isinstance(subject_declaration, dict)
             and isinstance(subject_declaration.get("source"), str)
-            and subject_declaration["source"].startswith("authority.")
+            and subject_declaration["source"].startswith(
+                ("authority.", "surface.")
+            )
         ):
             subject_source = subject_declaration["source"]
             subjects = authority_claim_subjects(
@@ -345,9 +429,49 @@ def verify_claims(
             raise ValueError(
                 f"unknown claim subject declaration: {subject_declaration!r}"
             )
+        declarations = claim.get("witnesses")
+        minimum = claim.get("minimum_independent_witnesses")
+        structure_problems: list[str] = []
+        if (
+            not subjects
+            or not all(isinstance(subject, str) and subject for subject in subjects)
+        ):
+            structure_problems.append("subjects must resolve to at least one string")
+        if not isinstance(declarations, list) or not declarations:
+            structure_problems.append(
+                "witnesses must contain at least one declaration"
+            )
+        if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 1:
+            structure_problems.append(
+                "minimum_independent_witnesses must be an integer >= 1"
+            )
+        if structure_problems:
+            invalid_claim_structures.append(
+                {
+                    "claim_id": claim_id,
+                    "problems": sorted(structure_problems),
+                }
+            )
+            rows.append(
+                {
+                    "claim_id": claim_id,
+                    "boundary": claim["boundary"],
+                    "subject_count": len(subjects),
+                    "witness_count": 0,
+                    "missing_subjects": [],
+                    "missing_witnesses": [],
+                    "uncovered_subjects": sorted(str(subject) for subject in subjects),
+                    "invalid_covered_subjects": [],
+                    "conflicting_witness_domains": [],
+                    "subjects": [],
+                    "minimum_independent_witnesses": minimum,
+                    "closed": False,
+                }
+            )
+            continue
         witnesses: list[dict[str, object]] = []
         invalid_covered_subjects: set[str] = set()
-        for declaration in claim["witnesses"]:
+        for declaration in declarations:
             if "test_id" in declaration:
                 coverage = declaration.get("covers")
                 if coverage == "*":
@@ -370,14 +494,18 @@ def verify_claims(
                 )
                 continue
             template = declaration["test_id_template"]
+            variants = declaration.get("variants", [None])
             witnesses.extend(
                 {
-                    "test_id": template.format(subject=subject, variant=variant),
+                    "test_id": template.format(
+                        subject=subject,
+                        variant="" if variant is None else variant,
+                    ),
                     "independence_domain": declaration["independence_domain"],
                     "covers": {subject},
                 }
                 for subject in subjects
-                for variant in declaration["variants"]
+                for variant in variants
             )
         witness_domains: dict[str, str] = {}
         conflicting_witness_domains: set[str] = set()
@@ -392,7 +520,6 @@ def verify_claims(
             for witness in witnesses
             if normalized_node_id(str(witness["test_id"]), migration) not in tests
         )
-        minimum = claim["minimum_independent_witnesses"]
         subject_rows = []
         for subject in subjects:
             live_domains = {
@@ -446,6 +573,7 @@ def verify_claims(
         "subject_claim_count": sum(int(row["subject_count"]) for row in rows),
         "closed_claim_count": sum(bool(row["closed"]) for row in rows),
         "duplicate_claim_ids": sorted(duplicate_claim_ids),
+        "invalid_claim_structures": invalid_claim_structures,
         "claims": rows,
     }
     enforce_repository_contract = (
@@ -495,11 +623,29 @@ def verify_claims(
         or migration.get("accepted_baseline_package_vector_digest")
         == digest(baseline_vectors)
     )
+    if enforce_repository_contract:
+        contract_migration = claim_contract_migration_closure(
+            accepted_digest=migration.get("accepted_claim_contract_digest"),
+            current_digest=claim_contract_digest(ledger),
+            migrations=migration.get("claim_contract_migrations"),
+        )
+    else:
+        contract_migration = {
+            "accepted_digest": None,
+            "current_digest": claim_contract_digest(ledger),
+            "migrations": [],
+            "problems": [],
+            "closed": True,
+        }
+    report["claim_contract_migration"] = contract_migration
+    report["claim_contract_migration_closed"] = contract_migration["closed"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if (
         duplicate_claim_ids
+        or invalid_claim_structures
         or invalid_migration_expansions
+        or not report["claim_contract_migration_closed"]
         or not report["accepted_baseline_test_digest_matches"]
         or not report["accepted_baseline_package_vector_digest_matches"]
         or any(not row["closed"] for row in rows)
@@ -805,15 +951,17 @@ def aggregate_junit(
             timed_shards.items(),
             key=lambda item: float(item[1]["wall_seconds"]),
         )
-        report["parallel_critical_path_wall_seconds"] = critical_row["wall_seconds"]
-        report["critical_shard"] = {
+        report["parallel_test_process_critical_path_seconds"] = critical_row[
+            "wall_seconds"
+        ]
+        report["critical_test_process_shard"] = {
             "name": critical_name,
             "test_seconds": critical_row["test_seconds"],
             "wall_seconds": critical_row["wall_seconds"],
         }
     else:
-        report["parallel_critical_path_wall_seconds"] = None
-        report["critical_shard"] = None
+        report["parallel_test_process_critical_path_seconds"] = None
+        report["critical_test_process_shard"] = None
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not closed:

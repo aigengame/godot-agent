@@ -270,6 +270,84 @@ def test_claim_ledger_rejects_one_test_relabeled_as_two_independent_domains(tmp_
         )
 
 
+def test_claim_ledger_rejects_structurally_empty_claims(tmp_path):
+    ledger = tmp_path / "claims.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "claims": [
+                    {
+                        "id": "silently-weakened",
+                        "boundary": "deleted coverage",
+                        "subjects": [],
+                        "witnesses": [],
+                        "minimum_independent_witnesses": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.json"
+
+    with pytest.raises(SystemExit, match="coverage claim closure failed"):
+        ci.verify_claims(
+            report_path,
+            ledger_path=ledger,
+            current_test_ids=set(),
+            current_package_vector_ids=set(),
+        )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["invalid_claim_structures"] == [
+        {
+            "claim_id": "silently-weakened",
+            "problems": [
+                "minimum_independent_witnesses must be an integer >= 1",
+                "subjects must resolve to at least one string",
+                "witnesses must contain at least one declaration",
+            ],
+        }
+    ]
+
+
+def test_claim_contract_change_requires_an_explicit_digest_migration():
+    accepted = {
+        "version": 1,
+        "claims": [
+            {
+                "id": "kept",
+                "subjects": ["subject"],
+                "witnesses": [{"test_id": "tests/test_x.py::test_x"}],
+                "minimum_independent_witnesses": 1,
+            }
+        ],
+    }
+    weakened = {"version": 1, "claims": []}
+    accepted_digest = ci.claim_contract_digest(accepted)
+    weakened_digest = ci.claim_contract_digest(weakened)
+
+    assert accepted_digest != weakened_digest
+    assert not ci.claim_contract_migration_closure(
+        accepted_digest=accepted_digest,
+        current_digest=weakened_digest,
+        migrations=[],
+    )["closed"]
+    assert ci.claim_contract_migration_closure(
+        accepted_digest=accepted_digest,
+        current_digest=weakened_digest,
+        migrations=[
+            {
+                "from_digest": accepted_digest,
+                "to_digest": weakened_digest,
+                "issue": "#597",
+                "reason": "reviewed contract change",
+            }
+        ],
+    )["closed"]
+
+
 def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
     report = ci.verify_claims(tmp_path / "coverage-claims.json")
 
@@ -277,6 +355,7 @@ def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
     assert report["closed_claim_count"] == report["claim_count"]
     assert report["subject_claim_count"] >= 100
     assert report["migration_expansions_closed"] is True
+    assert report["claim_contract_migration_closed"] is True
 
 
 def test_ci_policy_exposes_coverage_claim_verification_command(tmp_path):
@@ -325,8 +404,8 @@ def test_junit_aggregate_proves_exact_execution_and_reports_total_duration(tmp_p
         "test_seconds": 1.75,
         "wall_seconds": 2.5,
     }
-    assert report["parallel_critical_path_wall_seconds"] == 2.5
-    assert report["critical_shard"] == {
+    assert report["parallel_test_process_critical_path_seconds"] == 2.5
+    assert report["critical_test_process_shard"] == {
         "name": "smoke",
         "test_seconds": 1.75,
         "wall_seconds": 2.5,

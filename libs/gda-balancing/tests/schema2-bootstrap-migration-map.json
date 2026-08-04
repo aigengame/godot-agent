@@ -2,6 +2,15 @@
   "source": "test_schema2_bootstrap_conformance.py",
   "accepted_baseline_test_digest": "0e177908ceb70fb2ba607051c30333e9e452c164b74bc6c956618cbe5ca2f0d5",
   "accepted_baseline_package_vector_digest": "55a8e0441bf17e1e794fc2878113f2b812eb16effadcef901cbacac5f388b61e",
+  "accepted_claim_contract_digest": "37d4bd927e8761a82598bcc7ddf009601406cde18ca52ead14ab6d3fa0adf37f",
+  "claim_contract_migrations": [
+    {
+      "from_digest": "37d4bd927e8761a82598bcc7ddf009601406cde18ca52ead14ab6d3fa0adf37f",
+      "to_digest": "f612729ba18ef9ae7b047c166ccba0daaf3c9878cb91128a610164d6bb56ee6d",
+      "issue": "#597",
+      "reason": "Add explicit argv, stream, publication recovery, cold-admission, and installed-wheel entry-point claims after independent review."
+    }
+  ],
   "expansions": {
     "test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse": {
       "target": "test_schema2_bootstrap_language.py",

@@ -88,10 +88,14 @@ json.dump(rows, sys.stdout)
 
 
 def _run_installed_dispatch_batch(
-    *, commands: list[list[str]], cwd: Path, environment: dict[str, str]
+    *,
+    commands: list[list[str]],
+    cwd: Path,
+    environment: dict[str, str],
+    python: str,
 ) -> list[dict[str, Any]]:
     completed = subprocess.run(
-        [sys.executable, "-c", _INSTALLED_DISPATCH_BATCH],
+        [python, "-c", _INSTALLED_DISPATCH_BATCH],
         cwd=cwd,
         env=environment,
         input=json.dumps(commands),
@@ -100,6 +104,58 @@ def _run_installed_dispatch_batch(
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     return cast(list[dict[str, Any]], json.loads(completed.stdout))
+
+
+def _install_wheel(
+    *, wheel: Path, environment_root: Path
+) -> tuple[str, str, dict[str, str]]:
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in {"PYTHONPATH", "VIRTUAL_ENV"}
+    }
+    created = subprocess.run(
+        ["uv", "venv", "--python", sys.executable, str(environment_root)],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    scripts = environment_root / ("Scripts" if os.name == "nt" else "bin")
+    python = scripts / ("python.exe" if os.name == "nt" else "python")
+    purelib = subprocess.run(
+        [
+            str(python),
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert purelib.returncode == 0, purelib.stdout + purelib.stderr
+    dependency_site = Path(jsonschema.__file__).resolve().parent.parent
+    (Path(purelib.stdout.strip()) / "locked-test-dependencies.pth").write_text(
+        str(dependency_site) + "\n",
+        encoding="utf-8",
+    )
+    installed = subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "--no-deps",
+            str(wheel),
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    console = scripts / ("gda-balancing.exe" if os.name == "nt" else "gda-balancing")
+    return str(python), str(console), environment
 
 
 def _reidentify_graph(kernel, ldb):
@@ -991,24 +1047,38 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
             source_path = package_root / "src" / member
             assert archive.read(member) == source_path.read_bytes()
 
-    environment = {
-        **os.environ,
-        "PYTHONPATH": str(wheel),
-    }
+    installed_python, installed_console, environment = _install_wheel(
+        wheel=wheel,
+        environment_root=tmp_path / "installed-environment",
+    )
 
-    def installed(*arguments):
+    def installed(executable, *arguments):
         return subprocess.run(
-            [sys.executable, "-m", "gda_balancing", *arguments],
+            [executable, *arguments],
             cwd=tmp_path,
             env=environment,
             capture_output=True,
             text=True,
         )
 
+    installed_origin = installed(
+        installed_python,
+        "-c",
+        "import gda_balancing; print(gda_balancing.__file__)",
+    )
+    assert (installed_origin.returncode, installed_origin.stderr) == (0, "")
+    assert Path(installed_origin.stdout.strip()).resolve().is_relative_to(
+        (tmp_path / "installed-environment").resolve()
+    )
+
     source_list = run_cli(["package", "list"])
-    installed_list = installed("package", "list")
-    assert (installed_list.returncode, installed_list.stderr) == (0, "")
-    assert installed_list.stdout == source_list[1]
+    installed_console_list = installed(installed_console, "package", "list")
+    installed_module_list = installed(
+        installed_python, "-m", "gda_balancing", "package", "list"
+    )
+    for observed in (installed_console_list, installed_module_list):
+        assert (observed.returncode, observed.stderr) == (0, "")
+        assert observed.stdout == source_list[1]
 
     get_commands = [
         [
@@ -1029,6 +1099,7 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         commands=get_commands,
         cwd=tmp_path,
         environment=environment,
+        python=installed_python,
     )
     assert installed_gets == [
         {"returncode": returncode, "stdout": stdout, "stderr": stderr}

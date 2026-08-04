@@ -261,6 +261,125 @@
       "minimum_independent_witnesses": 1
     },
     {
+      "id": "public-process.argv-stream-filesystem",
+      "boundary": "argv/path ingestion, filesystem publication, and stdout/stderr separation",
+      "subjects": [
+        "argv path ingestion and filesystem publication",
+        "stdout stderr separation"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_migrate_then_build_key_path",
+          "independence_domain": "public-argv-filesystem-process",
+          "covers": [
+            "argv path ingestion and filesystem publication"
+          ]
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestEntryPoints::test_stream_separation_end_to_end",
+          "independence_domain": "public-stream-separation-process",
+          "covers": [
+            "stdout stderr separation"
+          ]
+        }
+      ],
+      "minimum_independent_witnesses": 1
+    },
+    {
+      "id": "publication-recovery",
+      "boundary": "idempotent and fault-injected artifact publication recovery",
+      "subjects": [
+        "model retry",
+        "template after-member-write",
+        "template before-commit",
+        "template before-anchor-commit",
+        "template after-commit",
+        "experiment after-member-write",
+        "experiment before-commit",
+        "experiment before-anchor-commit",
+        "experiment after-commit"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_model_cli.py::test_model_build_retry_recovers_without_running_the_lowerer",
+          "independence_domain": "model-publication-retry",
+          "covers": [
+            "model retry"
+          ]
+        },
+        {
+          "test_id": "tests/test_schema2_template_cli.py::test_every_template_publication_fault_is_all_or_nothing_and_retryable[after-member-write]",
+          "independence_domain": "template-publication-recovery",
+          "covers": ["template after-member-write"]
+        },
+        {
+          "test_id": "tests/test_schema2_template_cli.py::test_every_template_publication_fault_is_all_or_nothing_and_retryable[before-commit]",
+          "independence_domain": "template-publication-recovery",
+          "covers": ["template before-commit"]
+        },
+        {
+          "test_id": "tests/test_schema2_template_cli.py::test_every_template_publication_fault_is_all_or_nothing_and_retryable[before-anchor-commit]",
+          "independence_domain": "template-publication-recovery",
+          "covers": ["template before-anchor-commit"]
+        },
+        {
+          "test_id": "tests/test_schema2_template_cli.py::test_every_template_publication_fault_is_all_or_nothing_and_retryable[after-commit]",
+          "independence_domain": "template-publication-recovery",
+          "covers": ["template after-commit"]
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_periodic_effect_publication_fault_recovers_one_complete_lifecycle[after-member-write]",
+          "independence_domain": "experiment-publication-recovery",
+          "covers": ["experiment after-member-write"]
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_periodic_effect_publication_fault_recovers_one_complete_lifecycle[before-commit]",
+          "independence_domain": "experiment-publication-recovery",
+          "covers": ["experiment before-commit"]
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_periodic_effect_publication_fault_recovers_one_complete_lifecycle[before-anchor-commit]",
+          "independence_domain": "experiment-publication-recovery",
+          "covers": ["experiment before-anchor-commit"]
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_periodic_effect_publication_fault_recovers_one_complete_lifecycle[after-commit]",
+          "independence_domain": "experiment-publication-recovery",
+          "covers": ["experiment after-commit"]
+        }
+      ],
+      "minimum_independent_witnesses": 1
+    },
+    {
+      "id": "cold-admission.model-check",
+      "boundary": "cold in-memory model check",
+      "subjects": [
+        "one packaged graph admission"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_authority_lifecycle.py::test_cold_model_check_performs_one_packaged_graph_admission",
+          "independence_domain": "cold-model-check",
+          "covers": "*"
+        }
+      ],
+      "minimum_independent_witnesses": 1
+    },
+    {
+      "id": "cold-admission.public-command-matrix",
+      "boundary": "every public command that consumes packaged authority",
+      "subjects": {
+        "source": "surface.public_authority_command_names"
+      },
+      "witnesses": [
+        {
+          "test_id_template": "tests/test_schema2_authority_lifecycle.py::test_each_cold_public_authority_command_performs_one_packaged_admission[{subject}]",
+          "independence_domain": "cold-public-command"
+        }
+      ],
+      "minimum_independent_witnesses": 1
+    },
+    {
       "id": "built-wheel.graph-shipment",
       "boundary": "exact built-wheel authority graph members and bytes",
       "subjects": [
@@ -277,9 +396,10 @@
     },
     {
       "id": "built-wheel.entrypoint",
-      "boundary": "installed wheel module entry point",
+      "boundary": "isolated installed-wheel console and module entry points",
       "subjects": [
-        "python -m package list executes from the wheel"
+        "installed console script package list",
+        "installed python module package list"
       ],
       "witnesses": [
         {
