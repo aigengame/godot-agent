@@ -127,8 +127,9 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
 
     assert "required-test-shards" in workflow
     assert "process-timeout required" in workflow
-    assert "process-timeout unfiltered" in workflow
     assert "shard-paths smoke" in workflow
+    assert "verify-claims" in workflow
+    assert "aggregate-junit" in workflow
     assert "libs/gda-balancing/tests/test_e2e_cli.py" not in workflow
     assert "python3 libs/gda-balancing/tools/ci.py" not in workflow
     assert "\n    timeout-minutes: 1\n" not in workflow
@@ -136,7 +137,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "uv-version:" not in action
     assert "uv-version:" not in workflow
     assert "uv-version:" not in release
-    assert release.count("uses: ./.github/actions/setup-python-env") == 3
+    assert release.count("uses: ./.github/actions/setup-python-env") == 6
     assert "uses: actions/setup-python@v6" in scope_job
     assert 'python-version: "3.13"' in scope_job
     assert "setup-python-env" not in scope_job
@@ -147,14 +148,30 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     _assert_job_timeout(workflow, "balancing-inventory", 15)
     _assert_job_timeout(workflow, "balancing-tests", 15)
     _assert_job_timeout(workflow, "balancing-smoke", 15)
-    _assert_job_timeout(workflow, "balancing-required", 5)
-    _assert_job_timeout(workflow, "balancing-nightly", 20)
-    _assert_job_timeout(release, "build-release-gda-balancing", 30)
-    assert "process-timeout unfiltered" in release
+    _assert_job_timeout(workflow, "balancing-required", 15)
+    _assert_job_timeout(release, "prepare-release-gda-balancing", 15)
+    _assert_job_timeout(release, "test-release-gda-balancing", 15)
+    _assert_job_timeout(release, "aggregate-release-gda-balancing", 15)
+    _assert_job_timeout(release, "build-release-gda-balancing", 15)
+    assert "all-test-shards" in release
+    assert "process-timeout required" in release
     assert "verify-outcomes" in release
-    assert (
-        "Summarize durations and verify release outcomes\n"
-        "        if: ${{ always() }}\n"
-        "        run: |\n"
-        "          mkdir -p test-results"
-    ) in release
+    assert "aggregate-junit" in release
+
+
+def test_release_matrix_and_build_are_pinned_to_the_exact_member_release_sha():
+    release = _RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    for job_name in (
+        "prepare-release-gda-balancing",
+        "test-release-gda-balancing",
+        "aggregate-release-gda-balancing",
+        "build-release-gda-balancing",
+    ):
+        job = _workflow_job(release, job_name)
+        assert "ref: ${{ needs.cut-release.outputs.balancing_sha }}" in job
+
+    build = _workflow_job(release, "build-release-gda-balancing")
+    assert "aggregate-release-gda-balancing" in build
+    publish = _workflow_job(release, "publish-pypi-gda-balancing")
+    assert "build-release-gda-balancing" in publish
