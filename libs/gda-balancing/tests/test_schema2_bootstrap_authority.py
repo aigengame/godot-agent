@@ -1,6 +1,10 @@
 """Schema 2.0 bootstrap conformance: authority ownership."""
 
 # ruff: noqa: F403, F405
+from dataclasses import replace
+
+from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
+
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
@@ -143,6 +147,23 @@ def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
         operation = changed_operations.get(vector.get("operation"))
         if operation is not None and vector["id"].endswith(".periodic-contract"):
             vector["expect"] = deepcopy(operation["extensions"])
+        if operation is None or vector.get("kind") != "operation-relation":
+            continue
+        if member == "duration" and vector["id"].endswith(".duration-positive"):
+            vector["probe"]["right_value"] = -1
+        elif (
+            member == "period"
+            and invalid == 0
+            and vector["id"].endswith(".period-positive")
+        ):
+            vector["probe"]["right_value"] = -1
+        elif (
+            member == "period"
+            and invalid == 4
+            and vector["id"].endswith(".period-within-duration")
+        ):
+            vector["probe"]["right_path"] = None
+            vector["probe"]["right_value"] = 4
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -155,6 +176,119 @@ def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
         "kernel.vector_mismatch",
         "language-bundle.language.packages.3.vectors",
     ) in first["diagnostics"]
+
+
+def test_periodic_effect_tick_declaration_must_equal_the_scheduled_body():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    changed_operations = {}
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            operation["extensions"]["game.effect.periodic"]["timing"]["tick_times"] = [
+                1
+            ]
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_effect_relation_role_inventory_is_mandatory():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    removed_id = "game.effect.apply-live-periodic-v1.schedule-times-match"
+    vector_set["vector_definitions"] = [
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] != removed_id
+    ]
+    vector_set["vectors"].remove(removed_id)
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-live-periodic-v1"
+    )
+    operation["vectors"].remove(removed_id)
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_public_schema_command_refuses_coherently_weakened_periodic_timing(
+    run_cli,
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    changed_operations = {}
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            timing = operation["extensions"]["game.effect.periodic"]["timing"]
+            timing.update(
+                {"duration": 0, "period": 0, "tick_times": [], "expiry_time": 0}
+            )
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
+        if operation is not None and vector.get("kind") == "operation-relation":
+            if vector["id"].endswith((".duration-positive", ".period-positive")):
+                vector["probe"]["right_value"] = -1
+    _refresh_package_closure_and_reidentify(ldb)
+    descriptor = replace(
+        SCHEMA_GET,
+        handler=schema_get_handler(lambda: (kernel, ldb)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        ["schema", "get", "language-bundle"], registry=(descriptor,)
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [row["code"] for row in error["diagnostics"]] == ["kernel.vector_mismatch"]
 
 
 @pytest.mark.parametrize(

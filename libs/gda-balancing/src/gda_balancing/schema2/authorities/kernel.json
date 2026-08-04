@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:d7fc7066b5e61ca4540f553f721991ade9e9fd219bdb644d460707b02a460849",
+  "content_identity": "sha256:7dc63829b2ff089daa2065c07a2f7c85ddfc9df8246e32ba8cdcd62e55eba1af",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3792,7 +3792,9 @@
           "operators": [
             "integer-equal",
             "integer-greater-than",
-            "integer-less-than-or-equal"
+            "integer-less-than-or-equal",
+            "periodic-sequence-equal",
+            "schedule-times-equal"
           ],
           "probe_members": [
             "left_path",
@@ -3805,7 +3807,58 @@
             "id",
             "kind",
             "operation",
-            "probe"
+            "probe",
+            "role"
+          ],
+          "roles": [
+            {
+              "id": "duration-positive",
+              "left_member": "duration",
+              "operator": "integer-greater-than",
+              "right_member": null,
+              "right_value": 0
+            },
+            {
+              "id": "period-positive",
+              "left_member": "period",
+              "operator": "integer-greater-than",
+              "right_member": null,
+              "right_value": 0
+            },
+            {
+              "id": "period-within-duration",
+              "left_member": "period",
+              "operator": "integer-less-than-or-equal",
+              "right_member": "duration",
+              "right_value": null
+            },
+            {
+              "id": "expiry-matches-duration",
+              "left_member": "expiry_time",
+              "operator": "integer-equal",
+              "right_member": "duration",
+              "right_value": null
+            },
+            {
+              "id": "tick-times-match-period",
+              "left_member": "tick_times",
+              "operator": "periodic-sequence-equal",
+              "right_member": "duration",
+              "right_value": null
+            },
+            {
+              "id": "schedule-times-match",
+              "left_member": "tick_times",
+              "operator": "schedule-times-equal",
+              "right_member": "expiry_time",
+              "right_value": null
+            }
+          ],
+          "timing_members": [
+            "duration",
+            "expiry_time",
+            "period",
+            "tick_times"
           ]
         },
         {
