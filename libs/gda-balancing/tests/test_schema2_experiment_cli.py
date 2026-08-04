@@ -7262,6 +7262,216 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     assert {sample["member"]: sample["value"] for sample in metrics} == reference_state
 
 
+def test_periodic_formula_evidence_rejects_a_coherently_reidentified_result(
+    tmp_path, run_cli
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in evaluation.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    trace = values["event-trace"]
+    snapshots = values["snapshot-series"]
+    dataset = values["metric-dataset"]
+    events = trace["events"]
+    forged = next(
+        formula_evaluation
+        for event in events
+        for formula_evaluation in event["formula_evaluations"]
+    )
+    forged["result"] += 1
+
+    journal = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["committed_trace"]
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    trace_prefix = experiment_runtime_module._empty_runtime_journal_identity(journal)
+    previous_snapshot = snapshots["snapshots"][0]
+    snapshot_identity_changes = {}
+    for event, snapshot in zip(events, snapshots["snapshots"][1:], strict=True):
+        old_identity = snapshot["snapshot_identity"]
+        event["snapshot_before_identity"] = previous_snapshot["snapshot_identity"]
+        trace_prefix = experiment_runtime_module._extend_runtime_journal_identity(
+            journal,
+            trace_prefix,
+            experiment_runtime_module._committed_event_projection(event),
+        )
+        snapshot["continuation"]["committed_trace"]["prefix_identity"] = trace_prefix
+        snapshot["snapshot_identity"] = (
+            experiment_runtime_module._projected_runtime_identity(
+                snapshot_contract,
+                {
+                    "experiment_identity": checked.content_identity,
+                    "scenario_id": snapshot["scenario"],
+                    "index": snapshot["index"],
+                    "logical_time": snapshot["logical_time"],
+                    "event_id": snapshot["event_id"],
+                    "values": snapshot["values"],
+                    "continuation": snapshot["continuation"],
+                },
+            )
+        )
+        event["snapshot_after_identity"] = snapshot["snapshot_identity"]
+        snapshot_identity_changes[old_identity] = snapshot["snapshot_identity"]
+        previous_snapshot = snapshot
+
+    final_snapshot_identity = snapshots["snapshots"][-1]["snapshot_identity"]
+    events_by_id = {event["event_id"]: event for event in events}
+    for status in trace["terminal_statuses"]:
+        status["terminal_snapshot_identity"] = events_by_id[
+            status["terminal_event_id"]
+        ]["snapshot_after_identity"]
+        status["final_snapshot_identity"] = final_snapshot_identity
+    for sample in dataset["samples"]:
+        sample["snapshot_identity"] = snapshot_identity_changes.get(
+            sample["snapshot_identity"], sample["snapshot_identity"]
+        )
+
+    def reidentify(kind):
+        payload = {
+            key: value
+            for key, value in values[kind].items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        values[kind] = experiment_runtime_module._artifact(checked, kind, payload).value
+
+    reidentify("event-trace")
+    values["snapshot-series"]["event_trace_identity"] = values["event-trace"][
+        "content_identity"
+    ]
+    reidentify("snapshot-series")
+    reidentify("metric-dataset")
+    primary = values["evaluation-run"]
+    primary["event_trace_identity"] = values["event-trace"]["content_identity"]
+    primary["snapshot_series_identity"] = values["snapshot-series"]["content_identity"]
+    primary["metric_dataset_identity"] = values["metric-dataset"]["content_identity"]
+    primary["terminal_statuses"] = values["event-trace"]["terminal_statuses"]
+    reidentify("evaluation-run")
+
+    assert all(
+        model_module.verify_artifact(value, checked.language_bundle)
+        for value in values.values()
+    )
+    assert not experiment_runtime_module.validate_experiment_member(
+        checked, "event-trace", values["event-trace"]
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
+
+
+def test_periodic_terminal_audit_rejects_coherently_reidentified_formula_evidence(
+    tmp_path, run_cli
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 4
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert outcome.report.diagnostics[0].code == "runtime.event_limit_exceeded"
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    audit = values["runtime-terminal-audit"]
+    events = audit["committed_trace_prefix"]
+    forged = next(
+        formula_evaluation
+        for event in events
+        for formula_evaluation in event["formula_evaluations"]
+    )
+    forged["result"] += 1
+    for index, event in enumerate(events[:-1]):
+        replacement = content_identity(
+            "forged-intermediate-snapshot-v1",
+            {"event_id": event["event_id"], "index": event["index"]},
+        )
+        event["snapshot_after_identity"] = replacement
+        events[index + 1]["snapshot_before_identity"] = replacement
+
+    journal = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["committed_trace"]
+    trace_prefix = experiment_runtime_module._empty_runtime_journal_identity(journal)
+    for event in events:
+        trace_prefix = experiment_runtime_module._extend_runtime_journal_identity(
+            journal,
+            trace_prefix,
+            experiment_runtime_module._committed_event_projection(event),
+        )
+    last_snapshot = audit["last_snapshot_record"]
+    last_snapshot["continuation"]["committed_trace"]["prefix_identity"] = trace_prefix
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    last_snapshot["snapshot_identity"] = (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": last_snapshot["scenario"],
+                "index": last_snapshot["index"],
+                "logical_time": last_snapshot["logical_time"],
+                "event_id": last_snapshot["event_id"],
+                "values": last_snapshot["values"],
+                "continuation": last_snapshot["continuation"],
+            },
+        )
+    )
+    events[-1]["snapshot_after_identity"] = last_snapshot["snapshot_identity"]
+    audit["last_snapshot_identity"] = last_snapshot["snapshot_identity"]
+    audit["refusing_event"]["snapshot_before_identity"] = last_snapshot[
+        "snapshot_identity"
+    ]
+    payload = {
+        key: value
+        for key, value in audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked, "runtime-terminal-audit", payload
+    ).value
+
+    assert model_module.verify_artifact(
+        values["runtime-terminal-audit"], checked.language_bundle
+    )
+    assert not experiment_runtime_module.validate_experiment_member(
+        checked,
+        "runtime-terminal-audit",
+        values["runtime-terminal-audit"],
+    )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
+
+
 @pytest.mark.parametrize("outcome", ["success", "verdict", "runtime"])
 def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
     tmp_path, run_cli, monkeypatch, outcome
