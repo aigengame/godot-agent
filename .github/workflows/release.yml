@@ -350,6 +350,9 @@ jobs:
       - name: Run complete release shard with hard duration bound
         run: |
           mkdir -p test-results
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py start-timer \
+            --report "test-results/${{ matrix.shard }}-started.json"
           set -o pipefail
           process_timeout="$(uv run --no-project --python 3.13 python \
             libs/gda-balancing/tools/ci.py process-timeout required)"
@@ -365,6 +368,15 @@ jobs:
         if: ${{ always() }}
         run: |
           mkdir -p test-results
+          if [ -f "test-results/${{ matrix.shard }}-started.json" ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py finish-timer \
+              --started "test-results/${{ matrix.shard }}-started.json" \
+              --report "test-results/wall-${{ matrix.shard }}.json"
+          else
+            printf '{"error":"release shard timer did not start"}\n' \
+              > "test-results/wall-${{ matrix.shard }}.json"
+          fi
           if [ -f "test-results/junit-${{ matrix.shard }}.xml" ]; then
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py summarize-junit \
@@ -398,7 +410,7 @@ jobs:
       - prepare-release-gda-balancing
       - test-release-gda-balancing
     if: >-
-      !failure() && !cancelled() &&
+      always() &&
       needs.cut-release.outputs.balancing_release_created == 'true'
     permissions:
       contents: read
@@ -416,6 +428,7 @@ jobs:
           save-cache: false
 
       - name: Download every release shard result
+        continue-on-error: true
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: gda-balancing-release-*-diagnostics
@@ -430,6 +443,7 @@ jobs:
             --report test-results/aggregate.json
 
       - name: Upload release aggregate verdict and duration report
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: gda-balancing-release-validation

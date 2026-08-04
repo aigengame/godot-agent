@@ -130,6 +130,10 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "shard-paths smoke" in workflow
     assert "verify-claims" in workflow
     assert "aggregate-junit" in workflow
+    assert "start-timer" in workflow
+    assert "finish-timer" in workflow
+    assert "wall-${{ matrix.shard }}.json" in workflow
+    assert "run-balancing-unfiltered" not in workflow
     assert "libs/gda-balancing/tests/test_e2e_cli.py" not in workflow
     assert "python3 libs/gda-balancing/tools/ci.py" not in workflow
     assert "\n    timeout-minutes: 1\n" not in workflow
@@ -157,6 +161,8 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     assert "process-timeout required" in release
     assert "verify-outcomes" in release
     assert "aggregate-junit" in release
+    assert "start-timer" in release
+    assert "finish-timer" in release
 
 
 def test_release_matrix_and_build_are_pinned_to_the_exact_member_release_sha():
@@ -173,5 +179,12 @@ def test_release_matrix_and_build_are_pinned_to_the_exact_member_release_sha():
 
     build = _workflow_job(release, "build-release-gda-balancing")
     assert "aggregate-release-gda-balancing" in build
+    aggregate = _workflow_job(release, "aggregate-release-gda-balancing")
+    assert "always() &&" in aggregate
+    assert "continue-on-error: true" in aggregate
+    assert (
+        "Upload release aggregate verdict and duration report\n        if: ${{ always() }}"
+        in aggregate
+    )
     publish = _workflow_job(release, "publish-pypi-gda-balancing")
     assert "build-release-gda-balancing" in publish

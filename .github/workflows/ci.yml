@@ -19,11 +19,6 @@ on:
         required: false
         default: false
         type: boolean
-      run-balancing-unfiltered:
-        description: "Run the complete unfiltered gda-balancing suite"
-        required: false
-        default: false
-        type: boolean
   schedule:
     # Nightly (03:24 UTC) — the automatic, dependable trigger for the godot-e2e job
     # (workflow_dispatch with run-e2e is the on-demand extra). Daily so a regression in
@@ -261,6 +256,9 @@ jobs:
       - name: Run complete shard with hard duration bound
         run: |
           mkdir -p test-results
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py start-timer \
+            --report "test-results/${{ matrix.shard }}-started.json"
           set -o pipefail
           process_timeout="$(uv run --no-project --python 3.13 python \
             libs/gda-balancing/tools/ci.py process-timeout required)"
@@ -276,6 +274,15 @@ jobs:
         if: ${{ always() }}
         run: |
           mkdir -p test-results
+          if [ -f "test-results/${{ matrix.shard }}-started.json" ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py finish-timer \
+              --started "test-results/${{ matrix.shard }}-started.json" \
+              --report "test-results/wall-${{ matrix.shard }}.json"
+          else
+            printf '{"error":"shard timer did not start"}\n' \
+              > "test-results/wall-${{ matrix.shard }}.json"
+          fi
           if [ -f "test-results/junit-${{ matrix.shard }}.xml" ]; then
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py summarize-junit \
@@ -322,6 +329,9 @@ jobs:
       - name: Run subprocess tests and build with one hard duration bound
         run: |
           mkdir -p test-results
+          uv run --no-project --python 3.13 python \
+            libs/gda-balancing/tools/ci.py start-timer \
+            --report test-results/smoke-started.json
           process_timeout="$(uv run --no-project --python 3.13 python \
             libs/gda-balancing/tools/ci.py process-timeout required)"
           uv run --no-project --python 3.13 python \
@@ -341,6 +351,15 @@ jobs:
         if: ${{ always() }}
         run: |
           mkdir -p test-results
+          if [ -f test-results/smoke-started.json ]; then
+            uv run --no-project --python 3.13 python \
+              libs/gda-balancing/tools/ci.py finish-timer \
+              --started test-results/smoke-started.json \
+              --report test-results/wall-smoke.json
+          else
+            printf '{"error":"smoke timer did not start"}\n' \
+              > test-results/wall-smoke.json
+          fi
           if [ -f test-results/junit-smoke.xml ]; then
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py summarize-junit \
@@ -395,6 +414,7 @@ jobs:
 
       - name: Download every shard result
         if: ${{ needs.balancing-scope.outputs.required == 'true' }}
+        continue-on-error: true
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: gda-balancing-*-diagnostics
