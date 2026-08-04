@@ -1123,7 +1123,22 @@ product feedback before broader Action/Combat work:
 | Confirmed—narrowly | The reciprocal baseline remains focused on two same-time directional roots, while a companion Experiment over the same exact Model retains #594's external-input root, scheduled and canceled children, and multiple logical times. | RPG tutorial `experiment.json` plus `multi-time-experiment.json`; retained as separate public paths rather than conflated Metrics |
 | Authored-example only | Player/enemy values, same-time exchange, miss/resource alternatives, cancellation choice, and six Metrics are feedback witnesses, not a complete Action interruption, turn, defeat, RPG, Replay, Evidence, or general same-time-combat contract. | Reciprocal combat tutorial; retain without generalizing |
 
-### 12.9 Architecture consequence
+### 12.9 Periodic Effect dogfooding
+
+Issue #596 composed Formula authoring and the ordinary multi-Event Runtime into one bounded
+periodic lifecycle and classified the resulting product feedback before broader Effect coverage:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | `game.effect@1.0.0` can own one complete apply/tick/tick/expire lifecycle as ordinary package Operations over Kernel schedule, Named-stream, state and commit nodes. Duration `3`, period `1`, tick times `1/2`, expiry `3`, capture/read policy and Effect-instance allocation are one closed package extension rather than Runtime or host semantics. | `game.effect` Package Release and bADR-0016; retained without closing immunity, stacking, dispel, buildup, contributor or request-precedence scope |
+| Refined—adopted | Formula reachability originally followed only direct Operation calls, so a Formula slot on a package Operation reachable solely through `schedule` could be omitted from the selected Model closure. Reachability now traverses every Operation-valued Runtime instruction under the Kernel contract; independent lowering proves the same selected closure. | `standard.compiler` Model lowering and Kernel Runtime-node contract; implementation and regression coverage updated |
+| Refined—adopted | Public Event artifacts named the specialized Operation and state changes but did not expose the exact Formula evaluation that supplied a Runtime magnitude. Event trace and terminal-audit committed prefixes now carry closed Formula-evaluation records with site/binding/Formula/Operation identities, context, ordered operands, result, frame and call path. | `standard.schema@2.2.0` artifact schemas, bADR-0018 and Runtime evaluator; authority and semantic re-admission updated |
+| Confirmed—narrowly | Snapshot policy evaluates once at apply and schedules the captured value; live policy evaluates at each tick's pre-Event committed Snapshot. A combat root sharing logical time `1` with the first tick produces the priority-selected deterministic order and corresponding Formula inputs, state, trace and Metrics without exposing buffered writes. | `game.effect` magnitude policy, bADR-0014 ordering, and public same-time Experiment vectors; retained |
+| Refined—adopted | Runtime already produced typed queue, zero-time-depth, event-count, logical-time and hidden/illegal-schedule refusals, but the public Experiment descriptor did not declare those outcomes and therefore collapsed them to internal errors. The descriptor now exposes the exact canonical refusal catalog, and failed apply transactions publish no state, RNG or scheduled child buffer. | Experiment command descriptor and Runtime terminal-audit publication; public refusal vectors updated |
+| Confirmed—narrowly | Editing only `periodic-magnitude` reidentifies Source, Formula, RIR, Resolved Model, exact Experiment, trace and Metrics while Kernel, LDB, Package Lock, package Operations and compiler/evaluator dispatch remain fixed. A newly exact-bound Experiment is required. | Model/Experiment identity boundary and periodic tutorial; retained |
+| Authored-example only | Health `100`, threshold `85`, captured magnitude `15`, two ticks and the combat value `10` are inspection witnesses, not general damage-over-time, regeneration, buff/debuff, RPG, Replay, Evidence or Genre support. | Periodic Effect tutorial; retain without generalizing |
+
+### 12.10 Architecture consequence
 
 The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
 mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the
