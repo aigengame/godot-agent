@@ -540,8 +540,7 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         ]
         and kinds["operation-relation"].get("declaration_extension")
         == "standard.operation-relations"
-        and kinds["operation-relation"].get("declaration_members")
-        == ["id", "probe"]
+        and kinds["operation-relation"].get("declaration_members") == ["id", "probe"]
         and kinds["operation-relation"].get("schedule_projection_members")
         == ["logical_time", "operation"]
         and kinds["runtime-scenario"].get("input_members")
@@ -658,10 +657,7 @@ def _operation_relation_is_satisfied(
         if isinstance(extensions, dict) and isinstance(declaration_extension, str)
         else None
     )
-    if (
-        not isinstance(declaration_members, list)
-        or not isinstance(declarations, list)
-    ):
+    if not isinstance(declaration_members, list) or not isinstance(declarations, list):
         return False
     matches = [
         declaration
@@ -1289,12 +1285,9 @@ def _package_evidence_vectors_are_closed(
         if len(roles) != len(set(roles)):
             return False
         declared_roles_by_operation[cast(str, operation_id)] = roles
-    if (
-        set(relation_roles_by_operation) != set(declared_roles_by_operation)
-        or any(
-            roles != declared_roles_by_operation[operation_id]
-            for operation_id, roles in relation_roles_by_operation.items()
-        )
+    if set(relation_roles_by_operation) != set(declared_roles_by_operation) or any(
+        roles != declared_roles_by_operation[operation_id]
+        for operation_id, roles in relation_roles_by_operation.items()
     ):
         return False
 
