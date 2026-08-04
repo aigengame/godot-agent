@@ -744,9 +744,9 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
     "mutation",
     (
         "empty-path",
+        "empty-role",
         "unknown-operator",
         "scalar-right-path",
-        "string-value",
         "both-null",
         "both-set",
         "open",
@@ -768,12 +768,12 @@ def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
     )
     if mutation == "empty-path":
         vector["probe"]["left_path"] = []
+    elif mutation == "empty-role":
+        vector["role"] = ""
     elif mutation == "unknown-operator":
         vector["probe"]["operator"] = "host-owned"
     elif mutation == "scalar-right-path":
         vector["probe"]["right_path"] = "extensions.periodic"
-    elif mutation == "string-value":
-        vector["probe"]["right_value"] = "zero"
     elif mutation == "both-null":
         vector["probe"]["right_path"] = None
         vector["probe"]["right_value"] = None

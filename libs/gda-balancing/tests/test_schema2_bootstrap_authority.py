@@ -47,6 +47,32 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                 "tick_times": [1, 2],
                 "expiry_time": 3,
             },
+            "schedule": [
+                {
+                    "logical_time": 1,
+                    "operation": {
+                        "id": "game.effect.tick-snapshot-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 2,
+                    "operation": {
+                        "id": "game.effect.tick-snapshot-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 3,
+                    "operation": {
+                        "id": "game.effect.expire-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+            ],
             "magnitude": {
                 "policy": "snapshot",
                 "evaluate_at": "apply",
@@ -70,6 +96,32 @@ def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
                 "tick_times": [1, 2],
                 "expiry_time": 3,
             },
+            "schedule": [
+                {
+                    "logical_time": 1,
+                    "operation": {
+                        "id": "game.effect.tick-live-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 2,
+                    "operation": {
+                        "id": "game.effect.tick-live-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 3,
+                    "operation": {
+                        "id": "game.effect.expire-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+            ],
             "magnitude": {
                 "policy": "live",
                 "evaluate_at": "tick",
@@ -147,23 +199,6 @@ def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
         operation = changed_operations.get(vector.get("operation"))
         if operation is not None and vector["id"].endswith(".periodic-contract"):
             vector["expect"] = deepcopy(operation["extensions"])
-        if operation is None or vector.get("kind") != "operation-relation":
-            continue
-        if member == "duration" and vector["id"].endswith(".duration-positive"):
-            vector["probe"]["right_value"] = -1
-        elif (
-            member == "period"
-            and invalid == 0
-            and vector["id"].endswith(".period-positive")
-        ):
-            vector["probe"]["right_value"] = -1
-        elif (
-            member == "period"
-            and invalid == 4
-            and vector["id"].endswith(".period-within-duration")
-        ):
-            vector["probe"]["right_path"] = None
-            vector["probe"]["right_value"] = 4
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -247,7 +282,91 @@ def test_periodic_effect_relation_role_inventory_is_mandatory():
     ) in first["diagnostics"]
 
 
-def test_public_schema_command_refuses_coherently_weakened_periodic_timing(
+def test_periodic_relation_ownership_is_package_local():
+    authority = _authority_candidate()
+    kernel_kind = next(
+        row
+        for row in authority["kernel"]["meta_format"]["package_vector"]["kinds"]
+        if row["id"] == "operation-relation"
+    )
+    encoded_kernel_kind = json.dumps(kernel_kind, sort_keys=True)
+
+    assert "timing_members" not in kernel_kind
+    assert "roles" not in kernel_kind
+    assert not any(
+        term in encoded_kernel_kind for term in ("duration", "expiry", "period", "tick")
+    )
+
+    operations = {
+        row["id"]: row for row in authority["language_bundle"]["language"]["operations"]
+    }
+    for operation_id in {
+        "game.effect.apply-live-periodic-v1",
+        "game.effect.apply-snapshot-periodic-v1",
+    }:
+        declarations = operations[operation_id]["extensions"][
+            "standard.operation-relations"
+        ]
+        assert [row["id"] for row in declarations] == [
+            "duration-positive",
+            "period-positive",
+            "period-within-duration",
+            "expiry-matches-duration",
+            "tick-times-match-period",
+            "schedule-times-match",
+        ]
+
+
+@pytest.mark.parametrize("mutation", ("tick-target", "expiry-target"))
+def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    schedules = [row for row in operation["body"] if row["node"] == "schedule"]
+    if mutation == "tick-target":
+        for instruction in schedules[:2]:
+            instruction["operation"]["id"] = "game.effect.tick-live-periodic-v1"
+            magnitude = next(
+                row for row in instruction["arguments"] if row["port"] == "magnitude"
+            )
+            magnitude["port"] = "threshold"
+            magnitude["operand"] = {"kind": "port", "port": "threshold"}
+    else:
+        expiry = schedules[-1]
+        expiry["operation"]["id"] = "game.effect.tick-snapshot-periodic-v1"
+        expiry["arguments"] = [
+            {
+                "port": "target_health",
+                "operand": {"kind": "port", "port": "target_health"},
+            },
+            {
+                "port": "magnitude",
+                "operand": {"kind": "local", "local": "captured_magnitude"},
+            },
+            {
+                "port": "effect_instance_id",
+                "operand": {"kind": "local", "local": "instance_id"},
+            },
+        ]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_public_schema_command_refuses_periodic_timing_that_breaks_owned_relations(
     run_cli,
 ):
     authority = _authority_candidate()
@@ -272,9 +391,6 @@ def test_public_schema_command_refuses_coherently_weakened_periodic_timing(
         operation = changed_operations.get(vector.get("operation"))
         if operation is not None and vector["id"].endswith(".periodic-contract"):
             vector["expect"] = deepcopy(operation["extensions"])
-        if operation is not None and vector.get("kind") == "operation-relation":
-            if vector["id"].endswith((".duration-positive", ".period-positive")):
-                vector["probe"]["right_value"] = -1
     _refresh_package_closure_and_reidentify(ldb)
     descriptor = replace(
         SCHEMA_GET,
