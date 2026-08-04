@@ -92,7 +92,10 @@ def _run_wheel_dispatch_batch(
         capture_output=True,
         text=True,
     )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert (completed.returncode, completed.stderr) == (
+        0,
+        "",
+    ), completed.stdout + completed.stderr
     return cast(list[list[Any]], json.loads(completed.stdout))
 
 
@@ -1024,7 +1027,9 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         cwd=tmp_path,
         environment=environment,
     )
-    assert wheel_gets == [list(result) for result in source_gets]
+    for source, from_wheel in zip(source_gets, wheel_gets, strict=True):
+        assert (from_wheel[0], from_wheel[2]) == (0, "")
+        assert from_wheel[1] == source[1]
 
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
