@@ -742,7 +742,15 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
 
 @pytest.mark.parametrize(
     "mutation",
-    ("empty-path", "unknown-operator", "scalar-right-path", "string-value", "open"),
+    (
+        "empty-path",
+        "unknown-operator",
+        "scalar-right-path",
+        "string-value",
+        "both-null",
+        "both-set",
+        "open",
+    ),
 )
 def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
@@ -766,6 +774,12 @@ def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
         vector["probe"]["right_path"] = "extensions.periodic"
     elif mutation == "string-value":
         vector["probe"]["right_value"] = "zero"
+    elif mutation == "both-null":
+        vector["probe"]["right_path"] = None
+        vector["probe"]["right_value"] = None
+    elif mutation == "both-set":
+        vector["probe"]["right_path"] = vector["probe"]["left_path"]
+        vector["probe"]["right_value"] = 0
     else:
         vector["probe"]["host"] = "invented"
     package_schema = cast(

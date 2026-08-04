@@ -436,12 +436,24 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     "properties": {
                         "left_path": member_path_schema,
                         "operator": {"enum": operators},
-                        "right_path": {"oneOf": [member_path_schema, {"type": "null"}]},
-                        "right_value": {
-                            "oneOf": [_signed_int64_schema(), {"type": "null"}]
-                        },
+                        "right_path": {},
+                        "right_value": {},
                     },
                     "required": probe_members,
+                    "oneOf": [
+                        {
+                            "properties": {
+                                "right_path": member_path_schema,
+                                "right_value": {"type": "null"},
+                            }
+                        },
+                        {
+                            "properties": {
+                                "right_path": {"type": "null"},
+                                "right_value": _signed_int64_schema(),
+                            }
+                        },
+                    ],
                     "unevaluatedProperties": False,
                 }
                 if set(properties) != set(required):
