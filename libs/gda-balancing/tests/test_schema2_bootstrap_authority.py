@@ -127,12 +127,22 @@ def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
 ):
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
+    changed_operations = {}
     for operation in ldb["language"]["operations"]:
         if operation["id"] in {
             "game.effect.apply-snapshot-periodic-v1",
             "game.effect.apply-live-periodic-v1",
         }:
             operation["extensions"]["game.effect.periodic"]["timing"][member] = invalid
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

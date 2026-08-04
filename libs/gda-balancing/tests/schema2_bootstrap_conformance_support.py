@@ -37,7 +37,7 @@ from gda_balancing.schema2.authority_graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:3a3bdae4555439d17e8b79b953f9fead95e13837a68974d8c60c08947b2e61d7"
+    "sha256:d7fc7066b5e61ca4540f553f721991ade9e9fd219bdb644d460707b02a460849"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -455,6 +455,12 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "probe_members",
         "required_members",
     },
+    "operation-relation": {
+        "id",
+        "operators",
+        "probe_members",
+        "required_members",
+    },
     "runtime-scenario": {
         "expect_members",
         "id",
@@ -534,6 +540,13 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "operation",
             "probe",
         },
+        "operation-relation": {
+            "category",
+            "id",
+            "kind",
+            "operation",
+            "probe",
+        },
         "runtime-scenario": {
             "category",
             "expect",
@@ -566,6 +579,10 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
     return (
         kinds["package-contract"].get("probe_members") == ["path"]
         and kinds["operation-contract"].get("probe_members") == ["path"]
+        and kinds["operation-relation"].get("probe_members")
+        == ["left_path", "operator", "right_path", "right_value"]
+        and kinds["operation-relation"].get("operators")
+        == ["integer-equal", "integer-greater-than", "integer-less-than-or-equal"]
         and kinds["runtime-scenario"].get("input_members")
         == ["seed", "state_names", "values"]
         and kinds["runtime-scenario"].get("expect_members")
@@ -657,6 +674,64 @@ def _consumer_b_signed_int64(value: Any) -> bool:
         isinstance(value, int)
         and not isinstance(value, bool)
         and -(2**63) <= value <= 2**63 - 1
+    )
+
+
+def _consumer_b_operation_relation_is_satisfied(
+    operation: dict[str, Any], probe: Any, kind: dict[str, Any], roots: list[str]
+) -> bool:
+    if not isinstance(probe, dict) or set(probe) != set(kind["probe_members"]):
+        return False
+    left_path = probe.get("left_path")
+    right_path = probe.get("right_path")
+    right_value = probe.get("right_value")
+    operator = probe.get("operator")
+
+    def member_path(value: Any) -> list[str] | None:
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(member, str) and member for member in value)
+        ):
+            return None
+        return cast(list[str], value)
+
+    def observed(path: list[str]) -> tuple[bool, Any]:
+        current: Any = operation
+        for member in path:
+            if not isinstance(current, dict) or member not in current:
+                return False, None
+            current = current[member]
+        return True, current
+
+    left_members = member_path(left_path)
+    right_members = member_path(right_path) if right_path is not None else None
+    if (
+        left_members is None
+        or left_members[0] not in roots
+        or operator not in kind["operators"]
+        or (right_members is not None) == (right_value is not None)
+    ):
+        return False
+    declared, left = observed(left_members)
+    if not declared or not _consumer_b_signed_int64(left):
+        return False
+    if right_members is not None:
+        if right_members[0] not in roots:
+            return False
+        declared, right = observed(right_members)
+        if not declared or not _consumer_b_signed_int64(right):
+            return False
+    else:
+        right = right_value
+        if not _consumer_b_signed_int64(right):
+            return False
+    return (
+        left == right
+        if operator == "integer-equal"
+        else left > right
+        if operator == "integer-greater-than"
+        else left <= right
     )
 
 
@@ -1048,6 +1123,15 @@ def _consumer_b_package_evidence_vectors_are_closed(
             ):
                 return False
             continue
+        if kind_id == "operation-relation":
+            if not _consumer_b_operation_relation_is_satisfied(
+                operation,
+                vector.get("probe"),
+                kind,
+                cast(list[str], contract["operation_probe_roots"]),
+            ):
+                return False
+            continue
         if operation.get("operation_kind") != "event-program":
             return False
         inp = vector.get("input")
@@ -1127,7 +1211,8 @@ def _consumer_b_package_evidence_vectors_are_closed(
         vector["id"]
         for vector in vectors
         if isinstance(vector, dict)
-        and vector.get("kind") in {"operation-contract", "runtime-scenario"}
+        and vector.get("kind")
+        in {"operation-contract", "operation-relation", "runtime-scenario"}
     }
     referenced = {
         vector_id
