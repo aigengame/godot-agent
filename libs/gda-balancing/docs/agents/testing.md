@@ -34,6 +34,43 @@ manifest, or aggregate JUnit protocol. Test preservation is checked by
 comparing the complete collection before and after the change. The repository's
 pre-existing inventory and outcome checks continue unchanged.
 
+## Existing verification contract
+
+Production publishes one process-scoped, deeply immutable
+`AdmittedAuthorityContext` only after the complete packaged Kernel and sealed
+Language Definition Bundle graph has loaded, admitted, indexed, and frozen. A
+failed admission publishes no partial context. Explicitly injected candidates
+are admitted into independently owned contexts, and schema meta-validation is
+cached by the actual canonical schema and Kernel profile bytes.
+
+Tests preserve those boundaries:
+
+- `pristine_authority_context` supplies the immutable packaged baseline;
+- `authority_candidate` and `mutable_authorities()` return independently owned
+  deep mutable copies;
+- loader, failure-publication, cache, and cold-command tests continue to use
+  the dedicated loading and lifecycle seams; and
+- Consumer B remains an independent interpreter and does not call production
+  admission or schema-cache implementations.
+
+The pre-existing inventory check proves that baseline tests and vectors have
+not disappeared and that every current test belongs to exactly one shard. Run
+it from the repository root with:
+
+```bash
+uv run --frozen --project libs/gda-balancing python \
+  libs/gda-balancing/tools/ci.py verify-inventory \
+  --report /tmp/gda-balancing-inventory.json
+```
+
+CI also runs the existing outcome check on each JUnit file; undeclared skips
+and xfails fail the job. Balancing-affecting or unknown paths run inventory,
+all six required shards, the separate smoke shard, and the stable
+`gda-balancing required` result. Each test process retains the existing
+eight-minute bound and fifteen-minute job timeout. Scheduled and release flows
+retain their complete unfiltered-suite checks and existing fifteen-minute
+process bound; this member change does not alter those workflows.
+
 ## Optimizations
 
 Two repeated setup costs were removed without weakening the tested contracts:
