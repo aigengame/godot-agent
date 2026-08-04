@@ -1021,16 +1021,22 @@ def _committed_event_arguments(
     return arguments, state_references, actual_values
 
 
-def _replayed_schedule_arguments(
+def _replayed_event_evidence(
     checked: CheckedExperiment,
     parent_event: dict[str, JsonValue],
     parent_spec: dict[str, JsonValue],
-    target_schedule: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue] | None,
     *,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+) -> (
+    tuple[
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
+        list[dict[str, JsonValue]],
+    ]
+    | None
+):
     root_arguments = _committed_event_arguments(
         checked,
         parent_event,
@@ -1045,6 +1051,11 @@ def _replayed_schedule_arguments(
     operations = {
         cast(str, row["definition"]["id"]): row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
+    }
+    formula_bindings_by_site = {
+        cast(str, cast(dict[str, Any], binding["site"])["identity"]): binding
+        for binding in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+        if cast(dict[str, Any], binding["site"])["kind"] == "operation-slot"
     }
     root_operation = operations.get(parent_operation_id)
     if root_operation is None:
@@ -1069,6 +1080,7 @@ def _replayed_schedule_arguments(
     schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
     draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
     draw_index = 0
+    formula_evaluations: list[dict[str, JsonValue]] = []
     rng = _NamedRng(
         cast(int, checked.value["seed"]["value"]),
         cast(dict[str, Any], _runtime_contract(checked)["named_rng"]),
@@ -1144,7 +1156,11 @@ def _replayed_schedule_arguments(
                 variables[cast(str, row["name"])] = actual_values[identity]
         operation_results: dict[str, JsonValue] = {}
         outcome = cast(str, operation["default_outcome"])
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
+        evaluation_sites = _instruction_evaluation_sites(operation)
+        for instruction_index, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            evaluation_site_identity = evaluation_sites.get(instruction_index)
             node_contract = node_contracts[instruction["node"]]
             operator = node_contract["semantics"]["operator"]
             if operator == "invoke-operation":
@@ -1237,10 +1253,10 @@ def _replayed_schedule_arguments(
                         },
                     ),
                 )
-                if target_schedule[
-                    "call_site_identity"
-                ] == call_site_identity and target_schedule["call_path"] == "/".join(
-                    call_path
+                if (
+                    target_schedule is not None
+                    and target_schedule["call_site_identity"] == call_site_identity
+                    and target_schedule["call_path"] == "/".join(call_path)
                 ):
                     return "", None, (child_arguments, child_state_references)
                 scheduled = next(
@@ -1302,6 +1318,66 @@ def _replayed_schedule_arguments(
                         variables[alias] = state[target]
             else:
                 return "", None, None
+            if (
+                evaluation_site_identity is not None
+                and evaluation_sites.get(instruction_index + 1)
+                != evaluation_site_identity
+            ):
+                binding = formula_bindings_by_site.get(evaluation_site_identity)
+                if binding is None:
+                    return "", None, None
+                binding_site = cast(dict[str, Any], binding["site"])
+                slot = _operation_formula_slot(
+                    operation, cast(str, binding_site["slot"])
+                )
+                if slot is None:
+                    return "", None, None
+                formula_parameter_by_slot_parameter = {
+                    cast(str, argument["operand"]["parameter"]): cast(
+                        str, argument["parameter"]
+                    )
+                    for argument in cast(list[dict[str, Any]], binding["arguments"])
+                }
+                evaluated_arguments: list[dict[str, JsonValue]] = []
+                for parameter in cast(list[dict[str, Any]], slot["parameters"]):
+                    source = cast(dict[str, Any], parameter["source"])
+                    if (
+                        source.get("kind") not in {"port", "local"}
+                        or source.get("name") not in variables
+                        or parameter.get("id")
+                        not in formula_parameter_by_slot_parameter
+                    ):
+                        return "", None, None
+                    evaluated_arguments.append(
+                        {
+                            "parameter": formula_parameter_by_slot_parameter[
+                                cast(str, parameter["id"])
+                            ],
+                            "value": cast(JsonValue, variables[source["name"]]),
+                        }
+                    )
+                if slot.get("target") not in variables:
+                    return "", None, None
+                formula_evaluations.append(
+                    cast(
+                        dict[str, JsonValue],
+                        {
+                            "evaluation_site_identity": evaluation_site_identity,
+                            "binding_identity": binding["identity"],
+                            "formula": binding["formula"],
+                            "operation": binding_site["operation"],
+                            "slot": binding_site["slot"],
+                            "context": binding_site["context"],
+                            "arguments": sorted(
+                                evaluated_arguments,
+                                key=lambda row: cast(str, row["parameter"]),
+                            ),
+                            "result": cast(JsonValue, variables[slot["target"]]),
+                            "frame_identity": parent_event["snapshot_before_identity"],
+                            "call_path": "/".join(call_path),
+                        },
+                    )
+                )
         outcome_definition = next(
             row for row in operation["outcomes"] if row["id"] == outcome
         )
@@ -1326,7 +1402,7 @@ def _replayed_schedule_arguments(
         else (f"scheduled:{parent_spec['call_site_identity']}",)
     )
     try:
-        _outcome, _result, found = execute(
+        replayed_outcome, _result, found = execute(
             root_operation,
             root_arguments[0],
             root_state_references,
@@ -1334,7 +1410,60 @@ def _replayed_schedule_arguments(
         )
     except (KeyError, OverflowError, StopIteration, TypeError, ValueError):
         return None
-    return found
+    if not replayed_outcome and found is None:
+        return None
+    return found, formula_evaluations
+
+
+def _replayed_schedule_arguments(
+    checked: CheckedExperiment,
+    parent_event: dict[str, JsonValue],
+    parent_spec: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue],
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+    replayed = _replayed_event_evidence(
+        checked,
+        parent_event,
+        parent_spec,
+        target_schedule,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    return replayed[0] if replayed is not None else None
+
+
+def _event_formula_evaluations_match_replay(
+    checked: CheckedExperiment,
+    event: dict[str, JsonValue],
+    record: dict[str, JsonValue],
+    *,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> bool:
+    evaluations = event.get("formula_evaluations")
+    if not isinstance(evaluations, list):
+        return False
+    if not isinstance(event.get("operation"), str):
+        return evaluations == []
+    event_spec = record.get("event_spec")
+    scenario_id = record.get("scenario")
+    if not isinstance(event_spec, dict) or not isinstance(scenario_id, str):
+        return False
+    replayed = _replayed_event_evidence(
+        checked,
+        event,
+        cast(dict[str, JsonValue], event_spec),
+        None,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    return replayed is not None and evaluations == replayed[1]
 
 
 def _scheduled_catalog_record_is_authoritative(
@@ -5155,6 +5284,20 @@ def _artifact_set_runtime_journals_are_valid(
         )
     ):
         return False
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    events_by_id = {cast(str, row["event_id"]): row for row in events}
+    if any(
+        (record := catalog_by_id.get(cast(str, event["event_id"]))) is None
+        or not _event_formula_evaluations_match_replay(
+            checked,
+            event,
+            record,
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
+        for event in events
+    ):
+        return False
     snapshots_by_identity = {
         snapshot.get("snapshot_identity"): snapshot for snapshot in snapshots
     }
@@ -5760,6 +5903,20 @@ def _terminal_audit_is_valid(
             cast(list[dict[str, JsonValue]], events),
             required_root_scenarios=required_root_scenarios,
         )
+    ):
+        return False
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    events_by_id = {cast(str, row["event_id"]): row for row in events}
+    if any(
+        (record := catalog_by_id.get(cast(str, event["event_id"]))) is None
+        or not _event_formula_evaluations_match_replay(
+            checked,
+            cast(dict[str, JsonValue], event),
+            record,
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
+        for event in events
     ):
         return False
     if refusing_event.get("index") != len(events):

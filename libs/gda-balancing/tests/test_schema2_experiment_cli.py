@@ -7349,8 +7349,9 @@ def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
     assert {sample["member"]: sample["value"] for sample in metrics} == reference_state
 
 
-def test_periodic_formula_evidence_rejects_a_coherently_reidentified_result(
-    tmp_path, run_cli
+@pytest.mark.parametrize("mutation", ("result", "omission", "arguments"))
+def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
+    tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
     checked = experiment_runtime_module.check_experiment(str(specification))
@@ -7366,12 +7367,22 @@ def test_periodic_formula_evidence_rejects_a_coherently_reidentified_result(
     snapshots = values["snapshot-series"]
     dataset = values["metric-dataset"]
     events = trace["events"]
-    forged = next(
-        formula_evaluation
-        for event in events
-        for formula_evaluation in event["formula_evaluations"]
-    )
-    forged["result"] += 1
+    forged_event = next(event for event in events if event["formula_evaluations"])
+    forged = forged_event["formula_evaluations"][0]
+    if mutation == "result":
+        forged["result"] += 1
+    elif mutation == "omission":
+        forged_event["formula_evaluations"] = []
+    else:
+        forged["arguments"][0]["value"] -= 1
+        formula = next(
+            row
+            for row in checked.rir["formulas"]
+            if row["identity"] == forged["formula"]["identity"]
+        )
+        forged["result"] = _reference_evaluate_formula_document(
+            formula, forged["arguments"]
+        )
 
     journal = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
         "runtime_journal"
@@ -7452,16 +7463,18 @@ def test_periodic_formula_evidence_rejects_a_coherently_reidentified_result(
         model_module.verify_artifact(value, checked.language_bundle)
         for value in values.values()
     )
-    assert not experiment_runtime_module.validate_experiment_member(
-        checked, "event-trace", values["event-trace"]
-    )
+    if mutation == "result":
+        assert not experiment_runtime_module.validate_experiment_member(
+            checked, "event-trace", values["event-trace"]
+        )
     assert not experiment_runtime_module.validate_experiment_artifact_set(
         checked, values
     )
 
 
-def test_periodic_terminal_audit_rejects_coherently_reidentified_formula_evidence(
-    tmp_path, run_cli
+@pytest.mark.parametrize("mutation", ("result", "omission", "arguments"))
+def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
+    tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
     checked = experiment_runtime_module.check_experiment(str(specification))
@@ -7483,12 +7496,22 @@ def test_periodic_terminal_audit_rejects_coherently_reidentified_formula_evidenc
 
     audit = values["runtime-terminal-audit"]
     events = audit["committed_trace_prefix"]
-    forged = next(
-        formula_evaluation
-        for event in events
-        for formula_evaluation in event["formula_evaluations"]
-    )
-    forged["result"] += 1
+    forged_event = next(event for event in events if event["formula_evaluations"])
+    forged = forged_event["formula_evaluations"][0]
+    if mutation == "result":
+        forged["result"] += 1
+    elif mutation == "omission":
+        forged_event["formula_evaluations"] = []
+    else:
+        forged["arguments"][0]["value"] -= 1
+        formula = next(
+            row
+            for row in checked.rir["formulas"]
+            if row["identity"] == forged["formula"]["identity"]
+        )
+        forged["result"] = _reference_evaluate_formula_document(
+            formula, forged["arguments"]
+        )
     for index, event in enumerate(events[:-1]):
         replacement = content_identity(
             "forged-intermediate-snapshot-v1",
@@ -7549,11 +7572,12 @@ def test_periodic_terminal_audit_rejects_coherently_reidentified_formula_evidenc
     assert model_module.verify_artifact(
         values["runtime-terminal-audit"], checked.language_bundle
     )
-    assert not experiment_runtime_module.validate_experiment_member(
-        checked,
-        "runtime-terminal-audit",
-        values["runtime-terminal-audit"],
-    )
+    if mutation == "result":
+        assert not experiment_runtime_module.validate_experiment_member(
+            checked,
+            "runtime-terminal-audit",
+            values["runtime-terminal-audit"],
+        )
     assert not experiment_runtime_module.validate_experiment_artifact_set(
         checked, values
     )
