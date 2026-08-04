@@ -1067,8 +1067,10 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         "import gda_balancing; print(gda_balancing.__file__)",
     )
     assert (installed_origin.returncode, installed_origin.stderr) == (0, "")
-    assert Path(installed_origin.stdout.strip()).resolve().is_relative_to(
-        (tmp_path / "installed-environment").resolve()
+    assert (
+        Path(installed_origin.stdout.strip())
+        .resolve()
+        .is_relative_to((tmp_path / "installed-environment").resolve())
     )
 
     source_list = run_cli(["package", "list"])

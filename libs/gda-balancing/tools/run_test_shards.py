@@ -16,7 +16,7 @@ from pathlib import Path
 from ci import (
     MEMBER_ROOT,
     PROCESS_TIMEOUT_SECONDS,
-    aggregate_junit,
+    aggregate_junit_verdict,
     local_parallel_shards,
     local_serial_shards,
     shard_paths,
@@ -103,8 +103,13 @@ def _run_once(output_dir: Path, jobs: int) -> dict[str, object]:
         },
         "failed_shards": failures,
     }
-    if not failures:
-        aggregate = aggregate_junit(output_dir, output_dir / "aggregate.json")
+    aggregate, aggregate_exit = aggregate_junit_verdict(
+        output_dir, output_dir / "aggregate.json"
+    )
+    row["aggregate_closed"] = aggregate["closed"]
+    if aggregate_exit:
+        failures.append("aggregate")
+    else:
         row["test_count"] = aggregate["test_count"]
         row["test_seconds"] = aggregate["test_seconds"]
     return row

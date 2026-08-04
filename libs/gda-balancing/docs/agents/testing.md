@@ -27,7 +27,7 @@ separate witnesses in the coverage ledger.
 
 ## Executable coverage closure
 
-Three versioned files make “coverage unchanged” executable:
+Four versioned files make “coverage unchanged” executable:
 
 - `schema2-test-inventory-v1.json` is the accepted pre-optimization snapshot at
   commit `2b81e2e`: 1,409 normalized test ids, 194 packaged
@@ -38,6 +38,10 @@ Three versioned files make “coverage unchanged” executable:
   of the former reason loop into 98 stable `<reason>-<mutation>` test ids. It
   also pins the accepted claim-contract digest and records every reviewed
   contract change as a digest-to-digest migration;
+- `schema2-coverage-claims-accepted-v1.json` freezes every pre-optimization
+  claim id, subject/source digest, minimum, and required independence domain;
+  the migration map must explicitly map all 15 accepted claims and all 305
+  accepted subjects to equal-or-stronger current witnesses;
 - `schema2-coverage-claims-v1.json` adds 19 high-risk cross-boundary claim
   families and 333 current machine-authority and public-process subjects. Every
   subject names its
@@ -53,7 +57,8 @@ missing test, unexpected test, or missing packaged vector. `verify-claims`
 requires every subject's declared witnesses and independent domains, rejects a
 single test relabelled as multiple domains, closes live authority inventories,
 rejects empty subjects/witnesses and minimums below one, requires an explicit
-claim-contract migration, and binds each expansion back to its claim. `verify-outcomes` rejects every
+claim-contract migration plus complete accepted-claim/subject/domain mappings,
+and binds each expansion back to its claim. `verify-outcomes` rejects every
 non-baseline skip and every xfail. Pytest also uses strict xfail and rejects
 `xfail(strict=False)` during collection.
 
@@ -88,11 +93,12 @@ requires exactly one JUnit and wall report for every shard and exactly one
 executed row for every current test id. Its unified JSON rejects failures,
 unexpected skips, every xfail, duplicate/missing tests, and incomplete shards;
 it also publishes per-file totals, the 50 slowest nodes, the critical shard,
-the parallel test-process critical path, and cumulative test seconds. That
-timer begins immediately before pytest and ends immediately after it; setup,
-summary generation, and artifact upload are deliberately excluded. Complete
-required-path latency is calculated separately from GitHub Actions job
-timestamps by the protocol below.
+the parallel shard-execution critical path, and cumulative test seconds. The
+Actions shard timer includes selector/timeout commands and pytest; smoke also
+includes the distribution build. Post-test summary and artifact upload are
+excluded. The local timer additionally includes its report generation. The
+complete required-path latency is calculated separately from GitHub Actions
+job timestamps by the protocol below.
 
 An affecting PR runs inventory/claims, seven semantic runners, one smoke
 runner, and the stable `gda-balancing required` aggregate. Scheduled and
@@ -127,7 +133,9 @@ took 18:15.
 
 `--repeat 3` publishes median/max wall time and cumulative test seconds. Smoke
 always runs alone so wheel and subprocess watchdog claims are not weakened by
-local contention.
+local contention. Success, failure, and timeout paths all run the same
+fail-closed aggregate and retain `aggregate.json`; an incomplete run remains
+non-zero and is never included in the successful timing median.
 
 ## Optimization evidence
 

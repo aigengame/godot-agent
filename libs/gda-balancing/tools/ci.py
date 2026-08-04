@@ -21,6 +21,9 @@ TEST_ROOT: Final = MEMBER_ROOT / "tests"
 BASELINE_PATH: Final = TEST_ROOT / "schema2-test-inventory-v1.json"
 MIGRATION_PATH: Final = TEST_ROOT / "schema2-bootstrap-migration-map.json"
 CLAIM_LEDGER_PATH: Final = TEST_ROOT / "schema2-coverage-claims-v1.json"
+ACCEPTED_CLAIM_MANIFEST_PATH: Final = (
+    TEST_ROOT / "schema2-coverage-claims-accepted-v1.json"
+)
 
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
@@ -203,18 +206,24 @@ def digest(rows: set[str]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def claim_contract_digest(ledger: dict[str, object]) -> str:
-    """Hash the complete versioned claim contract, excluding prose metadata."""
+def canonical_json_digest(value: object) -> str:
     encoded = json.dumps(
-        {
-            "version": ledger.get("version"),
-            "claims": ledger.get("claims"),
-        },
+        value,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def claim_contract_digest(ledger: dict[str, object]) -> str:
+    """Hash the complete versioned claim contract, excluding prose metadata."""
+    return canonical_json_digest(
+        {
+            "version": ledger.get("version"),
+            "claims": ledger.get("claims"),
+        }
+    )
 
 
 def claim_contract_migration_closure(
@@ -272,6 +281,236 @@ def claim_contract_migration_closure(
         "current_digest": current_digest,
         "migrations": rows,
         "problems": problems,
+        "closed": not problems,
+    }
+
+
+def mapped_independence_domain(domain: str, mapping: object) -> str | None:
+    if mapping == "identity":
+        return domain
+    if isinstance(mapping, dict):
+        target = mapping.get(domain)
+        return target if isinstance(target, str) else None
+    return None
+
+
+def accepted_claim_mapping_closure(
+    *,
+    accepted_manifest: dict[str, object],
+    current_claims: list[dict[str, object]],
+    mappings: object,
+    baseline_package_vector_ids: set[str],
+    current_package_vector_ids: set[str],
+) -> dict[str, object]:
+    """Prove every accepted claim subject maps to an equal-or-stronger witness."""
+    problems: list[str] = []
+    accepted_claims = accepted_manifest.get("claims")
+    if not isinstance(accepted_claims, list):
+        return {
+            "claims": [],
+            "problems": ["accepted claims must be a list"],
+            "closed": False,
+        }
+    if not isinstance(mappings, list):
+        return {
+            "claims": [],
+            "problems": ["accepted_claim_mappings must be a list"],
+            "closed": False,
+        }
+    current_by_id = {
+        str(claim["claim_id"]): claim
+        for claim in current_claims
+        if isinstance(claim.get("claim_id"), str)
+    }
+    mappings_by_id: dict[str, dict[str, object]] = {}
+    duplicate_mapping_ids: set[str] = set()
+    for declaration in mappings:
+        if not isinstance(declaration, dict) or not isinstance(
+            declaration.get("from_claim_id"), str
+        ):
+            problems.append("each accepted claim mapping needs from_claim_id")
+            continue
+        from_claim_id = declaration["from_claim_id"]
+        if from_claim_id in mappings_by_id:
+            duplicate_mapping_ids.add(from_claim_id)
+        mappings_by_id[from_claim_id] = declaration
+    if duplicate_mapping_ids:
+        problems.append(
+            "duplicate accepted claim mappings: "
+            + ", ".join(sorted(duplicate_mapping_ids))
+        )
+
+    rows: list[dict[str, object]] = []
+    accepted_ids: set[str] = set()
+    for accepted in accepted_claims:
+        if not isinstance(accepted, dict) or not isinstance(accepted.get("id"), str):
+            problems.append("each accepted claim needs an id")
+            continue
+        claim_id = accepted["id"]
+        accepted_ids.add(claim_id)
+        row_problems: list[str] = []
+        subject_declaration = accepted.get("subjects")
+        if isinstance(subject_declaration, list) and all(
+            isinstance(subject, str) for subject in subject_declaration
+        ):
+            accepted_subjects = list(subject_declaration)
+        elif isinstance(subject_declaration, dict) and isinstance(
+            subject_declaration.get("source"), str
+        ):
+            source = subject_declaration["source"]
+            if source == "baseline.package_vector_ids":
+                accepted_subjects = sorted(baseline_package_vector_ids)
+            else:
+                accepted_subjects = authority_claim_subjects(
+                    source,
+                    current_package_vector_ids=current_package_vector_ids,
+                )
+            if subject_declaration.get("accepted_count") != len(accepted_subjects):
+                row_problems.append("accepted subject count drifted")
+            if subject_declaration.get("accepted_digest") != digest(
+                set(accepted_subjects)
+            ):
+                row_problems.append("accepted subject digest drifted")
+        else:
+            accepted_subjects = []
+            row_problems.append("accepted subjects have an invalid shape")
+
+        mapping = mappings_by_id.get(claim_id)
+        target_claim: dict[str, object] | None = None
+        if mapping is None:
+            row_problems.append("accepted claim has no explicit mapping")
+        else:
+            target_id = mapping.get("to_claim_id")
+            if not isinstance(target_id, str):
+                row_problems.append("mapping needs to_claim_id")
+            else:
+                target_claim = current_by_id.get(target_id)
+                if target_claim is None:
+                    row_problems.append("mapped current claim does not exist")
+
+        subject_targets: dict[str, str] = {}
+        if mapping is not None:
+            subject_mapping = mapping.get("subject_mapping")
+            if subject_mapping == "identity":
+                subject_targets = {subject: subject for subject in accepted_subjects}
+            elif isinstance(subject_mapping, list):
+                for subject_row in subject_mapping:
+                    if not isinstance(subject_row, dict):
+                        row_problems.append("subject mapping must contain objects")
+                        continue
+                    from_subject = subject_row.get("from_subject")
+                    to_subject = subject_row.get("to_subject")
+                    if not isinstance(from_subject, str) or not isinstance(
+                        to_subject, str
+                    ):
+                        row_problems.append(
+                            "subject mapping needs from_subject and to_subject"
+                        )
+                        continue
+                    if from_subject in subject_targets:
+                        row_problems.append(
+                            f"accepted subject mapped more than once: {from_subject}"
+                        )
+                    subject_targets[from_subject] = to_subject
+            else:
+                row_problems.append("subject_mapping must be identity or a list")
+        unmapped_subjects = set(accepted_subjects) - set(subject_targets)
+        extra_subjects = set(subject_targets) - set(accepted_subjects)
+        if unmapped_subjects:
+            row_problems.append(
+                "unmapped accepted subjects: " + ", ".join(sorted(unmapped_subjects))
+            )
+        if extra_subjects:
+            row_problems.append(
+                "unknown accepted subjects in mapping: "
+                + ", ".join(sorted(extra_subjects))
+            )
+
+        accepted_minimum = accepted.get("minimum_independent_witnesses")
+        if target_claim is not None:
+            current_minimum = target_claim.get("minimum_independent_witnesses")
+            if (
+                isinstance(accepted_minimum, bool)
+                or not isinstance(accepted_minimum, int)
+                or isinstance(current_minimum, bool)
+                or not isinstance(current_minimum, int)
+                or current_minimum < accepted_minimum
+            ):
+                row_problems.append("mapped minimum is weaker than accepted")
+            current_subjects = {
+                str(subject["subject"]): subject
+                for subject in target_claim.get("subjects", [])
+                if isinstance(subject, dict) and "subject" in subject
+            }
+        else:
+            current_subjects = {}
+
+        domain_mapping = mapping.get("independence_domain_mapping") if mapping else None
+        if domain_mapping != "identity" and not (
+            isinstance(domain_mapping, dict)
+            and all(
+                isinstance(source, str) and isinstance(target, str)
+                for source, target in domain_mapping.items()
+            )
+        ):
+            row_problems.append(
+                "independence_domain_mapping must be identity or a string map"
+            )
+        required_domains = accepted.get("required_independence_domains")
+        if not isinstance(required_domains, dict):
+            row_problems.append("accepted independence domains must be an object")
+            required_domains = {}
+        for accepted_subject in accepted_subjects:
+            target_subject = subject_targets.get(accepted_subject)
+            current_subject = current_subjects.get(str(target_subject))
+            if current_subject is None:
+                row_problems.append(
+                    f"mapped subject does not exist: {accepted_subject}"
+                )
+                continue
+            domains = required_domains.get(
+                accepted_subject, required_domains.get("*", [])
+            )
+            if not isinstance(domains, list) or not all(
+                isinstance(domain, str) for domain in domains
+            ):
+                row_problems.append(
+                    f"accepted domains have an invalid shape: {accepted_subject}"
+                )
+                continue
+            expected_domains = {
+                mapped_independence_domain(domain, domain_mapping) for domain in domains
+            }
+            if None in expected_domains:
+                row_problems.append(
+                    f"accepted domain has no mapping: {accepted_subject}"
+                )
+                continue
+            observed_domains = set(current_subject.get("independence_domains", []))
+            if not expected_domains <= observed_domains:
+                row_problems.append(
+                    f"mapped independence domains are weaker: {accepted_subject}"
+                )
+        rows.append(
+            {
+                "accepted_claim_id": claim_id,
+                "mapped_claim_id": mapping.get("to_claim_id") if mapping else None,
+                "accepted_subject_count": len(accepted_subjects),
+                "problems": sorted(set(row_problems)),
+                "closed": not row_problems,
+            }
+        )
+        problems.extend(f"{claim_id}: {problem}" for problem in row_problems)
+
+    unknown_mapping_ids = set(mappings_by_id) - accepted_ids
+    if unknown_mapping_ids:
+        problems.append(
+            "mappings reference unknown accepted claims: "
+            + ", ".join(sorted(unknown_mapping_ids))
+        )
+    return {
+        "claims": rows,
+        "problems": sorted(set(problems)),
         "closed": not problems,
     }
 
@@ -416,9 +655,7 @@ def verify_claims(
         elif (
             isinstance(subject_declaration, dict)
             and isinstance(subject_declaration.get("source"), str)
-            and subject_declaration["source"].startswith(
-                ("authority.", "surface.")
-            )
+            and subject_declaration["source"].startswith(("authority.", "surface."))
         ):
             subject_source = subject_declaration["source"]
             subjects = authority_claim_subjects(
@@ -432,15 +669,12 @@ def verify_claims(
         declarations = claim.get("witnesses")
         minimum = claim.get("minimum_independent_witnesses")
         structure_problems: list[str] = []
-        if (
-            not subjects
-            or not all(isinstance(subject, str) and subject for subject in subjects)
+        if not subjects or not all(
+            isinstance(subject, str) and subject for subject in subjects
         ):
             structure_problems.append("subjects must resolve to at least one string")
         if not isinstance(declarations, list) or not declarations:
-            structure_problems.append(
-                "witnesses must contain at least one declaration"
-            )
+            structure_problems.append("witnesses must contain at least one declaration")
         if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 1:
             structure_problems.append(
                 "minimum_independent_witnesses must be an integer >= 1"
@@ -531,6 +765,7 @@ def verify_claims(
             subject_rows.append(
                 {
                     "subject": subject,
+                    "independence_domains": sorted(live_domains),
                     "independent_witness_count": len(live_domains),
                     "minimum_independent_witnesses": minimum,
                     "closed": len(live_domains) >= minimum,
@@ -639,6 +874,39 @@ def verify_claims(
         }
     report["claim_contract_migration"] = contract_migration
     report["claim_contract_migration_closed"] = contract_migration["closed"]
+    if enforce_repository_contract:
+        accepted_manifest = json.loads(
+            ACCEPTED_CLAIM_MANIFEST_PATH.read_text(encoding="utf-8")
+        )
+        accepted_mapping = accepted_claim_mapping_closure(
+            accepted_manifest=accepted_manifest,
+            current_claims=rows,
+            mappings=migration.get("accepted_claim_mappings"),
+            baseline_package_vector_ids=baseline_vectors,
+            current_package_vector_ids=vectors,
+        )
+        accepted_mapping["source_claim_contract_digest_matches"] = (
+            accepted_manifest.get("source_claim_contract_digest")
+            == migration.get("accepted_claim_contract_digest")
+        )
+        accepted_mapping["manifest_digest_matches"] = canonical_json_digest(
+            accepted_manifest
+        ) == migration.get("accepted_claim_manifest_digest")
+        accepted_mapping["closed"] = (
+            bool(accepted_mapping["closed"])
+            and bool(accepted_mapping["source_claim_contract_digest_matches"])
+            and bool(accepted_mapping["manifest_digest_matches"])
+        )
+    else:
+        accepted_mapping = {
+            "claims": [],
+            "problems": [],
+            "source_claim_contract_digest_matches": True,
+            "manifest_digest_matches": True,
+            "closed": True,
+        }
+    report["accepted_claim_mapping"] = accepted_mapping
+    report["accepted_claim_mapping_closed"] = accepted_mapping["closed"]
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if (
@@ -646,6 +914,7 @@ def verify_claims(
         or invalid_claim_structures
         or invalid_migration_expansions
         or not report["claim_contract_migration_closed"]
+        or not report["accepted_claim_mapping_closed"]
         or not report["accepted_baseline_test_digest_matches"]
         or not report["accepted_baseline_package_vector_digest_matches"]
         or any(not row["closed"] for row in rows)
@@ -951,22 +1220,43 @@ def aggregate_junit(
             timed_shards.items(),
             key=lambda item: float(item[1]["wall_seconds"]),
         )
-        report["parallel_test_process_critical_path_seconds"] = critical_row[
+        report["parallel_shard_execution_critical_path_seconds"] = critical_row[
             "wall_seconds"
         ]
-        report["critical_test_process_shard"] = {
+        report["critical_shard_execution"] = {
             "name": critical_name,
             "test_seconds": critical_row["test_seconds"],
             "wall_seconds": critical_row["wall_seconds"],
         }
     else:
-        report["parallel_test_process_critical_path_seconds"] = None
-        report["critical_test_process_shard"] = None
+        report["parallel_shard_execution_critical_path_seconds"] = None
+        report["critical_shard_execution"] = None
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not closed:
         raise SystemExit("gda-balancing aggregate test closure failed")
     return report
+
+
+def aggregate_junit_verdict(
+    junit_dir: Path,
+    report_path: Path,
+    *,
+    expected_shards: tuple[str, ...] | None = None,
+    expected_test_ids: set[str] | None = None,
+) -> tuple[dict[str, object], int]:
+    """Return the same aggregate report on success, failure, or timeout evidence."""
+    try:
+        report = aggregate_junit(
+            junit_dir,
+            report_path,
+            expected_shards=expected_shards,
+            expected_test_ids=expected_test_ids,
+        )
+    except SystemExit:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        return report, 1
+    return report, 0
 
 
 def junit_node_id(testcase: ElementTree.Element) -> str:

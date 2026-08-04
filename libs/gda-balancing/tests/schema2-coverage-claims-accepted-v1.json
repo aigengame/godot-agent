@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "description": "Accepted pre-optimization claim, subject, minimum, and independence contract at 2b81e2e. This manifest is immutable input to reviewed claim migrations; it is not regenerated from the current ledger.",
+  "source_claim_contract_digest": "37d4bd927e8761a82598bcc7ddf009601406cde18ca52ead14ab6d3fa0adf37f",
+  "claims": [
+    {
+      "id": "authority.consumer-agreement",
+      "subjects": [
+        "exact packaged authority admission",
+        "reidentified mutation refusal"
+      ],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {
+        "exact packaged authority admission": ["positive-two-consumer-agreement"],
+        "reidentified mutation refusal": ["negative-two-consumer-agreement"]
+      }
+    },
+    {
+      "id": "package-vector.authority-binding",
+      "subjects": {
+        "source": "baseline.package_vector_ids",
+        "accepted_count": 194,
+        "accepted_digest": "55a8e0441bf17e1e794fc2878113f2b812eb16effadcef901cbacac5f388b61e"
+      },
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["authority-binding"]}
+    },
+    {
+      "id": "package-vector.public-schema",
+      "subjects": ["every declared invalid model-program schema variant"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["public-schema-matrix"]}
+    },
+    {
+      "id": "package-vector.runtime-scenario",
+      "subjects": ["every runtime-scenario vector"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["runtime-scenario-reference"]}
+    },
+    {
+      "id": "package-vector.scheduler",
+      "subjects": ["every scheduler vector and declared mutation"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["scheduler-two-consumer"]}
+    },
+    {
+      "id": "package-vector.value-program",
+      "subjects": ["every value-program vector"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["value-program-two-consumer"]}
+    },
+    {
+      "id": "package-vector.observation-lifecycle",
+      "subjects": ["every observation-lifecycle vector"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["observation-two-consumer"]}
+    },
+    {
+      "id": "model-program-vector.compiler-closure",
+      "subjects": {
+        "source": "authority.model_program_vector_ids",
+        "accepted_count": 35,
+        "accepted_digest": "a5a775c3f898f8ac2b70e75610f81db656224e90c0764d5203cadfb52bbce544"
+      },
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["two-compiler-vector-matrix"]}
+    },
+    {
+      "id": "kernel-law.mutation-closure",
+      "subjects": {
+        "source": "authority.kernel_law_ids",
+        "accepted_count": 8,
+        "accepted_digest": "b38e9291de4f7916c918d7eaa3b915d1f78c98823d294f32330f6291d49017ac"
+      },
+      "minimum_independent_witnesses": 2,
+      "required_independence_domains": {
+        "*": ["machine-contract", "deletion-matrix"]
+      }
+    },
+    {
+      "id": "language-rule.execution-and-mutation",
+      "subjects": {
+        "source": "authority.language_rule_ids",
+        "accepted_count": 2,
+        "accepted_digest": "c091f0bf513621373bf4cac5c81d9e2ab6950ac6c6e9b47da80db9c7f7ec4cc1"
+      },
+      "minimum_independent_witnesses": 2,
+      "required_independence_domains": {
+        "*": ["rule-execution", "rule-mutation"]
+      }
+    },
+    {
+      "id": "diagnostic-reason.execution-and-mutation",
+      "subjects": {
+        "source": "authority.diagnostic_reason_ids",
+        "accepted_count": 49,
+        "accepted_digest": "efadc0409cda510dafe8dfd86522531338be6b623fce1dc243e6258059ee0e53"
+      },
+      "minimum_independent_witnesses": 2,
+      "required_independence_domains": {
+        "*": ["reason-execution", "reason-mutation"]
+      }
+    },
+    {
+      "id": "public-process.key-paths",
+      "subjects": [
+        "console-module agreement",
+        "migrate then build",
+        "formula model build then inspect",
+        "formula to experiment",
+        "reciprocal combat scheduling and cancellation",
+        "periodic effect lifecycle",
+        "schema introspection"
+      ],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {
+        "console-module agreement": ["entrypoint-agreement"],
+        "migrate then build": ["migration-build"],
+        "formula model build then inspect": ["formula-build-inspect"],
+        "formula to experiment": ["formula-experiment"],
+        "reciprocal combat scheduling and cancellation": ["reciprocal-cancel"],
+        "periodic effect lifecycle": ["periodic-lifecycle"],
+        "schema introspection": ["schema-get"]
+      }
+    },
+    {
+      "id": "built-wheel.graph-shipment",
+      "subjects": ["declared authority graph ships byte-for-byte"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["installed-wheel-archive"]}
+    },
+    {
+      "id": "built-wheel.entrypoint",
+      "subjects": ["python -m package list executes from the wheel"],
+      "minimum_independent_witnesses": 1,
+      "required_independence_domains": {"*": ["installed-module-process"]}
+    },
+    {
+      "id": "built-wheel.package-projection",
+      "subjects": ["every root-declared release and conformance-vector child"],
+      "minimum_independent_witnesses": 2,
+      "required_independence_domains": {
+        "*": ["source-public-dispatch", "installed-wheel-batch"]
+      }
+    }
+  ]
+}

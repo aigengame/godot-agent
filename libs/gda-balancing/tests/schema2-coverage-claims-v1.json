@@ -404,7 +404,7 @@
       "witnesses": [
         {
           "test_id": "tests/test_schema2_authority_cli.py::test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it",
-          "independence_domain": "installed-module-process",
+          "independence_domain": "installed-wheel-entrypoints",
           "covers": "*"
         }
       ],

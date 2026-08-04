@@ -312,7 +312,7 @@ def test_claim_ledger_rejects_structurally_empty_claims(tmp_path):
     ]
 
 
-def test_claim_contract_change_requires_an_explicit_digest_migration():
+def test_digest_hop_cannot_authorize_deleting_an_accepted_claim_or_subject():
     accepted = {
         "version": 1,
         "claims": [
@@ -334,7 +334,7 @@ def test_claim_contract_change_requires_an_explicit_digest_migration():
         current_digest=weakened_digest,
         migrations=[],
     )["closed"]
-    assert ci.claim_contract_migration_closure(
+    digest_hop = ci.claim_contract_migration_closure(
         accepted_digest=accepted_digest,
         current_digest=weakened_digest,
         migrations=[
@@ -345,7 +345,102 @@ def test_claim_contract_change_requires_an_explicit_digest_migration():
                 "reason": "reviewed contract change",
             }
         ],
-    )["closed"]
+    )
+    assert digest_hop["closed"]
+
+    accepted_manifest = {
+        "version": 1,
+        "claims": [
+            {
+                "id": "kept",
+                "subjects": ["subject"],
+                "minimum_independent_witnesses": 1,
+                "required_independence_domains": {"*": ["consumer-a"]},
+            }
+        ],
+    }
+    mappings = [
+        {
+            "from_claim_id": "kept",
+            "to_claim_id": "kept",
+            "subject_mapping": "identity",
+            "independence_domain_mapping": "identity",
+        }
+    ]
+    deleted_claim = ci.accepted_claim_mapping_closure(
+        accepted_manifest=accepted_manifest,
+        current_claims=[],
+        mappings=mappings,
+        baseline_package_vector_ids=set(),
+        current_package_vector_ids=set(),
+    )
+    deleted_subject = ci.accepted_claim_mapping_closure(
+        accepted_manifest=accepted_manifest,
+        current_claims=[
+            {
+                "claim_id": "kept",
+                "minimum_independent_witnesses": 1,
+                "subjects": [],
+            }
+        ],
+        mappings=mappings,
+        baseline_package_vector_ids=set(),
+        current_package_vector_ids=set(),
+    )
+
+    assert not deleted_claim["closed"]
+    assert not deleted_subject["closed"]
+
+
+def test_accepted_claim_mapping_allows_an_explicit_stronger_subject():
+    report = ci.accepted_claim_mapping_closure(
+        accepted_manifest={
+            "version": 1,
+            "claims": [
+                {
+                    "id": "installed-entrypoint",
+                    "subjects": ["old module entrypoint"],
+                    "minimum_independent_witnesses": 1,
+                    "required_independence_domains": {
+                        "*": ["installed-module-process"]
+                    },
+                }
+            ],
+        },
+        current_claims=[
+            {
+                "claim_id": "installed-entrypoint",
+                "minimum_independent_witnesses": 1,
+                "subjects": [
+                    {
+                        "subject": "installed module entrypoint",
+                        "independence_domains": ["installed-module-process"],
+                    },
+                    {
+                        "subject": "installed console entrypoint",
+                        "independence_domains": ["installed-console-process"],
+                    },
+                ],
+            }
+        ],
+        mappings=[
+            {
+                "from_claim_id": "installed-entrypoint",
+                "to_claim_id": "installed-entrypoint",
+                "subject_mapping": [
+                    {
+                        "from_subject": "old module entrypoint",
+                        "to_subject": "installed module entrypoint",
+                    }
+                ],
+                "independence_domain_mapping": "identity",
+            }
+        ],
+        baseline_package_vector_ids=set(),
+        current_package_vector_ids=set(),
+    )
+
+    assert report["closed"]
 
 
 def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
@@ -356,6 +451,7 @@ def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
     assert report["subject_claim_count"] >= 100
     assert report["migration_expansions_closed"] is True
     assert report["claim_contract_migration_closed"] is True
+    assert report["accepted_claim_mapping_closed"] is True
 
 
 def test_ci_policy_exposes_coverage_claim_verification_command(tmp_path):
@@ -404,8 +500,8 @@ def test_junit_aggregate_proves_exact_execution_and_reports_total_duration(tmp_p
         "test_seconds": 1.75,
         "wall_seconds": 2.5,
     }
-    assert report["parallel_test_process_critical_path_seconds"] == 2.5
-    assert report["critical_test_process_shard"] == {
+    assert report["parallel_shard_execution_critical_path_seconds"] == 2.5
+    assert report["critical_shard_execution"] == {
         "name": "smoke",
         "test_seconds": 1.75,
         "wall_seconds": 2.5,
@@ -436,6 +532,24 @@ def test_junit_aggregate_rejects_a_missing_shard_wall_report(tmp_path):
             expected_shards=("fast",),
             expected_test_ids={"tests/test_one.py::test_fast"},
         )
+
+
+def test_local_aggregate_verdict_preserves_a_failed_report(tmp_path):
+    junit_dir = tmp_path / "junit"
+    junit_dir.mkdir()
+    report_path = tmp_path / "aggregate.json"
+
+    report, exit_code = ci.aggregate_junit_verdict(
+        junit_dir,
+        report_path,
+        expected_shards=("fast",),
+        expected_test_ids={"tests/test_one.py::test_fast"},
+    )
+
+    assert exit_code == 1
+    assert report["closed"] is False
+    assert report["missing_shards"] == ["fast"]
+    assert json.loads(report_path.read_text(encoding="utf-8")) == report
 
 
 @pytest.mark.parametrize("outcome_type", ["pytest.skip", "pytest.xfail"])
