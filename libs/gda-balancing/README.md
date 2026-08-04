@@ -14,8 +14,9 @@ extends `gda`; its CLI follows the family's interface conventions.
   [Phase 2 — runtime, evidence & genre closure](https://github.com/aigengame/godot-agent/milestone/9)
 - Status: Phase 1's permanent Schema 2.0 surface includes the Kernel/LDB authority, command
   discovery, one typed-Quantity Model build, one minimal Template release, and limited
-  semantics-preserving 1.x source migration. Runtime, evidence, and complete RPG/Roguelike
-  Template closure remain ahead; the package is **not published to PyPI yet**.
+  semantics-preserving 1.x source migration. Phase 2 now includes a bounded deterministic
+  multi-Event Experiment Runtime and RPG product-feedback examples; evidence and complete
+  RPG/Roguelike Template closure remain ahead. The package is **not published to PyPI yet**.
 
 ## Commands
 
@@ -29,6 +30,8 @@ gda-balancing model check <source>         # admit a Schema 2.0 Model Source
 gda-balancing model build <source> [...]   # build and atomically publish a Model
 gda-balancing model inspect <receipt> [...] # render a stored Model explanation
 gda-balancing model migrate <source> [...] # migrate only the safe Schema 1.x source subset
+gda-balancing experiment check <source>    # admit an exact Experiment without running it
+gda-balancing experiment run <source> [...] # run and atomically publish evaluation artifacts
 gda-balancing template list                # list admitted Template releases
 gda-balancing template get [...]           # retrieve an exact Template release
 gda-balancing template instantiate [...]   # publish a new editable Model Source
@@ -45,6 +48,13 @@ input object from stdin, and structured input is mutually exclusive with individ
 `model migrate` is the only 1.x public entrypoint: success atomically publishes a new 2.0 Model
 Source and its Migration report; an unsupported or lossy construct returns an auditable migration
 refusal and publishes neither a partial Source nor a compatibility artifact.
+
+## Examples
+
+- [Reciprocal RPG combat](examples/schema2/rpg-combat-cast/README.md) — two same-time directional
+  roots, committed-Snapshot visibility, explicit cancellation and Formula tuning.
+- [Periodic RPG Effect](examples/schema2/rpg-periodic-effect/README.md) — snapshot/live Formula
+  timing, scheduled tick/tick/expire Events, same-time combat ordering and Formula rebinding.
 
 ## Development
 

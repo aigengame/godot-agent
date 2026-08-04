@@ -38,6 +38,17 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > roots remain sequential atomic transactions, and Runtime infers no defeat, interruption, or
 > eligibility policy from health-like state.
 
+> **Amendment (2026-08-04, #596):** A Domain-package Operation may implement one bounded periodic
+> lifecycle only by scheduling ordinary child Events through this same queue. The selected package
+> owns duration/period, tick/expiry times, capture/read policy, contribution and outcomes; Runtime
+> owns generic schedule admission, total order, budgets, atomicity and Snapshot visibility.
+> Snapshot magnitude evaluates once in apply's pre-Event committed frame and is carried as a typed
+> scheduled argument; live magnitude evaluates in each tick's own pre-Event committed frame. An
+> apply transaction buffers its state writes, Named-stream draw and every scheduled child together,
+> so Formula, Numeric or schedule refusal publishes none of them. A tick sharing logical time with
+> an ordinary Event observes only the latest previously committed Snapshot under the existing
+> phase/priority/enqueue order. No Effect loop or repeated Scenario becomes a second time authority.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
