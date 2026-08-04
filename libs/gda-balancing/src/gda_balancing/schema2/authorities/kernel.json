@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:7dc63829b2ff089daa2065c07a2f7c85ddfc9df8246e32ba8cdcd62e55eba1af",
+  "content_identity": "sha256:0e13d6213a438693f3ff07aba5689476a991d51a8b3d6f42903fc705df599d4b",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3788,13 +3788,18 @@
           ]
         },
         {
+          "declaration_extension": "standard.operation-relations",
+          "declaration_members": [
+            "id",
+            "probe"
+          ],
           "id": "operation-relation",
           "operators": [
+            "canonical-equal",
             "integer-equal",
             "integer-greater-than",
             "integer-less-than-or-equal",
-            "periodic-sequence-equal",
-            "schedule-times-equal"
+            "schedule-projection-equal"
           ],
           "probe_members": [
             "left_path",
@@ -3810,55 +3815,9 @@
             "probe",
             "role"
           ],
-          "roles": [
-            {
-              "id": "duration-positive",
-              "left_member": "duration",
-              "operator": "integer-greater-than",
-              "right_member": null,
-              "right_value": 0
-            },
-            {
-              "id": "period-positive",
-              "left_member": "period",
-              "operator": "integer-greater-than",
-              "right_member": null,
-              "right_value": 0
-            },
-            {
-              "id": "period-within-duration",
-              "left_member": "period",
-              "operator": "integer-less-than-or-equal",
-              "right_member": "duration",
-              "right_value": null
-            },
-            {
-              "id": "expiry-matches-duration",
-              "left_member": "expiry_time",
-              "operator": "integer-equal",
-              "right_member": "duration",
-              "right_value": null
-            },
-            {
-              "id": "tick-times-match-period",
-              "left_member": "tick_times",
-              "operator": "periodic-sequence-equal",
-              "right_member": "duration",
-              "right_value": null
-            },
-            {
-              "id": "schedule-times-match",
-              "left_member": "tick_times",
-              "operator": "schedule-times-equal",
-              "right_member": "expiry_time",
-              "right_value": null
-            }
-          ],
-          "timing_members": [
-            "duration",
-            "expiry_time",
-            "period",
-            "tick_times"
+          "schedule_projection_members": [
+            "logical_time",
+            "operation"
           ]
         },
         {

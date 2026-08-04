@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7dc63829b2ff089daa2065c07a2f7c85ddfc9df8246e32ba8cdcd62e55eba1af"
+    "sha256:0e13d6213a438693f3ff07aba5689476a991d51a8b3d6f42903fc705df599d4b"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -401,12 +401,13 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "required_members",
     },
     "operation-relation": {
+        "declaration_extension",
+        "declaration_members",
         "id",
         "operators",
         "probe_members",
         "required_members",
-        "roles",
-        "timing_members",
+        "schedule_projection_members",
     },
     "runtime-scenario": {
         "expect_members",
@@ -531,59 +532,18 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         == ["left_path", "operator", "right_path", "right_value"]
         and kinds["operation-relation"].get("operators")
         == [
+            "canonical-equal",
             "integer-equal",
             "integer-greater-than",
             "integer-less-than-or-equal",
-            "periodic-sequence-equal",
-            "schedule-times-equal",
+            "schedule-projection-equal",
         ]
-        and kinds["operation-relation"].get("timing_members")
-        == ["duration", "expiry_time", "period", "tick_times"]
-        and kinds["operation-relation"].get("roles")
-        == [
-            {
-                "id": "duration-positive",
-                "left_member": "duration",
-                "operator": "integer-greater-than",
-                "right_member": None,
-                "right_value": 0,
-            },
-            {
-                "id": "period-positive",
-                "left_member": "period",
-                "operator": "integer-greater-than",
-                "right_member": None,
-                "right_value": 0,
-            },
-            {
-                "id": "period-within-duration",
-                "left_member": "period",
-                "operator": "integer-less-than-or-equal",
-                "right_member": "duration",
-                "right_value": None,
-            },
-            {
-                "id": "expiry-matches-duration",
-                "left_member": "expiry_time",
-                "operator": "integer-equal",
-                "right_member": "duration",
-                "right_value": None,
-            },
-            {
-                "id": "tick-times-match-period",
-                "left_member": "tick_times",
-                "operator": "periodic-sequence-equal",
-                "right_member": "duration",
-                "right_value": None,
-            },
-            {
-                "id": "schedule-times-match",
-                "left_member": "tick_times",
-                "operator": "schedule-times-equal",
-                "right_member": "expiry_time",
-                "right_value": None,
-            },
-        ]
+        and kinds["operation-relation"].get("declaration_extension")
+        == "standard.operation-relations"
+        and kinds["operation-relation"].get("declaration_members")
+        == ["id", "probe"]
+        and kinds["operation-relation"].get("schedule_projection_members")
+        == ["logical_time", "operation"]
         and kinds["runtime-scenario"].get("input_members")
         == ["seed", "state_names", "values"]
         and kinds["runtime-scenario"].get("expect_members")
@@ -690,44 +650,32 @@ def _operation_relation_is_satisfied(
     probe = vector.get("probe")
     if not isinstance(probe, dict) or set(probe) != set(kind["probe_members"]):
         return False
-    roles = kind.get("roles")
-    timing_members = kind.get("timing_members")
-    if not isinstance(roles, list) or not isinstance(timing_members, list):
-        return False
-    role_matches = [
-        role
-        for role in roles
-        if isinstance(role, dict) and role.get("id") == vector.get("role")
-    ]
+    declaration_extension = kind.get("declaration_extension")
+    declaration_members = kind.get("declaration_members")
     extensions = operation.get("extensions")
-    timing_matches = [
-        (["extensions", extension_id, "timing"], extension["timing"])
-        for extension_id, extension in (
-            extensions.items() if isinstance(extensions, dict) else []
-        )
-        if isinstance(extension, dict)
-        and isinstance(extension.get("timing"), dict)
-        and set(extension["timing"]) == set(timing_members)
+    declarations = (
+        extensions.get(declaration_extension)
+        if isinstance(extensions, dict) and isinstance(declaration_extension, str)
+        else None
+    )
+    if (
+        not isinstance(declaration_members, list)
+        or not isinstance(declarations, list)
+    ):
+        return False
+    matches = [
+        declaration
+        for declaration in declarations
+        if isinstance(declaration, dict)
+        and set(declaration) == set(declaration_members)
+        and declaration.get("id") == vector.get("role")
     ]
-    if len(role_matches) != 1 or len(timing_matches) != 1:
+    if len(matches) != 1 or not _canonical_equal(probe, matches[0].get("probe")):
         return False
-    role = role_matches[0]
-    timing_path, timing = timing_matches[0]
-    right_member = role.get("right_member")
-    expected_probe = {
-        "left_path": [*timing_path, role.get("left_member")],
-        "operator": role.get("operator"),
-        "right_path": (
-            [*timing_path, right_member] if isinstance(right_member, str) else None
-        ),
-        "right_value": role.get("right_value"),
-    }
-    if not _canonical_equal(probe, expected_probe):
-        return False
-    left_path = cast(list[str], expected_probe["left_path"])
-    right_path = cast(list[str] | None, expected_probe["right_path"])
-    right_value = expected_probe["right_value"]
-    operator = expected_probe["operator"]
+    left_path = probe.get("left_path")
+    right_path = probe.get("right_path")
+    right_value = probe.get("right_value")
+    operator = probe.get("operator")
 
     def member_path(value: Any) -> list[str] | None:
         if (
@@ -762,24 +710,14 @@ def _operation_relation_is_satisfied(
         if right_members[0] not in roots:
             return False
         declared, right = observed(right_members)
-        if not declared or not _signed_int64(right):
+        if not declared:
             return False
     else:
         right = right_value
-        if not _signed_int64(right):
-            return False
-    if operator == "periodic-sequence-equal":
-        period = timing.get("period")
-        return (
-            isinstance(left, list)
-            and all(_signed_int64(item) for item in left)
-            and _signed_int64(period)
-            and period > 0
-            and _signed_int64(right)
-            and right > 0
-            and left == list(range(period, right, period))
-        )
-    if operator == "schedule-times-equal":
+    if operator == "canonical-equal":
+        return _canonical_equal(left, right)
+    if operator == "schedule-projection-equal":
+        projection_members = kind.get("schedule_projection_members")
         schedule_nodes = {
             node.get("id")
             for node in runtime_nodes
@@ -787,18 +725,19 @@ def _operation_relation_is_satisfied(
             and isinstance(node.get("semantics"), dict)
             and node["semantics"].get("operator") == "schedule-operation"
         }
-        scheduled_times = [
-            instruction.get("logical_time")
-            for instruction in cast(list[dict[str, Any]], operation.get("body", []))
+        if (
+            not isinstance(projection_members, list)
+            or not isinstance(left, list)
+            or not all(isinstance(instruction, dict) for instruction in left)
+        ):
+            return False
+        projected = [
+            {member: instruction[member] for member in projection_members}
+            for instruction in left
             if instruction.get("node") in schedule_nodes
+            and all(member in instruction for member in projection_members)
         ]
-        return (
-            isinstance(left, list)
-            and all(_signed_int64(item) for item in left)
-            and _signed_int64(right)
-            and all(_signed_int64(item) for item in scheduled_times)
-            and scheduled_times == [*left, right]
-        )
+        return _canonical_equal(projected, right)
     if not _signed_int64(left) or not _signed_int64(right):
         return False
     return (
@@ -1309,38 +1248,52 @@ def _package_evidence_vectors_are_closed(
             return False
 
     relation_kind = kinds.get("operation-relation")
-    timing_members = (
-        relation_kind.get("timing_members") if isinstance(relation_kind, dict) else None
+    declaration_extension = (
+        relation_kind.get("declaration_extension")
+        if isinstance(relation_kind, dict)
+        else None
     )
-    relation_roles = (
-        relation_kind.get("roles") if isinstance(relation_kind, dict) else None
+    declaration_members = (
+        relation_kind.get("declaration_members")
+        if isinstance(relation_kind, dict)
+        else None
     )
-    expected_relation_roles = (
-        [role.get("id") for role in relation_roles if isinstance(role, dict)]
-        if isinstance(relation_roles, list)
-        else []
-    )
-    timing_operation_ids = {
-        operation_id
-        for operation_id, operation in operations.items()
-        if isinstance(operation.get("extensions"), dict)
-        and sum(
-            1
-            for extension in operation["extensions"].values()
-            if isinstance(extension, dict)
-            and isinstance(extension.get("timing"), dict)
-            and isinstance(timing_members, list)
-            and set(extension["timing"]) == set(timing_members)
+    declared_roles_by_operation: dict[str, list[str]] = {}
+    if not isinstance(declaration_extension, str) or not isinstance(
+        declaration_members, list
+    ):
+        return False
+    for operation_id, operation in operations.items():
+        extensions = operation.get("extensions")
+        declarations = (
+            extensions.get(declaration_extension)
+            if isinstance(extensions, dict)
+            else None
         )
-        == 1
-    }
+        if declarations is None:
+            continue
+        if (
+            not isinstance(declarations, list)
+            or not declarations
+            or not all(
+                isinstance(declaration, dict)
+                and set(declaration) == set(declaration_members)
+                and isinstance(declaration.get("id"), str)
+                and bool(declaration["id"])
+                and isinstance(declaration.get("probe"), dict)
+                for declaration in declarations
+            )
+        ):
+            return False
+        roles = [cast(str, declaration["id"]) for declaration in declarations]
+        if len(roles) != len(set(roles)):
+            return False
+        declared_roles_by_operation[cast(str, operation_id)] = roles
     if (
-        not expected_relation_roles
-        or len(expected_relation_roles) != len(set(expected_relation_roles))
-        or set(relation_roles_by_operation) != timing_operation_ids
+        set(relation_roles_by_operation) != set(declared_roles_by_operation)
         or any(
-            roles != expected_relation_roles
-            for roles in relation_roles_by_operation.values()
+            roles != declared_roles_by_operation[operation_id]
+            for operation_id, roles in relation_roles_by_operation.items()
         )
     ):
         return False
