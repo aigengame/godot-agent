@@ -341,6 +341,311 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     }
 
 
+def _instruction_evaluation_sites(
+    operation: dict[str, Any],
+) -> dict[int, str]:
+    extensions = operation.get("extensions")
+    if not isinstance(extensions, dict):
+        return {}
+    provenance = extensions.get("standard.instruction-provenance")
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("kind") != "instruction-evaluation-sites"
+        or not isinstance(provenance.get("sites"), list)
+    ):
+        return {}
+    return {
+        cast(int, row["instruction_index"]): cast(str, row["evaluation_site_identity"])
+        for row in cast(list[dict[str, Any]], provenance["sites"])
+    }
+
+
+def _operation_formula_slot(
+    operation: dict[str, Any], slot_id: str
+) -> dict[str, Any] | None:
+    extensions = operation.get("extensions")
+    slots = (
+        extensions.get("standard.formula-slots")
+        if isinstance(extensions, dict)
+        else None
+    )
+    matches = (
+        [row for row in slots if isinstance(row, dict) and row.get("id") == slot_id]
+        if isinstance(slots, list)
+        else []
+    )
+    return cast(dict[str, Any], matches[0]) if len(matches) == 1 else None
+
+
+_INVALID_FORMULA_EVIDENCE = object()
+
+
+def _evaluate_formula_evidence_result(
+    checked: CheckedExperiment,
+    formula: dict[str, Any],
+    arguments: list[dict[str, Any]],
+) -> JsonValue | object:
+    """Independently evaluate one traced Formula from admitted RIR semantics."""
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
+        )
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, row["definition"]["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
+        )
+    }
+    formulas = {
+        cast(str, row["identity"]): row
+        for row in cast(list[dict[str, Any]], checked.rir["formulas"])
+    }
+    runtime_nodes = _runtime_nodes(checked)
+    numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
+
+    def operand_value(
+        operand: dict[str, Any], values: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        kind = operand.get("kind")
+        if kind == "parameter":
+            return values.get(
+                cast(str, operand.get("parameter")), _INVALID_FORMULA_EVIDENCE
+            )
+        if kind == "local":
+            return values.get(
+                cast(str, operand.get("local")), _INVALID_FORMULA_EVIDENCE
+            )
+        if kind == "literal":
+            return cast(JsonValue, operand.get("value"))
+        return _INVALID_FORMULA_EVIDENCE
+
+    def evaluate_operation(
+        reference: dict[str, Any], values: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        operation = operations.get(
+            (
+                cast(str, reference.get("package")),
+                cast(str, reference.get("version")),
+                cast(str, reference.get("id")),
+            )
+        )
+        if operation is None:
+            return _INVALID_FORMULA_EVIDENCE
+        variables: dict[str, Any] = dict(values)
+        try:
+            for instruction in cast(list[dict[str, Any]], operation["body"]):
+                node = runtime_nodes.get(cast(str, instruction.get("node")))
+                if node is None or node.get("family") != "expression":
+                    return _INVALID_FORMULA_EVIDENCE
+                _execute_value_instruction(instruction, variables, numeric, node)
+            source = cast(dict[str, Any], operation["result"]["source"])
+            if source.get("kind") not in {"local", "port"}:
+                return _INVALID_FORMULA_EVIDENCE
+            return cast(
+                JsonValue,
+                variables[cast(str, source["name"])],
+            )
+        except (KeyError, OverflowError, TypeError, ValueError):
+            return _INVALID_FORMULA_EVIDENCE
+
+    def evaluate_formula(
+        selected_formula: dict[str, Any], parameters: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        body = cast(dict[str, Any], selected_formula["body"])
+        if body.get("node") == "parameter":
+            return parameters.get(
+                cast(str, body.get("parameter")), _INVALID_FORMULA_EVIDENCE
+            )
+        values = dict(parameters)
+        for node in cast(list[dict[str, Any]], body.get("nodes", [])):
+            kind = node.get("node")
+            if kind == "operation-call":
+                inputs: dict[str, JsonValue] = {}
+                for argument in cast(list[dict[str, Any]], node["arguments"]):
+                    value = operand_value(
+                        cast(dict[str, Any], argument["operand"]), values
+                    )
+                    if value is _INVALID_FORMULA_EVIDENCE:
+                        return value
+                    inputs[cast(str, argument["port"])] = cast(JsonValue, value)
+                result = evaluate_operation(
+                    cast(dict[str, Any], node["operation"]), inputs
+                )
+            elif kind == "formula-call":
+                child_reference = cast(dict[str, Any], node["formula"])
+                child = formulas.get(cast(str, child_reference.get("identity")))
+                if child is None:
+                    return _INVALID_FORMULA_EVIDENCE
+                inputs = {}
+                for argument in cast(list[dict[str, Any]], node["arguments"]):
+                    value = operand_value(
+                        cast(dict[str, Any], argument["operand"]), values
+                    )
+                    if value is _INVALID_FORMULA_EVIDENCE:
+                        return value
+                    inputs[cast(str, argument["parameter"])] = cast(JsonValue, value)
+                result = evaluate_formula(child, inputs)
+            elif kind == "conditional":
+                condition = operand_value(
+                    cast(dict[str, Any], node["condition"]), values
+                )
+                if not isinstance(condition, bool):
+                    return _INVALID_FORMULA_EVIDENCE
+                result = operand_value(
+                    cast(
+                        dict[str, Any],
+                        node["when_true"] if condition else node["when_false"],
+                    ),
+                    values,
+                )
+            else:
+                return _INVALID_FORMULA_EVIDENCE
+            if result is _INVALID_FORMULA_EVIDENCE:
+                return result
+            values[cast(str, node["id"])] = cast(JsonValue, result)
+        return operand_value(cast(dict[str, Any], body["result"]), values)
+
+    parameters = {
+        cast(str, row["parameter"]): cast(JsonValue, row["value"]) for row in arguments
+    }
+    return evaluate_formula(formula, parameters)
+
+
+def _event_formula_evaluations_are_authoritative(
+    checked: CheckedExperiment, event: dict[str, Any]
+) -> bool:
+    evaluations = event.get("formula_evaluations")
+    if not isinstance(evaluations, list):
+        return False
+    bindings = cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+    formulas = {
+        cast(str, row["identity"]): row
+        for row in cast(list[dict[str, Any]], checked.rir["formulas"])
+    }
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
+        )
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, row["definition"]["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
+        )
+    }
+    executions: dict[str, str] = {}
+    entrypoint = event.get("entrypoint")
+    operation_id = event.get("operation")
+    if isinstance(operation_id, str):
+        root_path = (
+            cast(str, entrypoint["id"])
+            if isinstance(entrypoint, dict)
+            else f"scheduled:{event.get('schedule_call_site_identity')}"
+        )
+        executions[root_path] = operation_id
+    for call in cast(list[dict[str, Any]], event.get("calls", [])):
+        call_operation = call.get("operation")
+        if not isinstance(call.get("site"), str) or not isinstance(
+            call_operation, dict
+        ):
+            return False
+        executions[cast(str, call["site"])] = cast(str, call_operation.get("id"))
+
+    seen: set[tuple[str, str]] = set()
+    for evaluation in evaluations:
+        if not isinstance(evaluation, dict):
+            return False
+        site_identity = evaluation.get("evaluation_site_identity")
+        binding_identity = evaluation.get("binding_identity")
+        call_path = evaluation.get("call_path")
+        matches = [
+            binding
+            for binding in bindings
+            if binding.get("identity") == binding_identity
+            and cast(dict[str, Any], binding.get("site", {})).get("identity")
+            == site_identity
+        ]
+        if len(matches) != 1 or not isinstance(call_path, str):
+            return False
+        binding = matches[0]
+        site = cast(dict[str, Any], binding["site"])
+        operation_reference = cast(dict[str, Any], site["operation"])
+        operation = operations.get(
+            (
+                cast(str, operation_reference["package"]),
+                cast(str, operation_reference["version"]),
+                cast(str, operation_reference["id"]),
+            )
+        )
+        formula_reference = cast(dict[str, Any], binding["formula"])
+        formula = formulas.get(cast(str, formula_reference["identity"]))
+        slot = (
+            _operation_formula_slot(operation, cast(str, site["slot"]))
+            if operation is not None
+            else None
+        )
+        if (
+            operation is None
+            or formula is None
+            or slot is None
+            or evaluation.get("formula") != formula_reference
+            or evaluation.get("operation") != operation_reference
+            or evaluation.get("slot") != site["slot"]
+            or evaluation.get("context") != site["context"]
+            or evaluation.get("frame_identity") != event.get("snapshot_before_identity")
+            or executions.get(call_path) != operation_reference["id"]
+            or site_identity not in _instruction_evaluation_sites(operation).values()
+            or (call_path, cast(str, site_identity)) in seen
+        ):
+            return False
+        seen.add((call_path, cast(str, site_identity)))
+        formula_parameters = cast(list[dict[str, Any]], formula["parameters"])
+        parameter_ids = [cast(str, row["id"]) for row in formula_parameters]
+        binding_parameter_ids = [
+            cast(str, row["parameter"])
+            for row in cast(list[dict[str, Any]], binding["arguments"])
+        ]
+        arguments = evaluation.get("arguments")
+        if (
+            not isinstance(arguments, list)
+            or binding_parameter_ids != sorted(parameter_ids)
+            or [row.get("parameter") for row in arguments] != sorted(parameter_ids)
+        ):
+            return False
+        domains = {
+            cast(str, row["id"]): cast(dict[str, int], row["domain"])
+            for row in formula_parameters
+        }
+        if any(
+            not isinstance(row.get("value"), int)
+            or isinstance(row["value"], bool)
+            or not domains[cast(str, row["parameter"])]["minimum"]
+            <= row["value"]
+            <= domains[cast(str, row["parameter"])]["maximum"]
+            for row in arguments
+        ):
+            return False
+        result = _evaluate_formula_evidence_result(
+            checked,
+            formula,
+            cast(list[dict[str, Any]], arguments),
+        )
+        if result is _INVALID_FORMULA_EVIDENCE or result != evaluation.get("result"):
+            return False
+    return True
+
+
 def _scheduler_contract(checked: CheckedExperiment) -> Mapping[str, Any]:
     return RuntimeScheduler.from_kernel(checked.kernel).contract
 
@@ -3403,38 +3708,6 @@ def evaluate_experiment(
         canceled_event_ids: set[str] = set()
         event_id = ""
 
-        def instruction_evaluation_sites(
-            selected_operation: dict[str, Any],
-        ) -> dict[int, str]:
-            extensions = selected_operation.get("extensions")
-            if not isinstance(extensions, dict):
-                return {}
-            provenance = extensions.get("standard.instruction-provenance")
-            if (
-                not isinstance(provenance, dict)
-                or provenance.get("kind") != "instruction-evaluation-sites"
-                or not isinstance(provenance.get("sites"), list)
-            ):
-                return {}
-            return {
-                cast(int, row["instruction_index"]): cast(
-                    str, row["evaluation_site_identity"]
-                )
-                for row in cast(list[dict[str, Any]], provenance["sites"])
-            }
-
-        def operation_formula_slot(
-            selected_operation: dict[str, Any], slot_id: str
-        ) -> dict[str, Any]:
-            extensions = cast(dict[str, Any], selected_operation["extensions"])
-            return next(
-                row
-                for row in cast(
-                    list[dict[str, Any]], extensions["standard.formula-slots"]
-                )
-                if row["id"] == slot_id
-            )
-
         def execute_operation(
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
@@ -3462,7 +3735,7 @@ def evaluate_experiment(
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
-            evaluation_sites = instruction_evaluation_sites(selected_operation)
+            evaluation_sites = _instruction_evaluation_sites(selected_operation)
             for instruction_index, instruction in enumerate(selected_operation["body"]):
                 evaluation_site_identity = evaluation_sites.get(instruction_index)
                 node_contract = node_contracts[instruction["node"]]
@@ -3852,9 +4125,17 @@ def evaluate_experiment(
                 ):
                     binding = formula_bindings_by_site[evaluation_site_identity]
                     binding_site = cast(dict[str, Any], binding["site"])
-                    slot = operation_formula_slot(
+                    slot = _operation_formula_slot(
                         selected_operation, cast(str, binding_site["slot"])
                     )
+                    if slot is None:
+                        raise ValueError("admitted Formula slot is absent")
+                    formula_parameter_by_slot_parameter = {
+                        cast(str, argument["operand"]["parameter"]): cast(
+                            str, argument["parameter"]
+                        )
+                        for argument in cast(list[dict[str, Any]], binding["arguments"])
+                    }
                     evaluated_arguments: list[dict[str, JsonValue]] = []
                     for parameter in cast(list[dict[str, Any]], slot["parameters"]):
                         source = cast(dict[str, Any], parameter["source"])
@@ -3864,7 +4145,9 @@ def evaluate_experiment(
                             )
                         evaluated_arguments.append(
                             {
-                                "parameter": parameter["id"],
+                                "parameter": formula_parameter_by_slot_parameter[
+                                    parameter["id"]
+                                ],
                                 "value": variables[source["name"]],
                             }
                         )
@@ -4803,7 +5086,22 @@ def validate_experiment_member(
 ) -> bool:
     """Re-admit one prepared Experiment output against the exact LDB."""
     del logical_name
-    return verify_artifact(value, checked.language_bundle)
+    if not verify_artifact(value, checked.language_bundle):
+        return False
+    kind = value.get("artifact_kind")
+    if kind == "event-trace":
+        return all(
+            _event_formula_evaluations_are_authoritative(checked, event)
+            for event in cast(list[dict[str, Any]], value.get("events", []))
+        )
+    if kind == "runtime-terminal-audit":
+        return all(
+            _event_formula_evaluations_are_authoritative(checked, event)
+            for event in cast(
+                list[dict[str, Any]], value.get("committed_trace_prefix", [])
+            )
+        )
+    return True
 
 
 def _expected_root_event_map(
@@ -4851,6 +5149,10 @@ def _artifact_set_runtime_journals_are_valid(
             snapshot.get("index") != index for index, snapshot in enumerate(snapshots)
         )
         or any(event.get("index") != index for index, event in enumerate(events))
+        or any(
+            not _event_formula_evaluations_are_authoritative(checked, event)
+            for event in events
+        )
     ):
         return False
     snapshots_by_identity = {
@@ -5446,13 +5748,18 @@ def _terminal_audit_is_valid(
     required_root_scenarios = {
         cast(str, row["id"]) for row in checked.value["scenarios"][: scenario_index + 1]
     }
-    if any(
-        not _event_catalog_record_is_valid(checked, record) for record in catalog
-    ) or not _event_catalog_records_are_authoritative(
-        checked,
-        catalog,
-        cast(list[dict[str, JsonValue]], events),
-        required_root_scenarios=required_root_scenarios,
+    if (
+        any(not _event_catalog_record_is_valid(checked, record) for record in catalog)
+        or any(
+            not _event_formula_evaluations_are_authoritative(checked, event)
+            for event in events
+        )
+        or not _event_catalog_records_are_authoritative(
+            checked,
+            catalog,
+            cast(list[dict[str, JsonValue]], events),
+            required_root_scenarios=required_root_scenarios,
+        )
     ):
         return False
     if refusing_event.get("index") != len(events):
