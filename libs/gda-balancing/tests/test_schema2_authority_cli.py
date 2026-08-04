@@ -749,6 +749,7 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
         "scalar-right-path",
         "both-null",
         "both-set",
+        "integer-range-missing-step",
         "open",
     ),
 )
@@ -780,6 +781,14 @@ def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
     elif mutation == "both-set":
         vector["probe"]["right_path"] = vector["probe"]["left_path"]
         vector["probe"]["right_value"] = 0
+    elif mutation == "integer-range-missing-step":
+        vector = next(
+            row
+            for row in vector_set["vector_definitions"]
+            if row["kind"] == "operation-relation"
+            and row["probe"]["operator"] == "integer-range-equal"
+        )
+        del vector["probe"]["right_value"]["step_path"]
     else:
         vector["probe"]["host"] = "invented"
     package_schema = cast(
