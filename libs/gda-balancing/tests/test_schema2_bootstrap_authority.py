@@ -282,6 +282,70 @@ def test_periodic_effect_relation_role_inventory_is_mandatory():
     ) in first["diagnostics"]
 
 
+@pytest.mark.parametrize("scope", ("one", "all"))
+def test_periodic_effect_relation_policy_rejects_coherent_inventory_removal(scope):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    operations = {
+        row["id"]: row
+        for row in ldb["language"]["operations"]
+        if row["id"].startswith("game.effect.apply-")
+    }
+    removed_ids = {
+        vector["id"]
+        for vector in vector_set["vector_definitions"]
+        if vector["kind"] == "operation-relation"
+        and (
+            scope == "all"
+            or vector["id"] == "game.effect.apply-live-periodic-v1.schedule-times-match"
+        )
+    }
+    vector_set["vector_definitions"] = [
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] not in removed_ids
+    ]
+    vector_set["vectors"] = [
+        vector_id for vector_id in vector_set["vectors"] if vector_id not in removed_ids
+    ]
+    for operation in operations.values():
+        operation["vectors"] = [
+            vector_id
+            for vector_id in operation["vectors"]
+            if vector_id not in removed_ids
+        ]
+        declarations = operation["extensions"]["standard.operation-relations"]
+        declarations[:] = [
+            declaration
+            for declaration in declarations
+            if f"{operation['id']}.{declaration['id']}" not in removed_ids
+        ]
+        if not declarations:
+            del operation["extensions"]["standard.operation-relations"]
+        contract = next(
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector["id"] == f"{operation['id']}.periodic-contract"
+        )
+        contract["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
 def test_periodic_relation_ownership_is_package_local():
     authority = _authority_candidate()
     kernel_kind = next(
@@ -300,6 +364,16 @@ def test_periodic_relation_ownership_is_package_local():
     operations = {
         row["id"]: row for row in authority["language_bundle"]["language"]["operations"]
     }
+    periodic_capability = next(
+        row
+        for row in authority["language_bundle"]["language"]["capabilities"]
+        if row["id"] == "game.effect.periodic"
+    )
+    policies = periodic_capability["extensions"]["standard.operation-relation-policy"]
+    assert [row["operation"] for row in policies] == [
+        "game.effect.apply-live-periodic-v1",
+        "game.effect.apply-snapshot-periodic-v1",
+    ]
     for operation_id in {
         "game.effect.apply-live-periodic-v1",
         "game.effect.apply-snapshot-periodic-v1",
@@ -315,9 +389,18 @@ def test_periodic_relation_ownership_is_package_local():
             "tick-times-match-period",
             "schedule-times-match",
         ]
+        policy = next(row for row in policies if row["operation"] == operation_id)
+        assert policy["relations"] == declarations
+        assert policy["contract"] == {
+            "path": ["extensions", "game.effect.periodic"],
+            "expect": operations[operation_id]["extensions"]["game.effect.periodic"],
+        }
 
 
-@pytest.mark.parametrize("mutation", ("tick-target", "expiry-target"))
+@pytest.mark.parametrize(
+    "mutation",
+    ("tick-target", "expiry-target", "coherent-tick-target", "coherent-expiry-target"),
+)
 def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
     authority = _authority_candidate()
     ldb = authority["language_bundle"]
@@ -327,7 +410,7 @@ def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
         if row["id"] == "game.effect.apply-snapshot-periodic-v1"
     )
     schedules = [row for row in operation["body"] if row["node"] == "schedule"]
-    if mutation == "tick-target":
+    if mutation.endswith("tick-target"):
         for instruction in schedules[:2]:
             instruction["operation"]["id"] = "game.effect.tick-live-periodic-v1"
             magnitude = next(
@@ -352,6 +435,80 @@ def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
                 "operand": {"kind": "local", "local": "instance_id"},
             },
         ]
+    if mutation.startswith("coherent-"):
+        declared_schedule = operation["extensions"]["game.effect.periodic"]["schedule"]
+        if mutation.endswith("tick-target"):
+            for row in declared_schedule[:2]:
+                row["operation"]["id"] = "game.effect.tick-live-periodic-v1"
+        else:
+            declared_schedule[-1]["operation"]["id"] = (
+                "game.effect.tick-snapshot-periodic-v1"
+            )
+        package = next(
+            row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+        )
+        vector_set = _package_vector_set(ldb, package)
+        contract = next(
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector["id"]
+            == "game.effect.apply-snapshot-periodic-v1.periodic-contract"
+        )
+        contract["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_effect_tick_times_must_equal_the_declared_integer_range():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    periodic = operation["extensions"]["game.effect.periodic"]
+    periodic["timing"]["duration"] = 4
+    periodic["timing"]["expiry_time"] = 4
+    expiry = next(
+        row
+        for row in operation["body"]
+        if row["node"] == "schedule"
+        and row["operation"]["id"] == "game.effect.expire-periodic-v1"
+    )
+    expiry["logical_time"] = 4
+    periodic["schedule"][-1]["logical_time"] = 4
+
+    capability = next(
+        row
+        for row in ldb["language"]["capabilities"]
+        if row["id"] == "game.effect.periodic"
+    )
+    for policy in capability.get("extensions", {}).get(
+        "standard.operation-relation-policy", []
+    ):
+        if policy["operation"] == operation["id"]:
+            policy["contract"]["expect"] = deepcopy(periodic)
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    contract = next(
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "game.effect.apply-snapshot-periodic-v1.periodic-contract"
+    )
+    contract["expect"] = deepcopy(operation["extensions"])
     _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

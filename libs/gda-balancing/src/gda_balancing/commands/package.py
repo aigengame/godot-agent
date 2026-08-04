@@ -416,6 +416,11 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 operators = kind.get("operators")
                 declaration_extension = kind.get("declaration_extension")
                 declaration_members = kind.get("declaration_members")
+                integer_range_members = kind.get("integer_range_members")
+                policy_authority_path = kind.get("policy_authority_path")
+                policy_contract_members = kind.get("policy_contract_members")
+                policy_extension = kind.get("policy_extension")
+                policy_members = kind.get("policy_members")
                 schedule_projection_members = kind.get("schedule_projection_members")
                 if (
                     set(required)
@@ -428,6 +433,11 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     or not isinstance(declaration_extension, str)
                     or not declaration_extension
                     or declaration_members != ["id", "probe"]
+                    or integer_range_members != ["start_path", "stop_path", "step_path"]
+                    or policy_authority_path != "language.capabilities"
+                    or policy_contract_members != ["expect", "path"]
+                    or policy_extension != "standard.operation-relation-policy"
+                    or policy_members != ["contract", "operation", "relations"]
                     or schedule_projection_members != ["logical_time", "operation"]
                 ):
                     raise ValueError(

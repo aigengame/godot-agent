@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:0e13d6213a438693f3ff07aba5689476a991d51a8b3d6f42903fc705df599d4b"
+    "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -404,7 +404,12 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "declaration_extension",
         "declaration_members",
         "id",
+        "integer_range_members",
         "operators",
+        "policy_authority_path",
+        "policy_contract_members",
+        "policy_extension",
+        "policy_members",
         "probe_members",
         "required_members",
         "schedule_projection_members",
@@ -536,11 +541,22 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "integer-equal",
             "integer-greater-than",
             "integer-less-than-or-equal",
+            "integer-range-equal",
             "schedule-projection-equal",
         ]
         and kinds["operation-relation"].get("declaration_extension")
         == "standard.operation-relations"
         and kinds["operation-relation"].get("declaration_members") == ["id", "probe"]
+        and kinds["operation-relation"].get("integer_range_members")
+        == ["start_path", "stop_path", "step_path"]
+        and kinds["operation-relation"].get("policy_authority_path")
+        == "language.capabilities"
+        and kinds["operation-relation"].get("policy_contract_members")
+        == ["expect", "path"]
+        and kinds["operation-relation"].get("policy_extension")
+        == "standard.operation-relation-policy"
+        and kinds["operation-relation"].get("policy_members")
+        == ["contract", "operation", "relations"]
         and kinds["operation-relation"].get("schedule_projection_members")
         == ["logical_time", "operation"]
         and kinds["runtime-scenario"].get("input_members")
@@ -734,6 +750,41 @@ def _operation_relation_is_satisfied(
             and all(member in instruction for member in projection_members)
         ]
         return _canonical_equal(projected, right)
+    if operator == "integer-range-equal":
+        range_members = kind.get("integer_range_members")
+        if (
+            not isinstance(range_members, list)
+            or len(range_members) != 3
+            or not isinstance(right, dict)
+            or set(right) != set(range_members)
+            or not isinstance(left, list)
+            or not all(_signed_int64(item) for item in left)
+        ):
+            return False
+        range_paths = [member_path(right.get(member)) for member in range_members]
+        if any(path is None or path[0] not in roots for path in range_paths):
+            return False
+        range_values: list[int] = []
+        for path in range_paths:
+            declared, value = observed(cast(list[str], path))
+            if not declared or not _signed_int64(value):
+                return False
+            range_values.append(cast(int, value))
+        start, stop, step = range_values
+        if step == 0:
+            return False
+        expected_length = (
+            0
+            if (step > 0 and start >= stop) or (step < 0 and start <= stop)
+            else (
+                (stop - start - 1) // step + 1
+                if step > 0
+                else (start - stop - 1) // -step + 1
+            )
+        )
+        return len(left) == expected_length and all(
+            item == start + index * step for index, item in enumerate(left)
+        )
     if not _signed_int64(left) or not _signed_int64(right):
         return False
     return (
@@ -1254,9 +1305,32 @@ def _package_evidence_vectors_are_closed(
         if isinstance(relation_kind, dict)
         else None
     )
+    policy_authority_path = (
+        relation_kind.get("policy_authority_path")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_contract_members = (
+        relation_kind.get("policy_contract_members")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_extension = (
+        relation_kind.get("policy_extension")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_members = (
+        relation_kind.get("policy_members") if isinstance(relation_kind, dict) else None
+    )
     declared_roles_by_operation: dict[str, list[str]] = {}
-    if not isinstance(declaration_extension, str) or not isinstance(
-        declaration_members, list
+    if (
+        not isinstance(declaration_extension, str)
+        or not isinstance(declaration_members, list)
+        or not isinstance(policy_authority_path, str)
+        or not isinstance(policy_contract_members, list)
+        or not isinstance(policy_extension, str)
+        or not isinstance(policy_members, list)
     ):
         return False
     for operation_id, operation in operations.items():
@@ -1285,9 +1359,95 @@ def _package_evidence_vectors_are_closed(
         if len(roles) != len(set(roles)):
             return False
         declared_roles_by_operation[cast(str, operation_id)] = roles
-    if set(relation_roles_by_operation) != set(declared_roles_by_operation) or any(
-        roles != declared_roles_by_operation[operation_id]
-        for operation_id, roles in relation_roles_by_operation.items()
+
+    policy_entry = next(
+        (
+            item
+            for item in cast(list[dict[str, Any]], package.get("semantic_closure"))
+            if item.get("authority_path") == policy_authority_path
+        ),
+        None,
+    )
+    policy_definitions = (
+        policy_entry.get("definitions") if isinstance(policy_entry, dict) else None
+    )
+    if not isinstance(policy_definitions, list):
+        return False
+    policy_roles_by_operation: dict[str, list[str]] = {}
+    for definition in policy_definitions:
+        extensions = (
+            definition.get("extensions") if isinstance(definition, dict) else None
+        )
+        policies = (
+            extensions.get(policy_extension) if isinstance(extensions, dict) else None
+        )
+        if policies is None:
+            continue
+        if not isinstance(policies, list) or not policies:
+            return False
+        for policy in policies:
+            if not isinstance(policy, dict) or set(policy) != set(policy_members):
+                return False
+            operation_id = policy.get("operation")
+            operation = operations.get(operation_id)
+            contract_probe = policy.get("contract")
+            relations = policy.get("relations")
+            if (
+                not isinstance(operation_id, str)
+                or not operation_id
+                or operation_id in policy_roles_by_operation
+                or not isinstance(operation, dict)
+                or not isinstance(contract_probe, dict)
+                or set(contract_probe) != set(policy_contract_members)
+                or not isinstance(relations, list)
+                or not relations
+                or not all(
+                    isinstance(relation, dict)
+                    and set(relation) == set(declaration_members)
+                    and isinstance(relation.get("id"), str)
+                    and bool(relation["id"])
+                    and isinstance(relation.get("probe"), dict)
+                    and set(relation["probe"]) == set(kind["probe_members"])
+                    for relation in relations
+                )
+            ):
+                return False
+            policy_roles = [cast(str, relation["id"]) for relation in relations]
+            if len(policy_roles) != len(set(policy_roles)):
+                return False
+            path = contract_probe.get("path")
+            if (
+                not isinstance(path, list)
+                or not path
+                or not all(isinstance(member, str) and member for member in path)
+                or path[0] not in contract["operation_probe_roots"]
+            ):
+                return False
+            observed: Any = operation
+            for member in path:
+                if not isinstance(observed, dict) or member not in observed:
+                    return False
+                observed = observed[member]
+            operation_extensions = operation.get("extensions")
+            declarations = (
+                operation_extensions.get(declaration_extension)
+                if isinstance(operation_extensions, dict)
+                else None
+            )
+            if not _canonical_equal(observed, contract_probe.get("expect")) or not (
+                _canonical_equal(declarations, relations)
+            ):
+                return False
+            policy_roles_by_operation[operation_id] = policy_roles
+    operation_ids = set(relation_roles_by_operation)
+    if (
+        operation_ids != set(declared_roles_by_operation)
+        or operation_ids != set(policy_roles_by_operation)
+        or any(
+            roles != declared_roles_by_operation[operation_id]
+            or roles != policy_roles_by_operation[operation_id]
+            for operation_id, roles in relation_roles_by_operation.items()
+        )
     ):
         return False
 

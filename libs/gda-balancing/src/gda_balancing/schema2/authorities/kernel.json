@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:0e13d6213a438693f3ff07aba5689476a991d51a8b3d6f42903fc705df599d4b",
+  "content_identity": "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2349,6 +2349,9 @@
         },
         "capabilities": {
           "field_types": {
+            "extensions": {
+              "type": "object"
+            },
             "id": {
               "type": "non-empty-string"
             },
@@ -2359,6 +2362,9 @@
           "required_members": [
             "id",
             "rule"
+          ],
+          "optional_members": [
+            "extensions"
           ]
         },
         "components": {
@@ -3794,12 +3800,29 @@
             "probe"
           ],
           "id": "operation-relation",
+          "integer_range_members": [
+            "start_path",
+            "stop_path",
+            "step_path"
+          ],
           "operators": [
             "canonical-equal",
             "integer-equal",
             "integer-greater-than",
             "integer-less-than-or-equal",
+            "integer-range-equal",
             "schedule-projection-equal"
+          ],
+          "policy_authority_path": "language.capabilities",
+          "policy_contract_members": [
+            "expect",
+            "path"
+          ],
+          "policy_extension": "standard.operation-relation-policy",
+          "policy_members": [
+            "contract",
+            "operation",
+            "relations"
           ],
           "probe_members": [
             "left_path",
