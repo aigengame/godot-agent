@@ -414,18 +414,37 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 raise ValueError("Kernel package-vector probe contract is incomplete")
             if kind_id == "operation-relation":
                 operators = kind.get("operators")
+                roles = kind.get("roles")
+                timing_members = kind.get("timing_members")
+                role_ids = (
+                    [role.get("id") for role in roles if isinstance(role, dict)]
+                    if isinstance(roles, list)
+                    else []
+                )
                 if (
-                    set(required) != {"category", "id", "kind", "operation", "probe"}
+                    set(required)
+                    != {"category", "id", "kind", "operation", "probe", "role"}
                     or set(probe_members)
                     != {"left_path", "operator", "right_path", "right_value"}
                     or not isinstance(operators, list)
                     or not operators
                     or not all(isinstance(operator, str) for operator in operators)
+                    or not role_ids
+                    or len(role_ids) != len(set(role_ids))
+                    or not all(
+                        isinstance(role_id, str) and role_id for role_id in role_ids
+                    )
+                    or not isinstance(timing_members, list)
+                    or not timing_members
+                    or not all(
+                        isinstance(member, str) and member for member in timing_members
+                    )
                 ):
                     raise ValueError(
                         "Kernel operation-relation vector contract is incomplete"
                     )
                 properties.pop("expect")
+                properties["role"] = {"enum": role_ids}
                 member_path_schema: dict[str, object] = {
                     "type": "array",
                     "items": _non_empty_string_schema(),
