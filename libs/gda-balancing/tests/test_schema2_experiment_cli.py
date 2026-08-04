@@ -3150,6 +3150,93 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     assert result.state_after == result.state_before
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("backward", "runtime.schedule_backward"),
+        ("hidden-input", "runtime.schedule_hidden_input"),
+        (
+            "illegal-same-time-priority",
+            "runtime.schedule_illegal_same_time_priority",
+        ),
+        ("logical-time-limit", "runtime.logical_time_exceeded"),
+        ("zero-time-depth", "runtime.zero_time_depth_exceeded"),
+        ("event-limit", "runtime.event_limit_exceeded"),
+    ],
+)
+def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
+    tmp_path, run_cli, monkeypatch, mutation, expected_code
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    apply_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in apply_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    if mutation == "backward":
+        first_schedule["logical_time"] = -1
+    elif mutation == "hidden-input":
+        first_schedule["phase"] = "input"
+    elif mutation == "illegal-same-time-priority":
+        first_schedule["logical_time"] = 0
+        first_schedule["priority"] = 1
+    elif mutation == "logical-time-limit":
+        first_schedule["logical_time"] = 1 << 63
+    elif mutation == "zero-time-depth":
+        first_schedule["logical_time"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+    else:
+        runtime_profile["resource_bounds"]["max_total_events"] = 1
+
+    # These refusals originate in selected Package/Runtime semantics rather than
+    # authored Experiment fields. Inject the checked semantic candidate at the
+    # public handler seam, then drive the real dispatch, refusal envelope,
+    # rollback audit, and publication path end to end.
+    monkeypatch.setattr(
+        experiment_command_module,
+        "check_experiment",
+        lambda _path: replace(checked, rir=rir),
+    )
+    out = tmp_path / f"periodic-{mutation}-refusal"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [row["code"] for row in error["diagnostics"]] == [expected_code]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["operation"] == (
+        "game.effect.apply-snapshot-periodic-v1"
+    )
+    assert audit["refusing_event"]["reason"] == expected_code
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
 def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
     tmp_path, run_cli
 ):

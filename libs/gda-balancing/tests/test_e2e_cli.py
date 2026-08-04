@@ -501,18 +501,21 @@ class TestKeyUserPath:
         )
 
         lifecycle = [
-            event["entrypoint"]["id"]
-            if event.get("entrypoint") is not None
-            else event["operation"]
+            (
+                event["entrypoint"]["id"]
+                if event.get("entrypoint") is not None
+                else event["operation"],
+                event["ordering_key"]["logical_time"],
+            )
             for event in trace["events"]
             if event["ordering_key"]["phase"] == "transition"
             and event["operation"].startswith("game.effect.")
         ]
         assert lifecycle == [
-            "effect.apply-snapshot-periodic",
-            "game.effect.tick-snapshot-periodic-v1",
-            "game.effect.tick-snapshot-periodic-v1",
-            "game.effect.expire-periodic-v1",
+            ("effect.apply-snapshot-periodic", 0),
+            ("game.effect.tick-snapshot-periodic-v1", 1),
+            ("game.effect.tick-snapshot-periodic-v1", 2),
+            ("game.effect.expire-periodic-v1", 3),
         ]
         instance_ids = {
             next(
