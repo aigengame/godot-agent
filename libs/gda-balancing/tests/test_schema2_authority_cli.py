@@ -741,6 +741,43 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    ("empty-path", "unknown-operator", "scalar-right-path", "string-value", "open"),
+)
+def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    vector_set = deepcopy(
+        next(
+            row
+            for row in authority["package_conformance_vector_sets"]
+            if row["package_id"] == "game.effect"
+        )
+    )
+    vector = next(
+        row
+        for row in vector_set["vector_definitions"]
+        if row["kind"] == "operation-relation"
+    )
+    if mutation == "empty-path":
+        vector["probe"]["left_path"] = []
+    elif mutation == "unknown-operator":
+        vector["probe"]["operator"] = "host-owned"
+    elif mutation == "scalar-right-path":
+        vector["probe"]["right_path"] = "extensions.periodic"
+    elif mutation == "string-value":
+        vector["probe"]["right_value"] = "zero"
+    else:
+        vector["probe"]["host"] = "invented"
+    package_schema = cast(
+        dict[str, Any],
+        cast(list[dict[str, Any]], package_get_success_schema()["oneOf"])[1],
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(vector_set, package_schema)
+
+
+@pytest.mark.parametrize(
     ("vector_id", "mutation"),
     [
         ("model.compile.positive", "outcome-host"),

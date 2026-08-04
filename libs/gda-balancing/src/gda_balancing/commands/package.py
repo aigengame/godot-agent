@@ -412,6 +412,51 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 isinstance(member, str) for member in probe_members
             ):
                 raise ValueError("Kernel package-vector probe contract is incomplete")
+            if kind_id == "operation-relation":
+                operators = kind.get("operators")
+                if (
+                    set(required) != {"category", "id", "kind", "operation", "probe"}
+                    or set(probe_members)
+                    != {"left_path", "operator", "right_path", "right_value"}
+                    or not isinstance(operators, list)
+                    or not operators
+                    or not all(isinstance(operator, str) for operator in operators)
+                ):
+                    raise ValueError(
+                        "Kernel operation-relation vector contract is incomplete"
+                    )
+                properties.pop("expect")
+                member_path_schema: dict[str, object] = {
+                    "type": "array",
+                    "items": _non_empty_string_schema(),
+                    "minItems": 1,
+                }
+                properties["probe"] = {
+                    "type": "object",
+                    "properties": {
+                        "left_path": member_path_schema,
+                        "operator": {"enum": operators},
+                        "right_path": {"oneOf": [member_path_schema, {"type": "null"}]},
+                        "right_value": {
+                            "oneOf": [_signed_int64_schema(), {"type": "null"}]
+                        },
+                    },
+                    "required": probe_members,
+                    "unevaluatedProperties": False,
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
             properties["probe"] = {
                 "type": "object",
                 "properties": {
