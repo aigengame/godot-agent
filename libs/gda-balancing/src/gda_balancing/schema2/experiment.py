@@ -1004,7 +1004,34 @@ def _committed_event_arguments(
     for binding in entrypoint["arguments"]:
         port = cast(str, binding["port"]["name"])
         operand = cast(dict[str, Any], binding["operand"])
+        if operand["kind"] == "event-reference":
+            reference_bindings = {
+                cast(str, row["name"]): cast(str, row["root_event_ref"])
+                for row in cast(
+                    list[dict[str, JsonValue]],
+                    event_spec.get("event_references", []),
+                )
+            }
+            root_event_ref = reference_bindings.get(cast(str, operand.get("name")))
+            matching_event_ids = [
+                event_id
+                for event_id, record in catalog_by_id.items()
+                if record.get("scenario") == scenario_id
+                and isinstance(record.get("event_spec"), dict)
+                and cast(dict[str, JsonValue], record["event_spec"]).get("kind")
+                == "transition-invocation"
+                and cast(dict[str, JsonValue], record["event_spec"]).get(
+                    "root_event_ref"
+                )
+                == root_event_ref
+            ]
+            if root_event_ref is None or len(matching_event_ids) != 1:
+                return None
+            arguments[port] = matching_event_ids[0]
+            continue
         if operand["kind"] != "symbol":
+            if "value" not in operand:
+                return None
             arguments[port] = cast(JsonValue, operand["value"])
             continue
         target = cast(dict[str, JsonValue], operand["symbol"])
