@@ -443,6 +443,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     raise ValueError(
                         "Kernel operation-relation vector contract is incomplete"
                     )
+                range_members = cast(list[str], integer_range_members)
                 properties.pop("expect")
                 properties["role"] = _non_empty_string_schema()
                 member_path_schema: dict[str, object] = {
@@ -462,12 +463,26 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     "oneOf": [
                         {
                             "properties": {
+                                "operator": {
+                                    "enum": [
+                                        operator
+                                        for operator in operators
+                                        if operator != "integer-range-equal"
+                                    ]
+                                },
                                 "right_path": member_path_schema,
                                 "right_value": {"type": "null"},
                             }
                         },
                         {
                             "properties": {
+                                "operator": {
+                                    "enum": [
+                                        operator
+                                        for operator in operators
+                                        if operator != "integer-range-equal"
+                                    ]
+                                },
                                 "right_path": {"type": "null"},
                                 "right_value": {
                                     "type": [
@@ -477,6 +492,21 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                                         "object",
                                         "string",
                                     ]
+                                },
+                            }
+                        },
+                        {
+                            "properties": {
+                                "operator": {"const": "integer-range-equal"},
+                                "right_path": {"type": "null"},
+                                "right_value": {
+                                    "type": "object",
+                                    "properties": {
+                                        member: member_path_schema
+                                        for member in range_members
+                                    },
+                                    "required": range_members,
+                                    "unevaluatedProperties": False,
                                 },
                             }
                         },
