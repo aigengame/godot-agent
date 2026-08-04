@@ -29,6 +29,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_formula_seam.py",
         "test_isolation.py",
         "test_schema2_authority_lifecycle.py",
+        "test_schema2_bootstrap_authority.py",
         "test_schema2_bootstrap_resources.py",
         "test_schema2_canonical.py",
         "test_schema2_migration_cli.py",
@@ -38,10 +39,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_version_bundle.py",
         "test_version_command.py",
     ),
-    "authority": (
-        "test_schema2_authority_cli.py",
-        "test_schema2_bootstrap_authority.py",
-    ),
+    "authority": ("test_schema2_authority_cli.py",),
     "language": (
         "test_schema2_bootstrap_language.py",
         "test_schema2_formula_cli.py",

@@ -93,8 +93,8 @@ real-subprocess and end-to-end job. The other six shards feed the stable
 
 | Shard | Main ownership | Local median test time |
 | --- | --- | ---: |
-| `fast` | policy, lifecycle, resources, migration, and small suites | 41.170 s |
-| `authority` | authority CLI and authority bootstrap | 132.534 s |
+| `fast` | policy, lifecycle, authority bootstrap, resources, migration, and small suites | 80.444 s |
+| `authority` | authority CLI | 93.359 s |
 | `language` | language bootstrap and formula CLI | 85.316 s |
 | `model` | model CLI and independent lowerer | 86.394 s |
 | `experiment` | experiment CLI | 113.766 s |
@@ -104,7 +104,10 @@ real-subprocess and end-to-end job. The other six shards feed the stable
 The figures are medians calculated from the same three post-change full-suite
 JUnit reports used below. Shard membership is deliberately static and
 reviewable; the existing partition test proves that files neither overlap nor
-fall outside the matrix.
+fall outside the matrix. The combined authority job reached 310 seconds in the
+362-second CI sample. Moving the independently selectable bootstrap file to
+`fast` changes the three-report local medians to 80.444 and 93.359 seconds
+without adding a shard; exact-head CI revalidates the resulting critical path.
 
 ## Local evidence
 
