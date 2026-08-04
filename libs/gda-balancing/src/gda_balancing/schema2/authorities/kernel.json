@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:3a3bdae4555439d17e8b79b953f9fead95e13837a68974d8c60c08947b2e61d7",
+  "content_identity": "sha256:d7fc7066b5e61ca4540f553f721991ade9e9fd219bdb644d460707b02a460849",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3781,6 +3781,27 @@
           "required_members": [
             "category",
             "expect",
+            "id",
+            "kind",
+            "operation",
+            "probe"
+          ]
+        },
+        {
+          "id": "operation-relation",
+          "operators": [
+            "integer-equal",
+            "integer-greater-than",
+            "integer-less-than-or-equal"
+          ],
+          "probe_members": [
+            "left_path",
+            "operator",
+            "right_path",
+            "right_value"
+          ],
+          "required_members": [
+            "category",
             "id",
             "kind",
             "operation",
