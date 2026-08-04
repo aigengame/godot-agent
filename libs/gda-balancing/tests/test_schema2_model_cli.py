@@ -2065,6 +2065,68 @@ def test_model_check_reaches_formula_slots_through_scheduled_operations(
     assert (exit_code, stderr) == (0, ""), stdout
 
 
+def test_operation_reachability_follows_kernel_operation_members_after_node_rename():
+    kernel = {
+        "meta_format": {
+            "runtime_program": {
+                "nodes": [
+                    {
+                        "id": "defer",
+                        "required_members": ["node", "site", "operation"],
+                        "semantics": {"operator": "schedule-operation"},
+                    },
+                    {
+                        "id": "copy",
+                        "required_members": ["node", "target", "value"],
+                        "semantics": {"operator": "copy-value"},
+                    },
+                ]
+            }
+        }
+    }
+    child = {"package": "example.runtime", "version": "1.0.0", "id": "child"}
+    root = {"package": "example.runtime", "version": "1.0.0", "id": "root"}
+    operations = [
+        {
+            "package": "example.runtime",
+            "definition": {
+                "id": "root",
+                "body": [{"node": "defer", "operation": child}],
+            },
+        },
+        {"package": "example.runtime", "definition": {"id": "child", "body": []}},
+    ]
+    lock = {
+        "packages": [{"id": "example.runtime", "version": "1.0.0"}],
+        "operations": operations,
+    }
+    source = {"entrypoints": [{"operation": root}]}
+    selected_semantics = {
+        "packages": lock["packages"],
+        "operations": operations,
+    }
+    entrypoints = [{"operation": root}]
+    operation_nodes = model_module._operation_reference_node_ids(kernel)
+
+    expected = {
+        ("example.runtime", "1.0.0", "root"),
+        ("example.runtime", "1.0.0", "child"),
+    }
+    assert operation_nodes == {"defer"}
+    assert (
+        model_module._selected_source_operation_coordinates(
+            source, lock, operation_nodes
+        )
+        == expected
+    )
+    assert (
+        model_module._selected_resolved_operation_coordinates(
+            entrypoints, selected_semantics, operation_nodes
+        )
+        == expected
+    )
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
