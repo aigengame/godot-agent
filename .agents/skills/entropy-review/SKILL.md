@@ -162,6 +162,9 @@ Report only findings that can change a decision or implementation approach. If n
 ## Boundaries
 
 - Preserve essential complexity; do not treat all complexity or every new abstraction as harmful.
+- Do not remove checks that an architecture still needs merely to reduce complexity. Keep the checks, or clearly reduce or postpone what the design is expected to do.
+- Treat architecture findings as advice. Leave approval, next steps, and changes to the agreed design to the designated human decision owner.
+- When reviewing architecture, first clarify what the design must do and how it will be checked. Then compare the cost of the approach with simpler options.
 - Do not use agility as a reason to ignore known risks, safety, integrity, or explicit external constraints.
 - Do not replace engineering judgment with pseudo-precise scoring.
 - Do not require extra artifacts merely to prove that the review occurred.

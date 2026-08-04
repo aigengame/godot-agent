@@ -1,4 +1,4 @@
-# Evidence-Driven Architecture Design Reference
+# Validation-Driven Design Reference
 
 Use this file for detailed templates, proof obligations, and delivery gates. `SKILL.md` exclusively
 owns the design workflow; this file does not restate it.

@@ -1,9 +1,9 @@
 ---
-name: evidence-driven-architecture-design
+name: validation-driven-design
 description: Designs, audits, and iteratively validates framework, platform, language, protocol, or runtime architectures by combining explicit requirements, mature theory, external-system research, executable prototypes, dogfooding, and cross-artifact reconciliation. Use when creating or redesigning an architecture, writing architecture specifications or ADRs, auditing an existing architecture against abstraction/completeness/orthogonality/extensibility, or planning a design for production implementation.
 ---
 
-# Evidence-Driven Architecture Design
+# Validation-Driven Design
 
 ## Purpose and boundary
 
@@ -14,6 +14,15 @@ audit, not routine codebase refactoring, interface styling, generic review, or U
 Preserve the stated product vision as a falsifiable requirement. If evidence contradicts it, reopen
 the architecture or requirement explicitly; never make the work “pass” by silently narrowing the
 promise.
+
+Use this skill to check that the architecture meets its requirements, important design decisions
+have enough support, and the necessary checks are clear. Do this before comparing the approach with
+simpler options.
+
+Treat the work needed to design and validate the architecture as a cost. Add research, prototypes,
+tests, or documentation only when they are justified by the importance of the design decision and a
+concrete risk or unanswered question shown by what is known so far. Otherwise simplify or postpone
+that part of the design instead of weakening how it is checked.
 
 ## Quick start
 
