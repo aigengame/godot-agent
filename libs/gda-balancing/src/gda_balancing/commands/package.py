@@ -416,9 +416,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 operators = kind.get("operators")
                 declaration_extension = kind.get("declaration_extension")
                 declaration_members = kind.get("declaration_members")
-                schedule_projection_members = kind.get(
-                    "schedule_projection_members"
-                )
+                schedule_projection_members = kind.get("schedule_projection_members")
                 if (
                     set(required)
                     != {"category", "id", "kind", "operation", "probe", "role"}
@@ -430,8 +428,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     or not isinstance(declaration_extension, str)
                     or not declaration_extension
                     or declaration_members != ["id", "probe"]
-                    or schedule_projection_members
-                    != ["logical_time", "operation"]
+                    or schedule_projection_members != ["logical_time", "operation"]
                 ):
                     raise ValueError(
                         "Kernel operation-relation vector contract is incomplete"
