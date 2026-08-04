@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ElementTree
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
@@ -133,6 +136,13 @@ def local_serial_shards() -> tuple[str, ...]:
     return ("smoke",)
 
 
+def subprocess_text(output: str | bytes | None) -> str:
+    """Normalize captured output, including TimeoutExpired's byte payloads."""
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return output or ""
+
+
 def normalized_node_id(node_id: str, migration: dict[str, object]) -> str:
     """Normalize only declared file moves while preserving parameters and classes."""
     path, separator, test = node_id.partition("::")
@@ -193,6 +203,97 @@ def digest(rows: set[str]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def authority_claim_subjects(
+    source: str, *, current_package_vector_ids: set[str]
+) -> list[str]:
+    """Resolve claim subjects from the current admitted machine authority."""
+    if source == "authority.package_vector_ids":
+        return sorted(current_package_vector_ids)
+
+    from gda_balancing.schema2.authority import packaged_authority_context
+
+    kernel, language_bundle = packaged_authority_context().mutable_pair()
+    if source == "authority.kernel_law_ids":
+        return sorted(law["id"] for law in kernel["admission"]["laws"])
+    if source == "authority.language_rule_ids":
+        return sorted(rule["id"] for rule in language_bundle["language"]["rules"])
+    if source == "authority.diagnostic_reason_ids":
+        return sorted(reason["id"] for reason in language_bundle["language"]["reasons"])
+    if source == "authority.model_program_vector_ids":
+        return sorted(
+            vector["id"]
+            for vector in language_bundle["vectors"]
+            if "source_fixture" in vector
+        )
+    raise ValueError(f"unknown authority claim subject source: {source!r}")
+
+
+def inventory_migration_closure(
+    migration: dict[str, object],
+    current_test_ids: set[str],
+    *,
+    subject_resolver: Callable[[str], list[str]],
+) -> dict[str, object]:
+    """Prove each declared one-to-many baseline-test migration exactly."""
+    source = migration["source"]
+    expansions = migration.get("expansions", {})
+    if not isinstance(source, str) or not isinstance(expansions, dict):
+        raise ValueError("inventory migration source/expansions have invalid shapes")
+    represented: set[str] = set()
+    rows: list[dict[str, object]] = []
+    for test_name, declaration in expansions.items():
+        if not isinstance(test_name, str) or not isinstance(declaration, dict):
+            raise ValueError("inventory expansion must map test names to objects")
+        target = declaration["target"]
+        subject_source = declaration["subject_source"]
+        template = declaration["test_id_template"]
+        variants = declaration["variants"]
+        if (
+            not isinstance(target, str)
+            or not isinstance(subject_source, str)
+            or not isinstance(template, str)
+            or not isinstance(variants, list)
+            or not all(isinstance(variant, str) for variant in variants)
+        ):
+            raise ValueError(f"invalid inventory expansion: {declaration!r}")
+        subjects = subject_resolver(subject_source)
+        expected = {
+            normalized_node_id(
+                template.format(
+                    target=target,
+                    test=test_name,
+                    subject=subject,
+                    variant=variant,
+                ),
+                migration,
+            )
+            for subject in subjects
+            for variant in variants
+        }
+        prefix = f"tests/{source}::{test_name}["
+        actual = {row for row in current_test_ids if row.startswith(prefix)}
+        missing = expected - actual
+        unexpected = actual - expected
+        closed = bool(expected) and not missing and not unexpected
+        baseline_test_id = f"tests/{source}::{test_name}"
+        if closed:
+            represented.add(baseline_test_id)
+        rows.append(
+            {
+                "baseline_test_id": baseline_test_id,
+                "expected_current_test_count": len(expected),
+                "missing_current_tests": sorted(missing),
+                "unexpected_current_tests": sorted(unexpected),
+                "closed": closed,
+            }
+        )
+    return {
+        "represented_baseline_tests": sorted(represented),
+        "expansions": rows,
+        "closed": all(bool(row["closed"]) for row in rows),
+    }
+
+
 def verify_claims(
     report_path: Path,
     *,
@@ -229,45 +330,100 @@ def verify_claims(
             subject_source = None
         elif subject_declaration == {"source": "baseline.package_vector_ids"}:
             subjects = baseline["package_vector_ids"]
-            subject_source = "package_vector_ids"
+            subject_source = "baseline.package_vector_ids"
+        elif (
+            isinstance(subject_declaration, dict)
+            and isinstance(subject_declaration.get("source"), str)
+            and subject_declaration["source"].startswith("authority.")
+        ):
+            subject_source = subject_declaration["source"]
+            subjects = authority_claim_subjects(
+                subject_source,
+                current_package_vector_ids=vectors,
+            )
         else:
             raise ValueError(
                 f"unknown claim subject declaration: {subject_declaration!r}"
             )
-        witnesses: list[dict[str, str]] = []
+        witnesses: list[dict[str, object]] = []
+        invalid_covered_subjects: set[str] = set()
         for declaration in claim["witnesses"]:
             if "test_id" in declaration:
-                witnesses.append(declaration)
+                coverage = declaration.get("covers")
+                if coverage == "*":
+                    covered_subjects = set(subjects)
+                elif isinstance(coverage, list) and all(
+                    isinstance(subject, str) for subject in coverage
+                ):
+                    covered_subjects = set(coverage)
+                else:
+                    raise ValueError(
+                        f"fixed claim witness must declare covers: {declaration!r}"
+                    )
+                invalid_covered_subjects.update(covered_subjects - set(subjects))
+                witnesses.append(
+                    {
+                        "test_id": declaration["test_id"],
+                        "independence_domain": declaration["independence_domain"],
+                        "covers": covered_subjects,
+                    }
+                )
                 continue
             template = declaration["test_id_template"]
             witnesses.extend(
                 {
                     "test_id": template.format(subject=subject, variant=variant),
                     "independence_domain": declaration["independence_domain"],
+                    "covers": {subject},
                 }
                 for subject in subjects
                 for variant in declaration["variants"]
             )
+        witness_domains: dict[str, str] = {}
+        conflicting_witness_domains: set[str] = set()
+        for witness in witnesses:
+            test_id = str(witness["test_id"])
+            domain = str(witness["independence_domain"])
+            previous = witness_domains.setdefault(test_id, domain)
+            if previous != domain:
+                conflicting_witness_domains.add(test_id)
         missing_witnesses = sorted(
-            witness["test_id"]
+            str(witness["test_id"])
             for witness in witnesses
-            if normalized_node_id(witness["test_id"], migration) not in tests
+            if normalized_node_id(str(witness["test_id"]), migration) not in tests
         )
-        live_domains = {
-            witness["independence_domain"]
-            for witness in witnesses
-            if normalized_node_id(witness["test_id"], migration) in tests
-        }
         minimum = claim["minimum_independent_witnesses"]
+        subject_rows = []
+        for subject in subjects:
+            live_domains = {
+                str(witness["independence_domain"])
+                for witness in witnesses
+                if subject in witness["covers"]
+                and normalized_node_id(str(witness["test_id"]), migration) in tests
+            }
+            subject_rows.append(
+                {
+                    "subject": subject,
+                    "independent_witness_count": len(live_domains),
+                    "minimum_independent_witnesses": minimum,
+                    "closed": len(live_domains) >= minimum,
+                }
+            )
+        uncovered_subjects = sorted(
+            str(row["subject"]) for row in subject_rows if not row["closed"]
+        )
         missing_subjects = sorted(
             subject
             for subject in subjects
-            if subject_source == "package_vector_ids" and subject not in vectors
+            if subject_source == "baseline.package_vector_ids"
+            and subject not in vectors
         )
         closed = (
             not missing_witnesses
             and not missing_subjects
-            and len(live_domains) >= minimum
+            and not uncovered_subjects
+            and not invalid_covered_subjects
+            and not conflicting_witness_domains
         )
         rows.append(
             {
@@ -277,7 +433,10 @@ def verify_claims(
                 "witness_count": len(witnesses),
                 "missing_subjects": missing_subjects,
                 "missing_witnesses": missing_witnesses,
-                "independent_witness_count": len(live_domains),
+                "uncovered_subjects": uncovered_subjects,
+                "invalid_covered_subjects": sorted(invalid_covered_subjects),
+                "conflicting_witness_domains": sorted(conflicting_witness_domains),
+                "subjects": subject_rows,
                 "minimum_independent_witnesses": minimum,
                 "closed": closed,
             }
@@ -289,9 +448,62 @@ def verify_claims(
         "duplicate_claim_ids": sorted(duplicate_claim_ids),
         "claims": rows,
     }
+    enforce_repository_contract = (
+        ledger_path.resolve() == CLAIM_LEDGER_PATH.resolve()
+        and baseline_path.resolve() == BASELINE_PATH.resolve()
+    )
+    claims_by_id = {claim["id"]: claim for claim in ledger["claims"]}
+    invalid_migration_expansions: list[str] = []
+    expansions = migration.get("expansions", {}) if enforce_repository_contract else {}
+    if not isinstance(expansions, dict):
+        raise ValueError("inventory migration expansions must be an object")
+    for test_name, expansion in expansions.items():
+        claim = claims_by_id.get(expansion.get("claim_id"))
+        if claim is None:
+            invalid_migration_expansions.append(str(test_name))
+            continue
+        source = claim.get("subjects")
+        if source != {"source": expansion.get("subject_source")}:
+            invalid_migration_expansions.append(str(test_name))
+            continue
+        template = str(expansion["test_id_template"])
+        expected_template = template.replace(
+            "{target}", str(expansion["target"])
+        ).replace("{test}", str(test_name))
+        matching_witness = next(
+            (
+                witness
+                for witness in claim["witnesses"]
+                if witness.get("test_id_template") == expected_template
+            ),
+            None,
+        )
+        if matching_witness is None or matching_witness.get(
+            "variants"
+        ) != expansion.get("variants"):
+            invalid_migration_expansions.append(str(test_name))
+    report["invalid_migration_expansions"] = sorted(invalid_migration_expansions)
+    report["migration_expansions_closed"] = not invalid_migration_expansions
+    baseline_tests = set(baseline.get("test_ids", []))
+    baseline_vectors = set(baseline["package_vector_ids"])
+    report["accepted_baseline_test_digest_matches"] = (
+        not enforce_repository_contract
+        or migration.get("accepted_baseline_test_digest") == digest(baseline_tests)
+    )
+    report["accepted_baseline_package_vector_digest_matches"] = (
+        not enforce_repository_contract
+        or migration.get("accepted_baseline_package_vector_digest")
+        == digest(baseline_vectors)
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    if duplicate_claim_ids or any(not row["closed"] for row in rows):
+    if (
+        duplicate_claim_ids
+        or invalid_migration_expansions
+        or not report["accepted_baseline_test_digest_matches"]
+        or not report["accepted_baseline_package_vector_digest_matches"]
+        or any(not row["closed"] for row in rows)
+    ):
         raise SystemExit("gda-balancing coverage claim closure failed")
     return report
 
@@ -317,7 +529,16 @@ def verify_inventory(report_path: Path) -> dict[str, object]:
     baseline_tests = set(baseline["test_ids"])
     baseline_vectors = set(baseline["package_vector_ids"])
     current_vectors = package_vector_ids()
-    missing_tests = baseline_tests - full
+    migration_closure = inventory_migration_closure(
+        migration,
+        full,
+        subject_resolver=lambda source: authority_claim_subjects(
+            source,
+            current_package_vector_ids=current_vectors,
+        ),
+    )
+    represented_baseline_tests = set(migration_closure["represented_baseline_tests"])
+    missing_tests = baseline_tests - full - represented_baseline_tests
     missing_vectors = baseline_vectors - current_vectors
     uncovered = full - union
     unexpected = union - full
@@ -328,6 +549,14 @@ def verify_inventory(report_path: Path) -> dict[str, object]:
         "current_test_digest": digest(full),
         "baseline_package_vector_count": len(baseline_vectors),
         "current_package_vector_count": len(current_vectors),
+        "accepted_baseline_test_digest_matches": (
+            migration.get("accepted_baseline_test_digest") == digest(baseline_tests)
+        ),
+        "accepted_baseline_package_vector_digest_matches": (
+            migration.get("accepted_baseline_package_vector_digest")
+            == digest(baseline_vectors)
+        ),
+        "migration_closure": migration_closure,
         "shards": {
             name: {"count": len(rows), "digest": digest(rows)}
             for name, rows in shard_rows.items()
@@ -344,6 +573,9 @@ def verify_inventory(report_path: Path) -> dict[str, object]:
         (
             missing_tests,
             missing_vectors,
+            not report["accepted_baseline_test_digest_matches"],
+            not report["accepted_baseline_package_vector_digest_matches"],
+            not migration_closure["closed"],
             overlaps,
             uncovered,
             unexpected,
@@ -384,6 +616,31 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
     return report
 
 
+def start_timer(report_path: Path, *, now_ns: int | None = None) -> dict[str, int]:
+    """Persist one wall-clock start usable by a later always-run step."""
+    report = {"started_unix_ns": time.time_ns() if now_ns is None else now_ns}
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+    return report
+
+
+def finish_timer(
+    started_path: Path,
+    report_path: Path,
+    *,
+    now_ns: int | None = None,
+) -> dict[str, float]:
+    """Publish elapsed shard wall time even after the test step failed."""
+    started = json.loads(started_path.read_text(encoding="utf-8"))["started_unix_ns"]
+    finished = time.time_ns() if now_ns is None else now_ns
+    if not isinstance(started, int) or finished < started:
+        raise ValueError("invalid shard timer interval")
+    report = {"wall_seconds": round((finished - started) / 1_000_000_000, 6)}
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+    return report
+
+
 def aggregate_junit(
     junit_dir: Path,
     report_path: Path,
@@ -393,6 +650,8 @@ def aggregate_junit(
 ) -> dict[str, object]:
     """Close the exact shard union and publish cumulative executed-test time."""
     migration = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    allowed_skips = set(baseline["allowed_skipped_test_ids"])
     expected_tests = (
         {normalized_node_id(row, migration) for row in collect_node_ids()}
         if expected_test_ids is None
@@ -402,14 +661,29 @@ def aggregate_junit(
     for path in junit_dir.rglob("junit-*.xml"):
         shard = path.stem.removeprefix("junit-")
         paths_by_shard.setdefault(shard, []).append(path)
+    wall_paths_by_shard: dict[str, list[Path]] = {}
+    for path in junit_dir.rglob("wall-*.json"):
+        shard = path.stem.removeprefix("wall-")
+        wall_paths_by_shard.setdefault(shard, []).append(path)
     missing_shards = sorted(set(expected_shards) - set(paths_by_shard))
     unexpected_shards = sorted(set(paths_by_shard) - set(expected_shards))
     duplicate_shard_reports = sorted(
         shard for shard, paths in paths_by_shard.items() if len(paths) != 1
     )
+    missing_wall_reports = sorted(set(expected_shards) - set(wall_paths_by_shard))
+    unexpected_wall_reports = sorted(set(wall_paths_by_shard) - set(expected_shards))
+    duplicate_wall_reports = sorted(
+        shard for shard, paths in wall_paths_by_shard.items() if len(paths) != 1
+    )
+    invalid_wall_reports: set[str] = set()
     seen: set[str] = set()
     duplicate_tests: set[str] = set()
     failed_tests: set[str] = set()
+    skipped_tests: set[str] = set()
+    xfailed_tests: set[str] = set()
+    not_applicable_tests: dict[str, str] = {}
+    per_file: dict[str, dict[str, float | int]] = {}
+    duration_rows: list[dict[str, str | float]] = []
     shard_rows: dict[str, dict[str, float | int]] = {}
     for shard in expected_shards:
         paths = paths_by_shard.get(shard, [])
@@ -423,7 +697,33 @@ def aggregate_junit(
                 duplicate_tests.add(node_id)
             seen.add(node_id)
             test_count += 1
-            test_seconds += float(testcase.attrib.get("time", "0"))
+            duration = float(testcase.attrib.get("time", "0"))
+            test_seconds += duration
+            filename = node_id.partition("::")[0]
+            file_row = per_file.setdefault(
+                filename,
+                {"test_count": 0, "test_seconds": 0.0},
+            )
+            file_row["test_count"] = int(file_row["test_count"]) + 1
+            file_row["test_seconds"] = round(
+                float(file_row["test_seconds"]) + duration,
+                6,
+            )
+            duration_rows.append({"test_id": node_id, "test_seconds": duration})
+            properties = {
+                row.attrib.get("name"): row.attrib.get("value", "")
+                for row in testcase.findall("./properties/property")
+            }
+            if properties.get("gda-balancing.applicability") == "not-applicable":
+                not_applicable_tests[node_id] = properties.get(
+                    "gda-balancing.applicability-reason", ""
+                )
+            outcome = testcase.find("skipped")
+            if outcome is not None:
+                if outcome.attrib.get("type") == "pytest.xfail":
+                    xfailed_tests.add(node_id)
+                else:
+                    skipped_tests.add(node_id)
             if (
                 testcase.find("failure") is not None
                 or testcase.find("error") is not None
@@ -433,15 +733,37 @@ def aggregate_junit(
             "test_count": test_count,
             "test_seconds": round(test_seconds, 6),
         }
+        wall_paths = wall_paths_by_shard.get(shard, [])
+        if len(wall_paths) == 1:
+            try:
+                wall_seconds = float(
+                    json.loads(wall_paths[0].read_text(encoding="utf-8"))[
+                        "wall_seconds"
+                    ]
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                invalid_wall_reports.add(shard)
+            else:
+                if wall_seconds < 0 or not math.isfinite(wall_seconds):
+                    invalid_wall_reports.add(shard)
+                else:
+                    shard_rows[shard]["wall_seconds"] = round(wall_seconds, 6)
     missing_tests = expected_tests - seen
     unexpected_tests = seen - expected_tests
+    unexpected_skipped_tests = skipped_tests - allowed_skips
     closed = not any(
         (
             missing_shards,
             unexpected_shards,
             duplicate_shard_reports,
+            missing_wall_reports,
+            unexpected_wall_reports,
+            duplicate_wall_reports,
+            invalid_wall_reports,
             duplicate_tests,
             failed_tests,
+            unexpected_skipped_tests,
+            xfailed_tests,
             missing_tests,
             unexpected_tests,
         )
@@ -453,14 +775,45 @@ def aggregate_junit(
             sum(float(row["test_seconds"]) for row in shard_rows.values()), 6
         ),
         "shards": shard_rows,
+        "per_file": dict(sorted(per_file.items())),
+        "slow_tests": sorted(
+            duration_rows,
+            key=lambda row: float(row["test_seconds"]),
+            reverse=True,
+        )[:50],
+        "skipped_tests": sorted(skipped_tests),
+        "unexpected_skipped_tests": sorted(unexpected_skipped_tests),
+        "xfailed_tests": sorted(xfailed_tests),
+        "not_applicable_tests": dict(sorted(not_applicable_tests.items())),
         "missing_shards": missing_shards,
         "unexpected_shards": unexpected_shards,
         "duplicate_shard_reports": duplicate_shard_reports,
+        "missing_wall_reports": missing_wall_reports,
+        "unexpected_wall_reports": unexpected_wall_reports,
+        "duplicate_wall_reports": duplicate_wall_reports,
+        "invalid_wall_reports": sorted(invalid_wall_reports),
         "duplicate_tests": sorted(duplicate_tests),
         "failed_tests": sorted(failed_tests),
         "missing_tests": sorted(missing_tests),
         "unexpected_tests": sorted(unexpected_tests),
     }
+    timed_shards = {
+        name: row for name, row in shard_rows.items() if "wall_seconds" in row
+    }
+    if timed_shards:
+        critical_name, critical_row = max(
+            timed_shards.items(),
+            key=lambda item: float(item[1]["wall_seconds"]),
+        )
+        report["parallel_critical_path_wall_seconds"] = critical_row["wall_seconds"]
+        report["critical_shard"] = {
+            "name": critical_name,
+            "test_seconds": critical_row["test_seconds"],
+            "wall_seconds": critical_row["wall_seconds"],
+        }
+    else:
+        report["parallel_critical_path_wall_seconds"] = None
+        report["critical_shard"] = None
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if not closed:
@@ -569,6 +922,11 @@ def _parser() -> argparse.ArgumentParser:
     aggregate = subcommands.add_parser("aggregate-junit")
     aggregate.add_argument("--junit-dir", type=Path, required=True)
     aggregate.add_argument("--report", type=Path, required=True)
+    start = subcommands.add_parser("start-timer")
+    start.add_argument("--report", type=Path, required=True)
+    finish = subcommands.add_parser("finish-timer")
+    finish.add_argument("--started", type=Path, required=True)
+    finish.add_argument("--report", type=Path, required=True)
     return parser
 
 
@@ -594,6 +952,14 @@ def main() -> int:
         return 0
     if args.command == "aggregate-junit":
         report = aggregate_junit(args.junit_dir, args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    if args.command == "start-timer":
+        report = start_timer(args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    if args.command == "finish-timer":
+        report = finish_timer(args.started, args.report)
         print(json.dumps(report, sort_keys=True))
         return 0
     if args.command == "required-test-shards":

@@ -106,6 +106,37 @@ def test_declared_bootstrap_migration_normalizes_only_the_moved_test():
     )
 
 
+def test_one_to_many_inventory_migration_requires_every_subject_variant():
+    migration = {
+        "source": "old.py",
+        "tests": {"test_matrix": "new.py"},
+        "expansions": {
+            "test_matrix": {
+                "target": "new.py",
+                "subject_source": "authority.example_ids",
+                "test_id_template": "tests/{target}::{test}[{subject}-{variant}]",
+                "variants": ["delete", "mutate"],
+            }
+        },
+    }
+    current = {
+        "tests/old.py::test_matrix[a-delete]",
+        "tests/old.py::test_matrix[a-mutate]",
+        "tests/old.py::test_matrix[b-delete]",
+    }
+
+    report = ci.inventory_migration_closure(
+        migration,
+        current,
+        subject_resolver=lambda _source: ["a", "b"],
+    )
+
+    assert report["represented_baseline_tests"] == []
+    assert report["expansions"][0]["missing_current_tests"] == [
+        "tests/old.py::test_matrix[b-mutate]"
+    ]
+
+
 def test_claim_ledger_rejects_a_claim_after_its_last_independent_witness_is_lost(
     tmp_path,
 ):
@@ -118,11 +149,15 @@ def test_claim_ledger_rejects_a_claim_after_its_last_independent_witness_is_lost
                     {
                         "id": "authority.consumer-agreement",
                         "boundary": "bootstrap admission",
-                        "subjects": ["exact packaged authority"],
+                        "subjects": [
+                            "exact packaged authority",
+                            "reidentified mutation",
+                        ],
                         "witnesses": [
                             {
                                 "test_id": "tests/test_authority.py::test_consumers_agree",
                                 "independence_domain": "consumer-a-vs-consumer-b",
+                                "covers": ["exact packaged authority"],
                             }
                         ],
                         "minimum_independent_witnesses": 1,
@@ -138,19 +173,18 @@ def test_claim_ledger_rejects_a_claim_after_its_last_independent_witness_is_lost
         ci.verify_claims(
             report_path,
             ledger_path=ledger,
-            current_test_ids=set(),
+            current_test_ids={"tests/test_authority.py::test_consumers_agree"},
             current_package_vector_ids=set(),
         )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["claims"][0]["claim_id"] == "authority.consumer-agreement"
-    assert report["claims"][0]["missing_witnesses"] == [
-        "tests/test_authority.py::test_consumers_agree"
-    ]
+    assert report["claims"][0]["missing_witnesses"] == []
+    assert report["claims"][0]["uncovered_subjects"] == ["reidentified mutation"]
     assert report["claims"][0]["closed"] is False
 
 
-def test_claim_ledger_expands_and_closes_every_baseline_package_vector(tmp_path):
+def test_claim_ledger_expands_and_closes_every_live_package_vector(tmp_path):
     ledger = tmp_path / "claims.json"
     ledger.write_text(
         json.dumps(
@@ -160,11 +194,12 @@ def test_claim_ledger_expands_and_closes_every_baseline_package_vector(tmp_path)
                     {
                         "id": "package-vector",
                         "boundary": "packaged conformance vectors",
-                        "subjects": {"source": "baseline.package_vector_ids"},
+                        "subjects": {"source": "authority.package_vector_ids"},
                         "witnesses": [
                             {
                                 "test_id": "tests/test_vectors.py::test_execute_all",
                                 "independence_domain": "public-vector-runner",
+                                "covers": "*",
                             }
                         ],
                         "minimum_independent_witnesses": 1,
@@ -194,12 +229,54 @@ def test_claim_ledger_expands_and_closes_every_baseline_package_vector(tmp_path)
     assert report["claims"][0]["closed"] is True
 
 
+def test_claim_ledger_rejects_one_test_relabeled_as_two_independent_domains(tmp_path):
+    test_id = "tests/test_authority.py::test_one_consumer"
+    ledger = tmp_path / "claims.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "claims": [
+                    {
+                        "id": "authority.consumer-agreement",
+                        "boundary": "bootstrap admission",
+                        "subjects": ["exact packaged authority"],
+                        "witnesses": [
+                            {
+                                "test_id": test_id,
+                                "independence_domain": "consumer-a",
+                                "covers": "*",
+                            },
+                            {
+                                "test_id": test_id,
+                                "independence_domain": "consumer-b",
+                                "covers": "*",
+                            },
+                        ],
+                        "minimum_independent_witnesses": 2,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="coverage claim closure failed"):
+        ci.verify_claims(
+            tmp_path / "report.json",
+            ledger_path=ledger,
+            current_test_ids={test_id},
+            current_package_vector_ids=set(),
+        )
+
+
 def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
     report = ci.verify_claims(tmp_path / "coverage-claims.json")
 
     assert report["claim_count"] >= 6
     assert report["closed_claim_count"] == report["claim_count"]
     assert report["subject_claim_count"] >= 100
+    assert report["migration_expansions_closed"] is True
 
 
 def test_ci_policy_exposes_coverage_claim_verification_command(tmp_path):
@@ -223,6 +300,12 @@ def test_junit_aggregate_proves_exact_execution_and_reports_total_duration(tmp_p
         'name="test_boundary" time="1.75"/></testsuite></testsuites>',
         encoding="utf-8",
     )
+    (junit_dir / "wall-fast.json").write_text(
+        json.dumps({"wall_seconds": 0.5}), encoding="utf-8"
+    )
+    (junit_dir / "wall-smoke.json").write_text(
+        json.dumps({"wall_seconds": 2.5}), encoding="utf-8"
+    )
 
     report = ci.aggregate_junit(
         junit_dir,
@@ -237,7 +320,65 @@ def test_junit_aggregate_proves_exact_execution_and_reports_total_duration(tmp_p
     assert report["closed"] is True
     assert report["test_count"] == 2
     assert report["test_seconds"] == 2.0
-    assert report["shards"]["smoke"] == {"test_count": 1, "test_seconds": 1.75}
+    assert report["shards"]["smoke"] == {
+        "test_count": 1,
+        "test_seconds": 1.75,
+        "wall_seconds": 2.5,
+    }
+    assert report["parallel_critical_path_wall_seconds"] == 2.5
+    assert report["critical_shard"] == {
+        "name": "smoke",
+        "test_seconds": 1.75,
+        "wall_seconds": 2.5,
+    }
+    assert report["per_file"]["tests/test_two.py"] == {
+        "test_count": 1,
+        "test_seconds": 1.75,
+    }
+    assert report["slow_tests"][0] == {
+        "test_id": "tests/test_two.py::test_boundary",
+        "test_seconds": 1.75,
+    }
+
+
+def test_junit_aggregate_rejects_a_missing_shard_wall_report(tmp_path):
+    junit_dir = tmp_path / "junit"
+    junit_dir.mkdir()
+    (junit_dir / "junit-fast.xml").write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one" '
+        'name="test_fast"/></testsuite></testsuites>',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="aggregate test closure failed"):
+        ci.aggregate_junit(
+            junit_dir,
+            tmp_path / "aggregate.json",
+            expected_shards=("fast",),
+            expected_test_ids={"tests/test_one.py::test_fast"},
+        )
+
+
+@pytest.mark.parametrize("outcome_type", ["pytest.skip", "pytest.xfail"])
+def test_junit_aggregate_rejects_unaccepted_nonexecuted_outcomes(
+    tmp_path, outcome_type
+):
+    junit_dir = tmp_path / "junit"
+    junit_dir.mkdir()
+    (junit_dir / "junit-fast.xml").write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_one" '
+        f'name="test_fast"><skipped type="{outcome_type}"/></testcase>'
+        "</testsuite></testsuites>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit, match="aggregate test closure failed"):
+        ci.aggregate_junit(
+            junit_dir,
+            tmp_path / "aggregate.json",
+            expected_shards=("fast",),
+            expected_test_ids={"tests/test_one.py::test_fast"},
+        )
 
 
 def test_ci_policy_exposes_junit_aggregate_command(tmp_path):
@@ -254,6 +395,17 @@ def test_ci_policy_exposes_junit_aggregate_command(tmp_path):
     assert args.command == "aggregate-junit"
 
 
+def test_ci_timer_publishes_reproducible_shard_wall_seconds(tmp_path):
+    started = tmp_path / "started.json"
+    report_path = tmp_path / "wall-fast.json"
+
+    ci.start_timer(started, now_ns=1_000_000_000)
+    report = ci.finish_timer(started, report_path, now_ns=3_500_000_000)
+
+    assert report == {"wall_seconds": 2.5}
+    assert json.loads(report_path.read_text(encoding="utf-8")) == report
+
+
 def test_ci_policy_exports_all_shards_for_exact_release_execution():
     assert ci.all_test_shards() == (*ci.REQUIRED_TEST_SHARDS, "smoke")
 
@@ -263,6 +415,18 @@ def test_local_parallel_policy_keeps_process_heavy_smoke_exclusive():
     assert ci.local_serial_shards() == ("smoke",)
 
 
+@pytest.mark.parametrize(
+    ("captured", "expected"),
+    (
+        (b"partial output\n", "partial output\n"),
+        ("text output\n", "text output\n"),
+        (None, ""),
+    ),
+)
+def test_timeout_output_normalizes_subprocess_bytes(captured, expected):
+    assert ci.subprocess_text(captured) == expected
+
+
 def test_every_reason_mutation_has_a_stable_independent_test_id():
     migration = json.loads(ci.MIGRATION_PATH.read_text(encoding="utf-8"))
     expansion = migration["expansions"][
@@ -270,6 +434,10 @@ def test_every_reason_mutation_has_a_stable_independent_test_id():
     ]
     ledger = json.loads(ci.CLAIM_LEDGER_PATH.read_text(encoding="utf-8"))
     claim = next(row for row in ledger["claims"] if row["id"] == expansion["claim_id"])
+    subjects = ci.authority_claim_subjects(
+        claim["subjects"]["source"],
+        current_package_vector_ids=ci.package_vector_ids(),
+    )
     rows = {
         row
         for row in ci.collect_node_ids((ci.TEST_ROOT / expansion["target"],))
@@ -277,7 +445,7 @@ def test_every_reason_mutation_has_a_stable_independent_test_id():
         in row
     }
 
-    assert len(rows) == len(claim["subjects"]) * len(expansion["variants"])
+    assert len(rows) == len(subjects) * len(expansion["variants"])
     assert any("quantity.reason.invalid-domain-delete" in row for row in rows)
     assert any(
         "migration.reason.target-limit-exceeded-operation" in row for row in rows

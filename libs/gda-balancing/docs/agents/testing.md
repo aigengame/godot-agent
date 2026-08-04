@@ -29,22 +29,29 @@ separate witnesses in the coverage ledger.
 
 Three versioned files make “coverage unchanged” executable:
 
-- `schema2-test-inventory-v1.json` records the exact accepted inventory: 1,516
-  normalized test ids, 194 packaged conformance-vector ids, and 27 accepted
-  skips;
-- `schema2-coverage-claims-v1.json` records 7 claim families and 264 behavior
-  subjects, including every packaged vector, Consumer A/B, every Kernel law,
-  Language rule and diagnostic reason, public E2E paths, and the built-wheel
-  boundary;
-- `schema2-bootstrap-migration-map.json` records declared file moves and the
-  one-to-many migration of the former reason loop into 98 stable
-  `<reason>-<mutation>` test ids.
+- `schema2-test-inventory-v1.json` is the accepted pre-optimization snapshot at
+  commit `2b81e2e`: 1,409 normalized test ids, 194 packaged
+  conformance-vector ids, and 27 accepted skips. It is not regenerated from the
+  optimized suite;
+- `schema2-bootstrap-migration-map.json` binds that snapshot's test/vector
+  digests, records declared file moves, and executes the one-to-many migration
+  of the former reason loop into 98 stable `<reason>-<mutation>` test ids;
+- `schema2-coverage-claims-v1.json` adds 15 high-risk cross-boundary claim
+  families and 305 current machine-authority subjects. Every subject names its
+  witness coverage and closes its own independent-domain minimum. Fixed
+  package vectors, Kernel laws, Language rules, diagnostic reasons, and model
+  vectors are resolved from the live admitted authority rather than copied
+  into the ledger.
 
-`verify-inventory` requires the shard union to equal the unfiltered collection
-with no overlap, missing test, unexpected test, or missing packaged vector.
-`verify-claims` requires every declared witness and every independence domain.
-`verify-outcomes` rejects every non-baseline skip and every xfail. Pytest also
-uses strict xfail and rejects `xfail(strict=False)` during collection.
+`verify-inventory` requires every accepted baseline test to remain represented
+directly or through a fully closed declared expansion. It also requires the
+current shard union to equal the current unfiltered collection with no overlap,
+missing test, unexpected test, or missing packaged vector. `verify-claims`
+requires every subject's declared witnesses and independent domains, rejects a
+single test relabelled as multiple domains, closes live authority inventories,
+and binds each expansion back to its claim. `verify-outcomes` rejects every
+non-baseline skip and every xfail. Pytest also uses strict xfail and rejects
+`xfail(strict=False)` during collection.
 
 From this package directory:
 
@@ -71,10 +78,13 @@ uv run python tools/ci.py verify-claims \
 | `smoke` | real console/module subprocess key paths |
 
 Each shard has an eight-minute process bound and a fifteen-minute job bound.
-Every job uploads JUnit, raw logs, per-file duration totals, slow tests, and
-outcome closure. `aggregate-junit` then requires exactly one JUnit result for
-every shard and exactly one executed row for every current test id. Its JSON
-report is both the aggregate verdict and the cumulative test-seconds authority.
+Every job uploads JUnit, raw logs, a measured wall-time report, per-file
+duration totals, slow tests, and outcome closure. `aggregate-junit` then
+requires exactly one JUnit and wall report for every shard and exactly one
+executed row for every current test id. Its unified JSON rejects failures,
+unexpected skips, every xfail, duplicate/missing tests, and incomplete shards;
+it also publishes per-file totals, the 50 slowest nodes, the critical shard,
+parallel critical-path wall time, and cumulative test seconds.
 
 An affecting PR runs inventory/claims, seven semantic runners, one smoke
 runner, and the stable `gda-balancing required` aggregate. Scheduled and
@@ -83,10 +93,11 @@ duplicate serial suite. This preserves the complete inventory while moving
 parallelism to independent GitHub runners.
 
 Release uses the same matrix. Prepare, every shard, aggregate, and build each
-check out `needs.cut-release.outputs.balancing_sha`. Distribution build cannot
-start until the exact JUnit aggregate closes; PyPI publication depends on that
-verified build. Release artifacts include inventory, claim, shard, outcome,
-duration, and aggregate reports.
+check out `needs.cut-release.outputs.balancing_sha`. The aggregate runs under
+`always()` and publishes its failed verdict even when a shard fails, times out,
+or omits an artifact. Distribution build cannot start until the exact aggregate
+closes; PyPI publication depends on that verified build. Release artifacts
+include inventory, claim, shard, outcome, duration, wall, and aggregate reports.
 
 ## Supported local runner
 
@@ -99,11 +110,12 @@ uv run python tools/run_test_shards.py \
 
 The default is one semantic shard at a time and an exclusive smoke shard. A
 developer may request `--jobs 2`, but only after measuring the machine: the
-2026-08-04 two-worker trial passed all 1,516 tests with exact closure, yet CPU
-contention increased cumulative test time to 2,173.365 seconds and wall time to
-1,222.917 seconds. It is therefore evidence against two workers as the default
-on the measured machine. Four-way xdist remains unsupported because it caused
-two migration subprocess watchdog failures and took 18:15.
+2026-08-04 pre-final two-worker trial passed the then-current 1,516 tests with
+exact closure, yet CPU contention increased cumulative test time to 2,173.365
+seconds and wall time to 1,222.917 seconds. It is therefore evidence against
+two workers as the default on the measured machine. Four-way xdist remains
+unsupported because it caused two migration subprocess watchdog failures and
+took 18:15.
 
 `--repeat 3` publishes median/max wall time and cumulative test seconds. Smoke
 always runs alone so wheel and subprocess watchdog claims are not weakened by
@@ -124,29 +136,17 @@ Two optimizations are admitted:
 2. The built-wheel test still compares every packaged authority JSON member
    byte-for-byte and still executes the installed wheel through `python -m`.
    Exhaustive package `list/get` behavior remains in its independent public
-   command test. Removing redundant installed-process repetition reduced the
-   wheel test from 108.76 seconds to 4.54 seconds.
+   command test. The installed wheel now executes every root-declared
+   `package get` through one isolated batched dispatch process, while a separate
+   real `python -m ... package list` retains cold entry-point evidence. This
+   reduced the exhaustive wheel test from 108.76 seconds to 17.28 seconds
+   without substituting a source-tree witness for installed-artifact behavior.
 
-The first complete post-change serial evidence run closed all 1,516 current
-test ids with the same 27 accepted skips and no xfail. Cumulative test time was
-671.369 seconds and wall time was 681.765 seconds, a 43.4% cumulative-time
-improvement over the accepted 1,186.764-second snapshot despite the larger,
-more explicit test inventory. Its shard wall times were:
-
-| Shard | Wall seconds |
-| --- | ---: |
-| `fast` | 26.894 |
-| `authority-cli` | 81.186 |
-| `authority-bootstrap` | 57.921 |
-| `language-bootstrap` | 104.697 |
-| `model` | 58.001 |
-| `experiment` | 113.216 |
-| `composition` | 109.887 |
-| `smoke` | 129.962 |
-
-The longest shard used only 23.6% of its eight-minute process budget, leaving
-76.4% headroom. The final change record retains the three-run median and
-maximum required by the protocol below; a single run is not used as a p95.
+The earlier 671.369-second single run was useful for selecting the approach but
+is not final evidence: review strengthened the wheel and aggregate boundaries
+afterward. Only the post-review three-run same-SHA results recorded with the
+protocol below are acceptance evidence; a single run is never presented as a
+p95.
 
 Rejected optimizations stay rejected: vector sampling, new skips/xfails,
 shared relocatable artifact stores (anchors correctly bind their publication

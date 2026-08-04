@@ -64,6 +64,44 @@ from gda_balancing.schema2.diagnostics import (
 from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
 
+_INSTALLED_DISPATCH_BATCH = """
+import io
+import json
+import sys
+
+from gda_balancing.dispatch import dispatch
+
+rows = []
+for command in json.load(sys.stdin):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    returncode = dispatch(command, stdout, stderr, stdin=io.StringIO())
+    rows.append(
+        {
+            "returncode": returncode,
+            "stdout": stdout.getvalue(),
+            "stderr": stderr.getvalue(),
+        }
+    )
+json.dump(rows, sys.stdout)
+"""
+
+
+def _run_installed_dispatch_batch(
+    *, commands: list[list[str]], cwd: Path, environment: dict[str, str]
+) -> list[dict[str, Any]]:
+    completed = subprocess.run(
+        [sys.executable, "-c", _INSTALLED_DISPATCH_BATCH],
+        cwd=cwd,
+        env=environment,
+        input=json.dumps(commands),
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    return cast(list[dict[str, Any]], json.loads(completed.stdout))
+
+
 def _reidentify_graph(kernel, ldb):
     root = deepcopy(ldb.root)
     releases = deepcopy(ldb.package_releases)
@@ -971,6 +1009,31 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     installed_list = installed("package", "list")
     assert (installed_list.returncode, installed_list.stderr) == (0, "")
     assert installed_list.stdout == source_list[1]
+
+    get_commands = [
+        [
+            "package",
+            "get",
+            "--id",
+            descriptor["id"],
+            "--version",
+            descriptor["version"],
+            "--member",
+            member,
+        ]
+        for descriptor in source_root["package_descriptors"]
+        for member in ("release", "conformance-vectors")
+    ]
+    source_gets = [run_cli(command) for command in get_commands]
+    installed_gets = _run_installed_dispatch_batch(
+        commands=get_commands,
+        cwd=tmp_path,
+        environment=environment,
+    )
+    assert installed_gets == [
+        {"returncode": returncode, "stdout": stdout, "stderr": stderr}
+        for returncode, stdout, stderr in source_gets
+    ]
 
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):

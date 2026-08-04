@@ -9,3 +9,11 @@ from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 def mutable_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     """Copy the one admitted process baseline without repeating admission."""
     return packaged_authority_context().mutable_pair()
+
+
+def diagnostic_reason_ids() -> tuple[str, ...]:
+    """Project the current machine-owned reason inventory without the claim ledger."""
+    context = packaged_authority_context()
+    return tuple(
+        reason["id"] for reason in context.language_bundle["language"]["reasons"]
+    )

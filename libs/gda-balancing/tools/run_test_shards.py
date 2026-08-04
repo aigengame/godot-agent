@@ -20,6 +20,7 @@ from ci import (
     local_parallel_shards,
     local_serial_shards,
     shard_paths,
+    subprocess_text,
     summarize_junit,
     verify_outcomes,
 )
@@ -55,7 +56,7 @@ def _run_shard(name: str, output_dir: Path) -> ShardResult:
         output = completed.stdout + completed.stderr
         returncode = completed.returncode
     except subprocess.TimeoutExpired as error:
-        output = (error.stdout or "") + (error.stderr or "")
+        output = subprocess_text(error.stdout) + subprocess_text(error.stderr)
         output += "\nlocal shard exceeded the required process timeout\n"
         returncode = 124
     (output_dir / f"{name}.log").write_text(output, encoding="utf-8")
@@ -65,10 +66,15 @@ def _run_shard(name: str, output_dir: Path) -> ShardResult:
             verify_outcomes(junit_path, output_dir / f"{name}-outcomes.json")
         except SystemExit:
             returncode = returncode or 1
+    wall_seconds = round(time.monotonic() - started, 6)
+    (output_dir / f"wall-{name}.json").write_text(
+        json.dumps({"wall_seconds": wall_seconds}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return ShardResult(
         name=name,
         returncode=returncode,
-        wall_seconds=round(time.monotonic() - started, 6),
+        wall_seconds=wall_seconds,
     )
 
 

@@ -1,25 +1,15 @@
 """Schema 2.0 bootstrap conformance: language ownership."""
 
 # ruff: noqa: F403, F405
-import json
 from itertools import product
-from pathlib import Path
 
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
+from schema2_test_authority import diagnostic_reason_ids
 
 
-_COVERAGE_CLAIMS = json.loads(
-    (Path(__file__).with_name("schema2-coverage-claims-v1.json")).read_text(
-        encoding="utf-8"
-    )
-)
-_REASON_IDS = next(
-    claim["subjects"]
-    for claim in _COVERAGE_CLAIMS["claims"]
-    if claim["id"] == "diagnostic-reason.execution-and-mutation"
-)
+_REASON_IDS = diagnostic_reason_ids()
 _REASON_MUTATIONS = tuple(product(_REASON_IDS, ("delete", "operation")))
 
 
