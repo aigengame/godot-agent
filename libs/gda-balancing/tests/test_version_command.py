@@ -11,7 +11,7 @@ from dataclasses import replace
 from importlib.metadata import version as package_version
 
 from gda_balancing.commands.version import VERSION, version_handler
-from gda_balancing.schema2.authority import load_authorities
+from schema2_test_authority import mutable_authorities
 
 SUPPORTED_SCHEMA_LINE = "2.0"
 
@@ -48,7 +48,7 @@ def test_supported_schema_line_is_a_required_string_not_nullable(run_cli):
 
 
 def test_version_refuses_an_unadmitted_language_bundle(run_cli):
-    kernel, language_bundle = deepcopy(load_authorities())
+    kernel, language_bundle = deepcopy(mutable_authorities())
     language_bundle["language"]["model_source_schema_versions"] = ["9.0.0"]
     descriptor = replace(
         VERSION,

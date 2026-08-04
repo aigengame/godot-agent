@@ -17,6 +17,7 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[3]
 TEST_ROOT: Final = MEMBER_ROOT / "tests"
 BASELINE_PATH: Final = TEST_ROOT / "schema2-test-inventory-v1.json"
 MIGRATION_PATH: Final = TEST_ROOT / "schema2-bootstrap-migration-map.json"
+CLAIM_LEDGER_PATH: Final = TEST_ROOT / "schema2-coverage-claims-v1.json"
 
 SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "fast": (
@@ -37,20 +38,20 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_version_bundle.py",
         "test_version_command.py",
     ),
-    "authority": (
-        "test_schema2_authority_cli.py",
+    "authority-cli": ("test_schema2_authority_cli.py",),
+    "authority-bootstrap": (
         "test_schema2_bootstrap_authority.py",
         "test_schema2_bootstrap_resources.py",
     ),
-    "language": (
+    "language-bootstrap": (
         "test_schema2_bootstrap_language.py",
         "test_schema2_formula_cli.py",
-        "test_schema2_model_cli.py",
     ),
+    "model": ("test_schema2_model_cli.py",),
+    "experiment": ("test_schema2_experiment_cli.py",),
     "composition": (
         "test_cli_conformance.py",
         "test_schema2_bootstrap_composition.py",
-        "test_schema2_experiment_cli.py",
         "test_schema2_model_lowerer_conformance.py",
         "test_schema2_template_cli.py",
     ),
@@ -117,6 +118,21 @@ def shard_paths(shard: str) -> tuple[Path, ...]:
     return tuple(TEST_ROOT / name for name in SHARDS[shard])
 
 
+def all_test_shards() -> tuple[str, ...]:
+    """Return the exact release/nightly matrix, with smoke last."""
+    return (*REQUIRED_TEST_SHARDS, "smoke")
+
+
+def local_parallel_shards() -> tuple[str, ...]:
+    """Shards safe to overlap on one developer machine."""
+    return REQUIRED_TEST_SHARDS
+
+
+def local_serial_shards() -> tuple[str, ...]:
+    """Process-heavy shards kept exclusive to avoid watchdog contention."""
+    return ("smoke",)
+
+
 def normalized_node_id(node_id: str, migration: dict[str, object]) -> str:
     """Normalize only declared file moves while preserving parameters and classes."""
     path, separator, test = node_id.partition("::")
@@ -175,6 +191,109 @@ def package_vector_ids() -> set[str]:
 def digest(rows: set[str]) -> str:
     encoded = ("\n".join(sorted(rows)) + "\n").encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def verify_claims(
+    report_path: Path,
+    *,
+    ledger_path: Path = CLAIM_LEDGER_PATH,
+    baseline_path: Path = BASELINE_PATH,
+    current_test_ids: set[str] | None = None,
+    current_package_vector_ids: set[str] | None = None,
+) -> dict[str, object]:
+    """Prove that every declared behavior claim retains its required witnesses."""
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    migration = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
+    tests = (
+        {normalized_node_id(row, migration) for row in collect_node_ids()}
+        if current_test_ids is None
+        else current_test_ids
+    )
+    vectors = (
+        package_vector_ids()
+        if current_package_vector_ids is None
+        else current_package_vector_ids
+    )
+    rows: list[dict[str, object]] = []
+    seen_claim_ids: set[str] = set()
+    duplicate_claim_ids: set[str] = set()
+    for claim in ledger["claims"]:
+        claim_id = claim["id"]
+        if claim_id in seen_claim_ids:
+            duplicate_claim_ids.add(claim_id)
+        seen_claim_ids.add(claim_id)
+        subject_declaration = claim.get("subjects", [])
+        if isinstance(subject_declaration, list):
+            subjects = subject_declaration
+            subject_source = None
+        elif subject_declaration == {"source": "baseline.package_vector_ids"}:
+            subjects = baseline["package_vector_ids"]
+            subject_source = "package_vector_ids"
+        else:
+            raise ValueError(
+                f"unknown claim subject declaration: {subject_declaration!r}"
+            )
+        witnesses: list[dict[str, str]] = []
+        for declaration in claim["witnesses"]:
+            if "test_id" in declaration:
+                witnesses.append(declaration)
+                continue
+            template = declaration["test_id_template"]
+            witnesses.extend(
+                {
+                    "test_id": template.format(subject=subject, variant=variant),
+                    "independence_domain": declaration["independence_domain"],
+                }
+                for subject in subjects
+                for variant in declaration["variants"]
+            )
+        missing_witnesses = sorted(
+            witness["test_id"]
+            for witness in witnesses
+            if normalized_node_id(witness["test_id"], migration) not in tests
+        )
+        live_domains = {
+            witness["independence_domain"]
+            for witness in witnesses
+            if normalized_node_id(witness["test_id"], migration) in tests
+        }
+        minimum = claim["minimum_independent_witnesses"]
+        missing_subjects = sorted(
+            subject
+            for subject in subjects
+            if subject_source == "package_vector_ids" and subject not in vectors
+        )
+        closed = (
+            not missing_witnesses
+            and not missing_subjects
+            and len(live_domains) >= minimum
+        )
+        rows.append(
+            {
+                "claim_id": claim_id,
+                "boundary": claim["boundary"],
+                "subject_count": len(subjects),
+                "witness_count": len(witnesses),
+                "missing_subjects": missing_subjects,
+                "missing_witnesses": missing_witnesses,
+                "independent_witness_count": len(live_domains),
+                "minimum_independent_witnesses": minimum,
+                "closed": closed,
+            }
+        )
+    report: dict[str, object] = {
+        "claim_count": len(rows),
+        "subject_claim_count": sum(int(row["subject_count"]) for row in rows),
+        "closed_claim_count": sum(bool(row["closed"]) for row in rows),
+        "duplicate_claim_ids": sorted(duplicate_claim_ids),
+        "claims": rows,
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    if duplicate_claim_ids or any(not row["closed"] for row in rows):
+        raise SystemExit("gda-balancing coverage claim closure failed")
+    return report
 
 
 def verify_inventory(report_path: Path) -> dict[str, object]:
@@ -265,6 +384,90 @@ def summarize_junit(junit_path: Path, report_path: Path) -> dict[str, object]:
     return report
 
 
+def aggregate_junit(
+    junit_dir: Path,
+    report_path: Path,
+    *,
+    expected_shards: tuple[str, ...] = tuple(SHARDS),
+    expected_test_ids: set[str] | None = None,
+) -> dict[str, object]:
+    """Close the exact shard union and publish cumulative executed-test time."""
+    migration = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
+    expected_tests = (
+        {normalized_node_id(row, migration) for row in collect_node_ids()}
+        if expected_test_ids is None
+        else expected_test_ids
+    )
+    paths_by_shard: dict[str, list[Path]] = {}
+    for path in junit_dir.rglob("junit-*.xml"):
+        shard = path.stem.removeprefix("junit-")
+        paths_by_shard.setdefault(shard, []).append(path)
+    missing_shards = sorted(set(expected_shards) - set(paths_by_shard))
+    unexpected_shards = sorted(set(paths_by_shard) - set(expected_shards))
+    duplicate_shard_reports = sorted(
+        shard for shard, paths in paths_by_shard.items() if len(paths) != 1
+    )
+    seen: set[str] = set()
+    duplicate_tests: set[str] = set()
+    failed_tests: set[str] = set()
+    shard_rows: dict[str, dict[str, float | int]] = {}
+    for shard in expected_shards:
+        paths = paths_by_shard.get(shard, [])
+        if len(paths) != 1:
+            continue
+        test_count = 0
+        test_seconds = 0.0
+        for testcase in ElementTree.parse(paths[0]).getroot().iter("testcase"):
+            node_id = normalized_node_id(junit_node_id(testcase), migration)
+            if node_id in seen:
+                duplicate_tests.add(node_id)
+            seen.add(node_id)
+            test_count += 1
+            test_seconds += float(testcase.attrib.get("time", "0"))
+            if (
+                testcase.find("failure") is not None
+                or testcase.find("error") is not None
+            ):
+                failed_tests.add(node_id)
+        shard_rows[shard] = {
+            "test_count": test_count,
+            "test_seconds": round(test_seconds, 6),
+        }
+    missing_tests = expected_tests - seen
+    unexpected_tests = seen - expected_tests
+    closed = not any(
+        (
+            missing_shards,
+            unexpected_shards,
+            duplicate_shard_reports,
+            duplicate_tests,
+            failed_tests,
+            missing_tests,
+            unexpected_tests,
+        )
+    )
+    report: dict[str, object] = {
+        "closed": closed,
+        "test_count": len(seen),
+        "test_seconds": round(
+            sum(float(row["test_seconds"]) for row in shard_rows.values()), 6
+        ),
+        "shards": shard_rows,
+        "missing_shards": missing_shards,
+        "unexpected_shards": unexpected_shards,
+        "duplicate_shard_reports": duplicate_shard_reports,
+        "duplicate_tests": sorted(duplicate_tests),
+        "failed_tests": sorted(failed_tests),
+        "missing_tests": sorted(missing_tests),
+        "unexpected_tests": sorted(unexpected_tests),
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    if not closed:
+        raise SystemExit("gda-balancing aggregate test closure failed")
+    return report
+
+
 def junit_node_id(testcase: ElementTree.Element) -> str:
     """Reconstruct pytest's node id from one xunit2 testcase."""
     classname = testcase.attrib.get("classname", "")
@@ -350,16 +553,22 @@ def _parser() -> argparse.ArgumentParser:
     shard = subcommands.add_parser("shard-paths")
     shard.add_argument("shard", choices=tuple(SHARDS))
     subcommands.add_parser("required-test-shards")
+    subcommands.add_parser("all-test-shards")
     budget = subcommands.add_parser("process-timeout")
     budget.add_argument("suite", choices=tuple(PROCESS_TIMEOUT_SECONDS))
     verify = subcommands.add_parser("verify-inventory")
     verify.add_argument("--report", type=Path, required=True)
+    claims = subcommands.add_parser("verify-claims")
+    claims.add_argument("--report", type=Path, required=True)
     outcomes = subcommands.add_parser("verify-outcomes")
     outcomes.add_argument("--junit", type=Path, required=True)
     outcomes.add_argument("--report", type=Path, required=True)
     summarize = subcommands.add_parser("summarize-junit")
     summarize.add_argument("--junit", type=Path, required=True)
     summarize.add_argument("--report", type=Path, required=True)
+    aggregate = subcommands.add_parser("aggregate-junit")
+    aggregate.add_argument("--junit-dir", type=Path, required=True)
+    aggregate.add_argument("--report", type=Path, required=True)
     return parser
 
 
@@ -383,8 +592,15 @@ def main() -> int:
         report = summarize_junit(args.junit, args.report)
         print(json.dumps(report, sort_keys=True))
         return 0
+    if args.command == "aggregate-junit":
+        report = aggregate_junit(args.junit_dir, args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
     if args.command == "required-test-shards":
         print(json.dumps(REQUIRED_TEST_SHARDS))
+        return 0
+    if args.command == "all-test-shards":
+        print(json.dumps(all_test_shards()))
         return 0
     if args.command == "process-timeout":
         print(PROCESS_TIMEOUT_SECONDS[args.suite])
@@ -395,6 +611,10 @@ def main() -> int:
         return 0
     if args.command == "verify-inventory":
         report = verify_inventory(args.report)
+        print(json.dumps(report, sort_keys=True))
+        return 0
+    if args.command == "verify-claims":
+        report = verify_claims(args.report)
         print(json.dumps(report, sort_keys=True))
         return 0
     raise AssertionError(f"unhandled CI policy command: {args.command}")

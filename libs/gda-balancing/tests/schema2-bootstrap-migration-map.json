@@ -1,5 +1,15 @@
 {
   "source": "test_schema2_bootstrap_conformance.py",
+  "expansions": {
+    "test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse": {
+      "target": "test_schema2_bootstrap_language.py",
+      "claim_id": "diagnostic-reason.execution-and-mutation",
+      "variants": [
+        "delete",
+        "operation"
+      ]
+    }
+  },
   "tests": {
     "test_authority_admission_requires_one_default_resolution_profile": "test_schema2_bootstrap_composition.py",
     "test_bootstrap_behavior_covers_every_ldb_diagnostic_reason": "test_schema2_bootstrap_language.py",

@@ -1,9 +1,26 @@
 """Schema 2.0 bootstrap conformance: language ownership."""
 
 # ruff: noqa: F403, F405
+import json
+from itertools import product
+from pathlib import Path
+
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
+
+
+_COVERAGE_CLAIMS = json.loads(
+    (Path(__file__).with_name("schema2-coverage-claims-v1.json")).read_text(
+        encoding="utf-8"
+    )
+)
+_REASON_IDS = next(
+    claim["subjects"]
+    for claim in _COVERAGE_CLAIMS["claims"]
+    if claim["id"] == "diagnostic-reason.execution-and-mutation"
+)
+_REASON_MUTATIONS = tuple(product(_REASON_IDS, ("delete", "operation")))
 
 
 @pytest.mark.parametrize(
@@ -1050,42 +1067,44 @@ def test_diagnostic_catalog_missing_extra_and_stage_drift_are_refused():
         ) in first["diagnostics"]
 
 
-def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse():
+@pytest.mark.parametrize(
+    ("reason_id", "mutation"),
+    _REASON_MUTATIONS,
+    ids=[f"{reason_id}-{mutation}" for reason_id, mutation in _REASON_MUTATIONS],
+)
+def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse(
+    reason_id, mutation
+):
     baseline = _authority_candidate()
     reasons = baseline["language_bundle"]["language"]["reasons"]
-
-    for index in range(len(reasons)):
-        for mutation in ("delete", "operation"):
-            authority = deepcopy(baseline)
-            ldb = authority["language_bundle"]
-            reason_id = reasons[index]["id"]
-            package = next(
-                candidate
-                for candidate in ldb["language"]["packages"]
-                if reason_id in candidate["exports"]["reasons"]
-            )
-            target = next(
-                entry["definitions"]
-                for entry in package["semantic_closure"]
-                if entry["authority_path"] == "language.reasons"
-            )
-            reason = next(
-                definition for definition in target if definition["id"] == reason_id
-            )
-            if mutation == "delete":
-                package["exports"]["reasons"].remove(reason_id)
-                target.remove(reason)
-            else:
-                reason["predicate"]["operation"] += ".changed"
-            _reidentify_package_release(package)
-            _reidentify_graph_root(ldb)
-            first = _consumer_a(authority["kernel"], ldb)
-            second = _consumer_b(authority["kernel"], ldb)
-            assert first == second
-            assert first["admitted"] is False
-            assert any(
-                code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
-            ), first["diagnostics"]
+    assert reason_id in {reason["id"] for reason in reasons}
+    authority = deepcopy(baseline)
+    ldb = authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if reason_id in candidate["exports"]["reasons"]
+    )
+    target = next(
+        entry["definitions"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.reasons"
+    )
+    reason = next(definition for definition in target if definition["id"] == reason_id)
+    if mutation == "delete":
+        package["exports"]["reasons"].remove(reason_id)
+        target.remove(reason)
+    else:
+        reason["predicate"]["operation"] += ".changed"
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
+    ), first["diagnostics"]
 
 
 def test_reidentified_extra_members_cannot_extend_kernel_ldb_or_rule_shapes():

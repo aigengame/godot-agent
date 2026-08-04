@@ -972,23 +972,6 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     assert (installed_list.returncode, installed_list.stderr) == (0, "")
     assert installed_list.stdout == source_list[1]
 
-    for descriptor in source_root["package_descriptors"]:
-        for member in ("release", "conformance-vectors"):
-            arguments = (
-                "package",
-                "get",
-                "--id",
-                descriptor["id"],
-                "--version",
-                descriptor["version"],
-                "--member",
-                member,
-            )
-            source = run_cli(list(arguments))
-            from_wheel = installed(*arguments)
-            assert (from_wheel.returncode, from_wheel.stderr) == (0, "")
-            assert from_wheel.stdout == source[1]
-
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])

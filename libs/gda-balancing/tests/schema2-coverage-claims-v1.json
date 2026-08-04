@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "description": "Behavior-claim ledger for test-runtime optimization. A claim may change witnesses only through an explicit ledger migration; no claim may lose its last independent witness.",
+  "claims": [
+    {
+      "id": "authority.consumer-agreement",
+      "boundary": "independent Kernel and Language Definition Bundle admission",
+      "subjects": [
+        "exact packaged authority admission",
+        "reidentified mutation refusal"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_bootstrap_authority.py::test_two_independent_consumers_admit_the_exact_authority_and_inventories",
+          "independence_domain": "positive-consumer-agreement"
+        },
+        {
+          "test_id": "tests/test_schema2_bootstrap_language.py::test_reidentified_deletion_of_every_law_and_rule_is_refused_by_both_consumers",
+          "independence_domain": "negative-consumer-agreement"
+        }
+      ],
+      "minimum_independent_witnesses": 2
+    },
+    {
+      "id": "package-vector.behavior",
+      "boundary": "packaged conformance-vector inventory and public executors",
+      "subjects": {
+        "source": "baseline.package_vector_ids"
+      },
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_bootstrap_authority.py::test_package_release_identity_binds_normative_vector_definitions",
+          "independence_domain": "authority-binding"
+        },
+        {
+          "test_id": "tests/test_schema2_authority_cli.py::test_public_schemas_reject_every_invalid_model_program_vector_variant[model.compile.positive-outcome-host]",
+          "independence_domain": "public-schema"
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator",
+          "independence_domain": "runtime-scenario-reference"
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations",
+          "independence_domain": "scheduler-two-consumer"
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_package_value_program_vectors_execute_in_two_consumers",
+          "independence_domain": "value-program-two-consumer"
+        },
+        {
+          "test_id": "tests/test_schema2_experiment_cli.py::test_package_observation_lifecycle_vectors_execute_in_two_consumers",
+          "independence_domain": "observation-two-consumer"
+        }
+      ],
+      "minimum_independent_witnesses": 6
+    },
+    {
+      "id": "kernel-law.mutation-closure",
+      "boundary": "Kernel admission laws",
+      "subjects": [
+        "kernel.identity.verify",
+        "kernel.binding.exact",
+        "kernel.members.closed",
+        "kernel.identifiers.unique",
+        "kernel.operations.closed",
+        "kernel.vectors.closed",
+        "kernel.diagnostics.closed",
+        "kernel.resources.bound"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_bootstrap_authority.py::test_every_kernel_law_publishes_a_complete_machine_contract",
+          "independence_domain": "machine-contract"
+        },
+        {
+          "test_id": "tests/test_schema2_bootstrap_language.py::test_reidentified_deletion_of_every_law_and_rule_is_refused_by_both_consumers",
+          "independence_domain": "deletion-matrix"
+        }
+      ],
+      "minimum_independent_witnesses": 2
+    },
+    {
+      "id": "language-rule.execution-and-mutation",
+      "boundary": "Language Definition Bundle static rules",
+      "subjects": [
+        "quantity.declare",
+        "quantity.lower"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_bootstrap_language.py::test_bootstrap_executes_every_rule_vector_into_a_stable_projection",
+          "independence_domain": "rule-execution"
+        },
+        {
+          "test_id": "tests/test_schema2_bootstrap_language.py::test_reidentified_deletion_of_every_law_and_rule_is_refused_by_both_consumers",
+          "independence_domain": "rule-mutation"
+        }
+      ],
+      "minimum_independent_witnesses": 2
+    },
+    {
+      "id": "diagnostic-reason.execution-and-mutation",
+      "boundary": "Language Definition Bundle diagnostic reasons",
+      "subjects": [
+        "quantity.reason.invalid-domain",
+        "quantity.reason.resource-exhausted",
+        "quantity.reason.unknown-kind",
+        "quantity.reason.unknown-unit",
+        "model.reason.name-ambiguity",
+        "model.reason.package-version-unavailable",
+        "model.reason.resolution-ambiguity",
+        "model.reason.resolution-binding-mismatch",
+        "model.reason.resolution-resource-exhausted",
+        "model.reason.resolved-authority-mismatch",
+        "model.reason.runtime-projection-resource-exhausted",
+        "model.reason.source-contract-mismatch",
+        "model.reason.source-parse-failure",
+        "model.reason.source-too-large",
+        "model.reason.unresolved-name",
+        "model.reason.duplicate-symbol",
+        "model.reason.formula-binding-missing",
+        "model.reason.formula-binding-duplicate",
+        "model.reason.formula-type-mismatch",
+        "model.reason.formula-kind-mismatch",
+        "model.reason.formula-unit-mismatch",
+        "model.reason.formula-numeric-profile-mismatch",
+        "model.reason.formula-purity-mismatch",
+        "model.reason.formula-context-mismatch",
+        "model.reason.formula-unreachable",
+        "model.reason.formula-refusal-widening",
+        "model.reason.formula-resource-exhausted",
+        "model.reason.formula-cycle",
+        "model.reason.formula-notation-mismatch",
+        "evaluation.reason.observation-unavailable",
+        "runtime.reason.capability-unsupported",
+        "runtime.reason.step-limit",
+        "runtime.reason.numeric-overflow",
+        "runtime.reason.schedule-backward",
+        "runtime.reason.schedule-hidden-input",
+        "runtime.reason.schedule-illegal-same-time-priority",
+        "runtime.reason.cancel-active",
+        "runtime.reason.cancel-completed",
+        "runtime.reason.cancel-unknown",
+        "runtime.reason.queue-limit",
+        "runtime.reason.zero-time-depth-limit",
+        "runtime.reason.event-limit",
+        "runtime.reason.logical-time-limit",
+        "formula.reason.notation-parse-failure",
+        "formula.reason.notation-resource-exhausted",
+        "migration.reason.deprecated-construct",
+        "migration.reason.no-mappable-construct",
+        "migration.reason.source-invalid",
+        "migration.reason.target-limit-exceeded"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_bootstrap_language.py::test_bootstrap_behavior_covers_every_ldb_diagnostic_reason",
+          "independence_domain": "reason-execution"
+        },
+        {
+          "test_id_template": "tests/test_schema2_bootstrap_language.py::test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse[{subject}-{variant}]",
+          "variants": [
+            "delete",
+            "operation"
+          ],
+          "independence_domain": "reason-mutation"
+        }
+      ],
+      "minimum_independent_witnesses": 2
+    },
+    {
+      "id": "public-process.key-paths",
+      "boundary": "installed console and module entry points",
+      "subjects": [
+        "console-module agreement",
+        "migrate then build",
+        "formula model build then inspect",
+        "formula to experiment",
+        "reciprocal combat scheduling and cancellation",
+        "periodic effect lifecycle",
+        "schema introspection"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_e2e_cli.py::TestEntryPoints::test_both_entry_points_agree_on_the_valid_row",
+          "independence_domain": "entrypoint-agreement"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_migrate_then_build_key_path",
+          "independence_domain": "migration-build"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_formula_model_build_then_inspect_key_path",
+          "independence_domain": "formula-build-inspect"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_formula_to_experiment_public_key_path",
+          "independence_domain": "formula-experiment"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_reciprocal_combat_can_explicitly_cancel_an_admitted_root_event",
+          "independence_domain": "reciprocal-cancel"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_periodic_effect_runs_one_complete_lifecycle_through_public_events",
+          "independence_domain": "periodic-lifecycle"
+        },
+        {
+          "test_id": "tests/test_e2e_cli.py::TestKeyUserPath::test_schema_get_key_path",
+          "independence_domain": "schema-get"
+        }
+      ],
+      "minimum_independent_witnesses": 7
+    },
+    {
+      "id": "built-wheel.authority-boundary",
+      "boundary": "built wheel authority graph and isolated execution",
+      "subjects": [
+        "declared authority graph ships",
+        "installed wheel executes"
+      ],
+      "witnesses": [
+        {
+          "test_id": "tests/test_schema2_authority_cli.py::test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it",
+          "independence_domain": "built-wheel-process"
+        },
+        {
+          "test_id": "tests/test_schema2_authority_cli.py::test_package_list_and_exact_get_return_root_declared_children",
+          "independence_domain": "exhaustive-public-package-get"
+        }
+      ],
+      "minimum_independent_witnesses": 2
+    }
+  ]
+}

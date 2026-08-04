@@ -10,6 +10,7 @@ import pytest
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import schema2_bootstrap_conformance_support as consumer_support
+from schema2_test_authority import mutable_authorities
 from gda_balancing.commands import REGISTRY
 from gda_balancing.commands.model import (
     ModelCheckInput,
@@ -43,6 +44,22 @@ _AUTHORITY_COMMANDS = tuple(
         ("package", "get"),
     }
 )
+
+
+def test_test_candidate_helper_amortizes_admission_without_aliasing():
+    authority_module.reset_packaged_authority_context_for_tests()
+
+    first_kernel, first_ldb = mutable_authorities()
+    first_kernel["content_identity"] = "mutated"
+    first_ldb["content_identity"] = "mutated"
+    second_kernel, second_ldb = mutable_authorities()
+
+    assert second_kernel["content_identity"] != "mutated"
+    assert second_ldb["content_identity"] != "mutated"
+    assert (
+        authority_module.authority_lifecycle_metrics()["packaged_admission_attempts"]
+        == 1
+    )
 
 
 def test_packaged_context_initialization_is_single_flight(monkeypatch):
