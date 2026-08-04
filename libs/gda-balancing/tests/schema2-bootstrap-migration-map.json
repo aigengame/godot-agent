@@ -3,7 +3,7 @@
   "accepted_baseline_test_digest": "0e177908ceb70fb2ba607051c30333e9e452c164b74bc6c956618cbe5ca2f0d5",
   "accepted_baseline_package_vector_digest": "55a8e0441bf17e1e794fc2878113f2b812eb16effadcef901cbacac5f388b61e",
   "accepted_claim_contract_digest": "37d4bd927e8761a82598bcc7ddf009601406cde18ca52ead14ab6d3fa0adf37f",
-  "accepted_claim_manifest_digest": "04d9fc8c32d6f2afbf276bce04720407eedc206628203a4d065d4a8350177efa",
+  "accepted_claim_manifest_digest": "c3a5c5051b9fa164ed22df32c94d5bc85c555c15254951e650ddb1c959241f51",
   "accepted_claim_mappings": [
     {
       "from_claim_id": "authority.consumer-agreement",

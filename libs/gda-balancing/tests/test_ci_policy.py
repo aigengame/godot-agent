@@ -312,6 +312,51 @@ def test_claim_ledger_rejects_structurally_empty_claims(tmp_path):
     ]
 
 
+def test_claim_ledger_rejects_an_empty_independence_domain(tmp_path):
+    test_id = "tests/test_authority.py::test_witness"
+    ledger = tmp_path / "claims.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "claims": [
+                    {
+                        "id": "empty-domain",
+                        "boundary": "independent evidence",
+                        "subjects": ["subject"],
+                        "witnesses": [
+                            {
+                                "test_id": test_id,
+                                "independence_domain": "",
+                                "covers": "*",
+                            }
+                        ],
+                        "minimum_independent_witnesses": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.json"
+
+    with pytest.raises(SystemExit, match="coverage claim closure failed"):
+        ci.verify_claims(
+            report_path,
+            ledger_path=ledger,
+            current_test_ids={test_id},
+            current_package_vector_ids=set(),
+        )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["invalid_claim_structures"] == [
+        {
+            "claim_id": "empty-domain",
+            "problems": ["witness independence_domain must be a non-empty string"],
+        }
+    ]
+
+
 def test_digest_hop_cannot_authorize_deleting_an_accepted_claim_or_subject():
     accepted = {
         "version": 1,
@@ -443,6 +488,104 @@ def test_accepted_claim_mapping_allows_an_explicit_stronger_subject():
     assert report["closed"]
 
 
+def test_frozen_accepted_subjects_allow_a_live_claim_to_add_a_subject():
+    report = ci.accepted_claim_mapping_closure(
+        accepted_manifest={
+            "version": 1,
+            "claims": [
+                {
+                    "id": "live-vectors",
+                    "subjects": {
+                        "source": "authority.model_program_vector_ids",
+                        "accepted_subjects": ["old-vector"],
+                        "accepted_count": 1,
+                        "accepted_digest": ci.digest({"old-vector"}),
+                    },
+                    "minimum_independent_witnesses": 1,
+                    "required_independence_domains": {"*": ["vector-runner"]},
+                }
+            ],
+        },
+        current_claims=[
+            {
+                "claim_id": "live-vectors",
+                "minimum_independent_witnesses": 1,
+                "subjects": [
+                    {
+                        "subject": "old-vector",
+                        "independence_domains": ["vector-runner"],
+                    },
+                    {
+                        "subject": "new-vector",
+                        "independence_domains": ["vector-runner"],
+                    },
+                ],
+            }
+        ],
+        mappings=[
+            {
+                "from_claim_id": "live-vectors",
+                "to_claim_id": "live-vectors",
+                "subject_mapping": "identity",
+                "independence_domain_mapping": "identity",
+            }
+        ],
+        baseline_package_vector_ids=set(),
+        current_package_vector_ids={"old-vector", "new-vector"},
+    )
+
+    assert report["closed"]
+
+
+def test_accepted_independence_domains_cannot_collapse_into_one_domain():
+    report = ci.accepted_claim_mapping_closure(
+        accepted_manifest={
+            "version": 1,
+            "claims": [
+                {
+                    "id": "two-consumers",
+                    "subjects": ["subject"],
+                    "minimum_independent_witnesses": 2,
+                    "required_independence_domains": {
+                        "*": ["consumer-a", "consumer-b"]
+                    },
+                }
+            ],
+        },
+        current_claims=[
+            {
+                "claim_id": "two-consumers",
+                "minimum_independent_witnesses": 2,
+                "subjects": [
+                    {
+                        "subject": "subject",
+                        "independence_domains": ["collapsed", "unrelated"],
+                    }
+                ],
+            }
+        ],
+        mappings=[
+            {
+                "from_claim_id": "two-consumers",
+                "to_claim_id": "two-consumers",
+                "subject_mapping": "identity",
+                "independence_domain_mapping": {
+                    "consumer-a": "collapsed",
+                    "consumer-b": "collapsed",
+                },
+            }
+        ],
+        baseline_package_vector_ids=set(),
+        current_package_vector_ids=set(),
+    )
+
+    assert not report["closed"]
+    assert any(
+        "independence domain mapping is not injective" in problem
+        for problem in report["problems"]
+    )
+
+
 def test_repository_coverage_claim_ledger_closes_the_current_suite(tmp_path):
     report = ci.verify_claims(tmp_path / "coverage-claims.json")
 
@@ -550,6 +693,47 @@ def test_local_aggregate_verdict_preserves_a_failed_report(tmp_path):
     assert report["closed"] is False
     assert report["missing_shards"] == ["fast"]
     assert json.loads(report_path.read_text(encoding="utf-8")) == report
+
+
+def test_local_aggregate_verdict_defaults_to_the_authoritative_shards(tmp_path):
+    report_path = tmp_path / "aggregate.json"
+
+    report, exit_code = ci.aggregate_junit_verdict(tmp_path, report_path)
+
+    assert exit_code == 1
+    assert report["missing_shards"] == sorted(ci.SHARDS)
+    assert report_path.is_file()
+
+
+def test_local_measurement_statistics_exclude_incomplete_attempts():
+    report = ci.summarize_local_measurements(
+        [
+            {
+                "wall_seconds": 200.0,
+                "test_seconds": 190.0,
+                "failed_shards": ["smoke", "aggregate"],
+                "aggregate_closed": False,
+            },
+            {
+                "wall_seconds": 100.0,
+                "failed_shards": ["aggregate"],
+                "aggregate_closed": False,
+            },
+            {
+                "wall_seconds": 10.0,
+                "test_seconds": 8.0,
+                "failed_shards": [],
+                "aggregate_closed": True,
+            },
+        ],
+        jobs=1,
+    )
+
+    assert report["successful_repeat"] == 1
+    assert report["wall_seconds_median"] == 10.0
+    assert report["wall_seconds_max"] == 10.0
+    assert report["test_seconds_median"] == 8.0
+    assert report["all_attempt_wall_seconds_max"] == 200.0
 
 
 @pytest.mark.parametrize("outcome_type", ["pytest.skip", "pytest.xfail"])

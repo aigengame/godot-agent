@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import subprocess
 import sys
 import time
@@ -20,6 +19,7 @@ from ci import (
     local_parallel_shards,
     local_serial_shards,
     shard_paths,
+    summarize_local_measurements,
     subprocess_text,
     summarize_junit,
     verify_outcomes,
@@ -138,20 +138,7 @@ def main() -> int:
         _run_once(args.output_dir / f"run-{index:02d}", args.jobs)
         for index in range(1, args.repeat + 1)
     ]
-    wall_seconds = [float(row["wall_seconds"]) for row in rows]
-    complete_test_seconds = [
-        float(row["test_seconds"]) for row in rows if "test_seconds" in row
-    ]
-    report: dict[str, object] = {
-        "jobs": args.jobs,
-        "repeat": args.repeat,
-        "runs": rows,
-        "wall_seconds_median": statistics.median(wall_seconds),
-        "wall_seconds_max": max(wall_seconds),
-    }
-    if complete_test_seconds:
-        report["test_seconds_median"] = statistics.median(complete_test_seconds)
-        report["test_seconds_max"] = max(complete_test_seconds)
+    report = summarize_local_measurements(rows, jobs=args.jobs)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "measurement.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",

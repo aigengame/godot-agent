@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import statistics
 import subprocess
 import sys
 import time
@@ -360,10 +361,15 @@ def accepted_claim_mapping_closure(
             source = subject_declaration["source"]
             if source == "baseline.package_vector_ids":
                 accepted_subjects = sorted(baseline_package_vector_ids)
+            elif isinstance(subject_declaration.get("accepted_subjects"), list) and all(
+                isinstance(subject, str) and bool(subject)
+                for subject in subject_declaration["accepted_subjects"]
+            ):
+                accepted_subjects = sorted(subject_declaration["accepted_subjects"])
             else:
-                accepted_subjects = authority_claim_subjects(
-                    source,
-                    current_package_vector_ids=current_package_vector_ids,
+                accepted_subjects = []
+                row_problems.append(
+                    f"accepted source has no frozen subject list: {source}"
                 )
             if subject_declaration.get("accepted_count") != len(accepted_subjects):
                 row_problems.append("accepted subject count drifted")
@@ -449,7 +455,10 @@ def accepted_claim_mapping_closure(
         if domain_mapping != "identity" and not (
             isinstance(domain_mapping, dict)
             and all(
-                isinstance(source, str) and isinstance(target, str)
+                isinstance(source, str)
+                and bool(source)
+                and isinstance(target, str)
+                and bool(target)
                 for source, target in domain_mapping.items()
             )
         ):
@@ -472,18 +481,24 @@ def accepted_claim_mapping_closure(
                 accepted_subject, required_domains.get("*", [])
             )
             if not isinstance(domains, list) or not all(
-                isinstance(domain, str) for domain in domains
+                isinstance(domain, str) and bool(domain) for domain in domains
             ):
                 row_problems.append(
                     f"accepted domains have an invalid shape: {accepted_subject}"
                 )
                 continue
-            expected_domains = {
+            mapped_domains = [
                 mapped_independence_domain(domain, domain_mapping) for domain in domains
-            }
+            ]
+            expected_domains = set(mapped_domains)
             if None in expected_domains:
                 row_problems.append(
                     f"accepted domain has no mapping: {accepted_subject}"
+                )
+                continue
+            if len(expected_domains) != len(set(domains)):
+                row_problems.append(
+                    f"independence domain mapping is not injective: {accepted_subject}"
                 )
                 continue
             observed_domains = set(current_subject.get("independence_domains", []))
@@ -675,6 +690,15 @@ def verify_claims(
             structure_problems.append("subjects must resolve to at least one string")
         if not isinstance(declarations, list) or not declarations:
             structure_problems.append("witnesses must contain at least one declaration")
+        elif any(
+            not isinstance(declaration, dict)
+            or not isinstance(declaration.get("independence_domain"), str)
+            or not declaration["independence_domain"]
+            for declaration in declarations
+        ):
+            structure_problems.append(
+                "witness independence_domain must be a non-empty string"
+            )
         if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 1:
             structure_problems.append(
                 "minimum_independent_witnesses must be an integer >= 1"
@@ -745,7 +769,8 @@ def verify_claims(
         conflicting_witness_domains: set[str] = set()
         for witness in witnesses:
             test_id = str(witness["test_id"])
-            domain = str(witness["independence_domain"])
+            domain = witness["independence_domain"]
+            assert isinstance(domain, str)
             previous = witness_domains.setdefault(test_id, domain)
             if previous != domain:
                 conflicting_witness_domains.add(test_id)
@@ -757,7 +782,7 @@ def verify_claims(
         subject_rows = []
         for subject in subjects:
             live_domains = {
-                str(witness["independence_domain"])
+                witness["independence_domain"]
                 for witness in witnesses
                 if subject in witness["covers"]
                 and normalized_node_id(str(witness["test_id"]), migration) in tests
@@ -1246,17 +1271,48 @@ def aggregate_junit_verdict(
     expected_test_ids: set[str] | None = None,
 ) -> tuple[dict[str, object], int]:
     """Return the same aggregate report on success, failure, or timeout evidence."""
+    resolved_shards = tuple(SHARDS) if expected_shards is None else expected_shards
     try:
         report = aggregate_junit(
             junit_dir,
             report_path,
-            expected_shards=expected_shards,
+            expected_shards=resolved_shards,
             expected_test_ids=expected_test_ids,
         )
     except SystemExit:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         return report, 1
     return report, 0
+
+
+def summarize_local_measurements(
+    rows: list[dict[str, object]], *, jobs: int
+) -> dict[str, object]:
+    """Report all attempts while calculating acceptance statistics from successes."""
+    all_wall_seconds = [float(row["wall_seconds"]) for row in rows]
+    successful = [
+        row
+        for row in rows
+        if not row.get("failed_shards") and row.get("aggregate_closed") is True
+    ]
+    report: dict[str, object] = {
+        "jobs": jobs,
+        "repeat": len(rows),
+        "successful_repeat": len(successful),
+        "runs": rows,
+        "all_attempt_wall_seconds_max": max(all_wall_seconds),
+    }
+    if successful:
+        successful_wall_seconds = [float(row["wall_seconds"]) for row in successful]
+        report["wall_seconds_median"] = statistics.median(successful_wall_seconds)
+        report["wall_seconds_max"] = max(successful_wall_seconds)
+        complete_test_seconds = [
+            float(row["test_seconds"]) for row in successful if "test_seconds" in row
+        ]
+        if complete_test_seconds:
+            report["test_seconds_median"] = statistics.median(complete_test_seconds)
+            report["test_seconds_max"] = max(complete_test_seconds)
+    return report
 
 
 def junit_node_id(testcase: ElementTree.Element) -> str:

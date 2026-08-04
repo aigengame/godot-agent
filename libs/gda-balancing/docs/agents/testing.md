@@ -39,7 +39,9 @@ Four versioned files make “coverage unchanged” executable:
   also pins the accepted claim-contract digest and records every reviewed
   contract change as a digest-to-digest migration;
 - `schema2-coverage-claims-accepted-v1.json` freezes every pre-optimization
-  claim id, subject/source digest, minimum, and required independence domain;
+  claim id, resolved subject id/source digest, minimum, and required independence domain;
+  dynamic authority sources are evidence provenance only—the accepted subject ids are
+  stored explicitly so later authority additions remain admissible without rewriting history;
   the migration map must explicitly map all 15 accepted claims and all 305
   accepted subjects to equal-or-stronger current witnesses;
 - `schema2-coverage-claims-v1.json` adds 19 high-risk cross-boundary claim
