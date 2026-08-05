@@ -31,7 +31,7 @@ def package_list_handler(
         result = list_packages(provider)
         if isinstance(result, Schema2RefusalReport):
             return result
-        return PackageListResult(root=result)
+        return PackageListResult(root=dict(result))
 
     return _run
 

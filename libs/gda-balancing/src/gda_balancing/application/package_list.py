@@ -1,8 +1,9 @@
 """List the Package Releases in one admitted authority context."""
 
-from typing import Any
-
-from gda_balancing.domain.authority.package_catalog import list_package_releases
+from gda_balancing.domain.authority.package_catalog import (
+    PackageInventory,
+    list_package_releases,
+)
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,
     AuthorityLoadError,
@@ -18,7 +19,7 @@ from gda_balancing.schema2.diagnostics import (
 
 def list_packages(
     provider: AuthorityContextProvider,
-) -> dict[str, Any] | Schema2RefusalReport:
+) -> PackageInventory | Schema2RefusalReport:
     """Resolve one authority context and return its package inventory."""
     try:
         context = resolve_authority_context(provider)
