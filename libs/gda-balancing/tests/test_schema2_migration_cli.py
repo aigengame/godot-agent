@@ -13,7 +13,7 @@ import jsonschema
 import pytest
 
 import gda_balancing.domain.migration as migration_module
-from gda_balancing.descriptors import RefusalDetailSpec
+from gda_balancing.interfaces.cli.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 from gda_balancing.schema2.authority_graph import (

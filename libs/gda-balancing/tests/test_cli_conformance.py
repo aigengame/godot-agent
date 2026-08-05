@@ -13,24 +13,23 @@ import jsonschema
 import pytest
 from pydantic import BaseModel, create_model
 
-from gda_balancing.commands import REGISTRY
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.registry import REGISTRY
+from gda_balancing.interfaces.cli.descriptors import (
     RESERVED_GROUPS,
     RESERVED_META,
     CommandDescriptor,
     build_registry,
 )
-from gda_balancing.emit import canonical_json
-from gda_balancing.envelope import (
+from gda_balancing.interfaces.cli.rendering import canonical_json
+from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
     REFUSAL_BOUND,
     USAGE_CODES,
-    Refusal,
-    RefusalReport,
-    UnreadableInputError,
 )
+from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.schema.refusal import Refusal, RefusalReport
 from gda_balancing.schema.funnel import refusal_code_namespace
-from gda_balancing.schema2.surface import schema2_error_envelope_schema
+from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:

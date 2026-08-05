@@ -3,7 +3,10 @@
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.application.model_check import check_model
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import MODEL_REFUSAL_CATALOG

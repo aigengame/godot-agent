@@ -9,7 +9,7 @@ from gda_balancing.application.experiment_run import (
     ExperimentVerdictPublication,
     run_experiment,
 )
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
     RefusalArtifactSetSpec,
@@ -18,7 +18,7 @@ from gda_balancing.descriptors import (
 )
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
-from gda_balancing.envelope import UnreadableInputError
+from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_valid_experiment,
@@ -26,7 +26,7 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
 )
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import refusal_catalog_for_reasons
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 class ExperimentRunInput(BaseModel):

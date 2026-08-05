@@ -1,4 +1,4 @@
-"""Canonical JSON emission (bADR-0005) — the single serialization seam.
+"""Canonical CLI JSON rendering (bADR-0005).
 
 Every JSON document the toolkit emits — success results, error envelopes, and
 `--schema` output — goes through :func:`canonical_json`: UTF-8, sorted object

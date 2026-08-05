@@ -15,8 +15,8 @@ from typing import Any, TypeAlias, cast
 
 import jsonschema
 
-from gda_balancing.envelope import UnreadableInputError, UsageError
-from gda_balancing.path_contracts import reject_input_aliasing
+from gda_balancing.domain.errors import UnreadableInputError, UsageError
+from gda_balancing.domain.path_contracts import reject_input_aliasing
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.artifacts import PublishedArtifactIntegrityError
 from gda_balancing.domain.model.inspection import ModelInspectAdmissionError

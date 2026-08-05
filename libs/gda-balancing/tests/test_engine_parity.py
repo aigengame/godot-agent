@@ -22,8 +22,8 @@ import jsonschema
 import pytest
 from pydantic import ValidationError
 
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
-from gda_balancing.emit import canonical_json
+from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.rendering import canonical_json
 from gda_balancing.schema.bundle import current_bundle
 from gda_balancing.schema.funnel.structural import structural
 from gda_balancing.schema.model.document import DesignDocument

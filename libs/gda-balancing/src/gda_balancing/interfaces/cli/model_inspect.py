@@ -6,7 +6,10 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, RootModel
 
 from gda_balancing.application.model_inspect import inspect_model
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.domain.artifacts import artifact_wire_schema
 from gda_balancing.interfaces.cli.model_build import (
     MODEL_BUILD,
@@ -18,7 +21,7 @@ from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import MODEL_INSPECT_REFUSAL_CATALOG
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 class ModelInspectInput(BaseModel):

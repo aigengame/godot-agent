@@ -1,6 +1,6 @@
 """Shared drivers for the gda-balancing suite.
 
-``run_cli`` drives :func:`gda_balancing.dispatch.dispatch` in-process (fast
+``run_cli`` drives :func:`gda_balancing.interfaces.cli.dispatch.dispatch` in-process (fast
 rows); the subprocess smoke in test_cli_conformance.py separately proves the
 installed entry points. ``fault_registry`` is bADR-0011's fault-injection
 seam: a registry copy whose handlers raise, driving the `internal` row —
@@ -29,10 +29,10 @@ from pathlib import Path
 
 import pytest
 
-from gda_balancing.commands import REGISTRY
+from gda_balancing.interfaces.cli.registry import REGISTRY
 from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
-from gda_balancing.descriptors import CommandDescriptor
-from gda_balancing.dispatch import dispatch
+from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
+from gda_balancing.interfaces.cli.dispatch import dispatch
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     packaged_authority_context,

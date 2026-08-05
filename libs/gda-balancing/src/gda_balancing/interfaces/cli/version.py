@@ -5,7 +5,10 @@ from collections.abc import Callable
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.application.version import report_version
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,
     packaged_authority_context,

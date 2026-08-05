@@ -23,7 +23,7 @@ import pytest
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.interfaces.cli.schema as schema_command_module
-from gda_balancing.commands import MANIFEST
+from gda_balancing.interfaces.cli.registry import MANIFEST
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
@@ -57,7 +57,7 @@ from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
     bound_diagnostics,
 )
-from gda_balancing.schema2.surface import schema2_error_envelope_schema
+from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
 _WHEEL_DISPATCH_BATCH = """
@@ -65,7 +65,7 @@ import io
 import json
 import sys
 
-from gda_balancing.dispatch import dispatch
+from gda_balancing.interfaces.cli.dispatch import dispatch
 
 results = []
 for command in json.load(sys.stdin):

@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from gda_balancing.application.model_migration import migrate_model
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
     RefusalDetailSpec,
@@ -11,13 +11,13 @@ from gda_balancing.descriptors import (
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.artifacts import artifact_wire_schema
 from gda_balancing.domain.migration import MigrationInputError
-from gda_balancing.envelope import UnreadableInputError
+from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
-from gda_balancing.path_contracts import reject_input_aliasing
+from gda_balancing.domain.path_contracts import reject_input_aliasing
 from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import refusal_catalog_for_stages
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 class ModelMigrateInput(BaseModel):

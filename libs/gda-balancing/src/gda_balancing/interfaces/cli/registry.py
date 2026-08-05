@@ -1,12 +1,12 @@
-"""The registered command surface.
+"""The UI-owned registered command surface.
 
 ``REGISTRY`` is the one registry every projection reads (bADR-0011): dispatch,
 ``--schema``, and the conformance harness. Import order is acyclic — command
-modules import :mod:`gda_balancing.descriptors`; only this package assembles
-the tuple.
+modules import :mod:`gda_balancing.interfaces.cli.descriptors`; only this
+module assembles the tuple.
 """
 
-from gda_balancing.descriptors import CommandDescriptor, build_registry
+from gda_balancing.interfaces.cli.descriptors import CommandDescriptor, build_registry
 from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST
 from gda_balancing.interfaces.cli.package import PACKAGE_GET
 from gda_balancing.interfaces.cli.manifest import manifest_descriptor

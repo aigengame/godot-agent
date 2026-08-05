@@ -11,7 +11,7 @@ later.
 
 from collections.abc import Iterable
 
-from gda_balancing.envelope import REFUSAL_BOUND, Refusal, RefusalReport
+from gda_balancing.schema.refusal import REFUSAL_BOUND, Refusal, RefusalReport
 
 
 def assemble(refusals: Iterable[Refusal]) -> RefusalReport | None:

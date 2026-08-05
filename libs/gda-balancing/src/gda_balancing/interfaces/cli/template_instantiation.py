@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 from gda_balancing.application.template_instantiation import instantiate_template
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import (
 )
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import MODEL_REFUSAL_CATALOG
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 class TemplateInstantiateInput(BaseModel):

@@ -17,7 +17,7 @@ Repository = "https://github.com/aigengame/godot-agent"
 Issues = "https://github.com/aigengame/godot-agent/issues"
 
 [project.scripts]
-gda-balancing = "gda_balancing.cli:main"
+gda-balancing = "gda_balancing.interfaces.cli.main:main"
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]

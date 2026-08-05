@@ -18,12 +18,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.descriptors import (
     ArtifactReceipt,
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.envelope import RefusalReport
+from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.schema import funnel
 from gda_balancing.schema.model.document import DesignDocument
 

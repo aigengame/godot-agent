@@ -23,7 +23,7 @@ import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
-from gda_balancing.schema2.surface import (
+from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
 )

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 from gda_balancing.application.model_build import build_model
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.descriptors import (
     ArtifactSetMemberSpec,
     CommandDescriptor,
     ConformanceFixtures,
@@ -14,7 +14,7 @@ from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import MODEL_REFUSAL_CATALOG
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
 class ModelBuildInput(BaseModel):

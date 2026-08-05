@@ -6,7 +6,10 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from gda_balancing.application.template_catalog import get_template, list_templates
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.domain.template import TemplateProvider, minimal_release
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,

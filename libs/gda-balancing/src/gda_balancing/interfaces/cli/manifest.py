@@ -5,8 +5,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.surface import (
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
+from gda_balancing.interfaces.cli.surface import (
     surface_manifest,
     surface_manifest_success_schema,
 )

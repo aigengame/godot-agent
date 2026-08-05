@@ -3,9 +3,12 @@
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.application.experiment_check import check_experiment_specification
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
-from gda_balancing.envelope import UnreadableInputError
+from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import prepare_valid_experiment
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport

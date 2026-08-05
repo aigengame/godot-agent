@@ -24,7 +24,7 @@ guards close that hole so structural-pass ⇒ model-construction-success:
 * every id-valued ``pattern`` node (the ``^[a-z]…$`` scalar ids) gains a sibling
   ``not: {"pattern": "\\n"}``.
 
-Precedent: :data:`gda_balancing.envelope._JSON_POINTER_SCHEMA`'s ``anyOf`` guard
+Precedent: :data:`gda_balancing.interfaces.cli.envelope._JSON_POINTER_SCHEMA`'s ``anyOf`` guard
 — the same Python-``re`` vs Rust-regex trailing-newline divergence, fixed in the
 same structural style rather than by sharing a raw pattern string.
 

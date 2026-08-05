@@ -2,10 +2,10 @@
 
 from typing import Any, cast
 
-from gda_balancing.descriptors import CommandDescriptor
+from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
 from copy import deepcopy
 
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
 from gda_balancing.schema2.canonical import JsonValue, content_identity
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"

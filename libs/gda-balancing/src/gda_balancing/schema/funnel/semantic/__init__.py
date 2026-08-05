@@ -16,7 +16,7 @@ aliases (``$schema``) or excludes from serialization (reserved sections).
 
 from typing import Any
 
-from gda_balancing.envelope import Refusal
+from gda_balancing.schema.refusal import Refusal
 from gda_balancing.schema.funnel.semantic.rules import SEMANTIC_RULES, SemanticRule
 from gda_balancing.schema.model.document import DesignDocument
 

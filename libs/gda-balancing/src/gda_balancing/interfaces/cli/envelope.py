@@ -17,30 +17,11 @@ command is stochastic, bADR-0010).
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class UnreadableInputError(Exception):
-    """The boundary funnel's loader could not read the input document —
-    the path is missing, is a directory, or is permission-denied.
-
-    Dispatch maps it to the usage `unreadable_input` code / exit 3
-    (bADR-0008's usage/refusal boundary: everything that fails *before* the
-    document's bytes reach the funnel is a usage error; unparseable bytes,
-    caps, and version dispatch are the funnel's own refusals). It lives here
-    — the error-vocabulary home — so the funnel (and any handler) raises it
-    without importing dispatch, and dispatch catches it without importing
-    ``schema/``.
-    """
-
-
-class UsageError(Exception):
-    """A handler-side failure of a descriptor-declared CLI usage contract."""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
+from gda_balancing.schema.refusal import (
+    JSON_POINTER_PATTERN,
+    REFUSAL_BOUND,
+    RefusalReport,
+)
 
 
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
@@ -70,12 +51,8 @@ INTERNAL_ERROR = "internal_error"
 
 CLI_ERROR_CODES = USAGE_CODES | {INTERNAL_ERROR}
 
-# Report-all is bounded (bADR-0004): at most 1000 refusals, with `truncated`
-# marking a cut — encoded in the published schema so the contract carries it.
-REFUSAL_BOUND = 1000
-
 # RFC 6901 JSON Pointer ("" is the whole document; each token escapes ~ and /).
-_JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
+_JSON_POINTER_PATTERN = JSON_POINTER_PATTERN
 
 # The published-schema form of the constraint. Sharing the regex TEXT alone
 # is not engine-stable: Python's `re` (the jsonschema validator) lets the
@@ -89,35 +66,6 @@ _JSON_POINTER_SCHEMA: dict[str, Any] = {
     "pattern": _JSON_POINTER_PATTERN,
     "anyOf": [{"const": ""}, {"pattern": "^/"}],
 }
-
-
-class Refusal(BaseModel):
-    """One element-level typed refusal (bADR-0004): stable code, JSON Pointer
-    to the offending element, human-readable detail.
-
-    The contract's constraints live on the model, not just the published
-    schema, so an invalid refusal is unconstructible — a handler outcome
-    that constructs is guaranteed to emit schema-valid stdout.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    code: str
-    path: str = Field(pattern=_JSON_POINTER_PATTERN)
-    detail: str
-
-
-class RefusalReport(BaseModel):
-    """The typed-refusal handler outcome (bADR-0011): what a handler returns
-    instead of its output model when the document is refused. The dispatch
-    tail maps it onto the `refusal` envelope / exit 2; #504's boundary funnel
-    is the first producer. Bounded 1..REFUSAL_BOUND like the published
-    schema (same constant — one authority for the bound)."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    refusals: tuple[Refusal, ...] = Field(min_length=1, max_length=REFUSAL_BOUND)
-    truncated: bool
 
 
 _REPRODUCTION_SCHEMA: dict[str, Any] = {

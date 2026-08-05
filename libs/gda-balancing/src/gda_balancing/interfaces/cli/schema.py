@@ -13,7 +13,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, RootModel
 
 from gda_balancing.application.schema_get import get_schema
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.interfaces.cli.package import (
     package_release_success_schema,
     package_vector_set_success_schema,

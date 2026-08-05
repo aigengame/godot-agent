@@ -10,16 +10,13 @@ import sys
 _SOURCE_ROOT = Path(__file__).parents[1] / "src" / "gda_balancing"
 _LAYERS = ("infrastructure", "domain", "application", "interfaces")
 _LAYER_RANK = {layer: rank for rank, layer in enumerate(_LAYERS)}
-_LEGACY_UI_PREFIXES = (
-    "gda_balancing.commands",
-    "gda_balancing.descriptors",
-    "gda_balancing.dispatch",
-    "gda_balancing.emit",
-    "gda_balancing.envelope",
-)
-_TEMPORARY_INTERFACE_IMPORTS = (
-    "gda_balancing.descriptors",
-    "gda_balancing.envelope",
+_OBSOLETE_UI_MODULES = (
+    "cli.py",
+    "commands/__init__.py",
+    "descriptors.py",
+    "dispatch.py",
+    "emit.py",
+    "envelope.py",
 )
 
 
@@ -122,21 +119,10 @@ def test_migrated_layers_do_not_import_upward() -> None:
     assert violations == []
 
 
-def test_migrated_layers_do_not_depend_on_legacy_command_modules() -> None:
-    known_modules = _production_modules()
-    violations: list[str] = []
-    for module, path in _migrated_modules().items():
-        source_layer = module.split(".")[1]
-        for imported in _resolved_imports(module, path, known_modules):
-            is_legacy_ui_import = imported.startswith(_LEGACY_UI_PREFIXES)
-            is_temporary_interface_import = source_layer == "interfaces" and (
-                imported.startswith(_TEMPORARY_INTERFACE_IMPORTS)
-            )
-            forbidden = is_legacy_ui_import and not is_temporary_interface_import
-            if forbidden:
-                violations.append(f"{module} imports legacy UI module {imported}")
-
-    assert violations == []
+def test_obsolete_top_level_ui_modules_are_removed() -> None:
+    assert [
+        name for name in _OBSOLETE_UI_MODULES if (_SOURCE_ROOT / name).is_file()
+    ] == []
 
 
 def test_migrated_modules_are_acyclic() -> None:
@@ -178,6 +164,21 @@ def test_package_list_cli_adapter_cold_imports_without_a_registry_cycle() -> Non
             sys.executable,
             "-c",
             "from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST",
+        ],
+        cwd=_SOURCE_ROOT.parents[1],
+        capture_output=True,
+        text=True,
+    )
+
+    assert (completed.returncode, completed.stderr) == (0, "")
+
+
+def test_cli_composition_root_cold_imports_without_a_registry_cycle() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from gda_balancing.interfaces.cli.main import main",
         ],
         cwd=_SOURCE_ROOT.parents[1],
         capture_output=True,

@@ -20,7 +20,10 @@ from pydantic.json_schema import (
 )
 
 from gda_balancing.application.package_get import get_package
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.interfaces.cli.package_contracts import (
     _closed_contract_schema,
     _contract_schema,

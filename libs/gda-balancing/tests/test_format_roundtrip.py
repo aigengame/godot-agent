@@ -13,8 +13,8 @@ import os
 
 import jsonschema
 
-from gda_balancing.emit import canonical_json
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.rendering import canonical_json
+from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 
 

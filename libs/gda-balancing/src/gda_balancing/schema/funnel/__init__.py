@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import ValidationError
 
-from gda_balancing.envelope import RefusalReport, UnreadableInputError
+from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.schema.funnel import report, semantic
 from gda_balancing.schema.funnel.preflight import (
     MAX_DOCUMENT_BYTES,

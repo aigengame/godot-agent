@@ -22,29 +22,32 @@ from typing import Any, TextIO
 import jsonschema
 from pydantic import BaseModel, ValidationError
 
-from gda_balancing.commands import REGISTRY
-from gda_balancing.descriptors import (
+from gda_balancing.domain.errors import UnreadableInputError, UsageError
+from gda_balancing.interfaces.cli.registry import REGISTRY
+from gda_balancing.interfaces.cli.descriptors import (
     ArtifactReceipt,
     ArtifactSpec,
     CommandDescriptor,
     option_bindings,
 )
-from gda_balancing.emit import canonical_json, indented_json, model_payload
-from gda_balancing.envelope import (
+from gda_balancing.interfaces.cli.rendering import (
+    canonical_json,
+    indented_json,
+    model_payload,
+)
+from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
     EXIT_INTERNAL,
     EXIT_REFUSAL,
     EXIT_SUCCESS,
     EXIT_USAGE,
     EXIT_VERDICT_FAIL,
-    RefusalReport,
-    UnreadableInputError,
-    UsageError,
     internal_envelope,
     refusal_envelope,
     usage_envelope,
 )
-from gda_balancing.path_contracts import reject_input_aliasing
+from gda_balancing.schema.refusal import RefusalReport
+from gda_balancing.domain.path_contracts import reject_input_aliasing
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
     refusal_envelope as schema2_refusal_envelope,
@@ -163,7 +166,7 @@ def _dispatch(
     # Bare `--schema` wins over any other argument (bADR-0009).
     if _SCHEMA_FLAG in tail:
         if descriptor.schema_major == 2:
-            from gda_balancing.schema2.surface import command_schema_projection
+            from gda_balancing.interfaces.cli.surface import command_schema_projection
 
             stdout.write(canonical_json(command_schema_projection(descriptor)))
         else:

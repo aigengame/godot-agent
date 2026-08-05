@@ -38,7 +38,7 @@ from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.interfaces.cli.surface import descriptor_identity
 from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
 from schema2_authority_support import mutable_authorities
 

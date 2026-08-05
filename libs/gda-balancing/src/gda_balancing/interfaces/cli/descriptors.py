@@ -20,7 +20,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.envelope import USAGE_CODES, RefusalReport
+from gda_balancing.interfaces.cli.envelope import USAGE_CODES
+from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.schema2.bootstrap import SCHEMA2_REFUSAL_STAGES
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 

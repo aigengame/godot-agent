@@ -6,7 +6,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, RootModel
 
 from gda_balancing.application.package_list import list_packages
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.interfaces.cli.package_contracts import package_list_success_schema
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,

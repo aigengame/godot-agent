@@ -5,8 +5,11 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.application.formula_conversion import parse_formula, render_formula
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.envelope import UnreadableInputError
+from gda_balancing.interfaces.cli.descriptors import (
+    CommandDescriptor,
+    ConformanceFixtures,
+)
+from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
