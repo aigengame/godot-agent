@@ -1,73 +1,89 @@
 ---
 name: skill-review
-description: Review skill documents (SKILL.md and companion files) for consistency, completeness, orthogonality, and terminology accuracy — flagging coined terms, generated-prose patterns, and legalistic phrasing, each with a smaller concrete alternative. Use when reviewing a new or changed skill document, reviewing a PR that adds or renames skills, or re-checking an author's claimed fixes after a skill review.
+description: Review skill documents and skill-focused changes for correctness, consistency, completeness, orthogonality, DRY, terminology accuracy, and clear prose. Use when reviewing a new or changed skill, checking whether its workflow and companion resources are usable, reviewing a PR that adds or renames skills, or re-checking claimed fixes.
 ---
 
 # Skill Review
 
 ## Goal
 
-Review whether a skill document is **accurate** (terminology), **complete** (for its audience), and **economical** (orthogonal structure, no filler). Report only findings that can change a decision or an implementation; when nothing substantive is wrong, pass the document and stop — do not manufacture findings. Keep the review cost proportionate to the document's size. This skill holds itself to its own standards.
+Decide whether a skill can do its declared job with accurate instructions and the smallest sufficient structure. Report only actionable issues supported by the artifact or verifiable evidence. Scale the review to the skill's size, risk, and intended use.
 
-## Before Reviewing
+## Workflow
 
-- Read the whole skill directory: frontmatter, body, companion files (such as REFERENCE and EXAMPLES), and agent metadata files.
-- Learn the skill family's collaboration model first — for example, skills that are deliberately uncoupled, self-contained, and orchestrated by the user. Review against that model, not against personal preference.
-- Accept design decisions the author explicitly owns — labeled as a local convention, with the trade-off stated and its consequences handled. Review how well the decision is executed; do not reopen the decision itself.
+### 1. Pin the Target and Intent
 
-## Checks
+- Determine whether the target is a whole skill, a local change, a pull request, a merged change, or a re-review.
+- For a pull request, record the exact head, base, merge base, and changed files. For a local change, identify the files and comparison point.
+- For a merged change, record the merge commit and its comparison point. Review the merge-time diff when the user asks about the change; review the current artifact when the user asks about the skill as it exists now.
+- Read the user request, repository rules, and any issue, specification, or pull-request description that defines the intended result.
+- Follow higher-priority requirements when sources disagree. Treat a local convention as a constraint only when the user or project has accepted it and its trade-offs are documented; otherwise review it as a proposal.
+- Treat historical pull-request text as context, not as a required fix, unless it is authoritative or the user asks to review it.
+- State material assumptions or missing evidence instead of filling gaps with guesses.
 
-### Consistency
+### 2. Inspect Relevant Materials
 
-- One name per concept throughout. (Anti-example: the same hard-constraint idea phrased four different ways in one document.)
-- Frontmatter and body corroborate each other: `name` matches the directory; the `description`'s scope matches the body's boundary. The description is the routing surface — agents select skills by it, so drift there is routing drift. (Anti-examples: "scope drift" in the description but "scope creep" in the body; a rename that broadens the name while the body's stated boundary is unchanged.)
-- The document does not violate its own principles. (Anti-examples: mandating a fixed set of project roots while preaching the smallest sufficient architecture; a document about simplicity that is itself repetitive.)
-- The change description (PR body) matches the actual content. (Anti-example: claiming to "clarify the one-way boundary" between two skills that never reference each other.)
+- Read the complete `SKILL.md` and agent metadata.
+- Inventory companion references, examples, scripts, and assets. Read only those relevant to the skill's declared behavior or the change under review.
+- Inspect a companion script when a claim depends on what the script accepts, produces, or validates.
+- For a change, inspect both the full current skill and the relevant diff.
+- Confirm that the frontmatter description gives accurate skill-selection triggers and that the body fulfills them.
 
-### Completeness
+### 3. Review the Skill
 
-- The first questions a practitioner hits when applying the document have answers. (Anti-examples: forbidding upward dependencies on the UI layer without saying who composes the UI; naming a known hazard three times without ever giving a rule for it.)
-- Verdict and output vocabulary fit every declared input. (Anti-example: "Adopt as is" cannot apply to an already-merged change — that case needs keep, simplify, or revert.)
-- New capabilities are reflected in the description's triggers.
+#### Correctness and Usability
 
-### Orthogonality
+- Instructions are executable, ordered where sequence matters, and refer only to available tools and resources.
+- Verify technical, domain, or terminology claims against authoritative evidence whenever a finding depends on them. Prefer the project's glossary and current primary documentation.
+- The workflow covers its inputs, required decisions, output, and important failure or exception paths.
+- The amount of prescribed procedure matches the task: constrain fragile operations, but leave judgment where several valid approaches exist.
+- Forward-test brittle or non-trivial workflows with a representative task. If that is not practical, disclose the untested behavior.
 
-- One authoritative home per rule; restatements elsewhere are at most concrete reminders, never a second authority. (Anti-example: a one-way dependency rule stated in five places.)
-- One theme does not reappear in costume in every section. (Anti-examples: the same you-aren't-gonna-need-it theme in seven places; an anti-pattern catalog nearly 1:1 with an earlier checklist.)
-- Recap-only closing sections and do-not pileups that add no information are deleted.
-- When the family model keeps skills uncoupled: do not ask for cross-references, but do not tolerate anonymous ones either — a sentence that only makes sense against another, unnamed skill must be deleted or rewritten as a self-contained statement. (Anti-example: an ordering sentence that, read in its own document, can only refer to that document's own workflow step and contradicts it.)
-- Private vocabulary from sibling skills does not leak in. (Anti-example: one skill family's house jargon appearing in an unrelated skill.)
+#### Consistency and Completeness
 
-### Terminology
+- Use one name for each concept. Frontmatter, body, metadata, filenames, and companion resources agree.
+- Answer the first practical questions raised by every declared use case; do not add speculative cases merely for completeness.
+- When reviewing a change, verify that its description matches the files and behavior actually changed.
+- Do not let a skill contradict its own guidance.
 
-- Never coin a term for a concept that already has an established name; report each coinage with its established replacement. (Anti-example: a private "X entropy" taxonomy standing in for scope creep, premature abstraction, needless indirection, duplicated state, special-casing, change amplification, and speculative generality; "complete up-front planning" for Big Design Up Front.)
-- Never silently widen a domain-reserved word. A justified widening must be labeled a local convention, state its trade-off, and handle the consequences. Needing a paragraph to redefine an established word is itself the signal. (Example: widening Godot's `addons/` to mean any reusable library obliges the document to handle mixed first-/third-party ownership.)
-- When the domain has a canonical maxim, name it — that anchors readers better than any restatement. (Example: Godot's "call down, signal up".)
-- One word does not carry two meanings in one document. (Anti-example: "model" as both domain model and 3D model in a game-development document.)
-- Remove non-standard terms and mixed-sense spellings. (Anti-example: "dialog cards"; "dialog" the window and "dialogue" the conversation mixed in one list.)
+#### Orthogonality and DRY
 
-### Prose
+- Give each rule one authoritative home. Elsewhere, include only a concrete reminder needed at the point of use.
+- Separate unrelated concerns and remove recaps, filler, and repeated prohibitions that add no decision or action.
+- Keep the skill self-contained: remove hidden assumptions about sibling skills and unexplained private vocabulary.
+- Extract shared material only when it has the same meaning and the same reason to change in every use site.
 
-- Generated-prose patterns: abstract noun chains of three or more items (cut to the two or three that matter), rhetorical flourish ("under the banner of …"), coined slogan headings, circular or empty bullets. Distinguish these from concrete domain example lists, which are content — keep those.
-- Legalistic patterns: a defined term cited over and over (define once, then use natural references), case-file vocabulary ("Decide the Disposition"), verdict language mismatched to the object (procurement tone for a technical document), several phrasings coexisting for one concept.
+#### Terminology and Prose
 
-## Environment Checks
+- Prefer established domain terms. If a local convention deliberately broadens one, label the convention, explain the trade-off, and handle its practical consequences.
+- Use one meaning per term within the skill.
+- Prefer plain, concrete instructions. Remove formulaic or stilted prose, long abstract noun chains, slogans, empty bullets, and legal or procurement language.
+- Keep concrete domain examples when they teach a non-obvious distinction; remove examples that merely repeat a rule.
+- Describe observable text and behavior. Do not infer who or what produced the prose.
 
-- After a rename or move: a repo-wide search finds no stale references, and discovery mechanisms (such as symlinks into the skills directory) still resolve.
-- The skill validation tool passes, when one exists.
-- The change is based on the current main branch, CI is green, and commit and branch naming follow repository convention.
-- Verify every validation claim in the PR body individually — especially "independent review found no findings" claims, which are often overstated.
+### 4. Validate When Applicable
 
-## Output
+- Run the repository's skill validator and check frontmatter, directory naming, and agent metadata.
+- After a rename or move, search for stale references and verify skill discovery paths.
+- For a pull request, verify the exact head, merge base, current base, CI status, naming conventions, and validation claims in the description.
+- Treat a passing validator or green CI as structural evidence, not proof that the workflow is correct.
+- Test scripts or resources whose behavior is required for the skill to work.
 
-1. **Verdict first**: pass, pass after revision, or do not recommend — with the primary basis in one paragraph.
-2. **Findings in tiers**: must fix / terminology and prose / minor. Each finding states the location, the claim, quoted evidence, and a smaller concrete alternative that preserves the goal.
-3. When the author's stated intent dissolves a finding's remedy, re-derive the remedy from that intent instead of withdrawing the finding. (Example: a deliberate no-cross-references model invalidates "add a cross-reference" but sharpens the finding into "delete the anonymous ordering sentence".)
-4. Positive suggestions are findings too. (Example: recommending the domain's canonical maxim by name.)
+### 5. Report
+
+Start with one conclusion:
+
+- **Pass**: no substantive issue prevents the skill from fulfilling its declared purpose.
+- **Changes required**: one or more substantive issues must be resolved.
+
+Then group actionable findings under **Required changes**, **Terminology and prose**, or **Minor** as appropriate. For each finding, give the location, evidence, impact, and the smallest practical alternative that preserves the intent. Keep optional improvements separate and include them only when they materially help. If there are no substantive findings, state **Pass** and stop.
+
+Return the review in the medium the user requested. Edit files, post comments, or perform other remote writes only when the user explicitly authorizes them.
 
 ## Re-review
 
-- Verify every claimed fix in the text itself; never accept the reply as evidence. (A "consolidated" duplicate pair has been observed to survive its own fix claim.)
-- Re-read the full diff: identify scope added since the review that the reply does not mention, review it to the same standard, and require the change description to record it. (A whole new section has been observed to appear on a branch while the reply cited only the fix commit.)
-- For items declined "by design": confirm the rationale and its mitigations actually appear in the text.
-- Post the re-review result back to the PR: the residual list plus a merge recommendation. The human decision owner merges.
+- Pin the previous and current versions.
+- Verify every claimed fix in the artifact and relevant tests; a reply is not evidence by itself.
+- Review new scope introduced since the previous review.
+- For an item declined by design, verify that the accepted constraint and necessary mitigations appear in the authoritative material.
+- Report with the same conclusion and finding format as the initial review.

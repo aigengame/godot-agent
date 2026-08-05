@@ -1,4 +1,4 @@
 interface:
   display_name: "Skill Review"
-  short_description: "Review skill documents for consistency, terminology, and structure"
-  default_prompt: "Use $skill-review to review this skill document for consistency, completeness, orthogonality, and terminology accuracy."
+  short_description: "Review skills for correctness, structure, and clear terms"
+  default_prompt: "Use $skill-review to review this skill or skill-focused change for correctness, consistency, completeness, orthogonality, DRY, terminology, and clear prose."
