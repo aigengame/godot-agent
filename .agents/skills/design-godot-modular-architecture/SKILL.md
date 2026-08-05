@@ -1,6 +1,6 @@
 ---
 name: design-godot-modular-architecture
-description: Design and review modular Godot project architectures around Add-ons, Systems, Content, and UI, with acyclic downward dependencies and indirect upward communication. Use when structuring a new Godot project, separating reusable systems from authored content, reviewing architectural coupling, deciding where scenes, scripts, and resources belong, or planning an incremental modularization.
+description: Design and review modular Godot project architectures around Add-ons, Systems, Content, and UI, with acyclic downward dependencies and indirect upward communication. Use when structuring a new Godot project, separating reusable systems from authored content, reviewing architectural coupling, deciding where scenes, scripts, and resources belong, planning an incremental modularization, or isolating experiments without weakening production boundaries.
 ---
 
 # Design Godot Modular Architecture
@@ -188,6 +188,18 @@ Do not place every artifact for one topic in the same area. Place each part acco
 
 Use this split to keep one owner for each rule and state, avoid hard-coded assets in Systems, and avoid project language in Add-ons.
 
+## Isolate Experiments When Needed
+
+When production boundaries make early exploration unnecessarily slow, use an optional development-only sandbox. Name and organize it according to project convention, such as by experiment or contributor. Do not treat it as a fifth production layer or a required project root.
+
+Allow sandbox code to depend on any production area. Do not let production code, scenes, Resources, Autoload registrations, or project settings reference sandbox artifacts.
+
+Exclude the sandbox from every release export and verify the exclusion in the build process; automate the check when CI produces releases. Do not assume that a directory name has special export behavior.
+
+Relax internal implementation standards when speed matters, but keep the isolation boundary strict. Commit shared experiments when team testing or feedback is useful; keep throwaway work local when sharing has no value.
+
+Do not promote sandbox code merely by moving files. Once an experiment is accepted, classify each responsibility under Add-ons, Systems, Content, or UI; refactor or reimplement it to production standards; verify the resulting behavior; and remove the sandbox version. Temporary duplication inside the sandbox is acceptable while the design is uncertain.
+
 ## Workflow
 
 ### 1. Pin Down the Current Need
@@ -216,6 +228,7 @@ Read the project's architecture docs, ADRs, and project conventions when they ex
 - Scene and Resource references.
 - Scene inheritance and scene instantiation.
 - `@tool` scripts and other editor-only code.
+- Experiment or prototype directories, export presets, and build exclusions.
 - Parent-child lifecycle assumptions.
 - State owners and mutation paths.
 - Signals, callbacks, groups, and event channels.
@@ -244,6 +257,7 @@ Draw the source dependencies required by the current behavior. Check for:
 - Global type names, node groups, or string identifiers that hide coupling.
 - Several modules owning the same rule or state.
 - Scene and Resource references that cross a forbidden boundary.
+- Production references to experimental sandboxes.
 
 Do not create an interface for every call. Add indirection only when it protects a real boundary, supports a needed substitution, or enables upward communication.
 
