@@ -33,7 +33,7 @@ from balancing.dynamics import (
 from balancing.model import GrowthEconomy, TierReward, build_player_model
 from panda_balancing import adapter
 
-CONFIG_DIR = build_config.GAME_DIR / "data" / "json"
+CONFIG_DIR = build_config.GAME_DIR / "content" / "data" / "json"
 
 _PLAYER_MODEL_PARAMS = {
     "fire_interval": 0.3,

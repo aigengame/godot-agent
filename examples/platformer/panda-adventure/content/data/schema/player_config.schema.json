@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/content/data/schema/player_config.schema.json",
+  "title": "Panda Adventure player configuration",
+  "description": "Authoritative config for S1 player traversal (gADR-0000: JSON is the single source of truth). Converted to content/data/generated/player_config.tres (a PlayerConfig Resource) by scripts/build_config.py. The platform blockout migrated OUT to level_config.json in S9 (gADR-0010) — this file is player-scoped only, and the player_size box migrated OUT to scale_spec.json (gADR-0013) — the builder composes it back into the derived Resource.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "player_color",
+    "player_start",
+    "move_speed",
+    "jump_velocity",
+    "gravity",
+    "max_fall_speed",
+    "camera_smoothing_speed",
+    "landing_squash",
+    "landing_tween_duration"
+  ],
+  "properties": {
+    "player_color": {
+      "description": "Player block color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "player_asset": {
+      "description": "Optional view asset reference for the Player block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+      "type": "string",
+      "pattern": "^[^\"\\\\]*$"
+    },
+    "player_start": {
+      "description": "Player spawn position (x, y) in pixels — the CharacterBody2D origin.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "move_speed": {
+      "description": "Horizontal move speed in px/s; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "jump_velocity": {
+      "description": "Jump impulse in px/s; strictly negative (upward, Godot +Y-down).",
+      "type": "number",
+      "exclusiveMaximum": 0.0
+    },
+    "gravity": {
+      "description": "Downward gravity in px/s^2; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "max_fall_speed": {
+      "description": "Terminal fall speed cap in px/s; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "camera_smoothing_speed": {
+      "description": "Follow-camera position smoothing speed; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "landing_squash": {
+      "description": "Player block scale (x, y) at landing. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — no longer read at runtime; retained for the editor schema forms (#441/#481). Each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "landing_tween_duration": {
+      "description": "Seconds for the landing squash to recover. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — no longer read at runtime; retained for the editor schema forms (#441/#481). Strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

@@ -18,7 +18,7 @@ The model:
 
 - **Scope trigger.** Any acceptance criterion of the form "the player sees X"
   gets a visual-smoke checkpoint. Features whose surface is purely
-  data/logic/log stay on the three headless seams.
+  content/data/logic/log stay on the three headless seams.
 - **Presence-level structural assertions only.** A checkpoint asserts pixel
   PRESENCE, not appearance: a config-derived region differs from the scene
   background; a blockout color appears near its config position; a readout

@@ -11,9 +11,9 @@
 #      (it sets cwd=<project> AND passes --path <project>, applying the relative
 #      path twice; gda issue #344), so we always pass the absolute path.
 #
-# Config: relies on the COMMITTED data/generated/player_config.tres (a tracked,
+# Config: relies on the COMMITTED content/data/generated/player_config.tres (a tracked,
 # derived artifact, so a clean checkout boots/exports with no build step). If you
-# change data/json/player_config.json, regenerate it with
+# change content/data/json/player_config.json, regenerate it with
 # `python3 scripts/build_config.py` — the CI freshness gate enforces they match.
 #
 # Usage:
@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAME_DIR="$(dirname "$SCRIPT_DIR")"
-TRES="$GAME_DIR/data/generated/player_config.tres"
+TRES="$GAME_DIR/content/data/generated/player_config.tres"
 OUTPUT="$GAME_DIR/build/PandaAdventure.app"
 
 if [[ ! -f "$TRES" ]]; then
@@ -43,7 +43,7 @@ if command -v git-lfs >/dev/null 2>&1; then
 	if [[ -n "$(git -C "$GAME_DIR" lfs ls-files)" ]]; then
 		git -C "$GAME_DIR" lfs pull
 	fi
-elif [[ -n "$(git -C "$GAME_DIR" ls-files -- ':(attr:filter=lfs)assets' 2>/dev/null)" ]]; then
+elif [[ -n "$(git -C "$GAME_DIR" ls-files -- ':(attr:filter=lfs)content/assets' 2>/dev/null)" ]]; then
 	echo "error: LFS-tracked assets are present but git-lfs is not installed." >&2
 	echo "       Install git-lfs so the shipped .app carries real bytes, not pointers." >&2
 	exit 1

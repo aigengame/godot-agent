@@ -207,7 +207,7 @@ _MIN_PLAYER_PIXELS = 400
 _PLAYER_ANIM_STATES = frozenset(
     {"idle", "run", "jump", "fall", "fire", "hurt", "consume", "level_up", "death"}
 )
-_PLAYER_ANIM_PATH = "/root/Main/Player/Visual/AnimatedSprite"
+_PLAYER_ANIM_PATH = "/root/Main/Gameplay/Player/Visual/AnimatedSprite"
 
 # The P2-S3 Laser-bolt checkpoint knobs (#442; gADR-0007 timing/rate retunes). The
 # shipped bolt is too fast (900 px/s) and short-lived (1.5s) to reliably capture in
@@ -260,14 +260,14 @@ def _make_project_copy(dst: Path) -> Path:
     offsets) ships untouched.
     """
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    gravity_path = dst / "data" / "json" / "gravity_config.json"
+    gravity_path = dst / "content" / "data" / "json" / "gravity_config.json"
     doc = json.loads(gravity_path.read_text())
     doc["field_duration"] = max(float(doc["field_duration"]), _FIELD_DURATION_FLOOR)
     gravity_path.write_text(json.dumps(doc, indent=2) + "\n")
     # The P2-S3 Laser bolt (#442): cap the speed / floor the lifetime so a bolt is
     # capturable in flight for the on-screen readability checkpoint. Damage/HP (and
     # thus the kill's shots-to-kill) are untouched, so the kill beat is unaffected.
-    combat_path = dst / "data" / "json" / "combat_config.json"
+    combat_path = dst / "content" / "data" / "json" / "combat_config.json"
     combat_doc = json.loads(combat_path.read_text())
     combat_doc["projectile_speed"] = min(
         float(combat_doc["projectile_speed"]), _BOLT_SPEED_CAP
@@ -276,7 +276,7 @@ def _make_project_copy(dst: Path) -> Path:
         float(combat_doc["projectile_lifetime"]), _BOLT_LIFETIME_FLOOR
     )
     combat_path.write_text(json.dumps(combat_doc, indent=2) + "\n")
-    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
     enemies = json.loads(enemies_path.read_text())
     # Guarantee the Wave-1 minion's Pickup drops (#442) so gold+bun+wine all land at
     # the kill for the readability checkpoints (the minion's tier is "minion").
@@ -342,12 +342,12 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     project = _make_project_copy(tmp_path / "game")
 
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    enemies = build_config.load_composed("data/json/enemies_config.json")
-    gravity = build_config.load_composed("data/json/gravity_config.json")
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
-    progression = build_config.load_composed("data/json/progression_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
+    gravity = build_config.load_composed("content/data/json/gravity_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
+    progression = build_config.load_composed("content/data/json/progression_config.json")
     # The Pickups' Scale-spec boxes (gADR-0013, composed into the drop styles).
     pickup_sizes = {
         item: progression["drop_items"][item]["size"]
@@ -470,12 +470,12 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         return out, doc
 
     def live_projectile_path() -> str | None:
-        """The scene path of a live Laser bolt (a child of Main), or None."""
+        """The scene path of a live Laser bolt under Gameplay, or None."""
         tree = run("game", "tree")
         if tree.returncode != 0:
             return None
         node = _find_named(json.loads(tree.stdout)["root"], "Projectile")
-        return f"/root/Main/{node['name']}" if node is not None else None
+        return f"/root/Main/Gameplay/{node['name']}" if node is not None else None
 
     try:
         started = run("daemon", "start", "--windowed")
@@ -500,16 +500,16 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         # capture is both the boot checkpoint and the blend/diff baseline.
         assert poll(lambda: records("hud_ready")), "no gda_log 'hud_ready' record"
         assert poll(
-            lambda: abs(prop("/root/Main/Player", "position")[1] - rest_y) <= 2.0
+            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
         ), "Player did not land"
         time.sleep(_CAMERA_SETTLE)
-        anchor_boot = prop("/root/Main/Player", "position")
+        anchor_boot = prop("/root/Main/Gameplay/Player", "position")
         # The HUD column's screen anchor. The Stats VBox is free-positioned
         # (its offsets ARE readable, unlike its container-managed Labels') and
         # sits at the config margin.
         stats_left = prop("/root/Main/Hud/Stats", "offset_left")
         stats_top = prop("/root/Main/Hud/Stats", "offset_top")
-        hud_cfg = build_config.load_composed("data/json/hud_config.json")
+        hud_cfg = build_config.load_composed("content/data/json/hud_config.json")
         assert (stats_left, stats_top) == pytest.approx(tuple(hud_cfg["margin"])), (
             "the rendered HUD column is not anchored at the config margin"
         )
@@ -656,7 +656,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             lambda: any(r["fields"]["wave"] == 2 for r in records("wave_started"))
         ), "Wave 2 never started after the kill"
         time.sleep(_CAMERA_SETTLE)
-        anchor_kill = prop("/root/Main/Player", "position")
+        anchor_kill = prop("/root/Main/Gameplay/Player", "position")
         kill_png, kill_doc = capture("kill")
         assert (kill_doc["width"], kill_doc["height"]) == dims
 

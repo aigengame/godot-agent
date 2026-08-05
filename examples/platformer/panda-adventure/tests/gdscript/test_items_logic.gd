@@ -16,11 +16,11 @@ extends SceneTree
 ## values, and assert each rule. Prints "LOGIC_SEAM: PASS" + quit(0) on
 ## success, else push_error + quit(1).
 
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
-const CombatConfigScript := preload("res://src/resources/combat_config.gd")
-const StatsSystemScript := preload("res://src/systems/stats_system.gd")
-const CombatSystemScript := preload("res://src/systems/combat_system.gd")
-const ItemSystemScript := preload("res://src/systems/item_system.gd")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
+const CombatConfigScript := preload("res://content/config/combat_config.gd")
+const StatsSystemScript := preload("res://systems/stats_system.gd")
+const CombatSystemScript := preload("res://systems/combat_system.gd")
+const ItemSystemScript := preload("res://systems/item_system.gd")
 
 # A known stat block: values chosen exactly representable.
 const MAX_HP := 100.0
@@ -43,6 +43,20 @@ func _make_params() -> CombatConfigScript:
 	params.defense_scale = 1.0
 	params.min_damage = 1.0
 	return params
+
+
+func _damage(
+	attacker: StatsConfigScript,
+	defender: StatsConfigScript,
+	params: CombatConfigScript,
+) -> float:
+	return CombatSystemScript.compute_damage(
+		attacker,
+		defender,
+		params.attack_scale,
+		params.defense_scale,
+		params.min_damage,
+	)
 
 
 func _fail(msg: String) -> void:
@@ -126,8 +140,8 @@ func _init() -> void:
 	# mitigation term: damage drops by exactly bonus * defense_scale.
 	var params := _make_params()
 	var attacker := _make_block()  # attack 10
-	var raw: float = CombatSystemScript.compute_damage(attacker, base, params)
-	var mitigated: float = CombatSystemScript.compute_damage(attacker, composed, params)
+	var raw: float = _damage(attacker, base, params)
+	var mitigated: float = _damage(attacker, composed, params)
 	if not is_equal_approx(raw - mitigated, 2.0):
 		_fail("the Spacesuit bonus should reduce damage by bonus * defense_scale")
 		return
@@ -135,7 +149,7 @@ func _init() -> void:
 	# Behavior 8 — the min_damage floor survives any suit: an overwhelming
 	# bonus cannot push damage below the formula's floor.
 	var fortress: StatsConfigScript = ItemSystemScript.effective_defender(base, 1000.0)
-	var floored: float = CombatSystemScript.compute_damage(attacker, fortress, params)
+	var floored: float = _damage(attacker, fortress, params)
 	if not is_equal_approx(floored, params.min_damage):
 		_fail("min_damage must floor the mitigated damage")
 		return

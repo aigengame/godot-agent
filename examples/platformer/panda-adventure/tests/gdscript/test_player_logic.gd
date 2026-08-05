@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Logic seam (a) for S1: exercise PlayerController.compute_velocity — the PURE
+## Logic seam (a) for S1: exercise PlayerMovementSystem.compute_velocity — the PURE
 ## movement decision (velocity in -> velocity out, no node/physics access) —
 ## headless.
 ##
@@ -15,8 +15,8 @@ extends SceneTree
 ## behavior. Prints "LOGIC_SEAM: PASS" + quit(0) on success, else push_error +
 ## quit(1).
 
-const PlayerConfigScript := preload("res://src/resources/player_config.gd")
-const PlayerControllerScript := preload("res://src/controllers/player_controller.gd")
+const PlayerConfigScript := preload("res://content/config/player_config.gd")
+const PlayerMovementSystemScript := preload("res://systems/player_movement_system.gd")
 
 # A fixed config so every expectation is exact (Godot +Y-down: jump is negative).
 const MOVE_SPEED := 300.0
@@ -34,6 +34,29 @@ func _make_config() -> PlayerConfigScript:
 	return c
 
 
+func _compute_velocity(
+	velocity: Vector2,
+	input_dir: float,
+	jump_pressed: bool,
+	on_floor: bool,
+	config: PlayerConfigScript,
+	delta: float,
+	time_scale: float = 1.0,
+) -> Vector2:
+	return PlayerMovementSystemScript.compute_velocity(
+		velocity,
+		input_dir,
+		jump_pressed,
+		on_floor,
+		config.move_speed,
+		config.jump_velocity,
+		config.gravity,
+		config.max_fall_speed,
+		delta,
+		time_scale,
+	)
+
+
 func _fail(msg: String) -> void:
 	push_error("LOGIC_SEAM: " + msg)
 	quit(1)
@@ -43,19 +66,19 @@ func _init() -> void:
 	var config := _make_config()
 
 	# Behavior 1 — horizontal: velocity.x is input_dir * move_speed, both directions.
-	var right := PlayerControllerScript.compute_velocity(
+	var right := _compute_velocity(
 		Vector2.ZERO, 1.0, false, true, config, 0.1
 	)
 	if not is_equal_approx(right.x, MOVE_SPEED):
 		_fail("move right: expected x=%s, got %s" % [MOVE_SPEED, right.x])
 		return
-	var left := PlayerControllerScript.compute_velocity(
+	var left := _compute_velocity(
 		Vector2.ZERO, -1.0, false, true, config, 0.1
 	)
 	if not is_equal_approx(left.x, -MOVE_SPEED):
 		_fail("move left: expected x=%s, got %s" % [-MOVE_SPEED, left.x])
 		return
-	var idle := PlayerControllerScript.compute_velocity(
+	var idle := _compute_velocity(
 		Vector2(MOVE_SPEED, 0.0), 0.0, false, true, config, 0.1
 	)
 	if not is_equal_approx(idle.x, 0.0):
@@ -63,7 +86,7 @@ func _init() -> void:
 		return
 
 	# Behavior 2 — jump: on the floor with jump pressed sets velocity.y upward.
-	var jump := PlayerControllerScript.compute_velocity(
+	var jump := _compute_velocity(
 		Vector2.ZERO, 0.0, true, true, config, 0.1
 	)
 	if not is_equal_approx(jump.y, JUMP_VELOCITY):
@@ -71,14 +94,14 @@ func _init() -> void:
 		return
 
 	# Behavior 3 — gravity: airborne accumulates downward velocity by gravity*delta.
-	var falling := PlayerControllerScript.compute_velocity(
+	var falling := _compute_velocity(
 		Vector2.ZERO, 0.0, false, false, config, 0.1
 	)
 	if not is_equal_approx(falling.y, GRAVITY * 0.1):
 		_fail("gravity: expected y=%s, got %s" % [GRAVITY * 0.1, falling.y])
 		return
 	# ...and is capped at max_fall_speed (terminal velocity).
-	var terminal := PlayerControllerScript.compute_velocity(
+	var terminal := _compute_velocity(
 		Vector2(0.0, MAX_FALL_SPEED - 10.0), 0.0, false, false, config, 0.1
 	)
 	if not is_equal_approx(terminal.y, MAX_FALL_SPEED):
@@ -86,7 +109,7 @@ func _init() -> void:
 		return
 
 	# Behavior 4 — landing: touching the floor while falling zeroes downward velocity.
-	var landed := PlayerControllerScript.compute_velocity(
+	var landed := _compute_velocity(
 		Vector2(0.0, 500.0), 0.0, false, true, config, 0.1
 	)
 	if not is_equal_approx(landed.y, 0.0):
@@ -95,7 +118,7 @@ func _init() -> void:
 
 	# Behavior 5 — no double-jump: pressing jump while airborne does NOT jump; the
 	# frame just falls under gravity.
-	var air_jump := PlayerControllerScript.compute_velocity(
+	var air_jump := _compute_velocity(
 		Vector2.ZERO, 0.0, true, false, config, 0.1
 	)
 	if is_equal_approx(air_jump.y, JUMP_VELOCITY):
@@ -112,19 +135,19 @@ func _init() -> void:
 	# the factor. The default factor 1.0 is the exact pre-S8 rule (behaviors
 	# 1-5 above prove it by omission).
 	const FACTOR := 0.5
-	var slow_right := PlayerControllerScript.compute_velocity(
+	var slow_right := _compute_velocity(
 		Vector2.ZERO, 1.0, false, true, config, 0.1, FACTOR
 	)
 	if not is_equal_approx(slow_right.x, MOVE_SPEED * FACTOR):
 		_fail("dilated move: expected x=%s, got %s" % [MOVE_SPEED * FACTOR, slow_right.x])
 		return
-	var slow_jump := PlayerControllerScript.compute_velocity(
+	var slow_jump := _compute_velocity(
 		Vector2.ZERO, 0.0, true, true, config, 0.1, FACTOR
 	)
 	if not is_equal_approx(slow_jump.y, JUMP_VELOCITY * FACTOR):
 		_fail("dilated jump: expected y=%s, got %s" % [JUMP_VELOCITY * FACTOR, slow_jump.y])
 		return
-	var slow_fall := PlayerControllerScript.compute_velocity(
+	var slow_fall := _compute_velocity(
 		Vector2.ZERO, 0.0, false, false, config, 0.1, FACTOR
 	)
 	if not is_equal_approx(slow_fall.y, GRAVITY * FACTOR * FACTOR * 0.1):
@@ -133,7 +156,7 @@ func _init() -> void:
 			% [GRAVITY * FACTOR * FACTOR * 0.1, slow_fall.y]
 		)
 		return
-	var slow_terminal := PlayerControllerScript.compute_velocity(
+	var slow_terminal := _compute_velocity(
 		Vector2(0.0, MAX_FALL_SPEED), 0.0, false, false, config, 0.1, FACTOR
 	)
 	if not is_equal_approx(slow_terminal.y, MAX_FALL_SPEED * FACTOR):

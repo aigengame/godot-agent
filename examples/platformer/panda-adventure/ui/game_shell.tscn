@@ -1,0 +1,15 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://ui/game_shell.gd" id="1_shell"]
+[ext_resource type="PackedScene" path="res://content/scenes/gameplay.tscn" id="2_gameplay"]
+[ext_resource type="PackedScene" path="res://ui/hud.tscn" id="3_hud"]
+[ext_resource type="PackedScene" path="res://ui/end_screen.tscn" id="4_end"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_shell")
+
+[node name="Gameplay" parent="." instance=ExtResource("2_gameplay")]
+
+[node name="Hud" parent="." instance=ExtResource("3_hud")]
+
+[node name="EndScreen" parent="." instance=ExtResource("4_end")]

@@ -201,6 +201,7 @@ def validate_committed_asset_sizes(
     root: Path,
     threshold: int,
     *,
+    assets_root: str = _ASSETS_ROOT,
     is_lfs_tracked: Callable[[str], bool] | None = None,
 ) -> list[OversizeAsset]:
     """Enforce the size-based LFS gate over ``root``'s committed assets tree.
@@ -211,7 +212,9 @@ def validate_committed_asset_sizes(
     (empty) violation list on success. ``is_lfs_tracked`` is injectable for tests.
     """
     predicate = is_lfs_tracked or git_lfs_tracked(root)
-    violations = find_unlfs_oversize(committed_asset_files(root), threshold, predicate)
+    violations = find_unlfs_oversize(
+        committed_asset_files(root, assets_root), threshold, predicate
+    )
     if violations:
         listing = ", ".join(f"{v.path} ({v.size} bytes)" for v in violations)
         raise AssetSizeError(

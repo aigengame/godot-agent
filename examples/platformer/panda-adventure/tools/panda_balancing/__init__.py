@@ -9,7 +9,7 @@ framework package (gADR-0018):
   chain), the player-model assumptions, the sim controls, and the design
   targets (TTK/TTD per Wave, the SD growth/difficulty intent).
 - ``adapter.py`` — the mapping from this game's JSON authority
-  (``data/json/*.json``) into the framework's generic ``balancing.model``
+  (``content/data/json/*.json``) into the framework's generic ``balancing.model``
   types, wired through the targets file's ``adapter`` key.
 
 Run it from the ``tools/`` directory (which makes ``balancing`` importable)::

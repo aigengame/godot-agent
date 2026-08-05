@@ -89,7 +89,7 @@ def test_adding_a_kind_is_json_only(tmp_path) -> None:
     parametrizes over the same derivation) follow the JSON.
     """
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     new_kind = copy.deepcopy(config["kinds"]["monster_minion_melee"])
     new_kind["faction"] = "xenomorph"
@@ -98,7 +98,7 @@ def test_adding_a_kind_is_json_only(tmp_path) -> None:
 
     written = build_config.build_all(root=tmp_path)
 
-    new_tres = tmp_path / "data/generated/enemy_xenomorph_minion_melee.tres"
+    new_tres = tmp_path / "content/data/generated/enemy_xenomorph_minion_melee.tres"
     assert new_tres in written
     assert new_tres.read_text(encoding="utf-8").startswith("[gd_resource")
     assert 'faction = "xenomorph"' in new_tres.read_text(encoding="utf-8")
@@ -112,7 +112,7 @@ def test_build_rejects_semantically_invalid_config(tmp_path) -> None:
     for every enemies-sourced output).
     """
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     config["kinds"]["monster_minion_melee"]["keep_range_min"] = 99.0
     enemies_path.write_text(json.dumps(config), encoding="utf-8")
@@ -292,8 +292,8 @@ def test_enemy_kind_round_trips(gda, kind: str) -> None:
     Compared to the COMPOSED authority: the body/bolt boxes are authored in
     scale_spec.json's enemy_boxes (gADR-0013) and composed into the kind.
     """
-    config = build_config.load_composed("data/json/enemies_config.json")["kinds"][kind]
-    props = _get_props(gda, f"res://data/generated/enemy_{kind}.tres")
+    config = build_config.load_composed("content/data/json/enemies_config.json")["kinds"][kind]
+    props = _get_props(gda, f"res://content/data/generated/enemy_{kind}.tres")
 
     # Taxonomy axes come back as the exact strings.
     for axis in ("faction", "tier", "archetype"):

@@ -25,9 +25,9 @@ from balancing.model import build_player_model
 from panda_balancing import adapter
 
 GAME_DIR = build_config.GAME_DIR
-CONFIG_DIR = GAME_DIR / "data" / "json"
-GENERATED_DIR = GAME_DIR / "data" / "generated"
-DATA_DIR = GAME_DIR / "data"
+CONFIG_DIR = GAME_DIR / "content" / "data" / "json"
+GENERATED_DIR = GAME_DIR / "content" / "data" / "generated"
+DATA_DIR = GAME_DIR / "content" / "data"
 TARGETS = GAME_DIR / "tools" / "panda_balancing" / "targets.json"
 
 
@@ -202,7 +202,7 @@ def test_cli_predict_out_relative_traversal_is_refused(capsys, monkeypatch) -> N
     monkeypatch.chdir(GAME_DIR / "tools")
     before = _tree_hash(DATA_DIR)
     code = cli_main(
-        _cli("predict", "--json", "--runs", "1", "--out", "../data/json/sneaky.json")
+        _cli("predict", "--json", "--runs", "1", "--out", "../content/data/json/sneaky.json")
     )
     assert code == EXIT_REFUSED
     assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"

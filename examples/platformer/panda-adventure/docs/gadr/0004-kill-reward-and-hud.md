@@ -4,6 +4,10 @@ status: accepted
 
 # Kill reward: per-Tier budget resolved to per-kind fields, and a pull-based HUD
 
+> **Current placement.** gADR-0020 moved the HUD into `ui/` and replaced Player
+> group discovery with an explicit Game Shell binding. Its pull-based snapshot
+> contract remains unchanged.
+
 S6a delivers the reward half of the death/reward story plus the first UI
 surface: defeating an Enemy awards EXP and Gold scaled by its Tier, feeding
 the S2 StatsSystem, and a HUD surfaces the Player's live HP/MP/EXP/Gold and

@@ -28,7 +28,7 @@ from balancing.model import (
 )
 from panda_balancing import adapter
 
-CONFIG_DIR = build_config.GAME_DIR / "data" / "json"
+CONFIG_DIR = build_config.GAME_DIR / "content" / "data" / "json"
 
 # Unit-scale combat params with a very long weapon reach, so the player fires
 # from the start and the arithmetic stays trivial. Zero spawn offset and zero

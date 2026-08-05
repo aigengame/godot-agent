@@ -23,9 +23,9 @@ import pytest
 
 import build_config
 
-ITEMS_JSON_PATH = build_config.GAME_DIR / "data/json/items_config.json"
-ITEMS_SCHEMA_PATH = build_config.GAME_DIR / "data/schema/items_config.schema.json"
-ITEMS_TRES_REL = "data/generated/items_config.tres"
+ITEMS_JSON_PATH = build_config.GAME_DIR / "content/data/json/items_config.json"
+ITEMS_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/items_config.schema.json"
+ITEMS_TRES_REL = "content/data/generated/items_config.tres"
 
 
 def _valid_config() -> dict:
@@ -60,7 +60,7 @@ def test_wine_restore_has_one_authority() -> None:
     present here, absent from the gravity source it migrated out of."""
     items = build_config.load_json(ITEMS_JSON_PATH)
     gravity = build_config.load_json(
-        build_config.GAME_DIR / "data/json/gravity_config.json"
+        build_config.GAME_DIR / "content/data/json/gravity_config.json"
     )
     assert "wine_mp_restore" in items
     assert "wine_mp_restore" not in gravity

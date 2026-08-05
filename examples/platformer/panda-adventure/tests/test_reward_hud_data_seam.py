@@ -27,8 +27,8 @@ import pytest
 
 import build_config
 
-HUD_JSON_PATH = build_config.GAME_DIR / "data/json/hud_config.json"
-HUD_SCHEMA_PATH = build_config.GAME_DIR / "data/schema/hud_config.schema.json"
+HUD_JSON_PATH = build_config.GAME_DIR / "content/data/json/hud_config.json"
+HUD_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/hud_config.schema.json"
 
 # The kind names, derived from the authoritative JSON (never a static list).
 _KIND_NAMES: list[str] = list(
@@ -159,7 +159,7 @@ def _stage_inputs(root) -> None:
 def test_missing_tier_reward_gates_the_build(tmp_path) -> None:
     """The coverage rule gates the BUILD, not just direct validator calls."""
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     del config["tiers"]["boss"]  # alien_boss_tank still uses it
     enemies_path.write_text(json.dumps(config), encoding="utf-8")
@@ -194,7 +194,7 @@ def test_retuning_a_tier_is_one_json_edit(tmp_path) -> None:
     edit, no Python edit.
     """
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     config["tiers"]["minion"] = {
         "exp_reward": 77.0,
@@ -207,7 +207,7 @@ def test_retuning_a_tier_is_one_json_edit(tmp_path) -> None:
     build_config.build_all(root=tmp_path)
 
     minion_tres = (
-        tmp_path / "data/generated/enemy_monster_minion_melee.tres"
+        tmp_path / "content/data/generated/enemy_monster_minion_melee.tres"
     ).read_text(encoding="utf-8")
     assert "exp_reward = 77" in minion_tres
     assert "gold_reward = 33" in minion_tres
@@ -237,7 +237,7 @@ def test_kind_reward_fields_round_trip(gda, kind: str) -> None:
     """Each EnemyConfig .tres round-trips its Tier-resolved reward fields."""
     config = build_config.load_json(build_config.ENEMIES_JSON_PATH)
     reward = config["tiers"][config["kinds"][kind]["tier"]]
-    props = _get_props(gda, f"res://data/generated/enemy_{kind}.tres")
+    props = _get_props(gda, f"res://content/data/generated/enemy_{kind}.tres")
     assert props["exp_reward"] == pytest.approx(reward["exp_reward"]), kind
     assert props["gold_reward"] == pytest.approx(reward["gold_reward"]), kind
 
@@ -284,8 +284,8 @@ def test_hud_config_round_trips(gda) -> None:
     Compared to the COMPOSED authority: margin and font_size are authored in
     scale_spec.json (gADR-0013) and composed into the derived HudConfig.
     """
-    config = build_config.load_composed("data/json/hud_config.json")
-    props = _get_props(gda, "res://data/generated/hud_config.tres")
+    config = build_config.load_composed("content/data/json/hud_config.json")
+    props = _get_props(gda, "res://content/data/generated/hud_config.tres")
     for vec_field in ("margin", "value_punch_scale"):
         assert props[vec_field] == pytest.approx(config[vec_field])
     assert props["font_size"] == pytest.approx(config["font_size"])

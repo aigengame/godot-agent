@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="EnemyConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://content/config/enemy_config.gd" id="1_enemyconfig"]
+
+[resource]
+script = ExtResource("1_enemyconfig")
+faction = "xenomorph"
+tier = "minion"
+archetype = "ranged"
+max_hp = 12
+max_mp = 0
+attack = 3
+defense = 0
+color = Color(0.15, 0.7, 0.55, 1)
+size = Vector2(40, 48)
+asset = ""
+move_speed = 170
+gravity = 1400
+max_fall_speed = 1200
+aggro_range = 260
+attack_range = 230
+attack_cooldown = 1.6
+keep_range_min = 130
+keep_range_max = 190
+attack_squash = Vector2(0.8, 1.2)
+attack_tween_duration = 0.15
+exp_reward = 10
+gold_reward = 5
+drop_table = [{"item": "gold", "amount": 3, "chance": 1}, {"item": "bun", "amount": 1, "chance": 0.25}]
+projectile_color = Color(0.4, 1, 0.7, 1)
+projectile_size = Vector2(12, 5)
+projectile_asset = ""
+projectile_speed = 460
+projectile_lifetime = 1.6
+projectile_spawn_offset = Vector2(24, 0)

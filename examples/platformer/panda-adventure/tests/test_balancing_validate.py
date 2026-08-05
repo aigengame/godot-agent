@@ -25,9 +25,9 @@ from balancing.model import build_player_model
 from panda_balancing import adapter
 
 GAME_DIR = build_config.GAME_DIR
-CONFIG_DIR = GAME_DIR / "data" / "json"
-GENERATED_DIR = GAME_DIR / "data" / "generated"
-DATA_DIR = GAME_DIR / "data"
+CONFIG_DIR = GAME_DIR / "content" / "data" / "json"
+GENERATED_DIR = GAME_DIR / "content" / "data" / "generated"
+DATA_DIR = GAME_DIR / "content" / "data"
 TARGETS = GAME_DIR / "tools" / "panda_balancing" / "targets.json"
 
 
@@ -115,7 +115,7 @@ def test_cli_validate_default_verdict_is_green() -> None:
         DATA_DIR / "json" / "probe_report.json",  # the reviewer's repro
         DATA_DIR / "json" / "combat_config.json",  # the clobber scenario
         DATA_DIR / "generated" / "probe_report.json",  # the derived tree
-        DATA_DIR / "schema" / "probe_report.json",  # the whole data/ chain
+        DATA_DIR / "schema" / "probe_report.json",  # the whole content/data/ chain
         DATA_DIR / "probe_report.json",
     ],
     ids=["authority-new", "authority-clobber", "generated", "schema", "data-root"],
@@ -140,7 +140,7 @@ def test_cli_out_relative_traversal_is_refused(capsys, monkeypatch) -> None:
     monkeypatch.chdir(GAME_DIR / "tools")
     before = _tree_hash(DATA_DIR)
     code = cli_main(
-        _cli("validate", "--json", "--runs", "1", "--out", "../data/json/sneaky.json")
+        _cli("validate", "--json", "--runs", "1", "--out", "../content/data/json/sneaky.json")
     )
     assert code == EXIT_REFUSED
     assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"

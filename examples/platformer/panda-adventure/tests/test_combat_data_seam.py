@@ -176,7 +176,7 @@ def _get_props(gda, res_path: str) -> dict:
 def test_stat_block_round_trips(gda, block: str) -> None:
     """Each StatsConfig .tres round-trips its four stat fields through gda."""
     config = build_config.load_json(build_config.COMBAT_JSON_PATH)[block]
-    res_path = f"res://data/generated/stats_{block.removesuffix('_stats')}.tres"
+    res_path = f"res://content/data/generated/stats_{block.removesuffix('_stats')}.tres"
     props = _get_props(gda, res_path)
     for field in ("max_hp", "max_mp", "attack", "defense"):
         assert props[field] == pytest.approx(config[field]), (block, field)
@@ -189,8 +189,8 @@ def test_combat_config_round_trips(gda) -> None:
     Compared to the COMPOSED authority: projectile_size is authored in
     scale_spec.json (gADR-0013) and composed into the derived CombatConfig.
     """
-    config = build_config.load_composed("data/json/combat_config.json")
-    props = _get_props(gda, "res://data/generated/combat_config.tres")
+    config = build_config.load_composed("content/data/json/combat_config.json")
+    props = _get_props(gda, "res://content/data/generated/combat_config.tres")
 
     # Colors are float32 in Godot — compare with a tolerance.
     for color_field in ("projectile_color", "hit_flash_color"):

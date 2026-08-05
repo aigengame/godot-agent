@@ -30,8 +30,8 @@ a literal here) every glyph fills its square cell 1:1 (crisp, no scaling) and th
 HUD's LINES read at a glance; retuning ``hud_font_size`` regenerates the font at the
 new native size rather than scaling a stale bitmap.
 
-Run once, commit its outputs (``assets/fonts/hud_font.png``,
-``assets/fonts/hud_font.fnt``, ``assets/manifest/fonts.json``, plus the committed
+Run once, commit its outputs (``content/assets/fonts/hud_font.png``,
+``content/assets/fonts/hud_font.fnt``, ``content/assets/manifest/fonts.json``, plus the committed
 ``.ttf``/``OFL.txt`` source). This module uses package imports, so it must be run
 as a MODULE, not as a file script — from the game directory
 (``examples/platformer/panda-adventure``)::
@@ -72,7 +72,7 @@ ASSET_ID = "hud_font"
 # The committed rasterization SOURCE: the acquired OFL pixel font (in-repo, so
 # re-derivation needs no network). The game never loads this — only the derived
 # .fnt bitmap sheet — but committing it keeps the sheet reproducible.
-SOURCE_TTF_REL = "assets/fonts/PressStart2P-Regular.ttf"
+SOURCE_TTF_REL = "content/assets/fonts/PressStart2P-Regular.ttf"
 
 # The glyph run the sheet covers: printable ASCII, space (0x20) through tilde
 # (0x7E) — every character the HUD's LINES render (digits, uppercase letters,

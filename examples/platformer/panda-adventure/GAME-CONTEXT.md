@@ -335,10 +335,10 @@ sprite splitter (names the inverse), animation importer
 **Size-based Git-LFS gate**:
 The commit-method rule for binary assets (gADR-0015): a single **size threshold `T`**
 (default 1 MB, spec-data in the Style descriptor's config) applied UNIFORMLY across
-categories — an `assets/**` file at or over `T` is tracked by Git LFS, below `T` stays in
+categories — a `content/assets/**` file at or over `T` is tracked by Git LFS, below `T` stays in
 plain git — so a large file (BGM, a 2K/4K backdrop) is *born* in LFS rather than committed
 to plain git and migrated later (a history rewrite). A config-gate size check enforces it
-mechanically (fails on any `assets/**` binary `>= T` outside LFS); `.gitattributes` is the
+mechanically (fails on any `content/assets/**` binary `>= T` outside LFS); `.gitattributes` is the
 gate's mechanical consequence, not its authority — `git lfs track` a path when the gate
 flags it. Never per-category special-casing (a large texture and a BGM track are the same
 rule); KB-scale pixel art and SFX stay in plain git.
@@ -586,17 +586,18 @@ Boss: the Boss slot stays a property of the demo composition (gADR-0005).
 _Avoid_: game over (only the lost half), victory (only the won half)
 
 **World freeze**:
-The End-state halt of gameplay: every non-CanvasLayer child of the level gets
-its processing disabled at a frame boundary — never a tree pause, which would
+The End-state halt of gameplay: every Content child of Gameplay gets its
+processing disabled at a frame boundary — never a tree pause, which would
 sever the gda harness's live channel (gADR-0010). The HUD keeps the final
 readout; the frozen bolts and fields are the finale's tableau.
 _Avoid_: pause (the rejected mechanism), slow-mo (that is the Time Dilation
 Field), stop
 
 **End screen**:
-The level-owned overlay announcing the End state — a dimmed blockout with the
+The UI-owned overlay announcing the End state — a dimmed blockout with the
 verdict title and the retry hint, faded in by tween; its numbers live in the
-`Level authority`, its copy is structural (gADR-0010). Not part of the HUD —
+`Level authority`, its copy is structural. The Game Shell reveals it after
+observing Content's run-ended signal (gADR-0010, gADR-0020). Not part of the HUD —
 gADR-0004's LINES contract is untouched.
 _Avoid_: HUD (a different surface), menu, game-over screen (it also announces
 the win)
@@ -609,16 +610,14 @@ _Avoid_: respawn (the rejected in-place variant), restart level (the demo is a
 single level)
 
 **Game-flow director**:
-The level-owned module holding the `End state`'s consequences — the `World
-freeze`, the `End screen` reveal, the verdict logs (`game_won`/`game_lost`), and
-`Retry` — around the pure GameStateSystem's decisions. Extracted from the
+The Content module holding the `End state`'s application consequences — the
+`World freeze`, verdict logs (`game_won`/`game_lost`), result publication, and
+gated `Retry` entry point — around the pure GameStateSystem's decisions. Extracted from the
 LevelController so geometry and the Wave director stay that node's job (#453),
-it is the one seam the P2-S10 game shell extends: pause is a sibling of the World
-freeze, quit-to-title a sibling of Retry. Carries gADR-0010's never-a-tree-pause
-invariant.
+it is the Content seam the UI-owned Game Shell calls and observes. Carries
+gADR-0010's never-a-tree-pause invariant.
 _Avoid_: game manager (the global-singleton connotation), state machine (that
 names the pure GameStateSystem)
 
 <!-- Format reminder — **Term**: one/two-sentence definition (what it IS, not what it does);
      _Avoid_: rejected synonyms. Group natural clusters under ### subheadings. -->
-

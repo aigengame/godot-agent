@@ -13,7 +13,7 @@ extends SceneTree
 ## assert every intermediate and boundary decision. Prints "LOGIC_SEAM: PASS"
 ## + quit(0) on success, else push_error + quit(1).
 
-const WaveSystemScript := preload("res://src/systems/wave_system.gd")
+const WaveSystemScript := preload("res://systems/wave_system.gd")
 
 # Per-wave spawn counts to slice per tested wave count: mixed sizes (single
 # spawns, a swarm, an empty-tail guard is impossible — the schema requires at

@@ -103,7 +103,7 @@ _RUN_LAYOUT = FrameLayout(frame_dims=(32, 32), columns=6, rows=1, count=6)
 def _sprite_entry() -> ManifestEntry:
     return ManifestEntry(
         id="player_run",
-        path="res://assets/sprites/player_run.png",
+        path="res://content/assets/sprites/player_run.png",
         category="sprites",
         acquire_mode="search_download",
         source="kenney",
@@ -127,7 +127,7 @@ def test_manifest_texture_entry_has_no_frame_layout(tmp_path: Path) -> None:
     """A plain texture entry omits frame_layout (it is a sprite-set-only field)."""
     entry = ManifestEntry(
         id="obstacle_crate",
-        path="res://assets/textures/obstacle_crate.png",
+        path="res://content/assets/textures/obstacle_crate.png",
         category="textures",
         acquire_mode="search_download",
         source="opengameart",
@@ -145,7 +145,7 @@ def test_manifest_texture_entry_has_no_frame_layout(tmp_path: Path) -> None:
 # SpriteFrames deriver — layout -> a byte-stable Godot SpriteFrames .tres.
 # --------------------------------------------------------------------------- #
 
-_SHEET_RES = "res://assets/sprites/player_run.png"
+_SHEET_RES = "res://content/assets/sprites/player_run.png"
 
 
 def test_derive_spriteframes_regions_and_animation(tmp_path: Path) -> None:
@@ -200,7 +200,7 @@ def _anim(
 ):
     return SpriteAnimation(
         name=name,
-        sheet_res_path=f"res://assets/sprites/player_{name}.png",
+        sheet_res_path=f"res://content/assets/sprites/player_{name}.png",
         layout=FrameLayout(frame_dims=dims, columns=count, rows=1, count=count),
         speed=speed,
         loop=loop,
@@ -219,11 +219,11 @@ def test_derive_spriteframes_set_composes_named_animations() -> None:
     assert tres.startswith('[gd_resource type="SpriteFrames" format=3]')
     # One ext_resource per state's sheet, deterministically id'd "{i+1}_{name}".
     assert (
-        '[ext_resource type="Texture2D" path="res://assets/sprites/player_idle.png" id="1_idle"]'
+        '[ext_resource type="Texture2D" path="res://content/assets/sprites/player_idle.png" id="1_idle"]'
         in tres
     )
     assert (
-        '[ext_resource type="Texture2D" path="res://assets/sprites/player_fire.png" id="2_fire"]'
+        '[ext_resource type="Texture2D" path="res://content/assets/sprites/player_fire.png" id="2_fire"]'
         in tres
     )
     # Each state's AtlasTexture regions reference its own sheet.
@@ -290,15 +290,17 @@ GAME_DIR = build_config.GAME_DIR
 
 
 def test_committed_asset_files_enumerates_the_assets_tree() -> None:
-    """The enumerator lists real files under assets/ with their on-disk sizes."""
-    files = dict(lifecycle.committed_asset_files(GAME_DIR))
-    assert "assets/textures/obstacle_crate.png" in files
-    assert files["assets/textures/obstacle_crate.png"] > 0
+    """The enumerator lists real files under content/assets with their sizes."""
+    files = dict(lifecycle.committed_asset_files(GAME_DIR, "content/assets"))
+    assert "content/assets/textures/obstacle_crate.png" in files
+    assert files["content/assets/textures/obstacle_crate.png"] > 0
 
 
 def test_validate_committed_asset_sizes_passes_on_real_repo() -> None:
-    """The committed assets/ tree carries no >= T binary outside LFS (gADR-0015)."""
-    lifecycle.validate_committed_asset_sizes(GAME_DIR, _T)  # no raise
+    """The committed Content assets carry no >= T binary outside LFS."""
+    lifecycle.validate_committed_asset_sizes(
+        GAME_DIR, _T, assets_root="content/assets"
+    )
 
 
 def _git(root: Path, *args: str) -> None:
@@ -369,15 +371,19 @@ def test_committed_repo_passes_the_configured_gate() -> None:
     """The committed assets tree passes the gate at the CONFIGURED threshold —
     the end-to-end wiring the CI test tier runs (gADR-0015)."""
     config = assets_config.load_style_config(panda_assets.STYLE_PATH)
-    lifecycle.validate_committed_asset_sizes(GAME_DIR, config.lfs_size_threshold_bytes)
+    lifecycle.validate_committed_asset_sizes(
+        GAME_DIR,
+        config.lfs_size_threshold_bytes,
+        assets_root=config.assets_root,
+    )
 
 
 def test_gitattributes_tracks_music_dir_in_lfs() -> None:
     """The seeded .gitattributes tracks the BGM/music dir in LFS (gate-driven
     convention), while KB-scale pixel art stays in plain git (gADR-0015)."""
     tracked = lifecycle.git_lfs_tracked(GAME_DIR)
-    assert tracked("assets/music/bgm_main.ogg")
-    assert not tracked("assets/textures/obstacle_crate.png")
+    assert tracked("content/assets/music/bgm_main.ogg")
+    assert not tracked("content/assets/textures/obstacle_crate.png")
 
 
 # --------------------------------------------------------------------------- #
@@ -448,7 +454,7 @@ def test_build_config_license_gate_catches_mislabeled_generation(
     """`build_config.validate_asset_licenses` fails a manifest that records a
     generation-mode asset under a download license (general — reused by every
     asset slice, e.g. #442's generated items)."""
-    frag = tmp_path / "assets" / "manifest" / "sprites.json"
+    frag = tmp_path / "content" / "assets" / "manifest" / "sprites.json"
     frag.parent.mkdir(parents=True)
     frag.write_text(
         '{"bad": {"acquire_mode": "generation", "license": "CC0"}}\n',
@@ -494,7 +500,7 @@ def test_pack_sprite_set_packs_sheet_and_emits_entry(tmp_path: Path) -> None:
     entry = pipeline.pack_sprite_set(
         frames,
         sheet,
-        "res://assets/sprites/hero_run.png",
+        "res://content/assets/sprites/hero_run.png",
         "hero_run",
         "sprites",
         source="kenney",
@@ -523,7 +529,7 @@ def test_pack_sprite_set_can_skip_emit(tmp_path: Path) -> None:
     entry = pipeline.pack_sprite_set(
         frames,
         sheet,
-        "res://assets/sprites/walk.png",
+        "res://content/assets/sprites/walk.png",
         "walk",
         "sprites",
         source="kenney",

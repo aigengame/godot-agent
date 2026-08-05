@@ -6,7 +6,7 @@ silent no-op otherwise. So the exact regression surface is: harness PRESENT (it 
 committed) but NOT daemon-launched (a plain ``godot --headless --path`` run) —
 ``GameLog.emit`` must fall back to ``print()`` rather than routing to the dormant
 harness and silently dropping the record. That plain-run path went dark once the
-harness was committed and is fixed in ``src/util/game_log.gd``; this locks it down.
+harness was committed and is fixed in ``addons/game_log/game_log.gd``; this locks it down.
 
 The daemon-launched *rich* path (``origin == "gda_log"`` via ``gda logger tail``)
 is covered by ``test_player_e2e.py`` — the complementary half. Engine tier (a real

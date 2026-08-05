@@ -208,7 +208,7 @@ def test_postprocess_keys_a_near_magenta_generated_background(tmp_path: Path) ->
 def _entry(asset_id: str, category: str = "textures") -> ManifestEntry:
     return ManifestEntry(
         id=asset_id,
-        path=f"res://assets/{category}/{asset_id}.png",
+        path=f"res://content/assets/{category}/{asset_id}.png",
         category=category,
         acquire_mode="search_download",
         source="opengameart",
@@ -350,10 +350,10 @@ def test_acquire_asset_generation_mocked(tmp_path: Path) -> None:
     assert entry.acquire_mode == "generation"
     assert entry.backend == "mcp:fake"
     assert entry.prompt and "obstacle crate" in entry.prompt
-    out = tmp_path / "assets" / "textures" / "obstacle_crate.png"
+    out = tmp_path / "content" / "assets" / "textures" / "obstacle_crate.png"
     with Image.open(out) as img:
         assert img.size == (40, 40)  # conformed to obstacle_size
-    loaded = manifest.load_manifest(tmp_path, "assets")
+    loaded = manifest.load_manifest(tmp_path, "content/assets")
     assert "obstacle_crate" in loaded
 
 
@@ -380,7 +380,7 @@ def test_generation_records_the_backend_model(tmp_path: Path) -> None:
         raw_dir=tmp_path / "raw",
     )
     assert entry.model == "gemini-2.5-flash-image"
-    assert manifest.load_manifest(tmp_path, "assets")["obstacle_crate"].model == (
+    assert manifest.load_manifest(tmp_path, "content/assets")["obstacle_crate"].model == (
         "gemini-2.5-flash-image"
     )
 
@@ -420,17 +420,17 @@ def test_acquire_asset_search_download_mocked(tmp_path: Path) -> None:
     )
     assert entry.acquire_mode == "search_download"
     assert entry.license == "CC0"
-    out = tmp_path / "assets" / "textures" / "obstacle_crate.png"
+    out = tmp_path / "content" / "assets" / "textures" / "obstacle_crate.png"
     with Image.open(out) as img:
         assert img.size == (40, 40)
 
 
 def _stage_scale_spec(root: Path) -> None:
     """Copy the committed scale_spec into an isolated game root for acquire."""
-    dst = root / "data" / "json" / "scale_spec.json"
+    dst = root / "content" / "data" / "json" / "scale_spec.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(
-        (build_config.GAME_DIR / "data/json/scale_spec.json").read_text("utf-8"),
+        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text("utf-8"),
         encoding="utf-8",
     )
 
@@ -585,7 +585,7 @@ def test_compose_asset_refs_resolves_id_to_path() -> None:
     doc = {"obstacle_asset": "obstacle_crate"}
     manifest_map = build_config.load_asset_manifest()
     build_config.compose_asset_refs(doc, build_config._GRAVITY_JSON_REL, manifest_map)
-    assert doc["obstacle_asset"] == "res://assets/textures/obstacle_crate.png"
+    assert doc["obstacle_asset"] == "res://content/assets/textures/obstacle_crate.png"
 
 
 def test_compose_asset_refs_passthrough() -> None:
@@ -600,8 +600,8 @@ def test_compose_asset_refs_passthrough() -> None:
 
 def test_gravity_tres_carries_the_resolved_path() -> None:
     """The committed gravity_config.tres renders the resolved obstacle path."""
-    tres = (build_config.GAME_DIR / "data/generated/gravity_config.tres").read_text()
-    assert 'obstacle_asset = "res://assets/textures/obstacle_crate.png"' in tres
+    tres = (build_config.GAME_DIR / "content/data/generated/gravity_config.tres").read_text()
+    assert 'obstacle_asset = "res://content/assets/textures/obstacle_crate.png"' in tres
 
 
 def test_compose_asset_refs_resolves_a_top_level_projectile_ref() -> None:
@@ -609,7 +609,7 @@ def test_compose_asset_refs_resolves_a_top_level_projectile_ref() -> None:
     doc = {"projectile_asset": "laser_bolt"}
     manifest_map = build_config.load_asset_manifest()
     build_config.compose_asset_refs(doc, build_config._COMBAT_JSON_REL, manifest_map)
-    assert doc["projectile_asset"] == "res://assets/textures/laser_bolt.png"
+    assert doc["projectile_asset"] == "res://content/assets/textures/laser_bolt.png"
 
 
 def test_compose_asset_refs_resolves_nested_pickup_refs() -> None:
@@ -629,24 +629,24 @@ def test_compose_asset_refs_resolves_nested_pickup_refs() -> None:
     build_config.compose_asset_refs(
         doc, build_config._PROGRESSION_JSON_REL, build_config.load_asset_manifest()
     )
-    assert doc["drop_items"]["gold"]["asset"] == "res://assets/textures/pickup_gold.png"
+    assert doc["drop_items"]["gold"]["asset"] == "res://content/assets/textures/pickup_gold.png"
     assert doc["drop_items"]["bun"]["asset"] == ""
     assert "asset" not in doc["drop_items"]["nostyle"]
 
 
 def test_combat_tres_carries_the_resolved_projectile_path() -> None:
     """The committed combat_config.tres renders the resolved Laser bolt path."""
-    tres = (build_config.GAME_DIR / "data/generated/combat_config.tres").read_text()
-    assert 'projectile_asset = "res://assets/textures/laser_bolt.png"' in tres
+    tres = (build_config.GAME_DIR / "content/data/generated/combat_config.tres").read_text()
+    assert 'projectile_asset = "res://content/assets/textures/laser_bolt.png"' in tres
 
 
 def test_progression_tres_carries_the_resolved_pickup_paths() -> None:
     """The committed progression_config.tres renders each resolved Pickup path."""
     tres = (
-        build_config.GAME_DIR / "data/generated/progression_config.tres"
+        build_config.GAME_DIR / "content/data/generated/progression_config.tres"
     ).read_text()
     for item in ("gold", "bun", "wine"):
-        assert f'"asset": "res://assets/textures/pickup_{item}.png"' in tres
+        assert f'"asset": "res://content/assets/textures/pickup_{item}.png"' in tres
 
 
 def test_validate_asset_refs_passes_on_committed_authority() -> None:
@@ -690,7 +690,7 @@ def test_fk_integrity_fails_on_unrecorded_reference(tmp_path: Path) -> None:
     """A referenced id with no manifest entry fails the FK gate."""
     root = _copy_authority(tmp_path)
     # Drop the manifest entry the authority references.
-    (root / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
+    (root / "content" / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
     with pytest.raises(jsonschema.ValidationError):
         build_config.validate_asset_refs(root)
 
@@ -698,7 +698,7 @@ def test_fk_integrity_fails_on_unrecorded_reference(tmp_path: Path) -> None:
 def test_no_dangling_fails_on_missing_file(tmp_path: Path) -> None:
     """A manifest path with no file on disk fails the no-dangling gate."""
     root = _copy_authority(tmp_path)
-    (root / "assets" / "textures" / "obstacle_crate.png").unlink()
+    (root / "content" / "assets" / "textures" / "obstacle_crate.png").unlink()
     with pytest.raises(jsonschema.ValidationError):
         build_config.validate_asset_refs(root)
 
@@ -707,7 +707,7 @@ def test_record_shape_fails_on_missing_license_or_source(tmp_path: Path) -> None
     """A referenced entry missing required provenance/license fields FAILS the gate
     — an unprovenanced/unlicensed asset must not ship (gADR-0014)."""
     root = _copy_authority(tmp_path)
-    frag = root / "assets" / "manifest" / "textures.json"
+    frag = root / "content" / "assets" / "manifest" / "textures.json"
     doc = json.loads(frag.read_text())
     del doc["obstacle_crate"]["license"]
     del doc["obstacle_crate"]["source"]
@@ -720,11 +720,11 @@ def test_build_all_enforces_the_manifest_gate(tmp_path: Path) -> None:
     """build_all FAILS on a missing referenced id — the gate is in the BUILD path,
     not just tests (gADR-0014) — and leaves no partial derived set behind."""
     root = _copy_authority(tmp_path)
-    (root / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
+    (root / "content" / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
     with pytest.raises(jsonschema.ValidationError):
         build_config.build_all(root=root)
     # The gate ran before the spec loop: no partial writes (gADR-0000 no-drift).
-    assert not (root / "data" / "generated").exists()
+    assert not (root / "content" / "data" / "generated").exists()
 
 
 def _copy_authority(root: Path) -> Path:
@@ -738,5 +738,5 @@ def _copy_authority(root: Path) -> Path:
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text((src / rel).read_text("utf-8"), encoding="utf-8")
-    shutil.copytree(src / "assets", root / "assets")
+    shutil.copytree(src / "content" / "assets", root / "content" / "assets")
     return root

@@ -87,11 +87,11 @@ def _find_node(node: dict, name: str) -> dict | None:
 def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    gravity = build_config.load_composed("data/json/gravity_config.json")
-    combat = build_config.load_composed("data/json/combat_config.json")
-    enemies = build_config.load_composed("data/json/enemies_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    gravity = build_config.load_composed("content/data/json/gravity_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     mp_max = combat["player_stats"]["max_mp"]
     mp_cost = gravity["mp_cost"]
@@ -198,7 +198,7 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
 
         # Let the Player settle on the platform before firing (S1-proven poll).
         assert poll(
-            lambda: abs(node_position("/root/Main/Player")[1] - rest_y) <= 2.0
+            lambda: abs(node_position("/root/Main/Gameplay/Player")[1] - rest_y) <= 2.0
         ), "Player did not land before firing"
 
         # --- Default weapon: `fire` fires the CURRENT weapon, and the spawn
@@ -219,7 +219,7 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
 
         # --- First gravity fire: spends MP from the S2 StatsSystem and spawns
         # a field whose params are the authoritative data.
-        obstacle_before = node_position("/root/Main/Obstacle")
+        obstacle_before = node_position("/root/Main/Gameplay/Obstacle")
         tap("fire")
         fired = poll(lambda: records("gravity_fired"))
         assert fired, "no gda_log 'gravity_fired' record"
@@ -249,18 +249,18 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # The in-range Obstacle is lifted (its y decreases: lift is the shipped
         # upward default) without horizontal drift.
         assert poll(
-            lambda: node_position("/root/Main/Obstacle")[1] < obstacle_before[1] - 10.0
+            lambda: node_position("/root/Main/Gameplay/Obstacle")[1] < obstacle_before[1] - 10.0
         ), "the Gravity Field did not lift the in-range Obstacle"
-        assert node_position("/root/Main/Obstacle")[0] == pytest.approx(
+        assert node_position("/root/Main/Gameplay/Obstacle")[0] == pytest.approx(
             obstacle_before[0], abs=1.0
         )
 
         # The field is LOCAL: the far-away Enemy does not move...
-        assert node_position("/root/Main/Enemy") == pytest.approx(enemy_pos, abs=1.0), (
+        assert node_position("/root/Main/Gameplay/Enemy") == pytest.approx(enemy_pos, abs=1.0), (
             "the out-of-range Enemy must not be affected"
         )
         # ...and it NEVER acts on the Player (mask guarantee): still resting.
-        assert node_position("/root/Main/Player")[1] == pytest.approx(rest_y, abs=2.0)
+        assert node_position("/root/Main/Gameplay/Player")[1] == pytest.approx(rest_y, abs=2.0)
 
         # --- Engage the Enemy and lift it with a field (gADR-0002 suspension).
         #
@@ -273,7 +273,7 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # 28703817301: enemy 4.7 px behind the Player, field center 124.7 px
         # away, zero suspension frames). So walk in only until ENGAGED (live
         # gap <= the spawn offset), and aim the shot from LIVE positions.
-        enemies_cfg = build_config.load_composed("data/json/enemies_config.json")
+        enemies_cfg = build_config.load_composed("content/data/json/enemies_config.json")
         enemy_spawn = next(
             s
             for wave in enemies_cfg["waves"]
@@ -311,8 +311,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         def live_gap() -> float:
             """Signed Enemy-minus-Player x gap from live positions."""
             return (
-                node_position("/root/Main/Enemy")[0]
-                - node_position("/root/Main/Player")[0]
+                node_position("/root/Main/Gameplay/Enemy")[0]
+                - node_position("/root/Main/Gameplay/Player")[0]
             )
 
         gap = live_gap()
@@ -334,8 +334,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         reface_frames = 4
 
         def suspension_shot() -> None:
-            px = node_position("/root/Main/Player")[0]
-            ex = node_position("/root/Main/Enemy")[0]
+            px = node_position("/root/Main/Gameplay/Player")[0]
+            ex = node_position("/root/Main/Gameplay/Enemy")[0]
             # Retreat away from the Enemy; an overlapped (on-Player) Enemy
             # goes left, where the walk-in left the most platform room.
             away = -1.0 if ex >= px - 10.0 else 1.0
@@ -419,8 +419,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
                     f"episodes={[r['fields'] for r in records('enemy_suspended')]} "
                     f"player_hits={len(records('player_hit'))} "
                     f"player_died={bool(records('player_died'))} "
-                    f"player={node_position('/root/Main/Player')} "
-                    f"enemy={node_position('/root/Main/Enemy')}"
+                    f"player={node_position('/root/Main/Gameplay/Player')} "
+                    f"enemy={node_position('/root/Main/Gameplay/Enemy')}"
                 )
             except Exception as exc:  # forensics must not mask the assertion
                 return f"evidence collection failed: {exc!r}"

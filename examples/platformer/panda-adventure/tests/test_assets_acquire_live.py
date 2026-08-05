@@ -38,10 +38,10 @@ STYLE = assets_config.load_style_config(panda_assets.STYLE_PATH)
 
 def _game_root(tmp_path: Path) -> Path:
     """A throwaway game root carrying just the Scale spec the acquire needs."""
-    dst = tmp_path / "data" / "json" / "scale_spec.json"
+    dst = tmp_path / "content" / "data" / "json" / "scale_spec.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(
-        (build_config.GAME_DIR / "data/json/scale_spec.json").read_text("utf-8"),
+        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text("utf-8"),
         encoding="utf-8",
     )
     return tmp_path
@@ -70,7 +70,7 @@ def test_search_download_real_fetch(tmp_path: Path) -> None:
     assert entry.license == "CC0"
     assert entry.source == "opengameart"
     assert entry.source_url and entry.source_url.startswith("https://")
-    out = root / "assets" / "textures" / "obstacle_crate.png"
+    out = root / "content" / "assets" / "textures" / "obstacle_crate.png"
     with Image.open(out) as img:
         assert img.size == (40, 40)
         assert img.mode == "RGBA"
@@ -108,7 +108,7 @@ def test_search_download_real_fetch_p2_s3_assets(
     assert entry.license == "CC0"
     assert entry.source == "opengameart"
     assert entry.source_url and entry.source_url.startswith("https://")
-    out = root / "assets" / "textures" / f"{asset_id}.png"
+    out = root / "content" / "assets" / "textures" / f"{asset_id}.png"
     with Image.open(out) as img:
         assert img.size == dims
         assert img.mode == "RGBA"
@@ -139,7 +139,7 @@ def test_mcp_gemini_real_generation(tmp_path: Path) -> None:
     assert entry.acquire_mode == "generation"
     assert entry.backend == "mcp:gemini"
     assert entry.prompt and "obstacle crate" in entry.prompt
-    out = root / "assets" / "textures" / "obstacle_crate.png"
+    out = root / "content" / "assets" / "textures" / "obstacle_crate.png"
     with Image.open(out) as img:
         assert img.size == (40, 40)  # conformed to the Scale spec size
 

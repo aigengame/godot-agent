@@ -42,7 +42,7 @@ We decide six things:
 
 - **The asset manifest single-homes each asset's path; the JSON authority
   references by a manifest `id` (a foreign key), never a raw path; the builder
-  composes id → path at build time.** The manifest (`assets/manifest/<category>.json`,
+  composes id → path at build time.** The manifest (`content/assets/manifest/<category>.json`,
   per-category fragments) is the one home of `id → {path, category, acquire_mode,
   source, license, license_url, target_dims}`. `build_config.py` gains
   `compose_asset_refs`, resolving id → path into the derived `.tres` — the game and
@@ -69,7 +69,7 @@ We decide six things:
   keywords/prompt fragment, bounded pixel-art palette, per-category style hints) and
   the format/licensing constraints live in `tools/assets/panda_adventure.style.json`
   — inside the pipeline package (mirroring `panda_adventure.targets.json`), NOT in
-  `data/json/` and never derived to a Resource, because the game reads assets, not
+  `content/data/json/` and never derived to a Resource, because the game reads assets, not
   their style. The qualitative art direction lives in the GDD's art-style chapter
   (the gADR-0013 GDD/JSON split applied to *look* rather than *size*). Preprocess
   composes the style descriptor + the Scale spec's target dimensions + format/

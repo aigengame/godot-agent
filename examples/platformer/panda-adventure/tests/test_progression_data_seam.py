@@ -28,9 +28,9 @@ import pytest
 
 import build_config
 
-PROGRESSION_JSON_PATH = build_config.GAME_DIR / "data/json/progression_config.json"
+PROGRESSION_JSON_PATH = build_config.GAME_DIR / "content/data/json/progression_config.json"
 PROGRESSION_SCHEMA_PATH = (
-    build_config.GAME_DIR / "data/schema/progression_config.schema.json"
+    build_config.GAME_DIR / "content/data/schema/progression_config.schema.json"
 )
 
 # The kind names, derived from the authoritative JSON (never a static list).
@@ -166,7 +166,7 @@ def _stage_inputs(root) -> None:
 def test_non_increasing_curve_gates_the_build(tmp_path) -> None:
     """The curve rule gates the BUILD, not just direct validator calls."""
     _stage_inputs(tmp_path)
-    progression_path = tmp_path / "data/json/progression_config.json"
+    progression_path = tmp_path / "content/data/json/progression_config.json"
     config = json.loads(progression_path.read_text(encoding="utf-8"))
     config["level_curve"] = [50.0, 50.0]
     progression_path.write_text(json.dumps(config), encoding="utf-8")
@@ -259,7 +259,7 @@ def test_retuning_a_tier_drops_is_one_json_edit(tmp_path) -> None:
     new table — no per-kind edit, no Python edit.
     """
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     config["tiers"]["minion"]["drops"] = [{"item": "wine", "amount": 7, "chance": 0.75}]
     enemies_path.write_text(json.dumps(config), encoding="utf-8")
@@ -267,7 +267,7 @@ def test_retuning_a_tier_drops_is_one_json_edit(tmp_path) -> None:
     build_config.build_all(root=tmp_path)
 
     minion_tres = (
-        tmp_path / "data/generated/enemy_monster_minion_melee.tres"
+        tmp_path / "content/data/generated/enemy_monster_minion_melee.tres"
     ).read_text(encoding="utf-8")
     assert 'drop_table = [{"item": "wine", "amount": 7, "chance": 0.75}]' in minion_tres
 
@@ -294,8 +294,8 @@ def test_progression_config_round_trips(gda) -> None:
     all matching the COMPOSED authority (the progression source with the
     Scale spec's pickup sizes and spacing composed in, gADR-0013).
     """
-    config = build_config.load_composed("data/json/progression_config.json")
-    props = _get_props(gda, "res://data/generated/progression_config.tres")
+    config = build_config.load_composed("content/data/json/progression_config.json")
+    props = _get_props(gda, "res://content/data/generated/progression_config.tres")
     assert props["level_curve"] == pytest.approx(config["level_curve"])
     assert props["level_up_flash_color"] == pytest.approx(
         config["level_up_flash_color"]
@@ -324,7 +324,7 @@ def test_kind_drop_table_round_trips(gda, kind: str) -> None:
     """Each EnemyConfig .tres round-trips its Tier-resolved drop_table."""
     config = build_config.load_json(build_config.ENEMIES_JSON_PATH)
     drops = config["tiers"][config["kinds"][kind]["tier"]]["drops"]
-    props = _get_props(gda, f"res://data/generated/enemy_{kind}.tres")
+    props = _get_props(gda, f"res://content/data/generated/enemy_{kind}.tres")
     got = props["drop_table"]
     assert len(got) == len(drops), kind
     for got_entry, expected in zip(got, drops):

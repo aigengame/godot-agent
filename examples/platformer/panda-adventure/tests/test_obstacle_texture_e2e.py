@@ -6,7 +6,7 @@ crate texture rather than the flat block — end to end from the manifest id in 
 authority, through the builder's id -> path composition, to a live sprite on screen:
 
 - ``gda game tree`` shows a ``Sprite`` (TextureRect) child under
-  ``/root/Main/Obstacle/Visual`` — the ViewBuilder adds it ONLY when the resolved
+  ``/root/Main/Gameplay/Obstacle/Visual`` — the ViewBuilder adds it ONLY when the resolved
   texture loads (a null load takes the colored-block fallback and adds no child),
   so its presence is proof the texture path was taken;
 - ``gda screen capture`` writes a real PNG of the running viewport (decodable, the

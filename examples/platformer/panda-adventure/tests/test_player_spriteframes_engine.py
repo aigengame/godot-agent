@@ -45,7 +45,7 @@ _ONESHOT = ("fire", "hurt", "consume", "level_up", "death")
 # frame 0 is an AtlasTexture — so the test can assert on stdout.
 _PROBE = """extends SceneTree
 func _initialize() -> void:
-	var sf = load("res://assets/sprites/player.tres")
+	var sf = load("res://content/assets/sprites/player.tres")
 	if sf == null:
 		print("RESULT=LOAD_FAILED")
 		quit()

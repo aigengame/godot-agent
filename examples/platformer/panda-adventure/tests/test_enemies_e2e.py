@@ -64,7 +64,7 @@ def _make_project_copy(dst: Path, mutate_enemies) -> Path:
     schema because build_all validates it.
     """
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     enemies_path.write_text(
         json.dumps(mutate_enemies(config), indent=2) + "\n", encoding="utf-8"
@@ -79,7 +79,7 @@ def _expected_player_damage(kind: dict, combat: dict, player_stats: dict) -> flo
     The Player defends with the SPACESUIT-composed block since S7
     (gADR-0008): base defense + the items config's suit bonus.
     """
-    items = build_config.load_composed("data/json/items_config.json")
+    items = build_config.load_composed("content/data/json/items_config.json")
     return max(
         combat["min_damage"],
         kind["attack"] * combat["attack_scale"]
@@ -138,13 +138,13 @@ class _Session:
         raise AssertionError("position not returned")
 
     def distance(self) -> float:
-        player = self.position("/root/Main/Player")
-        enemy = self.position("/root/Main/Enemy")
+        player = self.position("/root/Main/Gameplay/Player")
+        enemy = self.position("/root/Main/Gameplay/Enemy")
         return math.dist(player, enemy)
 
     def wait_player_landed(self, rest_y: float) -> None:
         assert self.poll(
-            lambda: abs(self.position("/root/Main/Player")[1] - rest_y) <= 2.0
+            lambda: abs(self.position("/root/Main/Gameplay/Player")[1] - rest_y) <= 2.0
         ), "Player did not land"
 
     def launch(self) -> None:
@@ -171,7 +171,7 @@ def _rest_y(player_cfg: dict, rampart: dict) -> float:
 
 def _rampart() -> dict:
     """The main fight platform from the authoritative level config."""
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
 
 
@@ -203,9 +203,9 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
 
     project = _make_project_copy(tmp_path / "game", hot_melee)
     # Every expectation derives from the copy's AUTHORITATIVE JSON.
-    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json", root=project)
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
     rampart = _rampart()
     kind = enemies["kinds"]["monster_minion_melee"]
     damage = _expected_player_damage(kind, combat, combat["player_stats"])
@@ -321,9 +321,9 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         return config
 
     project = _make_project_copy(tmp_path / "game", ranged_roster)
-    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json", root=project)
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
     kind = enemies["kinds"]["robot_elite_ranged"]
     damage = _expected_player_damage(kind, combat, combat["player_stats"])
     band_min = kind["keep_range_min"]
@@ -359,14 +359,14 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         # press is long (observed ~2px per sequence frame live): the Player
         # must cross the band's lower edge decisively; the enemy retreats
         # concurrently, so the gap never actually collapses.
-        enemy_x0 = s.position("/root/Main/Enemy")[0]
+        enemy_x0 = s.position("/root/Main/Gameplay/Enemy")[0]
         events = [
             {"type": "action", "action": "move_right", "frame": 0},
             {"type": "action", "action": "move_right", "release": True, "frame": 150},
         ]
         seq = s.run("input", "sequence", "--events", json.dumps(events))
         assert seq.returncode == 0, seq.stdout + seq.stderr
-        assert s.poll(lambda: s.position("/root/Main/Enemy")[0] > enemy_x0 + 30.0), (
+        assert s.poll(lambda: s.position("/root/Main/Gameplay/Enemy")[0] > enemy_x0 + 30.0), (
             "crowded ranged enemy never backed off"
         )
         assert s.poll(lambda: s.distance() >= band_min - 40.0), (

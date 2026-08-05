@@ -8,7 +8,7 @@ editor writes ONLY JSON and re-derives through the ONE Python builder
 Fast tier (``engine`` marker), never ``e2e``: a one-shot headless call, no daemon
 (so no ``project.godot`` mutation and no cross-worktree contention).
 
-Isolation: the editor mutates ``data/json`` and rebuilds ``data/generated`` IN
+Isolation: the editor mutates ``content/data/json`` and rebuilds ``content/data/generated`` IN
 PLACE, so it must NEVER run against the worktree — hence the copy. The builder is
 invoked with ``PANDA_EDITOR_PYTHON`` pointed at THIS interpreter (which carries
 the build deps: jsonschema), so the derive is hermetic and independent of whatever
@@ -34,7 +34,7 @@ _PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
 _FORM_REFRESH_SCRIPT = "res://tests/gdscript/test_editor_form_refresh.gd"
 
 # Unlike the daemon e2e copies, KEEP ``tests/`` (the round-trip script runs from
-# ``res://tests``) and ``data/generated`` (the pre-edit baseline the derive
+# ``res://tests``) and ``content/data/generated`` (the pre-edit baseline the derive
 # overwrites). Drop only the editor cache, the build artifact, and pycache.
 _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__")
 
@@ -84,36 +84,36 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
     # Belt-and-braces at the Python tier: the SAVED JSON authority carries the
     # edits (numeric ==, so Godot's int/float JSON formatting is irrelevant).
     level = json.loads(
-        (project / "data/json/level_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert level["platforms"][0]["position"] == _EXPECT_SEG0_POSITION
     assert level["platforms"][0]["size"] == _EXPECT_SEG0_SIZE
     assert level["arena_min_x"] == _EXPECT_ARENA_MIN
     assert level["background_color"] == _EXPECT_BACKDROP
     enemies = json.loads(
-        (project / "data/json/enemies_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/enemies_config.json").read_text(encoding="utf-8")
     )
     assert enemies["waves"][0]["spawns"][0]["position"] == _EXPECT_SPAWN0_POSITION
     # The numeric-form channel (#441): the schema-driven Player feel edit landed on
     # the player authority (a THIRD JSON file the model now writes).
     player = json.loads(
-        (project / "data/json/player_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/player_config.json").read_text(encoding="utf-8")
     )
     assert player["move_speed"] == _EXPECT_MOVE_SPEED
     # Multi-config forms (#476 review): a Combat + a Gravity number hand-tuned
     # through the same generic set_number path landed on their own authorities.
     combat = json.loads(
-        (project / "data/json/combat_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/combat_config.json").read_text(encoding="utf-8")
     )
     assert combat["iframe_duration"] == _EXPECT_IFRAME
     gravity = json.loads(
-        (project / "data/json/gravity_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/gravity_config.json").read_text(encoding="utf-8")
     )
     assert gravity["mp_cost"] == _EXPECT_MP_COST
 
     # And the worktree authority is untouched (the copy took all writes).
     worktree_level = json.loads(
-        (GAME_DIR / "data/json/level_config.json").read_text(encoding="utf-8")
+        (GAME_DIR / "content/data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert worktree_level["platforms"][0]["position"] == [560.0, 500.0]
 
@@ -165,7 +165,7 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     """
     project = tmp_path / "panda_copy"
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
-    baseline_tres = (project / "data/generated/level_config.tres").read_text(
+    baseline_tres = (project / "content/data/generated/level_config.tres").read_text(
         encoding="utf-8"
     )
 
@@ -194,13 +194,13 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     assert "editor_play_entered" not in doc["stdout"], doc["stdout"]
 
     # The failed builder wrote nothing: the derived .tres is the pre-edit baseline.
-    assert (project / "data/generated/level_config.tres").read_text(
+    assert (project / "content/data/generated/level_config.tres").read_text(
         encoding="utf-8"
     ) == baseline_tres
     # And the JSON authority was ROLLED BACK to its pre-edit value (#476 review):
     # a failed derive leaves NO invalid authority on disk — it matches the
     # untouched .tres, and the edit remains only in memory (dirty, GDScript-side).
     saved = json.loads(
-        (project / "data/json/level_config.json").read_text(encoding="utf-8")
+        (project / "content/data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert saved["arena_min_x"] == -160.0  # rolled back from the seam's -144.0 edit

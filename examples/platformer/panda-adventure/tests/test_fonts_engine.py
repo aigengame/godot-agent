@@ -49,7 +49,7 @@ _EXPECTED_WIDTH = 10 * _CELL
 # of a known HUD string at the Scale-spec size (__SIZE__ is substituted per run).
 _PROBE = """extends SceneTree
 func _initialize() -> void:
-	var f = load("res://assets/fonts/hud_font.fnt")
+	var f = load("res://content/assets/fonts/hud_font.fnt")
 	if f == null:
 		print("RESULT=LOAD_FAILED")
 		quit()

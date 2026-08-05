@@ -26,7 +26,7 @@ from assets.manifest import load_manifest
 from assets.model import FrameLayout
 from panda_assets import font_build
 
-_SHEET_RES = "res://assets/fonts/hud_font.png"
+_SHEET_RES = "res://content/assets/fonts/hud_font.png"
 
 # The font's native square-cell size comes from the Scale spec's hud_font_size
 # (gADR-0013 — the single size authority), the SAME value the build reads. Asserting
@@ -104,12 +104,12 @@ def test_committed_hud_font_fnt_is_a_fresh_derive() -> None:
     """The committed ``hud_font.fnt`` is byte-identical to a fresh derive from the
     manifest's recorded layout — the committed derived artifact stays in sync with
     the deriver (the SpriteFrames freshness argument, gADR-0014/gADR-0015)."""
-    entry = load_manifest(build_config.GAME_DIR, "assets")["hud_font"]
+    entry = load_manifest(build_config.GAME_DIR, "content/assets")["hud_font"]
     assert entry.frame_layout is not None
     expected = derive_bitmap_font(
         _SHEET_RES, entry.frame_layout, first_codepoint=font_build.FIRST_CODEPOINT
     )
-    committed = (build_config.GAME_DIR / "assets" / "fonts" / "hud_font.fnt").read_text(
+    committed = (build_config.GAME_DIR / "content" / "assets" / "fonts" / "hud_font.fnt").read_text(
         encoding="utf-8"
     )
     assert committed == expected
@@ -143,11 +143,11 @@ def test_documented_rebuild_command_runs_and_regenerates_valid_assets(
     shutil.copytree(
         src / "tools", game / "tools", ignore=shutil.ignore_patterns("__pycache__")
     )
-    (game / "data" / "json").mkdir(parents=True)
-    shutil.copy(src / "data" / "json" / "scale_spec.json", game / "data" / "json")
-    (game / "assets" / "fonts").mkdir(parents=True)
+    (game / "content" / "data" / "json").mkdir(parents=True)
+    shutil.copy(src / "content" / "data" / "json" / "scale_spec.json", game / "content" / "data" / "json")
+    (game / "content" / "assets" / "fonts").mkdir(parents=True)
     for name in ("PressStart2P-Regular.ttf", "OFL.txt"):
-        shutil.copy(src / "assets" / "fonts" / name, game / "assets" / "fonts")
+        shutil.copy(src / "content" / "assets" / "fonts" / name, game / "content" / "assets" / "fonts")
 
     env = {**os.environ, "PYTHONPATH": str(game / "tools")}
     run = subprocess.run(
@@ -161,12 +161,15 @@ def test_documented_rebuild_command_runs_and_regenerates_valid_assets(
 
     # The .fnt layout + manifest describe the grid, not pixels — byte-deterministic, so
     # the copy's fresh derive is byte-identical to the committed artifacts.
-    for rel in ("assets/fonts/hud_font.fnt", "assets/manifest/fonts.json"):
+    for rel in (
+        "content/assets/fonts/hud_font.fnt",
+        "content/assets/manifest/fonts.json",
+    ):
         assert (game / rel).read_bytes() == (src / rel).read_bytes(), (
             f"{rel} is not byte-stable across a fresh re-derivation"
         )
     # The rendered sheet is a valid atlas at the Scale-spec grid (structure, not bytes
     # — the freetype raster is not byte-reproducible across versions).
-    with Image.open(game / "assets" / "fonts" / "hud_font.png") as sheet:
+    with Image.open(game / "content" / "assets" / "fonts" / "hud_font.png") as sheet:
         assert sheet.format == "PNG"
         assert sheet.size == (16 * _CELL, 6 * _CELL)

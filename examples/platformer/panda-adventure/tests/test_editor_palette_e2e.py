@@ -6,11 +6,11 @@ a running Engine session — proving the palette DOGFOODS gda's live layer
 the test) reaches with the exact same commands a human's overlay buttons write.
 
 The daemon boots the EDITOR entry scene (the copy's ``run/main_scene`` is
-reconfigured to ``scenes/editor.tscn``; the editor is stripped from player builds,
+reconfigured to ``tools/editor/editor.tscn``; the editor is stripped from player builds,
 not from a dev-machine daemon run), then every step is one gda live command:
 
 - ``gda game set /root/Editor/DebugPalette --property play_active --value true``
-  enters play mode (main.tscn instanced under PlayHost) — Wave 1 boots.
+  enters play mode (the Game Shell instanced under PlayHost) — Wave 1 boots.
 - ``gda game set … --property jump_to_wave --value 3`` clears the live enemies and
   (re)starts Wave 3 through the game's OWN wave director — asserted from the
   monotonic ``gda logger tail`` records (the #406 lesson: records, not position
@@ -71,11 +71,11 @@ def _make_editor_project(dst: Path) -> Path:
     build_config.build_all(root=dst)
     project_godot = dst / "project.godot"
     text = project_godot.read_text(encoding="utf-8")
-    assert 'run/main_scene="res://scenes/main.tscn"' in text, "unexpected main_scene"
+    assert 'run/main_scene="res://ui/game_shell.tscn"' in text, "unexpected main_scene"
     project_godot.write_text(
         text.replace(
-            'run/main_scene="res://scenes/main.tscn"',
-            'run/main_scene="res://scenes/editor.tscn"',
+            'run/main_scene="res://ui/game_shell.tscn"',
+            'run/main_scene="res://tools/editor/editor.tscn"',
         ),
         encoding="utf-8",
     )
@@ -167,7 +167,7 @@ class _Session:
 def test_palette_ops_drive_the_running_game(tmp_path, daemon_runtime_dir):
     """Every palette op functions when driven through the gda daemon (gADR-0012)."""
     project = _make_editor_project(tmp_path / "game")
-    enemies = build_config.load_composed("data/json/enemies_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
     waves = enemies["waves"]
     wave_one_name = waves[0]["spawns"][0]["name"]  # "Enemy"
     wave_three_name = waves[2]["spawns"][0]["name"]  # "SwarmMeleeA"
@@ -184,7 +184,7 @@ def test_palette_ops_drive_the_running_game(tmp_path, daemon_runtime_dir):
         assert s.tree_root()["name"] == "Editor", "the editor scene did not boot"
         assert s.poll(lambda: bool(s.records("editor_ready"))), "editor never booted"
 
-        # --- edit<->play switch: play_active drives main.tscn under PlayHost.
+        # --- edit<->play switch: play_active drives the Game Shell under PlayHost.
         s.set_palette("play_active", "true")
         first = s.poll(lambda: bool(s.records("wave_started")))
         assert first, "entering play did not boot the wave schedule"

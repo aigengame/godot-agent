@@ -20,9 +20,9 @@ import pytest
 
 import build_config
 
-GRAVITY_JSON_PATH = build_config.GAME_DIR / "data/json/gravity_config.json"
-GRAVITY_SCHEMA_PATH = build_config.GAME_DIR / "data/schema/gravity_config.schema.json"
-GRAVITY_TRES_REL = "data/generated/gravity_config.tres"
+GRAVITY_JSON_PATH = build_config.GAME_DIR / "content/data/json/gravity_config.json"
+GRAVITY_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/gravity_config.schema.json"
+GRAVITY_TRES_REL = "content/data/generated/gravity_config.tres"
 
 
 def _valid_config() -> dict:
@@ -117,7 +117,7 @@ def test_gravity_config_round_trips(gda) -> None:
     Compared to the COMPOSED authority: field_radius and obstacle_size are
     authored in scale_spec.json (gADR-0013) and composed in by the builder.
     """
-    config = build_config.load_composed("data/json/gravity_config.json")
+    config = build_config.load_composed("content/data/json/gravity_config.json")
     result = gda("resource", "get", f"res://{GRAVITY_TRES_REL}", "--json")
     assert result.returncode == 0, result.stdout + result.stderr
     props = _properties_by_name(json.loads(result.stdout))

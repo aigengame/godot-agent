@@ -27,7 +27,7 @@ GDA_CMD = [sys.executable, "-m", "gda"]
 GAME_DIR = build_config.GAME_DIR
 _GOD_MODE_SCRIPT = "res://tests/gdscript/test_editor_god_mode.gd"
 
-# Keep tests/ (the seam script) and data/generated (main.tscn loads the derived
+# Keep tests/ (the seam script) and content/data/generated (Gameplay loads the derived
 # .tres). Drop only the editor cache, the build artifact, and pycache.
 _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__")
 

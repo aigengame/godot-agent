@@ -13,19 +13,19 @@ extends SceneTree
 ##
 ## Run via gda (ADR-0031):
 ##   gda script run res://tests/gdscript/test_editor_roundtrip.gd
-## MUST run against a THROWAWAY PROJECT COPY — it writes data/json and rebuilds
-## data/generated IN PLACE. Prints "EDITOR_ROUNDTRIP: PASS" + quit(0) on success,
+## MUST run against a THROWAWAY PROJECT COPY — it writes content/data/json and rebuilds
+## content/data/generated IN PLACE. Prints "EDITOR_ROUNDTRIP: PASS" + quit(0) on success,
 ## else push_error + quit(1). The builder needs a Python toolchain with the build
 ## deps; the seam test points PANDA_EDITOR_PYTHON at a suitable interpreter.
 
-const ModelScript := preload("res://src/editor/editor_level_model.gd")
-const BuilderScript := preload("res://src/editor/editor_builder.gd")
-const FormSpecScript := preload("res://src/editor/editor_form_spec.gd")
+const ModelScript := preload("res://tools/editor/editor_level_model.gd")
+const BuilderScript := preload("res://tools/editor/editor_builder.gd")
+const FormSpecScript := preload("res://tools/editor/editor_form_spec.gd")
 
-const LEVEL_TRES := "res://data/generated/level_config.tres"
-const SCHEDULE_TRES := "res://data/generated/wave_schedule.tres"
-const PLAYER_TRES := "res://data/generated/player_config.tres"
-const PLAYER_SCHEMA := "res://data/schema/player_config.schema.json"
+const LEVEL_TRES := "res://content/data/generated/level_config.tres"
+const SCHEDULE_TRES := "res://content/data/generated/wave_schedule.tres"
+const PLAYER_TRES := "res://content/data/generated/player_config.tres"
+const PLAYER_SCHEMA := "res://content/data/schema/player_config.schema.json"
 
 
 func _fail(msg: String) -> void:
@@ -58,7 +58,7 @@ func _init() -> void:
 
 	# --- form edit (#441): a schema-driven NUMERIC hand-tune of a Player feel
 	# number. The field set comes from the SCHEMA (EditorFormSpec), proving the
-	# form maps from data/schema, and the write goes through the model's generic
+	# form maps from content/data/schema, and the write goes through the model's generic
 	# set_number exactly as a SpinBox row does. 320.0 is exact in float32 + JSON.
 	var fields := FormSpecScript.numeric_fields(model.read_schema(PLAYER_SCHEMA))
 	if not _has_field(fields, "move_speed"):
@@ -153,11 +153,11 @@ func _init() -> void:
 	if player.move_speed != new_move_speed:
 		_fail("derived .tres move_speed stale: %s" % [player.move_speed])
 		return
-	var combat: Resource = load("res://data/generated/combat_config.tres")
+	var combat: Resource = load("res://content/data/generated/combat_config.tres")
 	if combat == null or combat.iframe_duration != new_iframe:
 		_fail("derived combat_config.tres iframe_duration stale")
 		return
-	var gravity: Resource = load("res://data/generated/gravity_config.tres")
+	var gravity: Resource = load("res://content/data/generated/gravity_config.tres")
 	if gravity == null or gravity.mp_cost != new_mp_cost:
 		_fail("derived gravity_config.tres mp_cost stale")
 		return

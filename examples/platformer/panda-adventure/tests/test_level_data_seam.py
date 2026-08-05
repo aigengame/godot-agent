@@ -23,11 +23,11 @@ import build_config
 _LEVEL_SPEC = next(
     spec
     for spec in build_config.SPECS
-    if spec.json_rel == "data/json/level_config.json"
+    if spec.json_rel == "content/data/json/level_config.json"
 )
 
 # res:// path of the derived resource, resolved against the project (--project).
-_TRES_RES_PATH = "res://data/generated/level_config.tres"
+_TRES_RES_PATH = "res://content/data/generated/level_config.tres"
 
 
 def _valid_config() -> dict:
@@ -141,7 +141,7 @@ def test_generated_resource_is_fresh(tmp_path) -> None:
     """The COMMITTED .tres matches a fresh build — JSON stays authoritative."""
     committed = build_config.GAME_DIR / _LEVEL_SPEC.out_rel
     assert committed.exists(), (
-        "committed data/generated/level_config.tres is missing — "
+        "committed content/data/generated/level_config.tres is missing — "
         "run scripts/build_config.py"
     )
     fresh = build_config.build_spec(
@@ -162,7 +162,7 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     JSON->Resource conversion preserves value and Godot type — including the
     platform_list rendering of the Great-Wall segments.
     """
-    config = build_config.load_composed("data/json/level_config.json")
+    config = build_config.load_composed("content/data/json/level_config.json")
 
     result = gda("resource", "get", _TRES_RES_PATH, "--json")
     assert result.returncode == 0, result.stdout + result.stderr

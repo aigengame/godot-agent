@@ -61,7 +61,7 @@ def _make_project_copy(dst: Path, mutate_enemies=None) -> Path:
     """Copy the game, optionally rewrite its enemies config, build the config."""
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     if mutate_enemies is not None:
-        enemies_path = dst / "data" / "json" / "enemies_config.json"
+        enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
         config = json.loads(enemies_path.read_text(encoding="utf-8"))
         enemies_path.write_text(
             json.dumps(mutate_enemies(config), indent=2) + "\n", encoding="utf-8"
@@ -165,7 +165,7 @@ class _Session:
 
     def wait_player_landed(self, rest_y: float) -> None:
         assert self.poll(
-            lambda: abs(self.position("/root/Main/Player")[1] - rest_y) <= 2.0
+            lambda: abs(self.position("/root/Main/Gameplay/Player")[1] - rest_y) <= 2.0
         ), "Player did not land"
 
 
@@ -179,7 +179,7 @@ def _rest_y(player_cfg: dict, rampart: dict) -> float:
 
 def _rampart() -> dict:
     """The main fight platform from the authoritative level config."""
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
 
 
@@ -221,8 +221,8 @@ def test_reconfigured_wave_count_plays_through(
         return config
 
     project = _make_project_copy(tmp_path / "game", reconfigure)
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
     iframe = combat["iframe_duration"]
     s = _Session(project)
 
@@ -285,9 +285,9 @@ def test_default_schedule_advances_to_the_dormant_elite(tmp_path, daemon_runtime
     Aggro Range, which this gate proves live (no ranged attack, no motion).
     """
     project = _make_project_copy(tmp_path / "game")
-    enemies = build_config.load_composed("data/json/enemies_config.json")
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
     waves = enemies["waves"]
     wave_one = waves[0]["spawns"][0]
     minion = enemies["kinds"][wave_one["kind"]]
@@ -383,15 +383,15 @@ def test_default_schedule_advances_to_the_dormant_elite(tmp_path, daemon_runtime
         # Aggro Range, so it neither attacks nor moves — no ranged
         # enemy_attack record appears, and its position holds across a beat.
         gap = math.dist(
-            s.position("/root/Main/Player"),
-            s.position(f"/root/Main/{elite_spawn['name']}"),
+            s.position("/root/Main/Gameplay/Player"),
+            s.position(f"/root/Main/Gameplay/{elite_spawn['name']}"),
         )
         assert gap > elite["aggro_range"], (
             f"scenario broken: the Player ended inside the Elite's aggro ({gap})"
         )
-        before = s.position(f"/root/Main/{elite_spawn['name']}")
+        before = s.position(f"/root/Main/Gameplay/{elite_spawn['name']}")
         time.sleep(1.5)
-        after = s.position(f"/root/Main/{elite_spawn['name']}")
+        after = s.position(f"/root/Main/Gameplay/{elite_spawn['name']}")
         assert after == pytest.approx(before, abs=1.0), (
             f"the dormant Elite moved: {before} -> {after}"
         )

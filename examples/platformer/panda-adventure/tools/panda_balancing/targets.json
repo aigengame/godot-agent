@@ -1,7 +1,7 @@
 {
-  "config_dir": "../../data/json",
+  "config_dir": "../../content/data/json",
   "adapter": "adapter.py",
-  "no_write_roots": ["../../data"],
+  "no_write_roots": ["../../content/data"],
   "player_model": {
     "fire_interval": 0.3,
     "accuracy": 0.8,

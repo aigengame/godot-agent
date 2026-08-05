@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://content/controllers/pickup_controller.gd" id="1_0i71o"]
+
+[node name="Pickup" type="Area2D" unique_id=1650646339]
+collision_layer = 32
+collision_mask = 2
+script = ExtResource("1_0i71o")
+
+[node name="Visual" type="ColorRect" parent="." unique_id=1984590977]
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=1338133796]

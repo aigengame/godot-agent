@@ -4,6 +4,10 @@ status: accepted
 
 # Level integration: the Great-Wall blockout and the end-state loop
 
+> **Current placement.** gADR-0020 split the End screen into `ui/`. Content
+> still owns the End-state rules, World freeze, verdict logs, and gated Retry;
+> it publishes the result to the UI-owned Game Shell.
+
 S9 closes Phase 1: the single demo level assembled as the GDD's Great-Wall
 blockout, and the arc's end states — win (schedule cleared), lose (Player HP
 0), retry — so the "one-more-try" loop the GDD names as the emotional goal
@@ -101,7 +105,7 @@ We decide seven things:
 
 ## Consequences
 
-- `data/json/level_config.json` + schema + `LevelConfig` Resource + a
+- `content/data/json/level_config.json` + schema + `LevelConfig` Resource + a
   builder spec join the pipeline: a `platform_list` renderer, and
   `validate_level_semantics` enforcing the cross-field rules — platform
   names unique (they become sibling node names in Main, the gADR-0005
@@ -112,7 +116,7 @@ We decide seven things:
 - `PlayerController` gains a `died` signal (emitted once, on the S4 death
   latch — the EnemyController precedent); the latch's "still controllable"
   note retires: the world freeze now owns post-death.
-- New pure decisions in `src/systems/game_state_system.gd`; new
+- New pure decisions in `systems/game_state_system.gd`; new
   `end_screen_controller.gd` + `platform.tscn` + `end_screen.tscn`;
   `main.tscn` drops `Platform`, gains the `EndScreen` instance;
   `project.godot` gains the `retry` action.

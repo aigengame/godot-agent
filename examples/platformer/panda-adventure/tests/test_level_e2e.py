@@ -69,7 +69,7 @@ def _make_project_copy(dst: Path, mutate_enemies=None) -> Path:
     """Copy the game, optionally rewrite its enemies config, build the config."""
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     if mutate_enemies is not None:
-        enemies_path = dst / "data" / "json" / "enemies_config.json"
+        enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
         config = json.loads(enemies_path.read_text(encoding="utf-8"))
         enemies_path.write_text(
             json.dumps(mutate_enemies(config), indent=2) + "\n", encoding="utf-8"
@@ -215,8 +215,8 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         return config
 
     project = _make_project_copy(tmp_path / "game", reconfigure)
-    enemies = build_config.load_composed("data/json/enemies_config.json")
-    combat = build_config.load_composed("data/json/combat_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
     waves = enemies["waves"]
     wave_count = len(waves)
     spawn_counts = [len(wave["spawns"]) for wave in waves]
@@ -284,7 +284,7 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         # channel a tree pause would have severed (the no-tree-pause proof).
         assert s.poll(
             lambda: (
-                s.property_of("/root/Main/Player", "process_mode")
+                s.property_of("/root/Main/Gameplay/Player", "process_mode")
                 == _PROCESS_MODE_DISABLED
             )
         ), "the World freeze never disabled the Player"
@@ -305,7 +305,7 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         )
         assert s.poll(
             lambda: (
-                s.property_of("/root/Main/Player", "process_mode")
+                s.property_of("/root/Main/Gameplay/Player", "process_mode")
                 == _PROCESS_MODE_INHERIT
             )
         ), "the fresh run's Player must process again"
@@ -368,12 +368,12 @@ def test_losing_run_freezes_and_retries(tmp_path, daemon_runtime_dir):
         # channel (the gADR-0010 no-tree-pause proof again).
         assert s.poll(
             lambda: (
-                s.property_of("/root/Main/Player", "process_mode")
+                s.property_of("/root/Main/Gameplay/Player", "process_mode")
                 == _PROCESS_MODE_DISABLED
             )
         ), "the World freeze never disabled the Player"
         assert (
-            s.property_of("/root/Main/Killer", "process_mode") == _PROCESS_MODE_DISABLED
+            s.property_of("/root/Main/Gameplay/Killer", "process_mode") == _PROCESS_MODE_DISABLED
         ), "the World freeze never disabled the Killer"
         attacks_frozen = len(s.records("enemy_attack"))
         time.sleep(1.5)

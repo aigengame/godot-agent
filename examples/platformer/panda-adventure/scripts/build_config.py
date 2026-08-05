@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """JSON -> Resource build pipeline for Panda Adventure (gADR-0000).
 
-The authoritative config lives in ``data/json/*.json``. This step validates each
+The authoritative config lives in ``content/data/json/*.json``. This step validates each
 source against its JSON Schema (raising on invalid input) and emits the *derived*
-Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
+Godot Resources under ``content/data/generated/`` that the runtime ``load()``s. Every
 ``.tres`` is a committed derived artifact (a freshness gate keeps each one
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
@@ -325,27 +325,27 @@ _SCALE_FIELDS: list[tuple[str, str]] = [
 
 # The S4 enemies source (gADR-0003) — one json_rel shared by the derived
 # per-kind specs and the Wave-schedule spec.
-_ENEMIES_JSON_REL = "data/json/enemies_config.json"
-_ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
+_ENEMIES_JSON_REL = "content/data/json/enemies_config.json"
+_ENEMIES_SCHEMA_REL = "content/data/schema/enemies_config.schema.json"
 
 # The P2-S0 Scale spec source (gADR-0013) — the single authority for element
 # dimensions, composed into every other source by ``compose_scale_spec``.
-_SCALE_JSON_REL = "data/json/scale_spec.json"
-_SCALE_SCHEMA_REL = "data/schema/scale_spec.schema.json"
+_SCALE_JSON_REL = "content/data/json/scale_spec.json"
+_SCALE_SCHEMA_REL = "content/data/schema/scale_spec.schema.json"
 
 # The remaining sources ``compose_scale_spec`` keys its injection map on.
-_PLAYER_JSON_REL = "data/json/player_config.json"
-_COMBAT_JSON_REL = "data/json/combat_config.json"
-_GRAVITY_JSON_REL = "data/json/gravity_config.json"
-_HUD_JSON_REL = "data/json/hud_config.json"
+_PLAYER_JSON_REL = "content/data/json/player_config.json"
+_COMBAT_JSON_REL = "content/data/json/combat_config.json"
+_GRAVITY_JSON_REL = "content/data/json/gravity_config.json"
+_HUD_JSON_REL = "content/data/json/hud_config.json"
 
 # The S6b progression source (gADR-0006) — carries its own cross-field rule
 # (the strictly increasing leveling curve, validate_progression_semantics).
-_PROGRESSION_JSON_REL = "data/json/progression_config.json"
+_PROGRESSION_JSON_REL = "content/data/json/progression_config.json"
 
 # The S9 level source (gADR-0010) — carries its own cross-field rules
 # (unique segment names, a real Arena interval, validate_level_semantics).
-_LEVEL_JSON_REL = "data/json/level_config.json"
+_LEVEL_JSON_REL = "content/data/json/level_config.json"
 
 
 def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
@@ -365,8 +365,8 @@ def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
     return TresSpec(
         json_rel=_ENEMIES_JSON_REL,
         schema_rel=_ENEMIES_SCHEMA_REL,
-        out_rel=f"data/generated/enemy_{kind}.tres",
-        script_res_path="res://src/resources/enemy_config.gd",
+        out_rel=f"content/data/generated/enemy_{kind}.tres",
+        script_res_path="res://content/config/enemy_config.gd",
         script_class="EnemyConfig",
         ext_id="1_enemyconfig",
         json_root=("kinds", kind),
@@ -375,10 +375,10 @@ def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
 
 
 _PLAYER_SPEC = TresSpec(
-    json_rel="data/json/player_config.json",
-    schema_rel="data/schema/player_config.schema.json",
-    out_rel="data/generated/player_config.tres",
-    script_res_path="res://src/resources/player_config.gd",
+    json_rel="content/data/json/player_config.json",
+    schema_rel="content/data/schema/player_config.schema.json",
+    out_rel="content/data/generated/player_config.tres",
+    script_res_path="res://content/config/player_config.gd",
     script_class="PlayerConfig",
     ext_id="1_playerconfig",
     fields=_PLAYER_FIELDS,
@@ -390,75 +390,75 @@ _PLAYER_SPEC = TresSpec(
 _STATIC_SPECS: list[TresSpec] = [
     _PLAYER_SPEC,
     TresSpec(
-        json_rel="data/json/combat_config.json",
-        schema_rel="data/schema/combat_config.schema.json",
-        out_rel="data/generated/stats_player.tres",
-        script_res_path="res://src/resources/stats_config.gd",
+        json_rel="content/data/json/combat_config.json",
+        schema_rel="content/data/schema/combat_config.schema.json",
+        out_rel="content/data/generated/stats_player.tres",
+        script_res_path="res://systems/stats_config.gd",
         script_class="StatsConfig",
         ext_id="1_statsconfig",
         json_root=("player_stats",),
         fields=_STAT_BLOCK_FIELDS,
     ),
     TresSpec(
-        json_rel="data/json/combat_config.json",
-        schema_rel="data/schema/combat_config.schema.json",
-        out_rel="data/generated/stats_enemy.tres",
-        script_res_path="res://src/resources/stats_config.gd",
+        json_rel="content/data/json/combat_config.json",
+        schema_rel="content/data/schema/combat_config.schema.json",
+        out_rel="content/data/generated/stats_enemy.tres",
+        script_res_path="res://systems/stats_config.gd",
         script_class="StatsConfig",
         ext_id="1_statsconfig",
         json_root=("enemy_stats",),
         fields=_STAT_BLOCK_FIELDS,
     ),
     TresSpec(
-        json_rel="data/json/combat_config.json",
-        schema_rel="data/schema/combat_config.schema.json",
-        out_rel="data/generated/combat_config.tres",
-        script_res_path="res://src/resources/combat_config.gd",
+        json_rel="content/data/json/combat_config.json",
+        schema_rel="content/data/schema/combat_config.schema.json",
+        out_rel="content/data/generated/combat_config.tres",
+        script_res_path="res://content/config/combat_config.gd",
         script_class="CombatConfig",
         ext_id="1_combatconfig",
         fields=_COMBAT_FIELDS,
     ),
     TresSpec(
-        json_rel="data/json/gravity_config.json",
-        schema_rel="data/schema/gravity_config.schema.json",
-        out_rel="data/generated/gravity_config.tres",
-        script_res_path="res://src/resources/gravity_config.gd",
+        json_rel="content/data/json/gravity_config.json",
+        schema_rel="content/data/schema/gravity_config.schema.json",
+        out_rel="content/data/generated/gravity_config.tres",
+        script_res_path="res://content/config/gravity_config.gd",
         script_class="GravityConfig",
         ext_id="1_gravityconfig",
         fields=_GRAVITY_FIELDS,
     ),
     TresSpec(
-        json_rel="data/json/hud_config.json",
-        schema_rel="data/schema/hud_config.schema.json",
-        out_rel="data/generated/hud_config.tres",
-        script_res_path="res://src/resources/hud_config.gd",
+        json_rel="content/data/json/hud_config.json",
+        schema_rel="content/data/schema/hud_config.schema.json",
+        out_rel="content/data/generated/hud_config.tres",
+        script_res_path="res://content/config/hud_config.gd",
         script_class="HudConfig",
         ext_id="1_hudconfig",
         fields=_HUD_FIELDS,
     ),
     TresSpec(
         json_rel=_PROGRESSION_JSON_REL,
-        schema_rel="data/schema/progression_config.schema.json",
-        out_rel="data/generated/progression_config.tres",
-        script_res_path="res://src/resources/progression_config.gd",
+        schema_rel="content/data/schema/progression_config.schema.json",
+        out_rel="content/data/generated/progression_config.tres",
+        script_res_path="res://content/config/progression_config.gd",
         script_class="ProgressionConfig",
         ext_id="1_progressionconfig",
         fields=_PROGRESSION_FIELDS,
     ),
     TresSpec(
-        json_rel="data/json/items_config.json",
-        schema_rel="data/schema/items_config.schema.json",
-        out_rel="data/generated/items_config.tres",
-        script_res_path="res://src/resources/items_config.gd",
+        json_rel="content/data/json/items_config.json",
+        schema_rel="content/data/schema/items_config.schema.json",
+        out_rel="content/data/generated/items_config.tres",
+        script_res_path="res://content/config/items_config.gd",
         script_class="ItemsConfig",
         ext_id="1_itemsconfig",
         fields=_ITEMS_FIELDS,
     ),
     TresSpec(
         json_rel=_LEVEL_JSON_REL,
-        schema_rel="data/schema/level_config.schema.json",
-        out_rel="data/generated/level_config.tres",
-        script_res_path="res://src/resources/level_config.gd",
+        schema_rel="content/data/schema/level_config.schema.json",
+        out_rel="content/data/generated/level_config.tres",
+        script_res_path="res://content/config/level_config.gd",
         script_class="LevelConfig",
         ext_id="1_levelconfig",
         fields=_LEVEL_FIELDS,
@@ -466,8 +466,8 @@ _STATIC_SPECS: list[TresSpec] = [
     TresSpec(
         json_rel=_SCALE_JSON_REL,
         schema_rel=_SCALE_SCHEMA_REL,
-        out_rel="data/generated/scale_spec.tres",
-        script_res_path="res://src/resources/scale_spec_config.gd",
+        out_rel="content/data/generated/scale_spec.tres",
+        script_res_path="res://content/config/scale_spec_config.gd",
         script_class="ScaleSpecConfig",
         ext_id="1_scalespecconfig",
         fields=_SCALE_FIELDS,
@@ -477,8 +477,8 @@ _STATIC_SPECS: list[TresSpec] = [
 _WAVE_SCHEDULE_SPEC = TresSpec(
     json_rel=_ENEMIES_JSON_REL,
     schema_rel=_ENEMIES_SCHEMA_REL,
-    out_rel="data/generated/wave_schedule.tres",
-    script_res_path="res://src/resources/wave_schedule_config.gd",
+    out_rel="content/data/generated/wave_schedule.tres",
+    script_res_path="res://content/config/wave_schedule_config.gd",
     script_class="WaveScheduleConfig",
     ext_id="1_waveschedule",
     fields=_WAVE_SCHEDULE_FIELDS,
@@ -489,12 +489,12 @@ _WAVE_SCHEDULE_SPEC = TresSpec(
 JSON_PATH = GAME_DIR / _PLAYER_SPEC.json_rel
 SCHEMA_PATH = GAME_DIR / _PLAYER_SPEC.schema_rel
 GENERATED_TRES = GAME_DIR / _PLAYER_SPEC.out_rel
-COMBAT_JSON_PATH = GAME_DIR / "data/json/combat_config.json"
-COMBAT_SCHEMA_PATH = GAME_DIR / "data/schema/combat_config.schema.json"
-ENEMIES_JSON_PATH = GAME_DIR / "data/json/enemies_config.json"
-ENEMIES_SCHEMA_PATH = GAME_DIR / "data/schema/enemies_config.schema.json"
+COMBAT_JSON_PATH = GAME_DIR / "content/data/json/combat_config.json"
+COMBAT_SCHEMA_PATH = GAME_DIR / "content/data/schema/combat_config.schema.json"
+ENEMIES_JSON_PATH = GAME_DIR / "content/data/json/enemies_config.json"
+ENEMIES_SCHEMA_PATH = GAME_DIR / "content/data/schema/enemies_config.schema.json"
 LEVEL_JSON_PATH = GAME_DIR / _LEVEL_JSON_REL
-LEVEL_SCHEMA_PATH = GAME_DIR / "data/schema/level_config.schema.json"
+LEVEL_SCHEMA_PATH = GAME_DIR / "content/data/schema/level_config.schema.json"
 
 
 def load_json(path: Path) -> Any:
@@ -786,7 +786,7 @@ def load_composed(json_rel: str, root: Path = GAME_DIR) -> Any:
 # manifest is a RECORD source (its provenance/license are not derivable), split
 # per category so parallel asset slices don't contend — read as-is, never rebuilt
 # (it is integrity-checked by ``validate_asset_refs``, not freshness-gated).
-_ASSETS_ROOT = "assets"
+_ASSETS_ROOT = "content/assets"
 _MANIFEST_DIRNAME = "manifest"
 
 # The authored TOP-LEVEL asset-reference fields the builder resolves, per source.
@@ -817,7 +817,7 @@ _ASSET_REF_ITEM_MAPS: dict[str, str] = {
 def load_asset_manifest(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
     """Merge the Asset manifest fragments into ``id -> record`` (gADR-0014).
 
-    Reads every ``assets/manifest/<category>.json`` fragment; returns ``{}`` when
+    Reads every ``content/assets/manifest/<category>.json`` fragment; returns ``{}`` when
     the manifest directory is absent (a root with no acquired assets yet — an
     isolated build stages none). Raises on a duplicate id across fragments (the id
     is the manifest's primary key).
@@ -1120,7 +1120,7 @@ def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
 
     Delegates to the asset pipeline's lifecycle gate with the threshold ``T`` from
     the committed Style descriptor config, so ``python scripts/build_config.py``
-    mechanically FAILS a committed ``assets/**`` binary ``>= T`` that is not
+    mechanically FAILS a committed Content asset binary ``>= T`` that is not
     LFS-tracked — not merely an optional test path. Joins ``main`` (the
     authoritative standalone build), NOT ``build_all``: build_all runs against
     isolated, non-git e2e roots where ``git check-attr`` has nothing to consult —
@@ -1133,7 +1133,9 @@ def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
 
     config = assets_config.load_style_config(STYLE_PATH)
     return lifecycle.validate_committed_asset_sizes(
-        root, config.lfs_size_threshold_bytes
+        root,
+        config.lfs_size_threshold_bytes,
+        assets_root=config.assets_root,
     )
 
 
@@ -1464,7 +1466,7 @@ def main() -> None:
     # The license/acquire-mode consistency gate (gADR-0015 §5d): a generated asset
     # mislabeled with a download license (or a downloaded one mislabeled) fails here.
     validate_asset_licenses()
-    # Then the size-based Git-LFS gate (gADR-0015): a committed assets/** binary
+    # Then the size-based Git-LFS gate (gADR-0015): a committed content/assets/** binary
     # >= T outside LFS fails the authoritative build before any .tres is written.
     validate_asset_sizes()
     for spec in SPECS:

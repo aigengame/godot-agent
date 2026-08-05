@@ -17,11 +17,11 @@ extends SceneTree
 ## drive them with KNOWN values, and assert each rule. Prints
 ## "LOGIC_SEAM: PASS" + quit(0) on success, else push_error + quit(1).
 
-const StatsSystemScript := preload("res://src/systems/stats_system.gd")
-const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
-const PlayerControllerScript := preload("res://src/controllers/player_controller.gd")
-const GravityFieldControllerScript := preload("res://src/controllers/gravity_field_controller.gd")
-const ObstacleControllerScript := preload("res://src/controllers/obstacle_controller.gd")
+const StatsSystemScript := preload("res://systems/stats_system.gd")
+const GravitySystemScript := preload("res://systems/gravity_system.gd")
+const PlayerControllerScript := preload("res://content/controllers/player_controller.gd")
+const GravityFieldControllerScript := preload("res://content/controllers/gravity_field_controller.gd")
+const ObstacleControllerScript := preload("res://content/controllers/obstacle_controller.gd")
 
 # Fixed MP-economy params so every expectation is exact.
 const MP_MAX := 50.0

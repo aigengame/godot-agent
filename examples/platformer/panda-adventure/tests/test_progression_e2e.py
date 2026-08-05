@@ -70,7 +70,7 @@ def _make_project_copy(dst: Path) -> dict:
     the copy's config there. Returns the copy's enemies document — the
     authority the assertions below derive from."""
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
     enemies = json.loads(enemies_path.read_text(encoding="utf-8"))
     for entry in enemies["tiers"]["minion"]["drops"]:
         if entry["item"] != "gold":
@@ -86,10 +86,10 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
     enemies = _make_project_copy(project)
     # Every expectation derives from the AUTHORITATIVE JSON (the copy's, for
     # the retuned drop chance), never hardcoded.
-    combat = build_config.load_composed("data/json/combat_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    progression = build_config.load_composed("data/json/progression_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    progression = build_config.load_composed("content/data/json/progression_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]
@@ -229,14 +229,14 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
 
         # Let the Player settle on the platform so the walk starts from rest.
         assert poll(
-            lambda: abs(prop("/root/Main/Player", "position")[1] - rest_y) <= 2.0
+            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
         ), "Player did not land"
 
         # --- The kill: walk into the minion's Aggro Range (the deterministic
         # physics-clock hold), let it close, kill it with spaced Laser shots
         # (past the i-frame window) — the S6a-proven loop.
         walk_right(target_x - start_x)
-        player_x = prop("/root/Main/Player", "position")[0]
+        player_x = prop("/root/Main/Gameplay/Player", "position")[0]
         assert abs(player_x - target_x) <= 20.0, (
             f"physics-clock walk missed its target: x={player_x}, want ~{target_x}"
         )
@@ -288,7 +288,7 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
         # --- Collection: walk across the row; gold accumulates onto the
         # Player's Gold (the second source next to the Kill reward) and the
         # bun lands in the item-count hook. The readout agrees with the log.
-        player_x = prop("/root/Main/Player", "position")[0]
+        player_x = prop("/root/Main/Gameplay/Player", "position")[0]
         walk_right(max(xs) - player_x + 30.0)
         collected_gold = poll(lambda: records("gold_collected"), timeout=15.0)
         assert collected_gold, "no gda_log 'gold_collected' record"

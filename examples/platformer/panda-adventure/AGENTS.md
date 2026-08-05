@@ -51,8 +51,11 @@ See `./docs/agents/domain.md` for the authoritative detail.
 
 ## Development conventions
 
-- **Architecture** — layered (Resource / Controller / CanvasItem) and data-driven, with JSON as
-  the single authoritative config source converted to Godot `Resource`. See `docs/gadr/0000-architecture-design.md`.
+- **Architecture** — the shipped runtime follows `UI -> Content -> Systems -> Add-ons -> Godot`.
+  A module may depend only on itself or a lower module; upward communication uses signals,
+  callbacks, or returned values. Content remains data-driven, with JSON as the single
+  authoritative config source converted to Godot `Resource`. Development-only Editor code lives
+  under `tools/editor/`, outside the runtime chain. See gADR-0000 and gADR-0020.
 - **Logger-based feedback development** — game code logs at module (and key function) entry/exit so
   the agent can observe runtime behavior in a closed loop — enough to trace behavior, not noisy
   per-call spam. Log output conforms to the `gda logger tail` protocol so the agent can parse it.
@@ -81,9 +84,9 @@ See `./docs/agents/domain.md` for the authoritative detail.
   forbidden and there is no guard hook** (a concurrent human editor is undefended, not prohibited:
   parent ADR-0018). Handling is **awareness + recovery**, not prevention: for view/run, just don't
   save; if you saved and don't want the churn, `git checkout` the affected `.tscn`/`.tres` (and any
-  reimported `assets/**/*.import`) — the gda-authored form is the source of truth; a stray `uid=` in a
+  reimported `content/assets/**/*.import`) — the gda-authored form is the source of truth; a stray `uid=` in a
   tracked scene is the tell that someone saved in the GUI. To actually **change** content, prefer the
-  in-game editor (`scenes/editor.tscn`, `S = save+derive`) or gda, both of which keep the source
+  in-game editor (`tools/editor/editor.tscn`, `S = save+derive`) or gda, both of which keep the source
   deterministic.
 
 ## gda feedback (dogfooding)

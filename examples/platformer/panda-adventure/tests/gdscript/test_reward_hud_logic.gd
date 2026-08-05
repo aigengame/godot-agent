@@ -14,9 +14,9 @@ extends SceneTree
 ## values, and assert each rule. Prints "LOGIC_SEAM: PASS" + quit(0) on
 ## success, else push_error + quit(1).
 
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
-const StatsSystemScript := preload("res://src/systems/stats_system.gd")
-const HudControllerScript := preload("res://src/controllers/hud_controller.gd")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
+const StatsSystemScript := preload("res://systems/stats_system.gd")
+const HudControllerScript := preload("res://ui/hud_controller.gd")
 
 # A known stat block: values chosen exactly representable.
 const MAX_HP := 100.0

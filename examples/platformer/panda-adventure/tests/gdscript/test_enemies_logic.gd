@@ -14,8 +14,8 @@ extends SceneTree
 ## values, and assert each AI rule. Prints "LOGIC_SEAM: PASS" + quit(0) on
 ## success, else push_error + quit(1).
 
-const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
-const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
+const EnemyConfigScript := preload("res://content/config/enemy_config.gd")
+const EnemyAIScript := preload("res://systems/enemy_ai.gd")
 
 # Fixed AI params so every expectation is exact. The Melee shape: band
 # [0, 48] (never back off), attack range == the band edge — the melee contact
@@ -63,6 +63,34 @@ func _at(dx: float, dy: float = 0.0) -> Vector2:
 	return SELF_POS + Vector2(dx, dy)
 
 
+func _move(self_pos: Vector2, player_pos: Vector2, kind: EnemyConfigScript) -> float:
+	return EnemyAIScript.compute_move_dir(
+		self_pos,
+		player_pos,
+		kind.aggro_range,
+		kind.keep_range_min,
+		kind.keep_range_max,
+	)
+
+
+func _can_attack(
+	self_pos: Vector2,
+	player_pos: Vector2,
+	kind: EnemyConfigScript,
+	last_attack_time: float,
+	now: float,
+) -> bool:
+	return EnemyAIScript.can_attack(
+		self_pos,
+		player_pos,
+		kind.aggro_range,
+		kind.attack_range,
+		kind.attack_cooldown,
+		last_attack_time,
+		now,
+	)
+
+
 func _init() -> void:
 	var melee := _make_kind("melee", MELEE_AGGRO, MELEE_ATTACK_RANGE, 0.0, MELEE_BAND_MAX)
 	var ranged := _make_kind(
@@ -72,63 +100,63 @@ func _init() -> void:
 
 	# Behavior 1 — Melee closes distance: inside aggro and beyond the band it
 	# steers toward the Player, from either side.
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(200.0), melee), 1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(200.0), melee), 1.0):
 		_fail("melee should approach a Player 200px to the right")
 		return
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(-200.0), melee), -1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(-200.0), melee), -1.0):
 		_fail("melee should approach a Player 200px to the left")
 		return
 
 	# Behavior 2 — Melee holds point-blank: inside the band (min 0 = never
 	# backs off) it stops and lets the attack gate take over.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(30.0), melee)):
+	if not is_zero_approx(_move(SELF_POS, _at(30.0), melee)):
 		_fail("melee inside its band (30 < 48) should hold, not jitter")
 		return
 
 	# Behavior 3 — Aggro gate: beyond the Aggro Range every archetype is dormant.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(300.0), melee)):
+	if not is_zero_approx(_move(SELF_POS, _at(300.0), melee)):
 		_fail("melee beyond aggro (300 > 240) should stay dormant")
 		return
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(800.0), ranged)):
+	if not is_zero_approx(_move(SELF_POS, _at(800.0), ranged)):
 		_fail("ranged beyond aggro (800 > 700) should stay dormant")
 		return
 
 	# Behavior 4 — Ranged closes to its band: beyond keep_range_max it approaches.
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(-450.0), ranged), -1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(-450.0), ranged), -1.0):
 		_fail("ranged beyond its band (450 > 380) should approach")
 		return
 
 	# Behavior 5 — Ranged KEEPS distance: inside keep_range_min it backs off,
 	# away from the Player, from either side.
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(100.0), ranged), -1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(100.0), ranged), -1.0):
 		_fail("ranged crowded from the right (100 < 220) should back off left")
 		return
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(-100.0), ranged), 1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(-100.0), ranged), 1.0):
 		_fail("ranged crowded from the left should back off right")
 		return
 
 	# Behavior 6 — Ranged holds inside the band.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(300.0), ranged)):
+	if not is_zero_approx(_move(SELF_POS, _at(300.0), ranged)):
 		_fail("ranged inside its band (220 <= 300 <= 380) should hold")
 		return
 
 	# Behavior 7 — the distance is the full 2D distance: a Player 300px away
 	# vertically-diagonally counts against the ranges even when |dx| is small.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(30.0, 300.0), melee)):
+	if not is_zero_approx(_move(SELF_POS, _at(30.0, 300.0), melee)):
 		_fail("melee should be dormant when the 2D distance (301) exceeds aggro")
 		return
 
 	# Behavior 8 — a Player directly above (dx == 0) yields no horizontal steer.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(0.0, -100.0), melee)):
+	if not is_zero_approx(_move(SELF_POS, _at(0.0, -100.0), melee)):
 		_fail("melee with the Player straight above should not steer")
 		return
 
 	# Behavior 9 — Tank runs the SAME band rule as Melee (un-deferred by S8,
 	# gADR-0009): no Tank-specific branch, the slow hammer is pure data.
-	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(200.0), tank), 1.0):
+	if not is_equal_approx(_move(SELF_POS, _at(200.0), tank), 1.0):
 		_fail("tank should close distance like any band-rule archetype (gADR-0009)")
 		return
-	if not EnemyAIScript.can_attack(SELF_POS, _at(30.0), tank, -INF, 100.0):
+	if not _can_attack(SELF_POS, _at(30.0), tank, -INF, 100.0):
 		_fail("tank should contact-attack inside its band (gADR-0009)")
 		return
 
@@ -150,32 +178,32 @@ func _init() -> void:
 	# damage: with the contact invariant (attack_range <= keep_range_max,
 	# enforced at the data seam), any Player outside the point-blank band —
 	# even barely (55 > 48) — cannot be hit.
-	if not EnemyAIScript.can_attack(SELF_POS, _at(30.0), melee, -INF, 100.0):
+	if not _can_attack(SELF_POS, _at(30.0), melee, -INF, 100.0):
 		_fail("melee point-blank and off cooldown should attack")
 		return
-	if EnemyAIScript.can_attack(SELF_POS, _at(30.0), melee, 100.0, 100.25):
+	if _can_attack(SELF_POS, _at(30.0), melee, 100.0, 100.25):
 		_fail("melee mid-cooldown should not attack")
 		return
-	if EnemyAIScript.can_attack(SELF_POS, _at(55.0), melee, -INF, 100.0):
+	if _can_attack(SELF_POS, _at(55.0), melee, -INF, 100.0):
 		_fail("melee just outside the band (55 > 48) should not attack")
 		return
-	if EnemyAIScript.can_attack(SELF_POS, _at(100.0), melee, -INF, 100.0):
+	if _can_attack(SELF_POS, _at(100.0), melee, -INF, 100.0):
 		_fail("melee far beyond the band (100 > 48) should not attack")
 		return
 
 	# Behavior 12 — Ranged attacks from afar: anywhere inside its long attack
 	# range (including while still approaching, beyond the band).
-	if not EnemyAIScript.can_attack(SELF_POS, _at(440.0), ranged, -INF, 100.0):
+	if not _can_attack(SELF_POS, _at(440.0), ranged, -INF, 100.0):
 		_fail("ranged at 440 (<= 520) should attack from afar")
 		return
-	if EnemyAIScript.can_attack(SELF_POS, _at(600.0), ranged, -INF, 100.0):
+	if _can_attack(SELF_POS, _at(600.0), ranged, -INF, 100.0):
 		_fail("ranged beyond attack range (600 > 520) should not attack")
 		return
 
 	# Behavior 13 — the aggro gate also bounds attacks when attack_range
 	# exceeds aggro_range (misconfigured or sniper kinds stay leashed).
 	var sniper := _make_kind("ranged", 200.0, 520.0, 0.0, 100.0)
-	if EnemyAIScript.can_attack(SELF_POS, _at(300.0), sniper, -INF, 100.0):
+	if _can_attack(SELF_POS, _at(300.0), sniper, -INF, 100.0):
 		_fail("attack beyond aggro (300 > 200) should be gated even in range")
 		return
 

@@ -80,13 +80,13 @@ def _expected_damage(combat: dict) -> float:
 def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    combat = build_config.load_composed("data/json/combat_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
     # The Wave-1 spawn is the position authority (gADR-0005); the duplicated
     # legacy combat enemy_position was deleted by gADR-0013.
-    enemies = build_config.load_composed("data/json/enemies_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
     enemy_spawn = enemies["waves"][0]["spawns"][0]["position"]
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     damage = _expected_damage(combat)
     max_hp = combat["enemy_stats"]["max_hp"]
@@ -134,7 +134,7 @@ def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
         return result
 
     def player_y() -> float:
-        got = run("game", "get", "/root/Main/Player", "--property", "position")
+        got = run("game", "get", "/root/Main/Gameplay/Player", "--property", "position")
         assert got.returncode == 0, got.stdout + got.stderr
         for p in json.loads(got.stdout)["properties"]:
             if p["name"] == "position":

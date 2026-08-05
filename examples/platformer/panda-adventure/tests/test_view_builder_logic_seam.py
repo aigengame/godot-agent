@@ -64,12 +64,12 @@ def test_asset_reference_renders_default_and_authored_value() -> None:
     carries the field the seam resolves), and an authored value passes through
     verbatim. Pure render check (no IO beyond loading the committed authority).
     """
-    composed = build_config.load_composed("data/json/player_config.json")
+    composed = build_config.load_composed("content/data/json/player_config.json")
     spec = build_config._PLAYER_SPEC
     # The manifest id resolved to the derived SpriteFrames path.
-    assert composed["player_asset"] == "res://assets/sprites/player.tres"
+    assert composed["player_asset"] == "res://content/assets/sprites/player.tres"
     assert (
-        'player_asset = "res://assets/sprites/player.tres"'
+        'player_asset = "res://content/assets/sprites/player.tres"'
         in build_config.render_spec(spec, composed)
     )
 
@@ -78,9 +78,9 @@ def test_asset_reference_renders_default_and_authored_value() -> None:
     assert 'player_asset = ""' in build_config.render_spec(spec, absent)
 
     # An authored value passes through verbatim.
-    authored = dict(composed, player_asset="res://assets/player.png")
+    authored = dict(composed, player_asset="res://content/assets/player.png")
     rendered = build_config.render_spec(spec, authored)
-    assert 'player_asset = "res://assets/player.png"' in rendered
+    assert 'player_asset = "res://content/assets/player.png"' in rendered
 
 
 def test_asset_reference_materializes_in_nested_view_structures() -> None:
@@ -94,16 +94,16 @@ def test_asset_reference_materializes_in_nested_view_structures() -> None:
     wired, so every ``drop_items`` style renders its resolved single-homed
     ``res://`` path (the builder composed the manifest id -> path).
     """
-    level = build_config.load_composed("data/json/level_config.json")
+    level = build_config.load_composed("content/data/json/level_config.json")
     rendered = build_config._render_field(
         "platforms", "platform_list", level["platforms"]
     )
     assert rendered.count('"asset": ""') == len(level["platforms"])
 
-    progression = build_config.load_composed("data/json/progression_config.json")
+    progression = build_config.load_composed("content/data/json/progression_config.json")
     rendered = build_config._render_field(
         "drop_items", "item_style_map", progression["drop_items"]
     )
     assert '"asset": ""' not in rendered  # every Pickup is wired now (#442)
     for item in progression["drop_items"]:
-        assert f'"asset": "res://assets/textures/pickup_{item}.png"' in rendered
+        assert f'"asset": "res://content/assets/textures/pickup_{item}.png"' in rendered

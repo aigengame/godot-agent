@@ -17,10 +17,10 @@ extends SceneTree
 ## values, and assert each rule. Prints "LOGIC_SEAM: PASS" + quit(0) on
 ## success, else push_error + quit(1).
 
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
-const StatsSystemScript := preload("res://src/systems/stats_system.gd")
-const GrowthSystemScript := preload("res://src/systems/growth_system.gd")
-const EconomySystemScript := preload("res://src/systems/economy_system.gd")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
+const StatsSystemScript := preload("res://systems/stats_system.gd")
+const GrowthSystemScript := preload("res://systems/growth_system.gd")
+const EconomySystemScript := preload("res://systems/economy_system.gd")
 
 # A known curve: strictly increasing cumulative thresholds (max level 4).
 const CURVE := [10.0, 50.0, 150.0]

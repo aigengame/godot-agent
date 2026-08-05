@@ -82,7 +82,7 @@ def _make_project_copy(dst: Path) -> dict:
     consumes.
     """
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
     enemies = json.loads(enemies_path.read_text(encoding="utf-8"))
     sentinel_kind = enemies["waves"][0]["spawns"][0]["kind"]
     enemies["waves"] = [
@@ -116,11 +116,11 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
     enemies = _make_project_copy(project)
     # Every expectation derives from the AUTHORITATIVE JSON (the copy's, for
     # the reconfigured waves/drops), never hardcoded.
-    combat = build_config.load_composed("data/json/combat_config.json")
-    gravity = build_config.load_composed("data/json/gravity_config.json")
-    items = build_config.load_composed("data/json/items_config.json")
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
+    gravity = build_config.load_composed("content/data/json/gravity_config.json")
+    items = build_config.load_composed("content/data/json/items_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]
@@ -281,7 +281,7 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
 
         # Let the Player settle on the platform so the walk starts from rest.
         assert poll(
-            lambda: abs(prop("/root/Main/Player", "position")[1] - rest_y) <= 2.0
+            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
         ), "Player did not land"
 
         # --- Supply gating: with nothing held, BOTH use verbs refuse — one
@@ -309,7 +309,7 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
         # player_hit amount is the UNTOUCHED formula fed the suit-composed
         # defender, mitigated by exactly the config bonus.
         walk_right(target_x - start_x)
-        player_x = prop("/root/Main/Player", "position")[0]
+        player_x = prop("/root/Main/Gameplay/Player", "position")[0]
         assert abs(player_x - target_x) <= 20.0, (
             f"physics-clock walk missed its target: x={player_x}, want ~{target_x}"
         )
@@ -336,7 +336,7 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
             f"got {records('pickup_spawned')}"
         )
         xs = [r["fields"]["x"] for r in records("pickup_spawned")]
-        player_x = prop("/root/Main/Player", "position")[0]
+        player_x = prop("/root/Main/Gameplay/Player", "position")[0]
         walk_right(max(xs) - player_x + 30.0)
         collected = poll(lambda: len(records("item_collected")) == len(drops))
         assert collected, (

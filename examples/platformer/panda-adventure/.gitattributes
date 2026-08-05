@@ -6,7 +6,7 @@
 # it generated so it collapses in review diffs.
 addons/gda_harness/** -whitespace linguist-generated
 
-# Size-based Git-LFS gate (gADR-0015): an assets/** binary at/over T (1 MB; the
+# Size-based Git-LFS gate (gADR-0015): a content/assets/** binary at/over T (1 MB; the
 # authority is lfs_size_threshold_bytes in tools/assets/panda_adventure.style.json)
 # is tracked by Git LFS so a large file is BORN in LFS — never committed to plain
 # git and migrated later, which rewrites history.
@@ -18,4 +18,4 @@ addons/gda_harness/** -whitespace linguist-generated
 # here and re-adds the file. Seeded with the BGM/music dir — the one category
 # gADR-0015 predicts reliably crosses T — while KB-scale pixel art and SFX stay in
 # plain git.
-assets/music/** filter=lfs diff=lfs merge=lfs -text
+content/assets/music/** filter=lfs diff=lfs merge=lfs -text

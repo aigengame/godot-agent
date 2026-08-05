@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/content/data/schema/progression_config.schema.json",
+  "title": "Panda Adventure progression configuration",
+  "description": "Authoritative config for the S6b progression loop (gADR-0000, gADR-0006): the data-driven leveling curve the Player levels up along, and the Drop/Pickup blockout. `level_curve` is the ordered list of cumulative EXP thresholds — entry k is the total EXP at which the Player reaches level k+2 (level 1 is the start), so the MAX level is the array's length + 1: config, never code (the gADR-0005 waves.size() idiom). That the curve is strictly increasing is a cross-field rule this schema cannot express — enforced by build_config.validate_progression_semantics before the resource derives. `drop_items` fixes the pickup COLOR for EVERY item name (the pickup SIZES and the scatter spacing migrated to scale_spec.json's pickup_sizes/pickup_spacing — gADR-0013 — composed back in by the builder) the enemies-config drop tables may reference — all three Phase-1 items are required, so a drop can never reference an unstyled item (coverage by construction, no cross-source validator). The remaining fields are the spawn/collect tween juice plus the level-up flash. Converted by scripts/build_config.py into content/data/generated/progression_config.tres (ProgressionConfig).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "level_curve",
+    "level_up_flash_color",
+    "level_up_flash_duration",
+    "drop_items",
+    "pickup_spawn_squash",
+    "pickup_spawn_tween_duration",
+    "pickup_collect_tween_duration"
+  ],
+  "$defs": {
+    "rgba": {
+      "description": "A color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "item_style": {
+      "description": "One droppable item's pickup color (gADR-0006); its box lives in scale_spec.json (gADR-0013).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color"],
+      "properties": {
+        "color": { "$ref": "#/$defs/rgba" },
+        "asset": {
+          "description": "Optional view asset reference for this item's pickup block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        }
+      }
+    }
+  },
+  "properties": {
+    "level_curve": {
+      "description": "Cumulative EXP thresholds, one per level-up: entry k is the total EXP that reaches level k+2. Strictly increasing (enforced by build_config.validate_progression_semantics; not expressible here); the max level is length + 1 — retuning or extending the curve is a JSON-only change.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "number", "exclusiveMinimum": 0.0 }
+    },
+    "level_up_flash_color": {
+      "description": "Color the Player flashes to on a level-up. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — a level rise now plays the sprite's 'level_up' one-shot; no longer read at runtime; retained for the editor schema forms (#441/#481).",
+      "$ref": "#/$defs/rgba"
+    },
+    "level_up_flash_duration": {
+      "description": "Seconds for the level-up flash tween. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — no longer read at runtime; retained for the editor schema forms (#441/#481). Strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "drop_items": {
+      "description": "Pickup blockout per droppable item name — the closed Phase-1 item vocabulary (gold, and the S7 Consumables bun/wine). All three are required so every item a drop table can reference has a style.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gold", "bun", "wine"],
+      "properties": {
+        "gold": { "$ref": "#/$defs/item_style" },
+        "bun": { "$ref": "#/$defs/item_style" },
+        "wine": { "$ref": "#/$defs/item_style" }
+      }
+    },
+    "pickup_spawn_squash": {
+      "description": "Visual scale a spawned Pickup's block punches FROM at the moment it spawns (the gADR-0005 spawn-telegraph idiom); each component strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "pickup_spawn_tween_duration": {
+      "description": "Seconds for the pickup spawn squash to recover to normal scale; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "pickup_collect_tween_duration": {
+      "description": "Seconds for a collected Pickup's block to tween to nothing before it frees; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}
