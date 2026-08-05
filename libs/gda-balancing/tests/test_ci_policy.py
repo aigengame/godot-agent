@@ -74,6 +74,8 @@ def test_shards_pairwise_partition_every_balancing_test_file():
         "fast",
         "authority",
         "language",
+        "model",
+        "experiment",
         "composition",
     )
     assert ci.PROCESS_TIMEOUT_SECONDS == {

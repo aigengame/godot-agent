@@ -37,6 +37,7 @@ from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
+from schema2_authority_support import mutable_authorities
 
 RunResult = tuple[int, str, str]
 
@@ -69,7 +70,7 @@ def authority_candidate(
     pristine_authority_context: AdmittedAuthorityContext,
 ) -> dict[str, object]:
     """One independently owned mutable authority candidate for a test boundary."""
-    kernel, language_bundle = pristine_authority_context.mutable_pair()
+    kernel, language_bundle = mutable_authorities()
     admission = pristine_authority_context.admission
     return {
         "kernel": kernel,

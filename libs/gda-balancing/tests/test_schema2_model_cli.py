@@ -35,6 +35,7 @@ from gda_balancing.schema2.authority_graph import (
 )
 from gda_balancing.schema2.surface import descriptor_identity
 from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -450,7 +451,7 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
-    _kernel, language_bundle = authority_module.load_authorities()
+    _kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
         row
@@ -1724,7 +1725,7 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
     diagnostic_row = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic_row["code"] == diagnostic
     assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     assert (
         model_module.reason_by_id(language_bundle, reason_id)["diagnostic"]
         == diagnostic
@@ -2027,6 +2028,106 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
     assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/site"
 
 
+def test_model_check_reaches_formula_slots_through_scheduled_operations(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-periodic-effect/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["package_requirements"] = [
+        requirement
+        for requirement in source_document["package_requirements"]
+        if requirement["id"] in {"core.quantity", "game.effect"}
+    ]
+    source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "periodic-magnitude"
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"].get("operation", {}).get("id")
+        == "game.effect.tick-live-periodic-v1"
+    ]
+    source_document["entrypoints"] = [
+        entrypoint
+        for entrypoint in source_document["entrypoints"]
+        if entrypoint["id"] == "effect.apply-live-periodic"
+    ]
+    source = tmp_path / "scheduled-operation-slot.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, ""), stdout
+
+
+def test_operation_reachability_follows_kernel_operation_members_after_node_rename():
+    kernel = {
+        "meta_format": {
+            "runtime_program": {
+                "nodes": [
+                    {
+                        "id": "defer",
+                        "required_members": ["node", "site", "operation"],
+                        "semantics": {"operator": "schedule-operation"},
+                    },
+                    {
+                        "id": "copy",
+                        "required_members": ["node", "target", "value"],
+                        "semantics": {"operator": "copy-value"},
+                    },
+                ]
+            }
+        }
+    }
+    child = {"package": "example.runtime", "version": "1.0.0", "id": "child"}
+    root = {"package": "example.runtime", "version": "1.0.0", "id": "root"}
+    operations = [
+        {
+            "package": "example.runtime",
+            "definition": {
+                "id": "root",
+                "body": [{"node": "defer", "operation": child}],
+            },
+        },
+        {"package": "example.runtime", "definition": {"id": "child", "body": []}},
+    ]
+    lock = {
+        "packages": [{"id": "example.runtime", "version": "1.0.0"}],
+        "operations": operations,
+    }
+    source = {"entrypoints": [{"operation": root}]}
+    selected_semantics = {
+        "packages": lock["packages"],
+        "operations": operations,
+    }
+    entrypoints = [{"operation": root}]
+    operation_nodes = model_module._operation_reference_node_ids(kernel)
+
+    expected = {
+        ("example.runtime", "1.0.0", "root"),
+        ("example.runtime", "1.0.0", "child"),
+    }
+    assert operation_nodes == {"defer"}
+    assert (
+        model_module._selected_source_operation_coordinates(
+            source, lock, operation_nodes
+        )
+        == expected
+    )
+    assert (
+        model_module._selected_resolved_operation_coordinates(
+            entrypoints, selected_semantics, operation_nodes
+        )
+        == expected
+    )
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
@@ -2067,7 +2168,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     seed = next(
@@ -2226,7 +2327,7 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
         symbol["kind"] = "unknown-kind"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
@@ -3516,7 +3617,7 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
 
 
 def test_receipt_content_identity_excludes_transport_locators():
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     common = {
         "descriptor_identity": "sha256:" + "1" * 64,
         "invocation_key": "2" * 64,
@@ -3754,7 +3855,7 @@ def _package_vector_set(
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
-    kernel, _ = authority_module.load_authorities()
+    kernel, _ = mutable_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -4068,7 +4169,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
     assert model_module.admit_resolved_model(artifacts).admitted is True
 
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     policy = model_module._formula_policy(language_bundle)
     actual_operand_domain = kernel["meta_format"]["runtime_program"][
         "invocation_contract"
@@ -4558,7 +4659,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert isinstance(original_checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(original_checked)
 
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     profile = candidate_ldb["language"]["literal_typing_profiles"][0]
     old_id = profile["id"]
     profile["id"] = "quantity.dimensionless-int64-reidentified"
@@ -6062,7 +6163,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
 def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     package = deepcopy(
@@ -6215,8 +6316,9 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    assert kernel == authority_module.load_authorities()[0]
-    assert baseline_ldb == authority_module.load_authorities()[1]
+    pristine_kernel, pristine_ldb = mutable_authorities()
+    assert kernel == pristine_kernel
+    assert baseline_ldb == pristine_ldb
 
     source_document = _model_source()
     source_document["package_requirements"] = [
@@ -6449,7 +6551,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_rule_match_steps"] = 1
     boundary = next(
         vector
@@ -6483,7 +6585,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
     boundary = next(
         vector

@@ -30,6 +30,9 @@ from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 )
+_RPG_PERIODIC_EFFECT_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
+)
 _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
@@ -129,6 +132,25 @@ def _build_reciprocal_example(
     )
     assert (result.returncode, result.stderr) == (0, ""), result.stdout
     return _RPG_COMBAT_EXAMPLE, json.loads(result.stdout)
+
+
+def _build_periodic_effect_example(
+    tmp_path: Path,
+    *,
+    invocation_key: str,
+    output_name: str = "periodic-model",
+) -> dict:
+    result = _run(
+        "model",
+        "build",
+        str(_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json"),
+        "--out",
+        str(tmp_path / output_name),
+        "--invocation-key",
+        invocation_key,
+    )
+    assert (result.returncode, result.stderr) == (0, ""), result.stdout
+    return json.loads(result.stdout)
 
 
 def _one_way_variant(baseline: dict, identifier: str) -> dict:
@@ -454,6 +476,698 @@ class TestKeyUserPath:
             _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
         )["snapshots"]
         assert len(snapshots) == len(trace["events"]) + 1
+
+    def test_periodic_effect_runs_one_complete_lifecycle_through_public_events(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="8" * 64,
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        build_record = json.loads(
+            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert {
+            "kernel_identity": experiment["kernel_identity"],
+            "language_bundle_identity": experiment["language_bundle_identity"],
+            **experiment["model"],
+        } == {
+            "kernel_identity": build_record["kernel_identity"],
+            "language_bundle_identity": build_record["language_bundle_identity"],
+            "source_identity": build_record["source_identity"],
+            "build_receipt_identity": build_record["content_identity"],
+            "resolved_model_identity": build_record["resolved_model_identity"],
+            "package_lock_identity": build_record["package_lock_identity"],
+            "rir_identity": build_record["rir_identity"],
+        }
+
+        receipt, trace = _run_experiment_variant(
+            tmp_path,
+            experiment,
+            name="periodic-effect",
+            invocation_key="9" * 64,
+        )
+
+        lifecycle = [
+            (
+                event["entrypoint"]["id"]
+                if event.get("entrypoint") is not None
+                else event["operation"],
+                event["ordering_key"]["logical_time"],
+            )
+            for event in trace["events"]
+            if event["ordering_key"]["phase"] == "transition"
+            and event["operation"].startswith("game.effect.")
+        ]
+        assert lifecycle == [
+            ("effect.apply-snapshot-periodic", 0),
+            ("game.effect.tick-snapshot-periodic-v1", 1),
+            ("game.effect.tick-snapshot-periodic-v1", 2),
+            ("game.effect.expire-periodic-v1", 3),
+        ]
+        instance_ids = {
+            next(
+                row["value"]
+                for row in event["state_after"]
+                if row["name"] == "effect_instance_id"
+            )
+            for event in trace["events"]
+            if event["ordering_key"]["phase"] == "transition"
+        }
+        assert len(instance_ids) == 1
+        assert next(iter(instance_ids)) > 0
+        snapshots = json.loads(
+            _receipt_members(receipt)["snapshot-series"].read_text(encoding="utf-8")
+        )["snapshots"]
+        assert len(snapshots) == len(trace["events"]) + 1
+
+    def test_periodic_effect_snapshot_and_live_policies_observe_same_time_order(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="a" * 64,
+            output_name="periodic-policy-model",
+        )
+        baseline = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "same-time-experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        build_record = json.loads(
+            _receipt_members(build_receipt)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert baseline["model"] == {
+            "source_identity": build_record["source_identity"],
+            "build_receipt_identity": build_record["content_identity"],
+            "resolved_model_identity": build_record["resolved_model_identity"],
+            "package_lock_identity": build_record["package_lock_identity"],
+            "rir_identity": build_record["rir_identity"],
+        }
+
+        def run_policy(
+            *, policy: str, combat_priority: int, name: str, key: str
+        ) -> tuple[dict, dict]:
+            experiment = json.loads(json.dumps(baseline))
+            experiment["id"] = f"example.rpg-periodic-effect.{name}"
+            experiment["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+                f"effect.apply-{policy}-periodic"
+            )
+            experiment["scenarios"][0]["event_plan"][1]["priority"] = combat_priority
+            return _run_experiment_variant(
+                tmp_path,
+                experiment,
+                name=name,
+                invocation_key=key,
+            )
+
+        live_receipt, live_combat_first = run_policy(
+            policy="live",
+            combat_priority=0,
+            name="live-combat-first",
+            key="b" * 64,
+        )
+        live_tick_first_receipt, live_tick_first = run_policy(
+            policy="live",
+            combat_priority=-1,
+            name="live-tick-first",
+            key="c" * 64,
+        )
+        _snapshot_receipt, snapshot_combat_first = run_policy(
+            policy="snapshot",
+            combat_priority=0,
+            name="snapshot-combat-first",
+            key="d" * 64,
+        )
+        _snapshot_tick_first_receipt, snapshot_tick_first = run_policy(
+            policy="snapshot",
+            combat_priority=-1,
+            name="snapshot-tick-first",
+            key="e" * 64,
+        )
+
+        def time_one_operations(trace: dict) -> list[str]:
+            return [
+                event["operation"]
+                for event in trace["events"]
+                if event["ordering_key"]["phase"] == "transition"
+                and event["ordering_key"]["logical_time"] == 1
+            ]
+
+        assert time_one_operations(live_combat_first) == [
+            "game.combat.cast-v1",
+            "game.effect.tick-live-periodic-v1",
+        ]
+        assert time_one_operations(live_tick_first) == [
+            "game.effect.tick-live-periodic-v1",
+            "game.combat.cast-v1",
+        ]
+
+        def terminal_health(trace: dict) -> int:
+            expiry = next(
+                event
+                for event in trace["events"]
+                if event["operation"] == "game.effect.expire-periodic-v1"
+            )
+            return next(
+                row["value"]
+                for row in expiry["state_after"]
+                if row["name"] == "target_health"
+            )
+
+        assert terminal_health(live_combat_first) == 85
+        assert terminal_health(live_tick_first) == 75
+        assert terminal_health(snapshot_combat_first) == 60
+        assert terminal_health(snapshot_tick_first) == 60
+
+        def effect_formula_evaluations(trace: dict) -> list[dict]:
+            return [
+                evaluation
+                for event in trace["events"]
+                for evaluation in event["formula_evaluations"]
+                if evaluation["operation"]["package"] == "game.effect"
+            ]
+
+        live_combat_evaluations = effect_formula_evaluations(live_combat_first)
+        live_tick_evaluations = effect_formula_evaluations(live_tick_first)
+        assert [
+            (
+                evaluation["operation"]["id"],
+                {
+                    argument["parameter"]: argument["value"]
+                    for argument in evaluation["arguments"]
+                },
+                evaluation["result"],
+            )
+            for evaluation in live_combat_evaluations
+        ] == [
+            (
+                "game.effect.tick-live-periodic-v1",
+                {"current_value": 90, "threshold": 85},
+                5,
+            ),
+            (
+                "game.effect.tick-live-periodic-v1",
+                {"current_value": 85, "threshold": 85},
+                0,
+            ),
+        ]
+        assert [evaluation["result"] for evaluation in live_tick_evaluations] == [
+            15,
+            0,
+        ]
+        snapshot_evaluations = effect_formula_evaluations(snapshot_combat_first)
+        assert [
+            (evaluation["operation"]["id"], evaluation["result"])
+            for evaluation in snapshot_evaluations
+        ] == [("game.effect.apply-snapshot-periodic-v1", 15)]
+        assert all(
+            evaluation["context"] == {"phase": "event", "frame": "pre-event-snapshot"}
+            and evaluation["frame_identity"]
+            == next(
+                event["snapshot_before_identity"]
+                for event in live_combat_first["events"]
+                if evaluation in event["formula_evaluations"]
+            )
+            for evaluation in live_combat_evaluations
+        )
+
+        def metric_health(receipt: dict) -> int:
+            metric_dataset = json.loads(
+                _receipt_members(receipt)["metric-dataset"].read_text(encoding="utf-8")
+            )
+            return next(
+                sample["value"]
+                for sample in metric_dataset["samples"]
+                if sample["metric"] == "target_health_remaining"
+            )
+
+        assert metric_health(live_receipt) == 85
+        assert metric_health(live_tick_first_receipt) == 75
+
+    def test_periodic_effect_formula_only_edit_changes_only_dependent_identities(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        baseline_build = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="1" * 64,
+            output_name="baseline-periodic-model",
+        )
+        tuned_source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        magnitude = next(
+            formula
+            for formula in tuned_source["modules"][0]["formulas"]
+            if formula["id"] == "periodic-magnitude"
+        )
+        raw_magnitude = next(
+            node for node in magnitude["body"]["nodes"] if node["id"] == "raw_magnitude"
+        )
+        left, right = raw_magnitude["arguments"]
+        left["operand"], right["operand"] = right["operand"], left["operand"]
+        magnitude["expression"] = (
+            "let raw_magnitude = threshold - current_value;\n"
+            "let magnitude = floor_zero(raw_magnitude);\n"
+            "magnitude"
+        )
+        tuned_source_path = tmp_path / "tuned-model-source.json"
+        tuned_source_path.write_text(json.dumps(tuned_source), encoding="utf-8")
+        tuned_result = _run(
+            "model",
+            "build",
+            str(tuned_source_path),
+            "--out",
+            str(tmp_path / "tuned-periodic-model"),
+            "--invocation-key",
+            "2" * 64,
+        )
+        assert (tuned_result.returncode, tuned_result.stderr) == (0, ""), (
+            tuned_result.stdout,
+            tuned_result.stderr,
+        )
+        tuned_build = json.loads(tuned_result.stdout)
+
+        baseline_record = json.loads(
+            _receipt_members(baseline_build)["build-receipt"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_record = json.loads(
+            _receipt_members(tuned_build)["build-receipt"].read_text(encoding="utf-8")
+        )
+        assert (
+            baseline_record["kernel_identity"],
+            baseline_record["language_bundle_identity"],
+            baseline_record["package_lock_identity"],
+        ) == (
+            tuned_record["kernel_identity"],
+            tuned_record["language_bundle_identity"],
+            tuned_record["package_lock_identity"],
+        )
+        assert baseline_record["source_identity"] != tuned_record["source_identity"]
+        assert baseline_record["rir_identity"] != tuned_record["rir_identity"]
+        assert (
+            baseline_record["resolved_model_identity"]
+            != tuned_record["resolved_model_identity"]
+        )
+        baseline_rir = json.loads(
+            _receipt_members(baseline_build)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_rir = json.loads(
+            _receipt_members(tuned_build)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+
+        def effect_binding(rir: dict) -> dict:
+            return next(
+                binding
+                for binding in rir["formula_bindings"]
+                if binding["site"]["kind"] == "operation-slot"
+                and binding["site"]["operation"]["id"]
+                == "game.effect.apply-snapshot-periodic-v1"
+            )
+
+        baseline_binding = effect_binding(baseline_rir)
+        tuned_binding = effect_binding(tuned_rir)
+        assert (
+            baseline_binding["formula"]["identity"]
+            != tuned_binding["formula"]["identity"]
+        )
+        assert (
+            baseline_binding["site"]["operation"] == tuned_binding["site"]["operation"]
+        )
+
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        experiment["metrics"][0]["target"] = {"minimum": 0, "maximum": 1000}
+        _bind_experiment_to_build(experiment, baseline_build)
+        baseline_receipt, baseline_trace = _run_experiment_variant(
+            tmp_path,
+            experiment,
+            name="baseline-formula-run",
+            invocation_key="3" * 64,
+        )
+        tuned_experiment = json.loads(json.dumps(experiment))
+        _bind_experiment_to_build(tuned_experiment, tuned_build)
+        tuned_receipt, tuned_trace = _run_experiment_variant(
+            tmp_path,
+            tuned_experiment,
+            name="tuned-formula-run",
+            invocation_key="4" * 64,
+        )
+
+        assert (
+            baseline_trace["experiment_identity"] != tuned_trace["experiment_identity"]
+        )
+        assert (
+            baseline_trace["resolved_runtime_profile_identity"]
+            != tuned_trace["resolved_runtime_profile_identity"]
+        )
+        baseline_profile = json.loads(
+            _receipt_members(baseline_receipt)["resolved-runtime-profile"].read_text(
+                encoding="utf-8"
+            )
+        )
+        tuned_profile = json.loads(
+            _receipt_members(tuned_receipt)["resolved-runtime-profile"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert (
+            baseline_profile["evaluator_manifest_identity"],
+            baseline_profile["runtime_profile_definition_identity"],
+            baseline_profile["runtime_profile"],
+        ) == (
+            tuned_profile["evaluator_manifest_identity"],
+            tuned_profile["runtime_profile_definition_identity"],
+            tuned_profile["runtime_profile"],
+        )
+        assert baseline_trace["content_identity"] != tuned_trace["content_identity"]
+        assert (
+            json.loads(
+                _receipt_members(baseline_receipt)["metric-dataset"].read_text(
+                    encoding="utf-8"
+                )
+            )["content_identity"]
+            != json.loads(
+                _receipt_members(tuned_receipt)["metric-dataset"].read_text(
+                    encoding="utf-8"
+                )
+            )["content_identity"]
+        )
+
+        def terminal_health(trace: dict) -> int:
+            expiry = next(
+                event
+                for event in trace["events"]
+                if event["operation"] == "game.effect.expire-periodic-v1"
+            )
+            return next(
+                row["value"]
+                for row in expiry["state_after"]
+                if row["name"] == "target_health"
+            )
+
+        assert terminal_health(baseline_trace) == 70
+        assert terminal_health(tuned_trace) == 100
+        assert [
+            evaluation["result"]
+            for event in baseline_trace["events"]
+            for evaluation in event["formula_evaluations"]
+            if evaluation["operation"]["package"] == "game.effect"
+        ] == [15]
+        assert [
+            evaluation["result"]
+            for event in tuned_trace["events"]
+            for evaluation in event["formula_evaluations"]
+            if evaluation["operation"]["package"] == "game.effect"
+        ] == [0]
+
+    def test_periodic_effect_refuses_an_unbound_magnitude_formula(self, tmp_path):
+        source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source["formula_bindings"] = [
+            binding
+            for binding in source["formula_bindings"]
+            if binding["site"].get("operation", {}).get("id")
+            != "game.effect.apply-snapshot-periodic-v1"
+        ]
+        source_path = tmp_path / "unbound-periodic-formula.json"
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        output = tmp_path / "must-not-build"
+
+        result = _run(
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "5" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "static"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "language.formula_binding_missing"
+        ]
+        assert output.exists() is False
+
+    def test_periodic_effect_formula_overflow_rolls_back_the_apply_event(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        source = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "model-source.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        threshold_symbol = next(
+            symbol
+            for symbol in source["modules"][0]["symbols"]
+            if symbol["symbol"] == "magnitude_threshold"
+        )
+        threshold_symbol["domain"]["minimum"] = -(1 << 63)
+        source_path = tmp_path / "overflow-periodic-model.json"
+        source_path.write_text(json.dumps(source), encoding="utf-8")
+        built = _run(
+            "model",
+            "build",
+            str(source_path),
+            "--out",
+            str(tmp_path / "overflow-periodic-model"),
+            "--invocation-key",
+            "6" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+        rir = json.loads(
+            _receipt_members(build_receipt)["rir-semantic-payload"].read_text(
+                encoding="utf-8"
+            )
+        )
+        site_identity = next(
+            binding["site"]["identity"]
+            for binding in rir["formula_bindings"]
+            if binding["site"]["kind"] == "operation-slot"
+            and binding["site"]["operation"]["id"]
+            == "game.effect.apply-snapshot-periodic-v1"
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        next(
+            assignment
+            for assignment in experiment["scenarios"][0]["assignments"]
+            if assignment["target"]["name"] == "magnitude_threshold"
+        )["value"] = -(1 << 63)
+        specification = tmp_path / "overflow-periodic-experiment.json"
+        specification.write_text(json.dumps(experiment), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "overflow-periodic-run"),
+            "--invocation-key",
+            "7" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "runtime"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "runtime.numeric_overflow"
+        ]
+        terminal_receipt = error["terminal_audit"]
+        assert {row["logical_name"] for row in terminal_receipt["member_locators"]} == {
+            "evaluator-capability-manifest",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "runtime-terminal-audit",
+        }
+        audit = json.loads(
+            _receipt_members(terminal_receipt)["runtime-terminal-audit"].read_text(
+                encoding="utf-8"
+            )
+        )
+        assert audit["committed_trace_prefix"] == []
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.apply-snapshot-periodic-v1"
+        )
+        assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
+        assert audit["refusing_event"]["evaluation_site_identity"] == site_identity
+        assert audit["rollback"]["committed"] is False
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+        assert all(
+            record["event_spec"]["kind"] != "scheduled-transition"
+            for record in audit["event_catalog_prefix"]
+        )
+
+    def test_periodic_effect_refuses_state_outside_the_receiving_resource_domain(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="6" * 64,
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        next(
+            assignment
+            for assignment in experiment["scenarios"][0]["assignments"]
+            if assignment["target"]["name"] == "magnitude_threshold"
+        )["value"] = 0
+        specification = tmp_path / "periodic-resource-domain.json"
+        specification.write_text(json.dumps(experiment), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "periodic-resource-domain-run"),
+            "--invocation-key",
+            "7" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "runtime"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "runtime.numeric_overflow"
+        ]
+        audit = json.loads(
+            _receipt_members(error["terminal_audit"])[
+                "runtime-terminal-audit"
+            ].read_text(encoding="utf-8")
+        )
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.tick-snapshot-periodic-v1"
+        )
+        assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
+        assert [event["operation"] for event in audit["committed_trace_prefix"]] == [
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.tick-snapshot-periodic-v1",
+        ]
+        assert audit["rollback"]["committed"] is False
+        assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
+        assert (
+            next(
+                row["value"]
+                for row in audit["rollback"]["state_after"]
+                if row["name"] == "target_health"
+            )
+            == 0
+        )
+
+    def test_periodic_effect_schedule_budget_refuses_and_discards_apply_buffers(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        build_receipt = _build_periodic_effect_example(
+            tmp_path,
+            invocation_key="8" * 64,
+            output_name="queue-boundary-model",
+        )
+        experiment = json.loads(
+            (_RPG_PERIODIC_EFFECT_EXAMPLE / "same-time-experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        apply = experiment["scenarios"][0]["event_plan"][0]
+        apply["entrypoint"] = "effect.apply-snapshot-periodic"
+        experiment["scenarios"][0]["event_plan"] = [apply] + [
+            {
+                "kind": "transition-invocation",
+                "root_event_ref": f"future-combat-{index:03d}",
+                "logical_time": 10,
+                "priority": 0,
+                "entrypoint": "combat.damage-target",
+                "payload": [],
+            }
+            for index in range(127)
+        ]
+        specification = tmp_path / "queue-boundary-experiment.json"
+        specification.write_text(json.dumps(experiment), encoding="utf-8")
+
+        result = _run(
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "queue-boundary-run"),
+            "--invocation-key",
+            "9" * 64,
+        )
+
+        assert (result.returncode, result.stderr) == (2, "")
+        error = json.loads(result.stdout)["error"]
+        assert error["stage"] == "runtime"
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "runtime.queue_limit_exceeded"
+        ]
+        audit = json.loads(
+            _receipt_members(error["terminal_audit"])[
+                "runtime-terminal-audit"
+            ].read_text(encoding="utf-8")
+        )
+        assert audit["committed_trace_prefix"] == []
+        assert audit["refusing_event"]["operation"] == (
+            "game.effect.apply-snapshot-periodic-v1"
+        )
+        assert audit["refusing_event"]["reason"] == "runtime.queue_limit_exceeded"
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+        assert (
+            next(
+                row["value"]
+                for row in audit["rollback"]["state_after"]
+                if row["name"] == "effect_instance_id"
+            )
+            == 0
+        )
+        assert all(
+            record["event_spec"]["kind"] != "scheduled-transition"
+            for record in audit["event_catalog_prefix"]
+        )
+        assert audit["budget_counters"]["queue_events"] == 127
 
     def test_formula_to_experiment_public_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))

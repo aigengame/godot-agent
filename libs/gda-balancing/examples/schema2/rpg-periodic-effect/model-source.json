@@ -1,0 +1,756 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "example.rpg-periodic-effect",
+    "version": "1.0.0",
+    "entry_module": "effect"
+  },
+  "package_requirements": [
+    {
+      "id": "core.quantity",
+      "version": "2.1.0"
+    },
+    {
+      "id": "game.combat",
+      "version": "2.1.0"
+    },
+    {
+      "id": "game.effect",
+      "version": "1.0.0"
+    }
+  ],
+  "modules": [
+    {
+      "id": "effect",
+      "imports": [
+        {
+          "alias": "quantity",
+          "package": "core.quantity",
+          "version": "2.1.0",
+          "symbol": "Quantity"
+        }
+      ],
+      "symbols": [
+        {
+          "symbol": "target_health",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "effect_active",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        },
+        {
+          "symbol": "effect_instance_id",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        },
+        {
+          "symbol": "magnitude_threshold",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "combat_base_damage",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 10
+          }
+        },
+        {
+          "symbol": "combat_mitigation",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        },
+        {
+          "symbol": "combat_damage",
+          "type": "quantity",
+          "role": "output",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "none"
+          }
+        },
+        {
+          "symbol": "combat_resource",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 100
+          }
+        },
+        {
+          "symbol": "combat_action_cost",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        },
+        {
+          "symbol": "combat_accuracy",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 1000
+          }
+        },
+        {
+          "symbol": "combat_critical_threshold",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        },
+        {
+          "symbol": "combat_hit_defense",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "model-fixed",
+            "value": 0
+          }
+        }
+      ],
+      "formulas": [
+        {
+          "id": "periodic-magnitude",
+          "parameters": [
+            {
+              "id": "current_value",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            },
+            {
+              "id": "threshold",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "numeric_policy": "exact-int64"
+          },
+          "body": {
+            "nodes": [
+              {
+                "id": "raw_magnitude",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.subtract"
+                },
+                "arguments": [
+                  {
+                    "port": "left",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "current_value"
+                    }
+                  },
+                  {
+                    "port": "right",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "threshold"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": -1000,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              },
+              {
+                "id": "magnitude",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.floor-zero"
+                },
+                "arguments": [
+                  {
+                    "port": "value",
+                    "operand": {
+                      "kind": "local",
+                      "local": "raw_magnitude"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              }
+            ],
+            "result": {
+              "kind": "local",
+              "local": "magnitude"
+            }
+          },
+          "expression": "let raw_magnitude = current_value - threshold;\nlet magnitude = floor_zero(raw_magnitude);\nmagnitude"
+        },
+        {
+          "id": "combat-damage",
+          "parameters": [
+            {
+              "id": "damage_before_defense",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            },
+            {
+              "id": "mitigation",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {
+                "minimum": 0,
+                "maximum": 1000
+              },
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "numeric_policy": "exact-int64"
+          },
+          "body": {
+            "nodes": [
+              {
+                "id": "raw_damage",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.subtract"
+                },
+                "arguments": [
+                  {
+                    "port": "left",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "damage_before_defense"
+                    }
+                  },
+                  {
+                    "port": "right",
+                    "operand": {
+                      "kind": "parameter",
+                      "parameter": "mitigation"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": -1000,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              },
+              {
+                "id": "damage",
+                "node": "operation-call",
+                "operation": {
+                  "package": "core.quantity",
+                  "version": "2.1.0",
+                  "id": "quantity.floor-zero"
+                },
+                "arguments": [
+                  {
+                    "port": "value",
+                    "operand": {
+                      "kind": "local",
+                      "local": "raw_damage"
+                    }
+                  }
+                ],
+                "result": {
+                  "type": "quantity",
+                  "representation": "Int",
+                  "kind": "scalar",
+                  "unit": "1",
+                  "domain_kind": "closed-interval",
+                  "domain": {
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "numeric_policy": "exact-int64"
+                }
+              }
+            ],
+            "result": {
+              "kind": "local",
+              "local": "damage"
+            }
+          },
+          "expression": "let raw_damage = damage_before_defense - mitigation;\nlet damage = floor_zero(raw_damage);\ndamage"
+        }
+      ]
+    }
+  ],
+  "formula_bindings": [
+    {
+      "site": {
+        "kind": "operation-slot",
+        "operation": {
+          "package": "game.effect",
+          "version": "1.0.0",
+          "id": "game.effect.apply-snapshot-periodic-v1"
+        },
+        "slot": "magnitude-policy"
+      },
+      "formula": {
+        "module": "effect",
+        "id": "periodic-magnitude"
+      },
+      "arguments": [
+        {
+          "parameter": "current_value",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "current_value"
+          }
+        },
+        {
+          "parameter": "threshold",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "threshold"
+          }
+        }
+      ]
+    },
+    {
+      "site": {
+        "kind": "operation-slot",
+        "operation": {
+          "package": "game.effect",
+          "version": "1.0.0",
+          "id": "game.effect.tick-live-periodic-v1"
+        },
+        "slot": "magnitude-policy"
+      },
+      "formula": {
+        "module": "effect",
+        "id": "periodic-magnitude"
+      },
+      "arguments": [
+        {
+          "parameter": "current_value",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "current_value"
+          }
+        },
+        {
+          "parameter": "threshold",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "threshold"
+          }
+        }
+      ]
+    },
+    {
+      "site": {
+        "kind": "operation-slot",
+        "operation": {
+          "package": "game.combat",
+          "version": "2.1.0",
+          "id": "game.combat.damage-v1"
+        },
+        "slot": "damage-policy"
+      },
+      "formula": {
+        "module": "effect",
+        "id": "combat-damage"
+      },
+      "arguments": [
+        {
+          "parameter": "damage_before_defense",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "damage_before_defense"
+          }
+        },
+        {
+          "parameter": "mitigation",
+          "operand": {
+            "kind": "slot-parameter",
+            "parameter": "mitigation"
+          }
+        }
+      ]
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "effect.apply-snapshot-periodic",
+      "operation": {
+        "package": "game.effect",
+        "version": "1.0.0",
+        "id": "game.effect.apply-snapshot-periodic-v1"
+      },
+      "arguments": [
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "target_health"
+          }
+        },
+      {
+        "port": "effect_active",
+        "operand": {
+          "kind": "symbol",
+          "module": "effect",
+          "symbol": "effect_active"
+        }
+      },
+      {
+        "port": "effect_instance_id",
+        "operand": {
+          "kind": "symbol",
+          "module": "effect",
+          "symbol": "effect_instance_id"
+        }
+      },
+        {
+          "port": "threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "magnitude_threshold"
+          }
+        }
+      ],
+      "result": {
+        "kind": "discard"
+      }
+    },
+    {
+      "id": "effect.apply-live-periodic",
+      "operation": {
+        "package": "game.effect",
+        "version": "1.0.0",
+        "id": "game.effect.apply-live-periodic-v1"
+      },
+      "arguments": [
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "target_health"
+          }
+        },
+        {
+          "port": "effect_active",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "effect_active"
+          }
+        },
+        {
+          "port": "effect_instance_id",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "effect_instance_id"
+          }
+        },
+        {
+          "port": "threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "magnitude_threshold"
+          }
+        }
+      ],
+      "result": {
+        "kind": "discard"
+      }
+    },
+    {
+      "id": "combat.damage-target",
+      "operation": {
+        "package": "game.combat",
+        "version": "2.1.0",
+        "id": "game.combat.cast-v1"
+      },
+      "arguments": [
+        {
+          "port": "actor_resource",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_resource"
+          }
+        },
+        {
+          "port": "action_cost",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_action_cost"
+          }
+        },
+        {
+          "port": "accuracy",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_accuracy"
+          }
+        },
+        {
+          "port": "base_damage",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_base_damage"
+          }
+        },
+        {
+          "port": "critical_threshold",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_critical_threshold"
+          }
+        },
+        {
+          "port": "hit_defense",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_hit_defense"
+          }
+        },
+        {
+          "port": "damage_mitigation",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "combat_mitigation"
+          }
+        },
+        {
+          "port": "target_health",
+          "operand": {
+            "kind": "symbol",
+            "module": "effect",
+            "symbol": "target_health"
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "effect",
+        "symbol": "combat_damage"
+      }
+    }
+  ]
+}

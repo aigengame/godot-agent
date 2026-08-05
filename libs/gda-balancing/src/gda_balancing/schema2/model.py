@@ -512,11 +512,52 @@ def _formula_contexts(language_bundle: dict[str, Any]) -> dict[str, dict[str, st
     return candidates[0]
 
 
+def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:
+    """Project Operation-valued instruction nodes from the admitted Kernel."""
+    return {
+        cast(str, node["id"])
+        for node in cast(
+            list[dict[str, Any]],
+            kernel["meta_format"]["runtime_program"]["nodes"],
+        )
+        if "operation" in cast(list[str], node["required_members"])
+    }
+
+
+def _closed_operation_coordinates(
+    selected: set[tuple[str, str, str]],
+    operations: dict[tuple[str, str, str], dict[str, Any]],
+    operation_node_ids: set[str],
+) -> set[tuple[str, str, str]]:
+    """Close one Operation graph through every Kernel-declared Operation member."""
+    pending = list(selected)
+    while pending:
+        operation = operations.get(pending.pop())
+        if operation is None:
+            continue
+        for instruction in cast(list[dict[str, Any]], operation.get("body", [])):
+            dependency_ref = instruction.get("operation")
+            if instruction.get("node") not in operation_node_ids or not isinstance(
+                dependency_ref, dict
+            ):
+                continue
+            dependency = (
+                cast(str, dependency_ref.get("package")),
+                cast(str, dependency_ref.get("version")),
+                cast(str, dependency_ref.get("id")),
+            )
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return selected
+
+
 def _selected_source_operation_coordinates(
     source: dict[str, Any],
     lock: dict[str, Any],
+    operation_node_ids: set[str],
 ) -> set[tuple[str, str, str]]:
-    """Close the exact Operation graph selected by authored entrypoints."""
+    """Close the exact Operation-valued graph from authored entrypoints."""
     package_versions = {
         cast(str, row["id"]): cast(str, row["version"])
         for row in cast(list[dict[str, Any]], lock["packages"])
@@ -542,25 +583,37 @@ def _selected_source_operation_coordinates(
         # Exact Operation-resolution diagnostics own precedence over Formula
         # reachability when an authored root coordinate cannot resolve.
         return set(operations)
-    pending = list(selected)
-    while pending:
-        coordinate = pending.pop()
-        operation = operations.get(coordinate)
-        if operation is None:
-            continue
-        for instruction in cast(list[dict[str, Any]], operation.get("body", [])):
-            invoked = instruction.get("operation")
-            if instruction.get("node") != "invoke" or not isinstance(invoked, dict):
-                continue
-            dependency = (
-                cast(str, invoked.get("package")),
-                cast(str, invoked.get("version")),
-                cast(str, invoked.get("id")),
-            )
-            if dependency not in selected:
-                selected.add(dependency)
-                pending.append(dependency)
-    return selected
+    return _closed_operation_coordinates(selected, operations, operation_node_ids)
+
+
+def _selected_resolved_operation_coordinates(
+    entrypoints: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+    operation_node_ids: set[str],
+) -> set[tuple[str, str, str]]:
+    """Close Operation-valued instructions from admitted entrypoints."""
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(list[dict[str, Any]], selected_semantics["packages"])
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, cast(dict[str, Any], row["definition"])["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(list[dict[str, Any]], selected_semantics["operations"])
+    }
+    selected = {
+        (
+            cast(str, operation["package"]),
+            cast(str, operation["version"]),
+            cast(str, operation["id"]),
+        )
+        for entrypoint in entrypoints
+        if isinstance((operation := entrypoint.get("operation")), dict)
+    }
+    return _closed_operation_coordinates(selected, operations, operation_node_ids)
 
 
 def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:
@@ -2761,6 +2814,7 @@ def _resolved_formula_programs_and_bindings_impl(
     selected_operation_coordinates = _selected_source_operation_coordinates(
         checked.source,
         lock,
+        _operation_reference_node_ids(checked.kernel),
     )
     for operation_row in cast(list[dict[str, Any]], lock["operations"]):
         package_id = cast(str, operation_row["package"])
@@ -6956,6 +7010,11 @@ def _formula_program_graph_is_admitted(
     selected_slots: dict[
         tuple[str, str, str, str], tuple[dict[str, Any], dict[str, Any], str]
     ] = {}
+    reachable_operations = _selected_resolved_operation_coordinates(
+        cast(list[dict[str, Any]], entrypoints),
+        cast(dict[str, Any], selected_semantics),
+        _operation_reference_node_ids(kernel),
+    )
     for operation_row in cast(list[dict[str, Any]], selected_semantics["operations"]):
         package_id = cast(str, operation_row["package"])
         definition = cast(dict[str, Any], operation_row["definition"])
@@ -6964,6 +7023,8 @@ def _formula_program_graph_is_admitted(
             selected_package_versions[package_id],
             cast(str, definition["id"]),
         )
+        if coordinate not in reachable_operations:
+            continue
         operation_identity = _formula_operation_identity(
             domains, coordinate[0], coordinate[1], coordinate[2]
         )

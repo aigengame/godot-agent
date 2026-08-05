@@ -24,6 +24,15 @@ therefore requires a small closed type language and a constrained package extens
 > Formula closure and require it to fit the Operation's declarations and bounds. Template defaults
 > are ordinary Formula declarations and bindings materialized in editable starter Model Source.
 
+> **Amendment (2026-08-04, #596):** `game.effect@1.0.0` demonstrates the package boundary with one
+> closed `game.effect.periodic` variant. The package release owns exact apply/live-apply,
+> snapshot-tick/live-tick and expiry Operations plus duration/period, tick/expiry schedule,
+> magnitude capture/read policy, Effect-instance allocation, contribution, outcomes/refusals,
+> Numeric behavior and resource bounds. Model Source supplies the exact pure Formula binding for
+> the declared magnitude slot; Runtime supplies only Kernel scheduling/transaction primitives.
+> Immunity, stacking, dispel, buildup, multiple contributors and same-Event request precedence are
+> absent rather than partially interpreted and require their later owning package decisions.
+
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,

@@ -412,6 +412,120 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 isinstance(member, str) for member in probe_members
             ):
                 raise ValueError("Kernel package-vector probe contract is incomplete")
+            if kind_id == "operation-relation":
+                operators = kind.get("operators")
+                declaration_extension = kind.get("declaration_extension")
+                declaration_members = kind.get("declaration_members")
+                integer_range_members = kind.get("integer_range_members")
+                policy_authority_path = kind.get("policy_authority_path")
+                policy_contract_members = kind.get("policy_contract_members")
+                policy_extension = kind.get("policy_extension")
+                policy_members = kind.get("policy_members")
+                schedule_projection_members = kind.get("schedule_projection_members")
+                if (
+                    set(required)
+                    != {"category", "id", "kind", "operation", "probe", "role"}
+                    or set(probe_members)
+                    != {"left_path", "operator", "right_path", "right_value"}
+                    or not isinstance(operators, list)
+                    or not operators
+                    or not all(isinstance(operator, str) for operator in operators)
+                    or not isinstance(declaration_extension, str)
+                    or not declaration_extension
+                    or declaration_members != ["id", "probe"]
+                    or integer_range_members != ["start_path", "stop_path", "step_path"]
+                    or policy_authority_path != "language.capabilities"
+                    or policy_contract_members != ["expect", "path"]
+                    or policy_extension != "standard.operation-relation-policy"
+                    or policy_members != ["contract", "operation", "relations"]
+                    or schedule_projection_members != ["logical_time", "operation"]
+                ):
+                    raise ValueError(
+                        "Kernel operation-relation vector contract is incomplete"
+                    )
+                range_members = cast(list[str], integer_range_members)
+                properties.pop("expect")
+                properties["role"] = _non_empty_string_schema()
+                member_path_schema: dict[str, object] = {
+                    "type": "array",
+                    "items": _non_empty_string_schema(),
+                    "minItems": 1,
+                }
+                properties["probe"] = {
+                    "type": "object",
+                    "properties": {
+                        "left_path": member_path_schema,
+                        "operator": {"enum": operators},
+                        "right_path": {},
+                        "right_value": {},
+                    },
+                    "required": probe_members,
+                    "oneOf": [
+                        {
+                            "properties": {
+                                "operator": {
+                                    "enum": [
+                                        operator
+                                        for operator in operators
+                                        if operator != "integer-range-equal"
+                                    ]
+                                },
+                                "right_path": member_path_schema,
+                                "right_value": {"type": "null"},
+                            }
+                        },
+                        {
+                            "properties": {
+                                "operator": {
+                                    "enum": [
+                                        operator
+                                        for operator in operators
+                                        if operator != "integer-range-equal"
+                                    ]
+                                },
+                                "right_path": {"type": "null"},
+                                "right_value": {
+                                    "type": [
+                                        "array",
+                                        "boolean",
+                                        "integer",
+                                        "object",
+                                        "string",
+                                    ]
+                                },
+                            }
+                        },
+                        {
+                            "properties": {
+                                "operator": {"const": "integer-range-equal"},
+                                "right_path": {"type": "null"},
+                                "right_value": {
+                                    "type": "object",
+                                    "properties": {
+                                        member: member_path_schema
+                                        for member in range_members
+                                    },
+                                    "required": range_members,
+                                    "unevaluatedProperties": False,
+                                },
+                            }
+                        },
+                    ],
+                    "unevaluatedProperties": False,
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
             properties["probe"] = {
                 "type": "object",
                 "properties": {

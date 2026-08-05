@@ -64,6 +64,41 @@ from gda_balancing.schema2.diagnostics import (
 from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
 
+_WHEEL_DISPATCH_BATCH = """
+import io
+import json
+import sys
+
+from gda_balancing.dispatch import dispatch
+
+results = []
+for command in json.load(sys.stdin):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    returncode = dispatch(command, stdout, stderr, stdin=io.StringIO())
+    results.append([returncode, stdout.getvalue(), stderr.getvalue()])
+json.dump(results, sys.stdout)
+"""
+
+
+def _run_wheel_dispatch_batch(
+    commands: list[list[str]], *, cwd: Path, environment: dict[str, str]
+) -> list[list[Any]]:
+    completed = subprocess.run(
+        [sys.executable, "-c", _WHEEL_DISPATCH_BATCH],
+        cwd=cwd,
+        env=environment,
+        input=json.dumps(commands),
+        capture_output=True,
+        text=True,
+    )
+    assert (completed.returncode, completed.stderr) == (
+        0,
+        "",
+    ), completed.stdout + completed.stderr
+    return cast(list[list[Any]], json.loads(completed.stdout))
+
+
 def _reidentify_graph(kernel, ldb):
     root = deepcopy(ldb.root)
     releases = deepcopy(ldb.package_releases)
@@ -741,6 +776,66 @@ def test_public_authority_schemas_reject_invalid_package_vector_children(run_cli
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    (
+        "empty-path",
+        "empty-role",
+        "unknown-operator",
+        "scalar-right-path",
+        "both-null",
+        "both-set",
+        "integer-range-missing-step",
+        "open",
+    ),
+)
+def test_public_schemas_close_operation_relation_vectors(run_cli, mutation):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    vector_set = deepcopy(
+        next(
+            row
+            for row in authority["package_conformance_vector_sets"]
+            if row["package_id"] == "game.effect"
+        )
+    )
+    vector = next(
+        row
+        for row in vector_set["vector_definitions"]
+        if row["kind"] == "operation-relation"
+    )
+    if mutation == "empty-path":
+        vector["probe"]["left_path"] = []
+    elif mutation == "empty-role":
+        vector["role"] = ""
+    elif mutation == "unknown-operator":
+        vector["probe"]["operator"] = "host-owned"
+    elif mutation == "scalar-right-path":
+        vector["probe"]["right_path"] = "extensions.periodic"
+    elif mutation == "both-null":
+        vector["probe"]["right_path"] = None
+        vector["probe"]["right_value"] = None
+    elif mutation == "both-set":
+        vector["probe"]["right_path"] = vector["probe"]["left_path"]
+        vector["probe"]["right_value"] = 0
+    elif mutation == "integer-range-missing-step":
+        vector = next(
+            row
+            for row in vector_set["vector_definitions"]
+            if row["kind"] == "operation-relation"
+            and row["probe"]["operator"] == "integer-range-equal"
+        )
+        del vector["probe"]["right_value"]["step_path"]
+    else:
+        vector["probe"]["host"] = "invented"
+    package_schema = cast(
+        dict[str, Any],
+        cast(list[dict[str, Any]], package_get_success_schema()["oneOf"])[1],
+    )
+
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(vector_set, package_schema)
+
+
+@pytest.mark.parametrize(
     ("vector_id", "mutation"),
     [
         ("model.compile.positive", "outcome-host"),
@@ -912,22 +1007,31 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     assert (installed_list.returncode, installed_list.stderr) == (0, "")
     assert installed_list.stdout == source_list[1]
 
-    for descriptor in source_root["package_descriptors"]:
-        for member in ("release", "conformance-vectors"):
-            arguments = (
-                "package",
-                "get",
-                "--id",
-                descriptor["id"],
-                "--version",
-                descriptor["version"],
-                "--member",
-                member,
-            )
-            source = run_cli(list(arguments))
-            from_wheel = installed(*arguments)
-            assert (from_wheel.returncode, from_wheel.stderr) == (0, "")
-            assert from_wheel.stdout == source[1]
+    get_commands = [
+        [
+            "package",
+            "get",
+            "--id",
+            descriptor["id"],
+            "--version",
+            descriptor["version"],
+            "--member",
+            member,
+        ]
+        for descriptor in source_root["package_descriptors"]
+        for member in ("release", "conformance-vectors")
+    ]
+    source_gets = [run_cli(command) for command in get_commands]
+    wheel_gets = _run_wheel_dispatch_batch(
+        get_commands,
+        cwd=tmp_path,
+        environment=environment,
+    )
+    for source, (returncode, stdout, stderr) in zip(
+        source_gets, wheel_gets, strict=True
+    ):
+        assert (returncode, stderr) == (0, "")
+        assert stdout == source[1]
 
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
@@ -1248,6 +1352,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     assert {item["id"] for item in contract["kinds"]} == {
         "package-contract",
         "operation-contract",
+        "operation-relation",
         "runtime-scenario",
         "scheduler-scenario",
         "value-program",
@@ -1615,6 +1720,12 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.step_limit_exceeded", "runtime"),
         ("runtime.numeric_overflow", "runtime"),
         ("runtime.schedule_backward", "runtime"),
+        ("runtime.schedule_hidden_input", "runtime"),
+        ("runtime.schedule_illegal_same_time_priority", "runtime"),
+        ("runtime.queue_limit_exceeded", "runtime"),
+        ("runtime.zero_time_depth_exceeded", "runtime"),
+        ("runtime.event_limit_exceeded", "runtime"),
+        ("runtime.logical_time_exceeded", "runtime"),
         ("runtime.cancel_active", "runtime"),
         ("runtime.cancel_completed", "runtime"),
         ("runtime.cancel_unknown", "runtime"),
