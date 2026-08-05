@@ -21,7 +21,7 @@ import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.schema2.experiment as experiment_module
+import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest

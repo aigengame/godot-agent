@@ -6,7 +6,7 @@ modules import :mod:`gda_balancing.descriptors`; only this package assembles
 the tuple.
 """
 
-from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
+from gda_balancing.commands.experiment import EXPERIMENT_RUN
 from gda_balancing.commands.model import (
     MODEL_MIGRATE,
 )
@@ -23,6 +23,7 @@ from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_inspect import MODEL_INSPECT
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
+from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
 from gda_balancing.interfaces.cli.schema import SCHEMA_GET
 from gda_balancing.interfaces.cli.version import VERSION
 

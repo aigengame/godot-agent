@@ -11,6 +11,14 @@ class InputTooLargeError(ValueError):
     """The requested input exceeded its explicit byte bound."""
 
 
+def read_input(path: str) -> bytes:
+    """Read all bytes from one filesystem path."""
+    try:
+        return Path(path).read_bytes()
+    except OSError as err:
+        raise InputReadError from err
+
+
 def read_bounded_input(path: str, max_bytes: int) -> bytes:
     """Read at most one byte beyond a caller-owned size limit."""
     try:

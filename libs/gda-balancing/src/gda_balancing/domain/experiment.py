@@ -39,6 +39,7 @@ from gda_balancing.domain.artifacts import (
     wire_schema_identity,
 )
 from gda_balancing.domain.publication import PublicationMember
+from gda_balancing.infrastructure.input_bytes import read_input
 from gda_balancing.schema2.model import (
     admit_resolved_model,
 )
@@ -64,6 +65,15 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "state-integer-subtract",
         "state-write",
     }
+)
+
+EXPERIMENT_CHECK_REFUSAL_REASONS = (
+    "model.reason.source-too-large",
+    "model.reason.source-parse-failure",
+    "model.reason.source-contract-mismatch",
+    "quantity.reason.invalid-domain",
+    "model.reason.resolved-authority-mismatch",
+    "model.reason.resolution-binding-mismatch",
 )
 
 
@@ -2119,12 +2129,7 @@ def check_experiment(
     authority_context: AdmittedAuthorityContext | None = None,
 ) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
-    try:
-        data = Path(path).read_bytes()
-    except OSError as err:
-        from gda_balancing.envelope import UnreadableInputError
-
-        raise UnreadableInputError(f"cannot read input document: {path}") from err
+    data = read_input(path)
 
     context = authority_context or packaged_authority_context()
     kernel = context.kernel

@@ -12,9 +12,10 @@ import pytest
 import jsonschema
 
 import gda_balancing.commands.experiment as experiment_command_module
+import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.schema2.experiment as experiment_runtime_module
+import gda_balancing.domain.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation
@@ -52,7 +53,7 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
 
 def test_experiment_conformance_uses_only_prepared_public_documents():
     for descriptor in (
-        experiment_command_module.EXPERIMENT_CHECK,
+        experiment_check_command_module.EXPERIMENT_CHECK,
         experiment_command_module.EXPERIMENT_RUN,
     ):
         assert descriptor.fixtures.valid_document is None
