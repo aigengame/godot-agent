@@ -22,6 +22,7 @@ import pytest
 
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.schema2.authorities as authority_resources
 import gda_balancing.interfaces.cli.schema as schema_command_module
 from gda_balancing.interfaces.cli.registry import MANIFEST
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
@@ -58,6 +59,9 @@ from gda_balancing.domain.diagnostics import (
     bound_diagnostics,
 )
 from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
+
+
+_AUTHORITY_DIR = Path(cast(str, authority_resources.__file__)).parent
 
 
 _WHEEL_DISPATCH_BATCH = """
@@ -283,7 +287,7 @@ def test_rebuild_tool_projects_kernel_package_coordinate_patterns(tmp_path):
     tool = runpy.run_path(
         str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
     )
-    source = Path(authority_module.__file__).parent / "authorities"
+    source = _AUTHORITY_DIR
     candidate = tmp_path / "authorities"
     copytree(source, candidate)
     root_path = candidate / "language-bundle.json"
@@ -299,7 +303,7 @@ def test_rebuild_tool_reproduces_every_committed_authority_byte():
     tool = runpy.run_path(
         str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
     )
-    source = Path(authority_module.__file__).parent / "authorities"
+    source = _AUTHORITY_DIR
     root_bytes, package_bytes = tool["_build"](source)
     expected = {
         source / "language-bundle.json": root_bytes,
@@ -414,7 +418,7 @@ def test_authority_decode_failure_is_a_typed_ingress_refusal(run_cli):
 
 
 def _authority_resource_bytes() -> dict[str, bytes]:
-    root = Path(authority_module.__file__).parent / "authorities"
+    root = _AUTHORITY_DIR
     return {
         str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*.json")
     }
