@@ -15,14 +15,13 @@ Preserve the stated product vision as a falsifiable requirement. If evidence con
 the architecture or requirement explicitly; never make the work “pass” by silently narrowing the
 promise.
 
-Use this skill to check that the architecture meets its requirements, important design decisions
-have enough support, and the necessary checks are clear. Do this before comparing the approach with
-simpler options.
+Use this skill to establish that the architecture meets its requirements, important design
+decisions have enough support, and the necessary checks are clear. Establish these before judging
+whether the architecture's complexity is proportionate to the current goal.
 
-Treat the work needed to design and validate the architecture as a cost. Add research, prototypes,
-tests, or documentation only when they are justified by the importance of the design decision and a
-concrete risk or unanswered question shown by what is known so far. Otherwise simplify or postpone
-that part of the design instead of weakening how it is checked.
+Scale validation work to the importance of the design decision and a concrete risk or open
+question. If more validation is not justified, simplify or postpone that part of the design instead
+of weakening its checks. Follow the selected mode's limits in [REFERENCE.md](REFERENCE.md).
 
 ## Quick start
 
