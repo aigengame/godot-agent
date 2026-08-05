@@ -41,7 +41,7 @@ eliminate a minor inconsistency, or satisfy an abstract idea of completeness.
 
 Before handling feedback, confirm:
 
-- The PR's exact current head, base, and actual diff.
+- The PR's exact current head, current base tip, merge base, and merge-base-to-head diff.
 - The issue, acceptance criteria, design decisions, and project rules.
 - Current observable behavior and tests that already pass.
 - The baseline, target, and measurements for performance changes.
@@ -57,7 +57,7 @@ For every review comment, identify:
 1. **Problem claim**: What does the reviewer say is wrong?
 2. **Evidence**: Which code, test, specification, measurement, or project rule supports the claim?
 3. **Impact**: What observable consequence occurs if it remains unchanged?
-4. **Suggested solution**: What change does the reviewer propose?
+4. **Suggested solution, if any**: What change does the reviewer propose?
 5. **Uncertainty**: Which parts remain assumptions or require verification?
 
 A comment can identify a real problem while proposing an excessive or incorrect solution.
@@ -110,7 +110,8 @@ Fully adopt when all of the following are true:
 
 - Current evidence confirms the problem.
 - The problem should be addressed in this PR.
-- The suggested solution is direct, sufficient, and free of material excess complexity.
+- When the reviewer suggests a solution, it is direct, sufficient, and free of material excess
+  complexity.
 - The change does not break a higher-priority constraint or an existing result.
 
 State the supporting evidence, the change location, and the validation method.
@@ -145,8 +146,9 @@ Do not adopt silently. Provide the evidence, explain what remains unchanged, and
 residual risk.
 
 After making the decisions, confirm the authorized next action. Stop after evaluation when the
-request is read-only. Run steps 6–8 only when changes are authorized. Step 9 produces a draft by
-default; post replies or resolve threads only with explicit authorization.
+request is read-only. Run steps 6–8 only when changes are authorized. Run step 9 only when the user
+requests a reply draft or authorizes an external response; post replies or resolve threads only with
+explicit authorization.
 
 ### 6. Order the Accepted Changes
 
@@ -210,11 +212,12 @@ valuable change can be closed with evidence; it does not need a commit.
 
 Provide:
 
-1. **Review baseline**: Exact head, requirements, constraints, and verified facts.
+1. **Review baseline**: Exact head, current base tip, merge base, merge-base-to-head diff,
+   requirements, constraints, and verified facts.
 2. **Decision for each claim**: Fully Adopt, Partially Adopt, or Do Not Adopt, with evidence.
 3. **Change plan**: Only the minimum sufficient changes for adopted feedback.
 4. **Validation**: Tests, CI, performance comparisons, and unverified items.
-5. **Reviewer reply draft**: A concise response ready to send.
+5. **Reviewer reply draft, when requested**: A concise response ready to send.
 
 Report only findings that can change a decision or implementation approach. If no feedback warrants
 a change, say so and stop; do not manufacture modifications.
