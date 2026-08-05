@@ -18,12 +18,14 @@ from gda_balancing.domain.experiment import (
     check_experiment,
     experiment_input_identity,
 )
-from gda_balancing.domain.runtime.execution import (
-    RuntimeRefusalOutcome,
-    evaluate_experiment,
+from gda_balancing.domain.evidence import (
     runtime_terminal_audit_members,
     validate_experiment_artifact_set,
     validate_experiment_member,
+)
+from gda_balancing.domain.runtime.execution import (
+    RuntimeRefusalOutcome,
+    evaluate_experiment,
 )
 from gda_balancing.domain.publication import (
     publication_authentication_key,
