@@ -31,14 +31,16 @@ from gda_balancing.schema2.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.domain.publication import PublicationMember
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.artifacts import (
     PublishedArtifactIntegrityError,
-    admit_resolved_model,
     find_published_artifact,
     identified_artifact,
     verify_artifact,
     wire_schema_identity,
+)
+from gda_balancing.domain.publication import PublicationMember
+from gda_balancing.schema2.model import (
+    admit_resolved_model,
 )
 from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
 

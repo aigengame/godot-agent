@@ -18,6 +18,7 @@ import gda_balancing.commands.model as model_command_module
 import gda_balancing.domain.model.compilation as model_compilation_module
 import gda_balancing.domain.model.checking as model_checking_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
+import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_module
@@ -752,7 +753,7 @@ def test_model_inspect_preserves_invalid_anchor_configuration_as_usage(
             "hexadecimal digits"
         ),
     }
-    assert "invalid_argument" in model_command_module.MODEL_INSPECT.usage_codes
+    assert "invalid_argument" in model_inspect_command_module.MODEL_INSPECT.usage_codes
 
 
 def test_model_inspect_refuses_a_coherently_relocated_publication(tmp_path, run_cli):

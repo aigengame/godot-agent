@@ -34,14 +34,16 @@ from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_artifact_set,
 )
+from gda_balancing.domain.artifacts import (
+    identified_artifact,
+    verify_artifact,
+)
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
     CheckedModel,
     check_model_source_value,
     checked_model_template_facts,
-    identified_artifact,
     model_source_identity_domain,
-    verify_artifact,
 )
 from gda_balancing.schema2.surface import descriptor_identity
 from gda_balancing.schema2.template_contract import (

@@ -18,6 +18,8 @@ import jsonschema
 from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifacts import PublishedArtifactIntegrityError
+from gda_balancing.domain.model.inspection import ModelInspectAdmissionError
 from gda_balancing.domain.publication import PublicationMember, RecoveredArtifactSet
 from gda_balancing.infrastructure.atomic_files import (
     exclusive_file_lock as _invocation_lock,
@@ -70,20 +72,6 @@ _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
 _STORE_DIRECTORY_ENV = "GDA_BALANCING_STORE_DIR"
 _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
-
-
-class PublishedArtifactIntegrityError(RuntimeError):
-    """An authenticated publication named the target but failed verification."""
-
-
-class ModelInspectAdmissionError(ValueError):
-    """A caller-supplied build receipt or its committed set failed admission."""
-
-    def __init__(self, code: str, subject: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.subject = subject
-        self.message = message
 
 
 MODEL_INSPECT_REFUSAL_CATALOG = tuple(
