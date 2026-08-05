@@ -16,7 +16,7 @@ from gda_balancing.descriptors import (
     RefusalDetailSpec,
     RefusalVariantSpec,
 )
-from gda_balancing.commands.model import (
+from gda_balancing.interfaces.cli.model_build import (
     ModelBuildInput,
     ModelBuildResult,
     run_model_build,

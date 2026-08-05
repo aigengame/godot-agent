@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.domain.model.compilation as model_compilation_module
 import gda_balancing.domain.model.checking as model_checking_module
+import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_module
@@ -2733,14 +2735,14 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
 
 
 def test_model_build_descriptor_declares_exactly_one_primary_artifact():
-    members = model_command_module.MODEL_BUILD.artifact_set
+    members = model_build_command_module.MODEL_BUILD.artifact_set
     assert [member.logical_name for member in members if member.role == "primary"] == [
         "resolved-model"
     ]
 
     without_primary = tuple(replace(member, role="companion") for member in members)
     with pytest.raises(ValueError, match="exactly one primary"):
-        replace(model_command_module.MODEL_BUILD, artifact_set=without_primary)
+        replace(model_build_command_module.MODEL_BUILD, artifact_set=without_primary)
 
     multiple_primary = tuple(
         replace(
@@ -2754,7 +2756,7 @@ def test_model_build_descriptor_declares_exactly_one_primary_artifact():
         for member in members
     )
     with pytest.raises(ValueError, match="exactly one primary"):
-        replace(model_command_module.MODEL_BUILD, artifact_set=multiple_primary)
+        replace(model_build_command_module.MODEL_BUILD, artifact_set=multiple_primary)
 
 
 def test_model_publisher_materializes_the_descriptor_declared_primary_member(
@@ -2770,7 +2772,7 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
             member,
             role=("primary" if member.logical_name == "package-lock" else "companion"),
         )
-        for member in model_command_module.MODEL_BUILD.artifact_set
+        for member in model_build_command_module.MODEL_BUILD.artifact_set
     )
     out = tmp_path / "primary.json"
 
@@ -2845,7 +2847,11 @@ def test_model_build_retry_recovers_without_running_the_lowerer(
     def lowerer_must_not_run(_checked):
         raise AssertionError("retry executed the lowerer")
 
-    monkeypatch.setattr(model_module, "lower_checked_model", lowerer_must_not_run)
+    monkeypatch.setattr(
+        model_compilation_module,
+        "lower_checked_model",
+        lowerer_must_not_run,
+    )
     second = run_cli(argv)
 
     assert second == first
@@ -2875,7 +2881,11 @@ def test_model_build_retry_can_select_a_new_presentation_without_reexecution(
     def lowerer_must_not_run(_checked):
         raise AssertionError("retry executed the lowerer")
 
-    monkeypatch.setattr(model_module, "lower_checked_model", lowerer_must_not_run)
+    monkeypatch.setattr(
+        model_compilation_module,
+        "lower_checked_model",
+        lowerer_must_not_run,
+    )
     second = run_cli(
         [
             "model",
@@ -3139,8 +3149,8 @@ def test_model_publisher_rejects_a_known_source_alias_after_the_source_disappear
             str(source),
             str(source),
             "e" * 64,
-            descriptor_identity(model_command_module.MODEL_BUILD),
-            model_command_module.MODEL_BUILD.artifact_set,
+            descriptor_identity(model_build_command_module.MODEL_BUILD),
+            model_build_command_module.MODEL_BUILD.artifact_set,
         )
 
     assert caught.value.code == "argument_conflict"
@@ -3183,9 +3193,9 @@ def test_model_build_rejects_every_output_overlap_with_the_reserved_invocation_p
     store = tmp_path / "store"
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
     key = "f" * 64
-    descriptor_key = descriptor_identity(model_command_module.MODEL_BUILD).removeprefix(
-        "sha256:"
-    )
+    descriptor_key = descriptor_identity(
+        model_build_command_module.MODEL_BUILD
+    ).removeprefix("sha256:")
     invocation_path = store / "invocations" / descriptor_key / key
     invocation_path.parent.mkdir(parents=True)
 
@@ -3220,8 +3230,8 @@ def test_model_build_precommit_fault_leaves_no_visible_or_partial_set(
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     out = tmp_path / "published-model"
     descriptor = replace(
-        model_command_module.MODEL_BUILD,
-        handler=model_command_module.model_build_handler(
+        model_build_command_module.MODEL_BUILD,
+        handler=model_build_command_module.model_build_handler(
             publication_fault="after-member-write"
         ),
     )
@@ -3341,8 +3351,8 @@ def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
         "0" * 64,
     ]
     faulting = replace(
-        model_command_module.MODEL_BUILD,
-        handler=model_command_module.model_build_handler(
+        model_build_command_module.MODEL_BUILD,
+        handler=model_build_command_module.model_build_handler(
             publication_fault="after-commit"
         ),
     )
@@ -3356,7 +3366,7 @@ def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
     assert not out.exists()
 
     recovered_exit, recovered_stdout, recovered_stderr = run_cli(
-        argv, registry=(model_command_module.MODEL_BUILD,)
+        argv, registry=(model_build_command_module.MODEL_BUILD,)
     )
     assert (recovered_exit, recovered_stderr) == (0, "")
     assert json.loads(recovered_stdout)["invocation_key"] == "0" * 64
@@ -3378,8 +3388,8 @@ def test_model_build_before_anchor_commit_fault_has_no_visible_anchor_and_recove
         "8" * 64,
     ]
     faulting = replace(
-        model_command_module.MODEL_BUILD,
-        handler=model_command_module.model_build_handler(
+        model_build_command_module.MODEL_BUILD,
+        handler=model_build_command_module.model_build_handler(
             publication_fault="before-anchor-commit"
         ),
     )
@@ -3494,7 +3504,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
 
     monkeypatch.setattr(model_module, "_write_anchor_exclusive", pause_first_anchor)
     key = "6" * 64
-    descriptor = descriptor_identity(model_command_module.MODEL_BUILD)
+    descriptor = descriptor_identity(model_build_command_module.MODEL_BUILD)
 
     def publish(out: Path, *, announce: bool = False):
         if announce:
@@ -3505,7 +3515,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
             str(out),
             key,
             descriptor,
-            model_command_module.MODEL_BUILD.artifact_set,
+            model_build_command_module.MODEL_BUILD.artifact_set,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:

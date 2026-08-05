@@ -19,6 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.envelope import USAGE_CODES, RefusalReport
 from gda_balancing.schema2.bootstrap import SCHEMA2_REFUSAL_STAGES
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
@@ -94,21 +95,6 @@ class ConformanceFixtures:
         return (
             self.valid_document is not None or self.prepare_valid_document is not None
         )
-
-
-@dataclass(frozen=True)
-class ArtifactSetMemberSpec:
-    """One descriptor-owned logical member of a Schema 2.x artifact set."""
-
-    logical_name: str
-    artifact_kind: str
-    role: str = "companion"
-
-    def __post_init__(self) -> None:
-        if not self.logical_name or not self.artifact_kind:
-            raise ValueError("artifact-set member names and kinds must be non-empty")
-        if self.role not in {"primary", "companion"}:
-            raise ValueError("artifact-set member role must be primary or companion")
 
 
 @dataclass(frozen=True)

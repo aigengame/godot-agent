@@ -19,7 +19,7 @@ import jsonschema
 
 from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
-from gda_balancing.descriptors import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     admit_authority_context,
@@ -9439,6 +9439,7 @@ def publish_model_artifacts(
     publication_fault: str | None = None,
     *,
     authentication_key: bytes | None = None,
+    compiler: (Callable[[CheckedModel], dict[str, dict[str, JsonValue]]] | None) = None,
 ) -> dict[str, JsonValue]:
     """Serialize one invocation key before inspecting or changing its publication."""
     if authentication_key is None:
@@ -9462,6 +9463,7 @@ def publish_model_artifacts(
             artifact_set,
             authentication_key,
             publication_fault,
+            compiler,
         )
 
 
@@ -9473,6 +9475,7 @@ def _publish_model_artifacts_locked(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     authentication_key: bytes,
     publication_fault: str | None = None,
+    compiler: Callable[[CheckedModel], dict[str, dict[str, JsonValue]]] | None = None,
 ) -> dict[str, JsonValue]:
     """Atomically publish one complete build set while its invocation lock is held."""
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
@@ -9512,7 +9515,7 @@ def _publish_model_artifacts_locked(
     if out_path.exists():
         raise UsageError("unwritable_output", f"output already exists: {out_path}")
 
-    artifacts = lower_checked_model(checked)
+    artifacts = (compiler or lower_checked_model)(checked)
     semantic_admission = admit_resolved_model(
         {
             name: cast(dict[str, Any], artifacts[name])
