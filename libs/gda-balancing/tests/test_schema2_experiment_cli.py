@@ -11,11 +11,12 @@ from typing import Any, cast
 import pytest
 import jsonschema
 
-import gda_balancing.commands.experiment as experiment_command_module
+import gda_balancing.application.experiment_run as experiment_run_application_module
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.evidence as experiment_evidence_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
+import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.model as model_module
@@ -3238,7 +3239,7 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     # public handler seam, then drive the real dispatch, refusal envelope,
     # rollback audit, and publication path end to end.
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "check_experiment",
         lambda _path: replace(checked, rir=rir),
     )
@@ -7241,7 +7242,7 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
             raise AssertionError("Invocation-key recovery reran the periodic evaluator")
 
         monkeypatch.setattr(
-            experiment_command_module,
+            experiment_run_application_module,
             "evaluate_experiment",
             evaluator_must_not_run,
         )
@@ -7700,7 +7701,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         raise AssertionError("Invocation-key recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -7764,7 +7765,7 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
     assert not out.exists()
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "validate_experiment_artifact_set",
         lambda _checked, _artifacts: False,
     )
@@ -7773,7 +7774,7 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
         raise AssertionError("semantically invalid recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -7831,7 +7832,7 @@ def test_committed_recovery_revalidates_the_presentation_trust_boundary(
         raise AssertionError("invalid recovery presentation reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
