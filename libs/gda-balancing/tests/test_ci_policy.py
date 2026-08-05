@@ -31,7 +31,7 @@ _CONFTEST_SPEC.loader.exec_module(suite_conftest)
 def test_balancing_paths_and_shared_release_surfaces_are_affecting():
     assert ci.balancing_required(
         [
-            "libs/gda-balancing/src/gda_balancing/schema2/authority.py",
+            "libs/gda-balancing/src/gda_balancing/domain/authority/context.py",
             "libs/gda-balancing/uv.lock",
             ".github/actions/setup-python-env/action.yml",
             ".github/workflows/release.yml",

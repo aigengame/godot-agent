@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 
 
 def supported_schema_line(context: AdmittedAuthorityContext) -> str:

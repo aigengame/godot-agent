@@ -11,8 +11,8 @@ from gda_balancing.domain.template import (
     TemplateProvider,
     prepare_template_instantiation,
 )
-from gda_balancing.schema2.authority import AuthorityContextProvider
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.authority.context import AuthorityContextProvider
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 def instantiate_template(

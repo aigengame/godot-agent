@@ -22,8 +22,8 @@ from pydantic import BaseModel, ConfigDict
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.interfaces.cli.envelope import USAGE_CODES
 from gda_balancing.schema.refusal import RefusalReport
-from gda_balancing.schema2.bootstrap import SCHEMA2_REFUSAL_STAGES
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.authority.admission import SCHEMA2_REFUSAL_STAGES
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 # Reserved by bADR-0007 for Phase 2; the conformance harness asserts no
 # registered command occupies them, and dispatch resolves them as unknown.

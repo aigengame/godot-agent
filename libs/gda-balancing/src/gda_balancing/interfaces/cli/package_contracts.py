@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from gda_balancing.schema2.authority import packaged_authority_context
+from gda_balancing.domain.authority.context import packaged_authority_context
 
 
 def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:

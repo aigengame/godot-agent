@@ -7,8 +7,8 @@ from typing import Any, cast
 
 import pytest
 
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
 import schema2_bootstrap_conformance_support as consumer_support
 from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.model_check import (
@@ -16,7 +16,7 @@ from gda_balancing.interfaces.cli.model_check import (
     ModelCheckResult,
     run_model_check,
 )
-from gda_balancing.schema2.authority_graph import LanguageBundleIndex
+from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
 
 _PACKAGE_ROOT = Path(__file__).parents[1]
@@ -392,8 +392,8 @@ def test_authority_lifecycle_module_is_the_only_packaged_production_owner():
     for path in sorted(_SOURCE_ROOT.rglob("*.py")):
         relative = path.relative_to(_SOURCE_ROOT)
         if relative.as_posix() in {
-            "schema2/authority.py",
-            "schema2/bootstrap.py",
+            "domain/authority/admission.py",
+            "domain/authority/context.py",
         }:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -422,15 +422,15 @@ def test_consumer_b_functions_do_not_call_production_admission_or_cache():
 
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and node.module in {
-            "gda_balancing.schema2.authority",
-            "gda_balancing.schema2.bootstrap",
+            "gda_balancing.domain.authority.context",
+            "gda_balancing.domain.authority.admission",
         }:
             violations.append(f"module:{node.lineno}:{node.module}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in {
-                    "gda_balancing.schema2.authority",
-                    "gda_balancing.schema2.bootstrap",
+                    "gda_balancing.domain.authority.context",
+                    "gda_balancing.domain.authority.admission",
                 }:
                     violations.append(f"module:{node.lineno}:{alias.name}")
 

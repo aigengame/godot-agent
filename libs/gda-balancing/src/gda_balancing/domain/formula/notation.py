@@ -9,8 +9,8 @@ from typing import Any, cast
 
 import jsonschema
 
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches,

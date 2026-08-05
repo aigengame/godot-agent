@@ -16,13 +16,13 @@ import gda_balancing.domain.migration as migration_module
 from gda_balancing.interfaces.cli.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.migration import MAX_SOURCE_OBSERVATION_BYTES
-from gda_balancing.schema2.model import verify_artifact
+from gda_balancing.domain.model.semantics import verify_artifact
 
 
 def _member(receipt: dict, logical_name: str) -> dict:

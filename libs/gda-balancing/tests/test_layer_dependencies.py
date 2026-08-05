@@ -10,6 +10,19 @@ import sys
 _SOURCE_ROOT = Path(__file__).parents[1] / "src" / "gda_balancing"
 _LAYERS = ("infrastructure", "domain", "application", "interfaces")
 _LAYER_RANK = {layer: rank for rank, layer in enumerate(_LAYERS)}
+_OBSOLETE_DOMAIN_MODULES = (
+    "artifact_semantics.py",
+    "authority.py",
+    "authority_graph.py",
+    "bootstrap.py",
+    "canonical.py",
+    "diagnostics.py",
+    "model.py",
+    "package_semantics.py",
+    "projections.py",
+    "template_contract.py",
+    "wire_schema.py",
+)
 _OBSOLETE_UI_MODULES = (
     "cli.py",
     "commands/__init__.py",
@@ -77,12 +90,17 @@ def test_import_resolution_includes_imported_package_members(tmp_path: Path) -> 
     ) == {"gda_balancing.application.package_list"}
 
 
-def _migrated_modules() -> dict[str, Path]:
+def _architectural_modules() -> dict[str, Path]:
     return {
         _module_name(path): path
         for layer in _LAYERS
         for path in (_SOURCE_ROOT / layer).rglob("*.py")
     }
+
+
+def _layer(module: str) -> str | None:
+    namespace = module.split(".")[1]
+    return namespace if namespace in _LAYER_RANK else None
 
 
 def _production_modules() -> set[str]:
@@ -104,14 +122,15 @@ def test_each_layer_contains_a_production_module() -> None:
 def test_migrated_layers_do_not_import_upward() -> None:
     known_modules = _production_modules()
     violations: list[str] = []
-    for module, path in _migrated_modules().items():
-        source_layer = module.split(".")[1]
+    for module, path in _architectural_modules().items():
+        source_layer = _layer(module)
+        assert source_layer is not None
         for imported in _resolved_imports(module, path, known_modules):
             parts = imported.split(".")
             if len(parts) < 2 or parts[0] != "gda_balancing":
                 continue
-            target_layer = parts[1]
-            if target_layer in _LAYER_RANK and (
+            target_layer = _layer(imported)
+            if target_layer is not None and (
                 _LAYER_RANK[target_layer] > _LAYER_RANK[source_layer]
             ):
                 violations.append(f"{module} imports upward from {imported}")
@@ -125,8 +144,16 @@ def test_obsolete_top_level_ui_modules_are_removed() -> None:
     ] == []
 
 
-def test_migrated_modules_are_acyclic() -> None:
-    modules = _migrated_modules()
+def test_active_schema2_domain_has_no_top_level_python_modules() -> None:
+    schema2_root = _SOURCE_ROOT / "schema2"
+
+    assert [
+        name for name in _OBSOLETE_DOMAIN_MODULES if (schema2_root / name).is_file()
+    ] == []
+
+
+def test_architectural_modules_are_acyclic() -> None:
+    modules = _architectural_modules()
     edges = {
         module: {
             imported

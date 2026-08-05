@@ -10,28 +10,26 @@ from typing import Any, cast
 
 import jsonschema
 
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
-from gda_balancing.schema2.canonical import (
+from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
     content_identity,
     parse_canonical_object,
 )
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     DiagnosticLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.domain.artifacts import (
-    PublishedArtifactIntegrityError,
-    find_published_artifact,
-)
+from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
+from gda_balancing.domain.artifacts import find_published_artifact
 from gda_balancing.infrastructure.input_bytes import read_input
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.model.semantics import (
     admit_resolved_model,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler

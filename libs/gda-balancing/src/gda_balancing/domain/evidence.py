@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, cast
-from gda_balancing.schema2.canonical import (
+from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
     content_identity,

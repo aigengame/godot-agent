@@ -16,8 +16,8 @@ from gda_balancing.infrastructure.input_bytes import (
     InputTooLargeError,
     read_bounded_input,
 )
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 FormulaAuthorityProvider = Callable[[], AdmittedAuthorityContext]

@@ -18,9 +18,9 @@ from gda_balancing.interfaces.cli.model_build import (
     run_model_build,
 )
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import MODEL_INSPECT_REFUSAL_CATALOG
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import MODEL_INSPECT_REFUSAL_CATALOG
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 

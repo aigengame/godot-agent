@@ -11,8 +11,8 @@ from gda_balancing.domain.experiment import EXPERIMENT_CHECK_REFUSAL_REASONS
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
 from gda_balancing.interfaces.cli.experiment_fixtures import prepare_valid_experiment
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import refusal_catalog_for_reasons
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import refusal_catalog_for_reasons
 
 
 class ExperimentCheckInput(BaseModel):

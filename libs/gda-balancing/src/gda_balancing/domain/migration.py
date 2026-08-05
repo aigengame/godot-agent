@@ -12,8 +12,8 @@ from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.model.formula import DirectBase
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
@@ -165,7 +165,7 @@ def converter_specification(
     language_bundle: dict[str, Any],
 ) -> dict[str, JsonValue]:
     """Build the LDB-validated, independently rehashable converter artifact."""
-    from gda_balancing.schema2.model import identified_artifact
+    from gda_balancing.domain.model.semantics import identified_artifact
 
     return identified_artifact(
         language_bundle,

@@ -6,7 +6,7 @@ from gda_balancing.domain.model.checking import (
     check_source,
     verify_resolved_model_admission,
 )
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 @dataclass(frozen=True)

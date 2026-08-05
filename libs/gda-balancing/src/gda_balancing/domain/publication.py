@@ -3,38 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.domain.publication_types import (
+    PublicationMember,
+    RecoveredArtifactSet,
+)
+from gda_balancing.domain.canonical import JsonValue
 
 if TYPE_CHECKING:
-    from gda_balancing.schema2.model import CheckedModel
-
-
-@dataclass(frozen=True)
-class PublicationMember:
-    """One pre-admitted value and its published artifact metadata."""
-
-    value: dict[str, Any]
-    artifact_kind: str
-    wire_schema_identity: str
-    content_identity: str
-
-
-@dataclass(frozen=True)
-class RecoveredArtifactSet:
-    """One authenticated committed outcome recovered without recomputation."""
-
-    receipt: dict[str, JsonValue]
-    artifact_set: tuple[ArtifactSetMemberSpec, ...]
-    artifacts: dict[str, dict[str, Any]]
+    from gda_balancing.domain.model.semantics import CheckedModel
 
 
 def publication_authentication_key() -> bytes:
     """Load the configured key for authenticating publication anchors."""
-    from gda_balancing.schema2.model import publication_authentication_key as load
+    from gda_balancing.domain.model.semantics import (
+        publication_authentication_key as load,
+    )
 
     return load()
 
@@ -54,7 +40,7 @@ def publish_artifact_set(
     authentication_key: bytes | None = None,
 ) -> dict[str, JsonValue]:
     """Publish one pre-admitted heterogeneous artifact set atomically."""
-    from gda_balancing.schema2.model import publish_artifact_set as publish
+    from gda_balancing.domain.model.semantics import publish_artifact_set as publish
 
     return publish(
         artifacts,
@@ -84,7 +70,9 @@ def recover_committed_artifact_set(
     authentication_key: bytes | None = None,
 ) -> RecoveredArtifactSet | None:
     """Recover and re-admit one committed artifact-set outcome."""
-    from gda_balancing.schema2.model import recover_committed_artifact_set as recover
+    from gda_balancing.domain.model.semantics import (
+        recover_committed_artifact_set as recover,
+    )
 
     return recover(
         out,
@@ -112,7 +100,7 @@ def publish_model_artifacts(
     compiler: Callable[[CheckedModel], dict[str, dict[str, JsonValue]]] | None = None,
 ) -> dict[str, JsonValue]:
     """Publish one checked Model while preserving recovery-before-compilation."""
-    from gda_balancing.schema2.model import publish_model_artifacts as publish
+    from gda_balancing.domain.model.semantics import publish_model_artifacts as publish
 
     return publish(
         checked,

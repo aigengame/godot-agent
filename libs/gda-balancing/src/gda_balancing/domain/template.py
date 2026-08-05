@@ -10,34 +10,34 @@ import jsonschema
 
 from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
 from gda_balancing.domain.publication import PublicationMember
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     AuthorityContextProvider,
     AuthorityLoadError,
     resolve_authority_context,
 )
-from gda_balancing.schema2.bootstrap import BootstrapAdmission
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import BootstrapAdmission
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
     bootstrap_refusal,
     ingress_refusal,
 )
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.model.semantics import (
     CheckedModel,
     check_model_source_value,
     checked_model_template_facts,
     model_source_identity_domain,
 )
-from gda_balancing.schema2.template_contract import (
+from gda_balancing.domain.template_contract import (
     TEMPLATE_PRIMITIVE_CHARGES,
     TEMPLATE_PRIMITIVE_EVALUATIONS,
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
 )
-from gda_balancing.schema2.wire_schema import (
+from gda_balancing.domain.wire_schema import (
     wire_schema_for_kind,
     wire_schema_identity,
     wire_schema_identity_for_kind,

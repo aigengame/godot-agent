@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.canonical import JsonValue
-from gda_balancing.schema2.projections import (
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.canonical import JsonValue
+from gda_balancing.domain.authority.projections import (
     diagnostic_catalog_projection,
     wire_schema_projection,
 )

@@ -1,7 +1,7 @@
 """Model Source checking and exact-authority self-admission."""
 
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import (
     CheckedModel,
     admit_resolved_model,
     check_model_source,

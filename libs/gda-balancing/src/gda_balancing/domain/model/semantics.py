@@ -18,32 +18,35 @@ import jsonschema
 from gda_balancing.domain.errors import UnreadableInputError, UsageError
 from gda_balancing.domain.path_contracts import reject_input_aliasing
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.domain.artifacts import PublishedArtifactIntegrityError
-from gda_balancing.domain.model.inspection import ModelInspectAdmissionError
-from gda_balancing.domain.publication import PublicationMember, RecoveredArtifactSet
+from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
+from gda_balancing.domain.model.inspection_types import ModelInspectAdmissionError
+from gda_balancing.domain.publication_types import (
+    PublicationMember,
+    RecoveredArtifactSet,
+)
 from gda_balancing.infrastructure.atomic_files import (
     exclusive_file_lock as _invocation_lock,
     fsync_directory as _fsync_directory,
     write_exclusive_bytes,
 )
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
     packaged_authority_context,
 )
-from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
-from gda_balancing.schema2.authority_graph import LanguageBundleIndex
-from gda_balancing.schema2.bootstrap import (
+from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.authority.graph import LanguageBundleIndex
+from gda_balancing.domain.authority.admission import (
     BOOTSTRAP_REFUSAL_CATALOG,
     BootstrapAdmission,
 )
-from gda_balancing.schema2.canonical import (
+from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
     content_identity,
     parse_canonical_object,
 )
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
@@ -63,7 +66,7 @@ from gda_balancing.domain.formula.types import (
     literal_context_contract as _literal_context_contract,
     resolve_formula_contract as _resolved_formula_contract,
 )
-from gda_balancing.schema2.wire_schema import (
+from gda_balancing.domain.wire_schema import (
     wire_schema_identity_for_kind,
 )
 

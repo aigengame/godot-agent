@@ -1,10 +1,10 @@
-"""Generated, content-addressed projections of the admitted Schema 2.0 authority."""
+"""Generated, content-addressed projections of admitted Schema 2.0 authority."""
 
 from typing import cast
 
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.canonical import JsonValue, content_identity
-from gda_balancing.schema2.wire_schema import wire_schema_identity_domain
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.canonical import JsonValue, content_identity
+from gda_balancing.domain.wire_schema import wire_schema_identity_domain
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 

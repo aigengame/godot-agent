@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gda_balancing.schema2.bootstrap import BootstrapAdmission
+from gda_balancing.domain.authority.admission import BootstrapAdmission
 
 RefusalStage = Literal[
     "ingress",

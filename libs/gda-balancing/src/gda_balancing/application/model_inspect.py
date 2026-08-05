@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.domain.model.inspection import (
-    ModelInspectAdmissionError,
-    read_model_explanation,
-)
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport, ingress_refusal
+from gda_balancing.domain.model.inspection import read_model_explanation
+from gda_balancing.domain.model.inspection_types import ModelInspectAdmissionError
+from gda_balancing.domain.diagnostics import Schema2RefusalReport, ingress_refusal
 
 
 @dataclass(frozen=True)

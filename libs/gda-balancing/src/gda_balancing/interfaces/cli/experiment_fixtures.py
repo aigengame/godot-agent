@@ -11,8 +11,8 @@ from gda_balancing.interfaces.cli.model_build import (
     ModelBuildResult,
     run_model_build,
 )
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.authority_graph import LanguageBundleIndex
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
 
 def prepare_valid_experiment(root: Path, token: int) -> str:

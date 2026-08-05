@@ -11,9 +11,9 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.input_bytes import InputReadError
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import refusal_catalog_for_reasons
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import refusal_catalog_for_reasons
 
 
 class FormulaRenderInput(BaseModel):

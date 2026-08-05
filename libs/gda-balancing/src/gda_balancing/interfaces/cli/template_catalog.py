@@ -11,12 +11,12 @@ from gda_balancing.interfaces.cli.descriptors import (
     ConformanceFixtures,
 )
 from gda_balancing.domain.template import TemplateProvider, minimal_release
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
     packaged_authority_context,
 )
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import MODEL_REFUSAL_CATALOG
 
 
 class TemplateListInput(BaseModel):

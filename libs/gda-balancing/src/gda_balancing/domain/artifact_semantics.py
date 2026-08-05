@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.domain.canonical import JsonValue
 
 
 def artifact_semantic_projection(

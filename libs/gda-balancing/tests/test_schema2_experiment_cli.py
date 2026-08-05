@@ -17,11 +17,11 @@ import gda_balancing.domain.evidence as experiment_evidence_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.schema2.model as model_module
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import ArtifactLocation
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.domain.model.semantics as model_module
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import ArtifactLocation
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,

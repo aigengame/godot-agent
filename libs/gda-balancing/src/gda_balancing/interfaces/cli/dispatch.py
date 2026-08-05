@@ -48,7 +48,7 @@ from gda_balancing.interfaces.cli.envelope import (
 )
 from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.domain.path_contracts import reject_input_aliasing
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     refusal_envelope as schema2_refusal_envelope,
 )

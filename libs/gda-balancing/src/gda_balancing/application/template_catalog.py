@@ -10,11 +10,11 @@ from gda_balancing.domain.template import (
     minimal_release,
     template_refusal,
 )
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
     packaged_authority_context,
 )
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 @dataclass(frozen=True)

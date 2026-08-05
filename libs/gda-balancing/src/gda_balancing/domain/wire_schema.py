@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.domain.canonical import JsonValue, content_identity
 
 
 def _wire_schema_definition(

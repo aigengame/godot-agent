@@ -29,7 +29,7 @@ import jsonschema
 import pytest
 
 
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,

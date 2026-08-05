@@ -14,9 +14,9 @@ from gda_balancing.domain.migration import MigrationInputError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.domain.path_contracts import reject_input_aliasing
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import refusal_catalog_for_stages
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import refusal_catalog_for_stages
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 

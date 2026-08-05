@@ -1,4 +1,4 @@
-"""One production bootstrap consumer for the Schema 2.0 Kernel/LDB pair.
+"""Domain admission for the Schema 2.0 Kernel/LDB pair.
 
 The consumer implements the Kernel's small, closed meta-operation set.  It
 does not contain Quantity rule dispatch: LDB rules are checked through their
@@ -13,15 +13,17 @@ from typing import Any, cast
 
 import jsonschema
 
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
     canonical_graph_members,
     derive_language_index,
 )
-from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
-from gda_balancing.schema2.template_contract import (
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
+from gda_balancing.domain.template_contract import (
     TEMPLATE_ARGUMENT_TYPES,
     TEMPLATE_PRIMITIVE_CHARGES,
     TEMPLATE_PRIMITIVE_EVALUATIONS,

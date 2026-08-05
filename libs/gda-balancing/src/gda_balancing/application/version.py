@@ -4,13 +4,13 @@ from dataclasses import dataclass
 
 from gda_balancing.domain.authority.versioning import supported_schema_line
 from gda_balancing.infrastructure.distribution import distribution_version
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
     AuthorityLoadError,
     resolve_authority_context,
 )
-from gda_balancing.schema2.bootstrap import BootstrapAdmission
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import BootstrapAdmission
+from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     bootstrap_refusal,
     ingress_refusal,

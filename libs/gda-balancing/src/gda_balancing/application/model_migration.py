@@ -21,13 +21,13 @@ from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_artifact_set,
 )
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
-from gda_balancing.schema2.canonical import JsonValue
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import CheckedModel, check_model_source_value
+from gda_balancing.domain.canonical import JsonValue
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import CheckedModel, check_model_source_value
 
 
 MigrationAuthorityProvider = Callable[[], AdmittedAuthorityContext]

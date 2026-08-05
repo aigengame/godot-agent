@@ -33,7 +33,7 @@ from gda_balancing.interfaces.cli.registry import REGISTRY
 from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
 from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
 from gda_balancing.interfaces.cli.dispatch import dispatch
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )

@@ -23,7 +23,7 @@ from gda_balancing.domain.runtime.execution import (
     RuntimeRefusalOutcome,
     evaluate_experiment,
 )
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
 )

@@ -4,7 +4,7 @@ from typing import Any, cast
 
 import pytest
 
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
 
 
 def test_profile_preserves_unicode_and_sorts_by_utf8_key_order():

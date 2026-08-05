@@ -1,4 +1,4 @@
-"""Loader for the permanent, packaged Kernel/LDB authority artifacts.
+"""Domain lifecycle for the permanent, packaged Kernel/LDB authority artifacts.
 
 The JSON resources are the language authority.  This host module only reads,
 independently admits, and defensively copies them; changing Python dispatch
@@ -18,13 +18,16 @@ from types import MappingProxyType
 from typing import Any, Never, cast
 
 from gda_balancing.infrastructure.package_resources import read_package_resource
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import BootstrapAdmission, admit_authorities
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.authority.admission import (
+    BootstrapAdmission,
+    admit_authorities,
+)
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 _AUTHORITY_PACKAGE = "gda_balancing.schema2.authorities"
 _BOOTSTRAP_MAX_AUTHORITY_BYTES = 262144

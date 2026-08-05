@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import jsonschema
 import pytest
-import gda_balancing.schema2.model as schema2_model
+import gda_balancing.domain.model.semantics as schema2_model
 from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
     template_instantiate_handler,
@@ -25,22 +25,24 @@ from gda_balancing.interfaces.cli.template_catalog import (
     TEMPLATE_GET,
     template_get_handler,
 )
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
     authority_set,
 )
-from gda_balancing.schema2.authority_graph import derive_language_index
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.authority.graph import derive_language_index
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model.semantics import (
     CheckedModel,
     check_model_source_value,
     checked_model_template_facts,
 )
-from gda_balancing.schema2.projections import wire_schema_projection
-from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
-from gda_balancing.schema2.wire_schema import (
+from gda_balancing.domain.authority.projections import wire_schema_projection
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
+from gda_balancing.domain.wire_schema import (
     artifact_wire_schema_identity,
     wire_schema_identity as schema_definition_identity,
 )

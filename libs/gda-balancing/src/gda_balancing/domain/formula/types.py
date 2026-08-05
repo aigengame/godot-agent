@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.domain.canonical import JsonValue
 
 
 _FORMULA_CONTRACT_MEMBERS = (

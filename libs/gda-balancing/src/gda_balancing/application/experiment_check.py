@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 
 from gda_balancing.domain.experiment import check_experiment
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 @dataclass(frozen=True)

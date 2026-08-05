@@ -4,8 +4,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport, ingress_refusal
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.diagnostics import Schema2RefusalReport, ingress_refusal
 
 
 class PackageInventory(TypedDict):

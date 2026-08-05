@@ -11,15 +11,15 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any, cast
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
-from gda_balancing.schema2.canonical import (
+from gda_balancing.domain.canonical import (
     JsonValue,
     canonical_bytes,
     content_identity,
 )
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     RuntimeLocation,
     Schema2RefusalReport,

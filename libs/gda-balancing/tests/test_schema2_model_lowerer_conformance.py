@@ -7,23 +7,23 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-import gda_balancing.schema2.model as model_module
+import gda_balancing.domain.model.semantics as model_module
 import jsonschema
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.model.semantics import (
     CheckedModel,
     admit_resolved_model,
     check_model_source,

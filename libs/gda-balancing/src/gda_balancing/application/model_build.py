@@ -10,7 +10,7 @@ from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_model_artifacts,
 )
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 @dataclass(frozen=True)

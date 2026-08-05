@@ -20,8 +20,8 @@ from typing import Any, cast, get_args
 import jsonschema
 import pytest
 
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.interfaces.cli.schema as schema_command_module
 from gda_balancing.interfaces.cli.registry import MANIFEST
 from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
@@ -43,13 +43,13 @@ from gda_balancing.interfaces.cli.schema import (
 )
 from gda_balancing.interfaces.cli.template_catalog import TEMPLATE_GET, TEMPLATE_LIST
 from gda_balancing.interfaces.cli.template_instantiation import TEMPLATE_INSTANTIATE
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import BOOTSTRAP_REFUSAL_CATALOG
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     RefusalStage,
     RuntimeLocation,

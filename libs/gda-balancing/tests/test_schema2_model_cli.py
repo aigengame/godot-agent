@@ -19,27 +19,29 @@ import gda_balancing.domain.model.checking as model_checking_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
-import gda_balancing.schema2.model as model_module
+import gda_balancing.domain.model.semantics as model_module
 import jsonschema
 import pytest
-from gda_balancing.schema2.artifact_semantics import artifact_semantic_projection
-from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
+from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.domain.formula.notation import (
     parse_formula_expression,
     render_formula_body,
 )
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
 from gda_balancing.interfaces.cli.surface import descriptor_identity
-from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
 from schema2_authority_support import mutable_authorities
 
 

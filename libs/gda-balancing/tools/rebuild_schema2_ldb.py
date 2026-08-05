@@ -10,8 +10,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
 
 
 def _identity(domain: str, artifact: dict[str, Any]) -> str:

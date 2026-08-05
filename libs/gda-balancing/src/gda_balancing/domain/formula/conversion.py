@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from gda_balancing.domain.formula import notation
-from gda_balancing.schema2.authority import AdmittedAuthorityContext
-from gda_balancing.schema2.canonical import (
+from gda_balancing.domain.authority.context import AdmittedAuthorityContext
+from gda_balancing.domain.canonical import (
     JsonValue,
     content_identity,
     parse_canonical_object,
 )
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     RefusalStage,
     Schema2Diagnostic,
