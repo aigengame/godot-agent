@@ -38,7 +38,9 @@ dependency direction, not Standard Schema semantics.
   `interfaces.cli -> application -> domain -> infrastructure`. A module may depend on its own
   layer or a lower one, never a higher one. Same-layer dependencies must remain acyclic. During
   incremental migration, existing unclassified modules may call newly extracted lower-layer
-  modules, but migrated modules cannot use an old UI or command module to bypass the rule.
+  modules. Migrated lower layers cannot depend on legacy UI or command modules. A migrated
+  Interface module may temporarily use the legacy descriptor module, whose ownership moves in the
+  final UI-composition step, but it cannot import a legacy command handler.
 
 - **The CLI entry point is the composition root.** It may construct and connect lower-layer
   components, but it owns no language, Model, Runtime, Experiment, Template, or publication rule.

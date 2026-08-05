@@ -1,6 +1,7 @@
 """Dependency rules for the incrementally migrated production layers."""
 
 import ast
+from importlib.util import resolve_name
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,7 @@ _LEGACY_UI_PREFIXES = (
     "gda_balancing.emit",
     "gda_balancing.envelope",
 )
+_TEMPORARY_INTERFACE_IMPORTS = ("gda_balancing.descriptors",)
 
 
 def _module_name(path: Path) -> str:
@@ -26,15 +28,53 @@ def _module_name(path: Path) -> str:
     return ".".join(("gda_balancing", *parts))
 
 
-def _absolute_imports(path: Path) -> set[str]:
+def _resolved_imports(
+    module: str,
+    path: Path,
+    known_modules: set[str],
+) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imports: set[str] = set()
+    package = module if path.name == "__init__.py" else module.rpartition(".")[0]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imports.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            imports.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                base = resolve_name(f"{'.' * node.level}{base}", package)
+            for alias in node.names:
+                candidate = f"{base}.{alias.name}" if base else alias.name
+                imports.add(candidate if candidate in known_modules else base)
     return imports
+
+
+def test_import_resolution_includes_relative_imports(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "from ..interfaces.cli import package_list\n",
+        encoding="utf-8",
+    )
+
+    assert _resolved_imports(
+        "gda_balancing.domain.sample",
+        source,
+        {"gda_balancing.interfaces.cli.package_list"},
+    ) == {"gda_balancing.interfaces.cli.package_list"}
+
+
+def test_import_resolution_includes_imported_package_members(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "from gda_balancing.application import package_list\n",
+        encoding="utf-8",
+    )
+
+    assert _resolved_imports(
+        "gda_balancing.interfaces.cli.sample",
+        source,
+        {"gda_balancing.application.package_list"},
+    ) == {"gda_balancing.application.package_list"}
 
 
 def _migrated_modules() -> dict[str, Path]:
@@ -43,6 +83,10 @@ def _migrated_modules() -> dict[str, Path]:
         for layer in _LAYERS
         for path in (_SOURCE_ROOT / layer).rglob("*.py")
     }
+
+
+def _production_modules() -> set[str]:
+    return {_module_name(path) for path in _SOURCE_ROOT.rglob("*.py")}
 
 
 def test_each_layer_contains_a_production_module() -> None:
@@ -58,10 +102,11 @@ def test_each_layer_contains_a_production_module() -> None:
 
 
 def test_migrated_layers_do_not_import_upward() -> None:
+    known_modules = _production_modules()
     violations: list[str] = []
     for module, path in _migrated_modules().items():
         source_layer = module.split(".")[1]
-        for imported in _absolute_imports(path):
+        for imported in _resolved_imports(module, path, known_modules):
             parts = imported.split(".")
             if len(parts) < 2 or parts[0] != "gda_balancing":
                 continue
@@ -75,15 +120,16 @@ def test_migrated_layers_do_not_import_upward() -> None:
 
 
 def test_migrated_layers_do_not_depend_on_legacy_command_modules() -> None:
+    known_modules = _production_modules()
     violations: list[str] = []
     for module, path in _migrated_modules().items():
         source_layer = module.split(".")[1]
-        for imported in _absolute_imports(path):
-            forbidden = (
-                imported.startswith(_LEGACY_UI_PREFIXES)
-                if source_layer != "interfaces"
-                else imported.startswith("gda_balancing.commands")
+        for imported in _resolved_imports(module, path, known_modules):
+            is_legacy_ui_import = imported.startswith(_LEGACY_UI_PREFIXES)
+            is_temporary_interface_import = source_layer == "interfaces" and (
+                imported.startswith(_TEMPORARY_INTERFACE_IMPORTS)
             )
+            forbidden = is_legacy_ui_import and not is_temporary_interface_import
             if forbidden:
                 violations.append(f"{module} imports legacy UI module {imported}")
 
@@ -94,7 +140,9 @@ def test_migrated_modules_are_acyclic() -> None:
     modules = _migrated_modules()
     edges = {
         module: {
-            imported for imported in _absolute_imports(path) if imported in modules
+            imported
+            for imported in _resolved_imports(module, path, set(modules))
+            if imported in modules
         }
         for module, path in modules.items()
     }
