@@ -1,4 +1,4 @@
-"""Stage-aware Schema 2.0 diagnostics and refusal envelopes."""
+"""Stage-aware Schema 2.0 diagnostic and refusal values."""
 
 from collections.abc import Iterable
 from typing import Annotated, Any, Literal, cast
@@ -167,22 +167,3 @@ def ingress_refusal(code: str, subject: str, message: str) -> Schema2RefusalRepo
         ),
         truncated=False,
     )
-
-
-def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
-    """Build the closed Schema 2.0 refusal Error envelope."""
-    error: dict[str, object] = {
-        "category": "refusal",
-        "stage": report.stage,
-        "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
-        "truncated": report.truncated,
-    }
-    if report.migration_report is not None:
-        if report.stage != "migration":
-            raise ValueError("a migration report belongs only to migration refusal")
-        error["migration_report"] = report.migration_report
-    if report.terminal_audit is not None:
-        if report.stage != "runtime":
-            raise ValueError("a terminal audit belongs only to runtime refusal")
-        error["terminal_audit"] = report.terminal_audit
-    return {"error": error}

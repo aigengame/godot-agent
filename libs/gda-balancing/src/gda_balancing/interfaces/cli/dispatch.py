@@ -43,13 +43,11 @@ from gda_balancing.interfaces.cli.envelope import (
     EXIT_USAGE,
     EXIT_VERDICT_FAIL,
     internal_envelope,
+    schema2_refusal_envelope,
     usage_envelope,
 )
 from gda_balancing.domain.path_contracts import reject_input_aliasing
-from gda_balancing.domain.diagnostics import (
-    Schema2RefusalReport,
-    refusal_envelope as schema2_refusal_envelope,
-)
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 _SCHEMA_FLAG = "--schema"
 _HELP_FLAG = "--help"

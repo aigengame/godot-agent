@@ -17,6 +17,7 @@ command is stochastic, bADR-0010).
 
 from typing import Any
 
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.schema.refusal import (
     JSON_POINTER_PATTERN,
     REFUSAL_BOUND,
@@ -167,6 +168,25 @@ def refusal_envelope(report: RefusalReport) -> dict[str, Any]:
             "truncated": report.truncated,
         }
     }
+
+
+def schema2_refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
+    """Build the closed Schema 2.0 refusal Error envelope."""
+    error: dict[str, object] = {
+        "category": "refusal",
+        "stage": report.stage,
+        "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
+        "truncated": report.truncated,
+    }
+    if report.migration_report is not None:
+        if report.stage != "migration":
+            raise ValueError("a migration report belongs only to migration refusal")
+        error["migration_report"] = report.migration_report
+    if report.terminal_audit is not None:
+        if report.stage != "runtime":
+            raise ValueError("a terminal audit belongs only to runtime refusal")
+        error["terminal_audit"] = report.terminal_audit
+    return {"error": error}
 
 
 def usage_envelope(code: str, message: str) -> dict[str, Any]:
