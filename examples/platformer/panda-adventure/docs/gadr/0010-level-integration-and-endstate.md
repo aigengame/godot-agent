@@ -4,9 +4,9 @@ status: accepted
 
 # Level integration: the Great-Wall blockout and the end-state loop
 
-> **Current placement.** gADR-0020 split the End screen into `ui/`. Content
-> still owns the End-state rules, World freeze, verdict logs, and gated Retry;
-> it publishes the result to the UI-owned Game Shell.
+> **Current placement.** gADR-0020 split the End screen into `ui/`. Systems own
+> the End-state rules; Content owns the World freeze, verdict logs, gated Retry
+> entry point, and publication to the UI-owned Game Shell.
 
 S9 closes Phase 1: the single demo level assembled as the GDD's Great-Wall
 blockout, and the arc's end states — win (schedule cleared), lose (Player HP
