@@ -20,8 +20,9 @@ Review both content and language:
 
 Report evidence-backed, actionable problems that affect factual accuracy,
 understanding, decisions, implementation, maintenance, terminology, or clarity.
-Terminology misuse, concept drift, and prose that materially impedes understanding
-are findings in their own right. Do not report personal stylistic preferences.
+Terminology misuse, changes in a concept's meaning, and prose that materially
+impedes understanding are findings in their own right. Do not report personal
+stylistic preferences.
 
 Scale the review to the artifact's size, risk, and purpose.
 
@@ -51,7 +52,8 @@ Relevant material may include:
 - For a specification or plan: its requirements, constraints, deliverables, and
   validation approach.
 
-These are evidence routes, not mandatory templates for every artifact.
+These are examples of relevant evidence, not mandatory templates for every
+artifact.
 
 ### 2. Review the Artifact
 
