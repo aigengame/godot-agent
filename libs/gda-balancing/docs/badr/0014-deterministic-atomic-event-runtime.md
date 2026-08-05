@@ -151,11 +151,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   parent Event, child Event, complete ordering key, and commit outcome.
 
 - **Cancellation is prospective and identity-based.** Every admitted event has a stable `event_id`.
-  The Kernel `schedule` node produces a scheduled-Event local. A Model entrypoint may instead expose
-  the Kernel's fixed Event-reference value contract; the Experiment closes its named role against
-  one same-Scenario Root Event reference, and Runtime resolves that binding only after admitting the
-  complete root plan. `cancel` consumes either exact variant through its declared target-reference
-  shape; the generic invocation operand inventory does not broaden cancellation targets.
+  The Kernel `schedule` node produces a scheduled-Event reference, and `cancel` consumes that
+  reference through its declared target-reference shape; the generic invocation operand inventory
+  does not broaden cancellation targets.
   Cancellation may target only an event that has not begun dispatch; canceling an absent, completed,
   or active event produces the LDB-owned Runtime refusal for that exact target state and never
   rewinds committed state. A Domain operation may expose a typed alternative only where its declared
