@@ -28,7 +28,7 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
 from gda_balancing.infrastructure.input_bytes import read_input
-from gda_balancing.domain.model.semantics import (
+from gda_balancing.domain.model.resolution import (
     admit_resolved_model,
 )
 from gda_balancing.domain.publication import find_published_artifact

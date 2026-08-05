@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import gda_balancing.domain.model.compilation as model_compilation_module
 import gda_balancing.domain.model.checking as model_checking_module
+import gda_balancing.domain.model.inspection as model_inspection_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
@@ -23,7 +24,7 @@ import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
-import gda_balancing.domain.model.semantics as model_module
+import gda_balancing.domain.model.resolution as model_module
 import gda_balancing.domain.publication as publication_module
 import jsonschema
 import pytest
@@ -40,6 +41,8 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.interfaces.cli.surface import descriptor_identity
+from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
+from gda_balancing.interfaces.cli.errors import UsageError
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
@@ -49,7 +52,9 @@ from schema2_authority_support import mutable_authorities
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
     context = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    monkeypatch.setattr(
+        model_checking_module, "packaged_authority_context", lambda: context
+    )
     return context
 
 
@@ -409,8 +414,8 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
         "parameter": "base",
     }
 
-    checked_program = model_module.check_model_source_value(program_source)
-    checked_sugar = model_module.check_model_source_value(sugar_source)
+    checked_program = model_checking_module.check_model_source_value(program_source)
+    checked_sugar = model_checking_module.check_model_source_value(sugar_source)
     assert isinstance(checked_program, Schema2RefusalReport)
     assert checked_program.stage == "static"
     assert checked_program.diagnostics[0].code == "language.formula_notation_mismatch"
@@ -447,11 +452,11 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
     converted_formula = converted_source["modules"][0]["formulas"][0]
     converted_formula["body"] = converted_body
     converted_formula["expression"] = render_formula_body(converted_body, context)
-    checked_converted = model_module.check_model_source_value(converted_source)
+    checked_converted = model_checking_module.check_model_source_value(converted_source)
     assert isinstance(checked_converted, model_module.CheckedModel)
 
-    sugar_rir = model_module.lower_checked_model(checked_sugar)["rir-semantic-payload"]
-    converted_rir = model_module.lower_checked_model(checked_converted)[
+    sugar_rir = model_compilation_module.lower_checked_model(checked_sugar)["rir-semantic-payload"]
+    converted_rir = model_compilation_module.lower_checked_model(checked_converted)[
         "rir-semantic-payload"
     ]
     assert converted_body == sugar_source["modules"][0]["formulas"][0]["body"]
@@ -591,9 +596,9 @@ def test_model_build_publishes_the_formula_explanation(tmp_path, run_cli):
 def test_model_explanation_generation_uses_shared_formula_pair_admission(
     monkeypatch,
 ):
-    checked = model_module.check_model_source_value(_model_source())
+    checked = model_checking_module.check_model_source_value(_model_source())
     assert isinstance(checked, model_module.CheckedModel)
-    real_admit = model_module._model_explanation_pairs_are_admitted
+    real_admit = model_compilation_module._model_explanation_pairs_are_admitted
     admitted_explanations: list[dict[str, Any]] = []
 
     def observe_admission(explanation, rir, lock, authority_context):
@@ -601,12 +606,12 @@ def test_model_explanation_generation_uses_shared_formula_pair_admission(
         return real_admit(explanation, rir, lock, authority_context)
 
     monkeypatch.setattr(
-        model_module,
+        model_compilation_module,
         "_model_explanation_pairs_are_admitted",
         observe_admission,
     )
 
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
 
     assert len(admitted_explanations) == 1
     assert (
@@ -640,7 +645,9 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     def fail_if_regenerated(*_args, **_kwargs):
         raise AssertionError("model inspect must not regenerate an explanation")
 
-    monkeypatch.setattr(publication_module, "_model_explanation", fail_if_regenerated)
+    monkeypatch.setattr(
+        model_compilation_module, "_model_explanation", fail_if_regenerated
+    )
     inspect_exit, inspect_stdout, inspect_stderr = run_cli(
         [
             "model",
@@ -678,7 +685,7 @@ def test_model_inspect_rejects_explanation_formula_pair_admission_failure(
         _artifact_directory(json.loads(build_stdout)) / "artifact-set-receipt.json"
     )
     monkeypatch.setattr(
-        publication_module,
+        model_inspection_module,
         "_model_explanation_pairs_are_admitted",
         lambda *_args, **_kwargs: False,
     )
@@ -1802,7 +1809,7 @@ def test_formula_slot_authority_drift_reaches_the_public_model_check_refusal(
     drifted = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(drifted, authority_module.AdmittedAuthorityContext)
     monkeypatch.setattr(
-        model_module,
+        model_checking_module,
         "packaged_authority_context",
         lambda: drifted,
     )
@@ -2234,7 +2241,7 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     source = tmp_path / "conflicting-transitive-versions.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
-    result = model_module.check_model_source(str(source))
+    result = model_checking_module.check_model_source(str(source))
 
     assert isinstance(result, model_module.Schema2RefusalReport)
     assert result.stage == "resolution"
@@ -2247,7 +2254,7 @@ def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
     kernel, language_bundle = authority_module.load_authorities()
     admission = admit_authorities(kernel, language_bundle)
 
-    checked = model_module.check_model_source_value(
+    checked = model_checking_module.check_model_source_value(
         _model_source(),
         kernel=kernel,
         language_bundle=language_bundle,
@@ -2258,7 +2265,7 @@ def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
     mismatched_ldb = deepcopy(language_bundle)
     mismatched_ldb["content_identity"] = "sha256:" + "0" * 64
     with pytest.raises(ValueError, match="another Kernel/LDB pair"):
-        model_module.check_model_source_value(
+        model_checking_module.check_model_source_value(
             _model_source(),
             kernel=kernel,
             language_bundle=mismatched_ldb,
@@ -2272,14 +2279,14 @@ def test_model_check_runs_the_same_lowering_and_admission_front_end(
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     calls = 0
-    real_lowerer = model_module.lower_checked_model
+    real_lowerer = model_compilation_module.lower_checked_model
 
     def observed_lowerer(checked):
         nonlocal calls
         calls += 1
         return real_lowerer(checked)
 
-    monkeypatch.setattr(model_checking_module, "lower_checked_model", observed_lowerer)
+    monkeypatch.setattr(model_compilation_module, "lower_checked_model", observed_lowerer)
 
     assert run_cli(["model", "check", str(source)])[0] == 0
     assert calls == 1
@@ -2769,7 +2776,7 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
     artifact_set = tuple(
@@ -2781,13 +2788,16 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
     )
     out = tmp_path / "primary.json"
 
-    publication_module.publish_model_artifacts(
-        checked,
-        str(source),
+    publication_module.publish_lazy_artifact_set(
+        model_compilation_module.authority_context_for_checked(checked),
+        checked.source_identity,
         str(out),
         "b" * 64,
         "sha256:" + "b" * 64,
+        model_compilation_module.model_build_command_input_identity(checked),
         artifact_set,
+        lambda: model_compilation_module.compile_checked_model(checked),
+        model_compilation_module.validate_compiled_artifacts,
     )
 
     assert json.loads(out.read_text())["artifact_kind"] == "package-lock"
@@ -3137,25 +3147,20 @@ def test_model_build_rejects_direct_and_symlink_input_output_aliases(tmp_path, r
         assert source.read_bytes() == before
 
 
-def test_model_publisher_rejects_a_known_source_alias_after_the_source_disappears(
+def test_cli_rejects_a_known_source_alias_after_the_source_disappears(
     tmp_path, monkeypatch
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
-    assert isinstance(checked, model_module.CheckedModel)
     source.unlink()
     store = tmp_path / "store"
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
 
-    with pytest.raises(publication_module.UsageError) as caught:
-        publication_module.publish_model_artifacts(
-            checked,
+    with pytest.raises(UsageError) as caught:
+        reject_input_aliasing(
             str(source),
             str(source),
-            "e" * 64,
-            descriptor_identity(model_build_command_module.MODEL_BUILD),
-            model_build_command_module.MODEL_BUILD.artifact_set,
+            input_is_known_path=True,
         )
 
     assert caught.value.code == "argument_conflict"
@@ -3272,7 +3277,9 @@ def test_model_build_explanation_generation_fault_publishes_nothing(
     def fail_explanation(*_args, **_kwargs):
         raise RuntimeError("injected Model explanation generation fault")
 
-    monkeypatch.setattr(model_module, "_model_explanation", fail_explanation)
+    monkeypatch.setattr(
+        model_compilation_module, "_model_explanation", fail_explanation
+    )
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -3300,7 +3307,7 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     out = tmp_path / "published-model"
-    explanation = model_module._model_explanation
+    explanation = model_compilation_module._model_explanation
 
     def generate_invalid_explanation(authority_context, lock, rir, debug_map):
         valid = explanation(authority_context, lock, rir, debug_map)
@@ -3315,7 +3322,7 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
         )
 
     monkeypatch.setattr(
-        model_module,
+        model_compilation_module,
         "_model_explanation",
         generate_invalid_explanation,
     )
@@ -3488,7 +3495,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     entered_anchor = threading.Event()
     release_anchor = threading.Event()
@@ -3516,13 +3523,16 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     def publish(out: Path, *, announce: bool = False):
         if announce:
             second_started.set()
-        return publication_module.publish_model_artifacts(
-            checked,
-            str(source),
+        return publication_module.publish_lazy_artifact_set(
+            model_compilation_module.authority_context_for_checked(checked),
+            checked.source_identity,
             str(out),
             key,
             descriptor,
+            model_compilation_module.model_build_command_input_identity(checked),
             model_build_command_module.MODEL_BUILD.artifact_set,
+            lambda: model_compilation_module.compile_checked_model(checked),
+            model_compilation_module.validate_compiled_artifacts,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -4522,9 +4532,9 @@ def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
     cast_operation = next(
@@ -4571,10 +4581,10 @@ def test_model_entrypoint_lowers_an_ldb_typed_integer_literal(tmp_path):
     source = tmp_path / "typed-literal.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
 
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
 
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     entrypoint = cast(list[dict[str, Any]], rir["entrypoints"])[0]
     operand = cast(dict[str, Any], entrypoint["arguments"][0]["operand"])
@@ -4621,9 +4631,9 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
     ]
     source = tmp_path / "typed-literal-admission.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     artifacts: dict[str, Any] = {
         name: deepcopy(original[name])
         for name in (
@@ -4673,9 +4683,9 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     ]
     source = tmp_path / "literal-profile-reidentity.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
-    original_checked = model_module.check_model_source(str(source))
+    original_checked = model_checking_module.check_model_source(str(source))
     assert isinstance(original_checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(original_checked)
+    original = model_compilation_module.lower_checked_model(original_checked)
 
     kernel, candidate_ldb = mutable_authorities()
     profile = candidate_ldb["language"]["literal_typing_profiles"][0]
@@ -4692,9 +4702,9 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert admit_authorities(kernel, candidate_ldb).admitted
     _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
-    changed_checked = model_module.check_model_source(str(source))
+    changed_checked = model_checking_module.check_model_source(str(source))
     assert isinstance(changed_checked, model_module.CheckedModel)
-    changed = model_module.lower_checked_model(changed_checked)
+    changed = model_compilation_module.lower_checked_model(changed_checked)
     changed_rir = cast(dict[str, Any], changed["rir-semantic-payload"])
     changed_entrypoint = cast(dict[str, Any], changed_rir["entrypoints"][0])
     changed_argument = cast(dict[str, Any], changed_entrypoint["arguments"][0])
@@ -4837,10 +4847,10 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
     def lower(source_value: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
         source = tmp_path / f"{name}.json"
         source.write_text(json.dumps(source_value), encoding="utf-8")
-        checked = model_module.check_model_source(str(source))
+        checked = model_checking_module.check_model_source(str(source))
         assert isinstance(checked, model_module.CheckedModel)
         return cast(
-            dict[str, dict[str, Any]], model_module.lower_checked_model(checked)
+            dict[str, dict[str, Any]], model_compilation_module.lower_checked_model(checked)
         )
 
     baseline = _model_source()
@@ -4934,9 +4944,9 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
     cast_operation = next(
@@ -4996,12 +5006,12 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
 
     rir = cast(
         dict[str, Any],
-        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+        model_compilation_module.lower_checked_model(checked)["rir-semantic-payload"],
     )
     entrypoint = next(
         row
@@ -5029,7 +5039,7 @@ def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     assignment_policy = checked.language_bundle["language"]["model_lowerings"][0][
         "assignment_policy"
@@ -5046,7 +5056,7 @@ def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
 
     rir = cast(
         dict[str, Any],
-        model_module.lower_checked_model(checked)["rir-semantic-payload"],
+        model_compilation_module.lower_checked_model(checked)["rir-semantic-payload"],
     )
     entrypoint = next(
         row
@@ -5073,9 +5083,9 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
     source = (
         Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
     child = next(
@@ -5096,7 +5106,7 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
 
 
 def test_authority_admission_rejects_an_orphan_assignment_mode():
-    baseline = model_module.check_model_source_value(_model_source())
+    baseline = model_checking_module.check_model_source_value(_model_source())
     assert isinstance(baseline, model_module.CheckedModel)
     candidate_ldb = deepcopy(baseline.language_bundle)
     assignment_policy = candidate_ldb["language"]["model_lowerings"][0][
@@ -5138,7 +5148,7 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
 def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer(
     initialization_source,
 ):
-    baseline = model_module.check_model_source_value(_model_source())
+    baseline = model_checking_module.check_model_source_value(_model_source())
     assert isinstance(baseline, model_module.CheckedModel)
     candidate_ldb = deepcopy(baseline.language_bundle)
     lowering = candidate_ldb["language"]["model_lowerings"][0]
@@ -5216,7 +5226,7 @@ def test_package_admission_closes_every_operation_composition_axis(
     mutation,
     expected_subject,
 ):
-    baseline = model_module.check_model_source_value(
+    baseline = model_checking_module.check_model_source_value(
         json.loads(
             (
                 Path(__file__).parents[1]
@@ -5312,7 +5322,7 @@ def test_package_admission_closes_every_operation_composition_axis(
 
 
 def test_authority_admission_rejects_operation_closure_at_the_package_site():
-    baseline = model_module.check_model_source_value(
+    baseline = model_checking_module.check_model_source_value(
         json.loads(
             (
                 Path(__file__).parents[1]
@@ -5347,7 +5357,7 @@ def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract()
             / "examples/schema2/rpg-combat-cast/model-source.json"
         ).read_text(encoding="utf-8")
     )
-    baseline = model_module.check_model_source_value(source_value)
+    baseline = model_checking_module.check_model_source_value(source_value)
     assert isinstance(baseline, model_module.CheckedModel)
     candidate_ldb = deepcopy(baseline.language_bundle)
     assert all(
@@ -5386,7 +5396,7 @@ def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract()
     admission = admit_authorities(baseline.kernel, candidate_ldb)
     assert admission.admitted is True
 
-    checked = model_module.check_model_source_value(
+    checked = model_checking_module.check_model_source_value(
         source_value,
         kernel=baseline.kernel,
         language_bundle=candidate_ldb,
@@ -5394,7 +5404,7 @@ def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract()
     )
 
     assert isinstance(checked, model_module.CheckedModel)
-    rir = model_module.lower_checked_model(checked)["rir-semantic-payload"]
+    rir = model_compilation_module.lower_checked_model(checked)["rir-semantic-payload"]
     alias = next(
         alias
         for call_site in cast(list[dict[str, Any]], rir["call_sites"])
@@ -5443,10 +5453,10 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
     source = tmp_path / "discardable-entrypoint.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
 
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
 
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
     assert entrypoints[0]["result"]["kind"] == "discard"
@@ -5457,7 +5467,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     candidate_ldb = deepcopy(checked.language_bundle)
     rule = next(
@@ -5514,7 +5524,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         language_bundle=candidate_ldb,
     )
 
-    artifacts = model_module.lower_checked_model(candidate)
+    artifacts = model_compilation_module.lower_checked_model(candidate)
 
     declarations = cast(
         list[dict[str, Any]], artifacts["rir-semantic-payload"]["declarations"]
@@ -5566,7 +5576,7 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
             },
         }
     ]
-    baseline = model_module.check_model_source_value(source_value)
+    baseline = model_checking_module.check_model_source_value(source_value)
     assert isinstance(baseline, model_module.CheckedModel)
     candidate_ldb = deepcopy(baseline.language_bundle)
     lowering = candidate_ldb["language"]["model_lowerings"][0]
@@ -5590,7 +5600,7 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
     authority_admission = admit_authorities(baseline.kernel, candidate_ldb)
     assert authority_admission.admitted is True
 
-    checked = model_module.check_model_source_value(
+    checked = model_checking_module.check_model_source_value(
         source_value,
         kernel=baseline.kernel,
         language_bundle=candidate_ldb,
@@ -5598,7 +5608,7 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
     )
 
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
     contract = cast(dict[str, Any], entrypoints[0]["scenario_input_contract"])
@@ -5610,9 +5620,9 @@ def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts
 def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
     candidate_ldb["language"]["quantity"]["units"][0]["dimension"] = (
         "reidentified-dimension"
@@ -5621,7 +5631,7 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
 
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_lock = original["package-lock"]
     mutated_lock = mutated["package-lock"]
@@ -5691,7 +5701,7 @@ def _check_with_candidate_ldb(
 ) -> model_module.CheckedModel:
     admission = admit_authorities(kernel, language_bundle)
     assert admission.admitted is True, admission
-    checked = model_module.check_model_source_value(
+    checked = model_checking_module.check_model_source_value(
         source,
         kernel=kernel,
         language_bundle=language_bundle,
@@ -5739,9 +5749,9 @@ def _package_release(
 
 def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     source = _rpg_source_value()
-    baseline = model_module.check_model_source_value(source)
+    baseline = model_checking_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     _mutate_operation_notation(
         candidate_ldb,
@@ -5753,7 +5763,7 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
     _rewrite_formula_expressions(source, " - ", " − ")
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_core = next(
         row
@@ -5789,9 +5799,9 @@ def test_selected_notation_mutation_reidentifies_content_not_rir_semantics():
 
 def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
     source = _rpg_source_value()
-    baseline = model_module.check_model_source_value(source)
+    baseline = model_checking_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     contract = next(
         row
@@ -5803,7 +5813,7 @@ def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
     ] = ["closure"]
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     assert (
         original["rir-semantic-payload"]["semantic_identity"]
@@ -5820,9 +5830,9 @@ def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
 
 def test_selected_unreachable_notation_preserves_both_rir_identities():
     source = _rpg_source_value()
-    baseline = model_module.check_model_source_value(source)
+    baseline = model_checking_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     _mutate_operation_notation(
         candidate_ldb,
@@ -5833,7 +5843,7 @@ def test_selected_unreachable_notation_preserves_both_rir_identities():
     _rewrite_formula_expressions(candidate_ldb["vectors"], "identity(", "copy_value(")
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_package = _package_release(
         cast(LanguageBundleIndex, baseline.language_bundle), "core.quantity"
@@ -5853,7 +5863,7 @@ def test_selected_unreachable_notation_preserves_both_rir_identities():
 
 def test_unselected_resolution_profile_owner_still_reidentifies_lock():
     source = _model_source()
-    packaged = model_module.check_model_source_value(source)
+    packaged = model_checking_module.check_model_source_value(source)
     assert isinstance(packaged, model_module.CheckedModel)
     baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
     compiler = next(
@@ -5870,7 +5880,7 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
     schema["profiles"]["resolution"].append("exact-import-resolution-v1")
     _reidentify_language_bundle(baseline_ldb)
     baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     assert "standard.schema" not in _locked_package_ids(original)
 
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
@@ -5882,7 +5892,7 @@ def test_unselected_resolution_profile_owner_still_reidentifies_lock():
     profile["extensions"]["standard.formula"]["max_nodes_per_formula"] += 1
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_package = _package_release(baseline_ldb, "standard.schema")
     mutated_package = _package_release(candidate_ldb, "standard.schema")
@@ -5963,9 +5973,9 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
         }
     ]
     _use_derived_value(source)
-    baseline = model_module.check_model_source_value(source)
+    baseline = model_checking_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel), baseline
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
 
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline.language_bundle))
     source_schema = next(
@@ -5981,7 +5991,7 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
     )
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, baseline.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_package = _package_release(
         cast(LanguageBundleIndex, baseline.language_bundle), "standard.schema"
@@ -6006,7 +6016,7 @@ def test_unlocked_escaping_authority_changes_rir_content_not_semantics():
 
 def test_unselected_pure_operation_notation_preserves_lock_and_rir():
     source = _model_source()
-    packaged = model_module.check_model_source_value(source)
+    packaged = model_checking_module.check_model_source_value(source)
     assert isinstance(packaged, model_module.CheckedModel)
     baseline_ldb = cast(LanguageBundleIndex, deepcopy(packaged.language_bundle))
     operation = deepcopy(
@@ -6029,7 +6039,7 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
     game_check["exports"]["operations"].sort()
     _reidentify_language_bundle(baseline_ldb)
     baseline = _check_with_candidate_ldb(source, packaged.kernel, baseline_ldb)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     assert "game.check" not in _locked_package_ids(original)
 
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(baseline_ldb))
@@ -6041,7 +6051,7 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
     mutated_operation["extensions"]["standard.formula-notation"]["name"] = "unused_copy"
     _reidentify_language_bundle(candidate_ldb)
     candidate = _check_with_candidate_ldb(source, packaged.kernel, candidate_ldb)
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     assert (
         baseline_ldb.root["content_identity"] != candidate_ldb.root["content_identity"]
@@ -6054,9 +6064,9 @@ def test_unselected_pure_operation_notation_preserves_lock_and_rir():
 
 def test_formula_semantic_body_mutation_changes_both_rir_identities():
     source = _rpg_source_value()
-    baseline = model_module.check_model_source_value(source)
+    baseline = model_checking_module.check_model_source_value(source)
     assert isinstance(baseline, model_module.CheckedModel)
-    original = model_module.lower_checked_model(baseline)
+    original = model_compilation_module.lower_checked_model(baseline)
     formula = next(
         row
         for row in source["modules"][0]["formulas"]
@@ -6067,9 +6077,9 @@ def test_formula_semantic_body_mutation_changes_both_rir_identities():
         "parameter": "damage_before_defense",
     }
     formula["expression"] = "damage_before_defense"
-    candidate = model_module.check_model_source_value(source)
+    candidate = model_checking_module.check_model_source_value(source)
     assert isinstance(candidate, model_module.CheckedModel), candidate
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     assert original["package-lock"] == mutated["package-lock"]
     assert (
@@ -6087,16 +6097,16 @@ def test_formula_semantic_body_mutation_changes_both_rir_identities():
 def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
     candidate_ldb["language"]["model_checks"].reverse()
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
 
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_package = checked.language_bundle["language"]["packages"][0]
     mutated_package = candidate_ldb["language"]["packages"][0]
@@ -6110,9 +6120,9 @@ def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
 def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     original_ldb = cast(LanguageBundleIndex, checked.language_bundle)
     candidate_ldb = cast(LanguageBundleIndex, deepcopy(original_ldb))
     vector_set = next(
@@ -6126,7 +6136,7 @@ def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
 
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     original_package = next(
         item
@@ -6151,9 +6161,9 @@ def test_vector_only_package_change_reidentifies_exact_wrappers_not_rir(tmp_path
 def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
     unreachable = next(
         operation
@@ -6171,7 +6181,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
 
-    mutated = model_module.lower_checked_model(candidate)
+    mutated = model_compilation_module.lower_checked_model(candidate)
 
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["package-lock"] == mutated["package-lock"]
@@ -6385,9 +6395,9 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     source.write_text(json.dumps(source_document), encoding="utf-8")
     _inject_authority_context(monkeypatch, kernel, candidate_ldb)
 
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    artifacts = model_module.lower_checked_model(checked)
+    artifacts = model_compilation_module.lower_checked_model(checked)
 
     package_lock = cast(dict[str, Any], artifacts["package-lock"])
     lock_packages = cast(list[dict[str, Any]], package_lock["packages"])
@@ -6526,9 +6536,9 @@ def test_unreachable_package_semantics_do_not_change_rir(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    checked = model_module.check_model_source(str(source))
+    checked = model_checking_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
-    original = model_module.lower_checked_model(checked)
+    original = model_compilation_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
     language = candidate_ldb["language"]
     package = language["packages"][0]
@@ -6555,7 +6565,7 @@ def test_unreachable_package_semantics_do_not_change_rir(
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
 
-    mutated = model_module.lower_checked_model(
+    mutated = model_compilation_module.lower_checked_model(
         replace(checked, language_bundle=candidate_ldb)
     )
 

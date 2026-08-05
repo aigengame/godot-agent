@@ -22,7 +22,9 @@ from typing import Any, TextIO
 import jsonschema
 from pydantic import BaseModel, ValidationError
 
-from gda_balancing.domain.errors import UnreadableInputError, UsageError
+from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.domain.publication_types import PublicationError
+from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
 from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.descriptors import (
     ArtifactReceipt,
@@ -46,7 +48,7 @@ from gda_balancing.interfaces.cli.envelope import (
     schema2_refusal_envelope,
     usage_envelope,
 )
-from gda_balancing.domain.path_contracts import reject_input_aliasing
+from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 _SCHEMA_FLAG = "--schema"
@@ -174,6 +176,13 @@ def _dispatch(
 
     try:
         return _invoke_descriptor(descriptor, tail, stdout, stdin)
+    except PublicationError as err:
+        usage = publication_usage_error(err)
+        if descriptor.schema_major == 2 and usage.code not in descriptor.usage_codes:
+            raise TypeError(
+                "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
+            ) from err
+        raise usage from err
     except UsageError as err:
         if descriptor.schema_major == 2 and err.code not in descriptor.usage_codes:
             raise TypeError(

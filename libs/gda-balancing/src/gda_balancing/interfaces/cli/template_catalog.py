@@ -16,7 +16,7 @@ from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.semantics import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model.resolution import MODEL_REFUSAL_CATALOG
 
 
 class TemplateListInput(BaseModel):

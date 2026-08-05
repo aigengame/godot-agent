@@ -10,7 +10,7 @@ import pytest
 import gda_balancing.domain.formula.notation as formula_notation_module
 import gda_balancing.interfaces.cli.formula as formula_command_module
 import gda_balancing.domain.authority.context as authority_module
-import gda_balancing.domain.model.semantics as model_module
+import gda_balancing.domain.model.resolution as model_module
 import gda_balancing.domain.artifacts as artifacts_module
 from gda_balancing.domain.formula.notation import admit_formula_pair
 from gda_balancing.domain.canonical import JsonValue, content_identity

@@ -12,7 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 import gda_balancing.domain.artifacts as artifacts_module
-import gda_balancing.domain.publication as publication_module
+import gda_balancing.infrastructure.atomic_files as atomic_files_module
 from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
     template_instantiate_handler,
@@ -34,11 +34,11 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.authority.graph import derive_language_index
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.semantics import (
+from gda_balancing.domain.model.resolution import (
     CheckedModel,
-    check_model_source_value,
     checked_model_template_facts,
 )
+from gda_balancing.domain.model.checking import check_model_source_value
 from gda_balancing.domain.authority.projections import wire_schema_projection
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
@@ -2787,7 +2787,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
     tmp_path, run_cli, monkeypatch
 ):
     store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
-    real_fsync_directory = publication_module._fsync_directory
+    real_fsync_directory = atomic_files_module.fsync_directory
     injected = False
 
     def fail_after_anchor_link(path):
@@ -2801,7 +2801,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
             raise OSError("injected anchor directory fsync failure")
         real_fsync_directory(path)
 
-    monkeypatch.setattr(publication_module, "_fsync_directory", fail_after_anchor_link)
+    monkeypatch.setattr(atomic_files_module, "fsync_directory", fail_after_anchor_link)
     invocation_key = "b" * 64
     argv = [
         "template",

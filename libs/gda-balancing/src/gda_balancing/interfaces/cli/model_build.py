@@ -12,8 +12,9 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
+from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.semantics import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model.resolution import MODEL_REFUSAL_CATALOG
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -53,6 +54,7 @@ def model_build_handler(
         raise ValueError("unknown publication fault")
 
     def _run(inp: ModelBuildInput) -> ModelBuildResult | Schema2RefusalReport:
+        reject_input_aliasing(inp.out, inp.source, input_is_known_path=True)
         result = build_model(
             inp.source,
             inp.out,

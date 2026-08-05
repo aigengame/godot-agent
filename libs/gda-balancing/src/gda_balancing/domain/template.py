@@ -25,12 +25,12 @@ from gda_balancing.domain.diagnostics import (
     bootstrap_refusal,
     ingress_refusal,
 )
-from gda_balancing.domain.model.semantics import (
+from gda_balancing.domain.model.resolution import (
     CheckedModel,
-    check_model_source_value,
     checked_model_template_facts,
     model_source_identity_domain,
 )
+from gda_balancing.domain.model.checking import check_model_source_value
 from gda_balancing.domain.template_contract import (
     TEMPLATE_PRIMITIVE_CHARGES,
     TEMPLATE_PRIMITIVE_EVALUATIONS,

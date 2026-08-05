@@ -20,7 +20,7 @@ from gda_balancing.interfaces.cli.model_build import (
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.semantics import MODEL_INSPECT_REFUSAL_CATALOG
+from gda_balancing.domain.model.resolution import MODEL_INSPECT_REFUSAL_CATALOG
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 

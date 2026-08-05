@@ -9,7 +9,7 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.semantics import MODEL_REFUSAL_CATALOG
+from gda_balancing.domain.model.resolution import MODEL_REFUSAL_CATALOG
 
 
 class ModelCheckInput(BaseModel):

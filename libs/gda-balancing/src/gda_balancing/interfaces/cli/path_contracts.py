@@ -3,7 +3,7 @@
 import os
 from os import PathLike
 
-from gda_balancing.domain.errors import UsageError
+from gda_balancing.interfaces.cli.errors import UsageError
 
 
 def reject_input_aliasing(

@@ -27,8 +27,8 @@ from gda_balancing.domain.authority.package_projection import (
     package_coordinate_contracts,
     package_get_success_schema,
     package_list_success_schema as package_list_success_schema,
-    package_release_success_schema,
-    package_vector_set_success_schema,
+    package_release_success_schema as package_release_success_schema,
+    package_vector_set_success_schema as package_vector_set_success_schema,
 )
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
