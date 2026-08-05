@@ -10,26 +10,9 @@ import sys
 _SOURCE_ROOT = Path(__file__).parents[1] / "src" / "gda_balancing"
 _LAYERS = ("infrastructure", "domain", "application", "interfaces")
 _LAYER_RANK = {layer: rank for rank, layer in enumerate(_LAYERS)}
-_OBSOLETE_DOMAIN_MODULES = (
-    "artifact_semantics.py",
-    "authority.py",
-    "authority_graph.py",
-    "bootstrap.py",
-    "canonical.py",
-    "diagnostics.py",
-    "model.py",
-    "package_semantics.py",
-    "projections.py",
-    "template_contract.py",
-    "wire_schema.py",
-)
-_OBSOLETE_UI_MODULES = (
-    "cli.py",
-    "commands/__init__.py",
-    "descriptors.py",
-    "dispatch.py",
-    "emit.py",
-    "envelope.py",
+_ROOT_ENTRYPOINTS = frozenset({"__init__.py", "__main__.py"})
+_SCHEMA2_RESOURCE_PACKAGES = frozenset(
+    {"schema2/__init__.py", "schema2/authorities/__init__.py"}
 )
 
 
@@ -107,6 +90,19 @@ def _production_modules() -> set[str]:
     return {_module_name(path) for path in _SOURCE_ROOT.rglob("*.py")}
 
 
+def _declared_owner(path: Path) -> str | None:
+    relative = path.relative_to(_SOURCE_ROOT)
+    if relative.as_posix() in _ROOT_ENTRYPOINTS:
+        return "entrypoint"
+    if relative.parts[0] in _LAYERS:
+        return relative.parts[0]
+    if relative.parts[0] == "schema":
+        return "schema1-migration-input"
+    if relative.as_posix() in _SCHEMA2_RESOURCE_PACKAGES:
+        return "schema2-authority-resources"
+    return None
+
+
 def test_each_layer_contains_a_production_module() -> None:
     missing = [
         layer
@@ -138,18 +134,20 @@ def test_migrated_layers_do_not_import_upward() -> None:
     assert violations == []
 
 
-def test_obsolete_top_level_ui_modules_are_removed() -> None:
-    assert [
-        name for name in _OBSOLETE_UI_MODULES if (_SOURCE_ROOT / name).is_file()
-    ] == []
+def test_every_production_module_has_one_declared_owner() -> None:
+    unowned = [
+        str(path.relative_to(_SOURCE_ROOT))
+        for path in _SOURCE_ROOT.rglob("*.py")
+        if _declared_owner(path) is None
+    ]
+
+    assert unowned == []
 
 
-def test_active_schema2_domain_has_no_top_level_python_modules() -> None:
-    schema2_root = _SOURCE_ROOT / "schema2"
-
-    assert [
-        name for name in _OBSOLETE_DOMAIN_MODULES if (schema2_root / name).is_file()
-    ] == []
+def test_unowned_production_namespaces_cannot_bypass_the_layer_gate() -> None:
+    assert _declared_owner(_SOURCE_ROOT / "commands" / "new.py") is None
+    assert _declared_owner(_SOURCE_ROOT / "schema2" / "new.py") is None
+    assert _declared_owner(_SOURCE_ROOT / "new.py") is None
 
 
 def test_architectural_modules_are_acyclic() -> None:

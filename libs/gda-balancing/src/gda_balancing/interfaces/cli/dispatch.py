@@ -43,10 +43,8 @@ from gda_balancing.interfaces.cli.envelope import (
     EXIT_USAGE,
     EXIT_VERDICT_FAIL,
     internal_envelope,
-    refusal_envelope,
     usage_envelope,
 )
-from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.domain.path_contracts import reject_input_aliasing
 from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
@@ -209,9 +207,6 @@ def _invoke_descriptor(
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
     outcome = descriptor.handler(input_obj)
-    if isinstance(outcome, RefusalReport):
-        stdout.write(canonical_json(refusal_envelope(outcome)))
-        return EXIT_REFUSAL
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
         if not observed <= set(descriptor.refusal_catalog):

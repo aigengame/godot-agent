@@ -385,13 +385,12 @@ class TestSurfaceLaws:
             assert (exit_code, stdout) == (3, "")
             assert _assert_envelope(stderr, "usage")["code"] == "unknown_command"
 
-    def test_refusal_outcome_maps_to_refusal_envelope_exit_2(self, run_cli, invocation):
-        # No v1 command produces refusals (#504 lands the funnel); the seam
-        # is proven by injection, like the internal row: a handler returning
-        # a RefusalReport must yield the refusal envelope on STDOUT, exit 2.
-        # Driven at both constructible edges — the outcome models bound what
-        # a handler can build (bADR-0011's outcome→invocation-result
-        # invariant: whatever constructs emits schema-valid stdout).
+    def test_legacy_refusal_cannot_enter_the_schema2_dispatch_path(
+        self, run_cli, invocation
+    ):
+        # Standard Schema 1.x exists only behind the source-migration boundary.
+        # Returning its refusal type from any active 2.x descriptor is a host
+        # bug and must not serialize as a public Schema 2.x refusal.
         minimal = RefusalReport(
             refusals=(Refusal(code="some_refusal", path="", detail="why"),),
             truncated=False,
@@ -410,12 +409,8 @@ class TestSurfaceLaws:
             )
             for descriptor in registry:
                 exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
-                assert (exit_code, stderr) == (2, "")
-                payload = json.loads(stdout)
-                jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-                assert payload["error"]["category"] == "refusal"
-                assert payload["error"]["truncated"] is report.truncated
-                assert len(payload["error"]["refusals"]) == len(report.refusals)
+                assert (exit_code, stdout) == (4, "")
+                assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_duplicate_command_registration_is_rejected(self):
         with pytest.raises(ValueError, match="duplicate command registration"):

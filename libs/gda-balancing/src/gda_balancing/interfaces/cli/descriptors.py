@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.interfaces.cli.envelope import USAGE_CODES
-from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.domain.authority.admission import SCHEMA2_REFUSAL_STAGES
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
@@ -173,7 +172,7 @@ class CommandDescriptor:
     # exits, never sees a usage error. An unexpected exception here is the
     # sole path to `internal` / exit 4. Typed `...` because each command's
     # handler takes its own concrete input model (contravariance).
-    handler: Callable[..., BaseModel | RefusalReport | Schema2RefusalReport]
+    handler: Callable[..., BaseModel | Schema2RefusalReport]
     fixtures: ConformanceFixtures
     # A completed negative judgment is a third typed handler result. It is
     # emitted on stdout with exit 1 and remains distinct from refusal.
