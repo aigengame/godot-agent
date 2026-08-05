@@ -455,7 +455,9 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
     checked_converted = model_checking_module.check_model_source_value(converted_source)
     assert isinstance(checked_converted, model_module.CheckedModel)
 
-    sugar_rir = model_compilation_module.lower_checked_model(checked_sugar)["rir-semantic-payload"]
+    sugar_rir = model_compilation_module.lower_checked_model(checked_sugar)[
+        "rir-semantic-payload"
+    ]
     converted_rir = model_compilation_module.lower_checked_model(checked_converted)[
         "rir-semantic-payload"
     ]
@@ -2286,7 +2288,9 @@ def test_model_check_runs_the_same_lowering_and_admission_front_end(
         calls += 1
         return real_lowerer(checked)
 
-    monkeypatch.setattr(model_compilation_module, "lower_checked_model", observed_lowerer)
+    monkeypatch.setattr(
+        model_compilation_module, "lower_checked_model", observed_lowerer
+    )
 
     assert run_cli(["model", "check", str(source)])[0] == 0
     assert calls == 1
@@ -4850,7 +4854,8 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
         checked = model_checking_module.check_model_source(str(source))
         assert isinstance(checked, model_module.CheckedModel)
         return cast(
-            dict[str, dict[str, Any]], model_compilation_module.lower_checked_model(checked)
+            dict[str, dict[str, Any]],
+            model_compilation_module.lower_checked_model(checked),
         )
 
     baseline = _model_source()

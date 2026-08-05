@@ -629,7 +629,9 @@ def _materialize_primary(out_path: Path, resolved: dict[str, Any]) -> None:
     try:
         materialize_bytes(out_path, data)
     except SymlinkPathError as err:
-        raise PublicationError("unsafe_path", "presentation path must not be a symlink") from err
+        raise PublicationError(
+            "unsafe_path", "presentation path must not be a symlink"
+        ) from err
     except NonRegularPathError as err:
         raise PublicationError(
             "output_unavailable", f"output is not a regular file: {out_path}"
@@ -639,7 +641,9 @@ def _materialize_primary(out_path: Path, resolved: dict[str, Any]) -> None:
             "output_unavailable", f"output already contains different bytes: {out_path}"
         ) from err
     except OSError as err:
-        raise PublicationError("output_unavailable", f"cannot inspect output: {out_path}") from err
+        raise PublicationError(
+            "output_unavailable", f"cannot inspect output: {out_path}"
+        ) from err
 
 
 def _recover_publication(
@@ -824,7 +828,9 @@ def publish_artifact_set(
                 authentication_key,
             )
         if inspect_path(out_path).kind is not PathKind.MISSING:
-            raise PublicationError("output_unavailable", f"output already exists: {out_path}")
+            raise PublicationError(
+                "output_unavailable", f"output already exists: {out_path}"
+            )
         return _commit_generic_publication(
             invocation_path,
             anchor_path,
@@ -1252,7 +1258,9 @@ def _publish_lazy_artifact_set_locked(
             validator,
         )
     if inspect_path(out_path).kind is not PathKind.MISSING:
-        raise PublicationError("output_unavailable", f"output already exists: {out_path}")
+        raise PublicationError(
+            "output_unavailable", f"output already exists: {out_path}"
+        )
 
     artifacts = artifact_provider()
     validator(artifacts, semantic_input_identity, authority_context)

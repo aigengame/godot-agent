@@ -148,8 +148,7 @@ def validate_compiled_artifacts(
         or resolution_receipt.get("kernel_identity") != kernel["content_identity"]
         or resolution_receipt.get("language_bundle_identity")
         != language_bundle["content_identity"]
-        or resolution_receipt.get("package_lock_identity")
-        != lock["content_identity"]
+        or resolution_receipt.get("package_lock_identity") != lock["content_identity"]
         or resolution_receipt.get("diagnostics") != []
     ):
         raise RuntimeError("provenance artifacts have invalid bindings")

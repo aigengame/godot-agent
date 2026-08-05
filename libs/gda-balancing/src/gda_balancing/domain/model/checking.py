@@ -48,6 +48,7 @@ from gda_balancing.domain.model.resolution import (
 )
 from gda_balancing.domain.model.compilation import _lowering_inputs
 
+
 def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
     """Admit and check one Model Source Package without publishing artifacts."""
     try:
