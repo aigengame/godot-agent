@@ -24,7 +24,9 @@ import pytest
 import build_config
 
 ITEMS_JSON_PATH = build_config.GAME_DIR / "content/data/json/items_config.json"
-ITEMS_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/items_config.schema.json"
+ITEMS_SCHEMA_PATH = (
+    build_config.GAME_DIR / "content/data/schema/items_config.schema.json"
+)
 ITEMS_TRES_REL = "content/data/generated/items_config.tres"
 
 

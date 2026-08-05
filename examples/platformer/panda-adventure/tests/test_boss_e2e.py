@@ -223,7 +223,9 @@ class _Session:
 def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runtime_dir):
     """One full Warp rotation, live: tell -> formula blink -> zone -> release."""
     project = _make_project_copy(tmp_path / "game")
-    enemies = build_config.load_composed("content/data/json/enemies_config.json", root=project)
+    enemies = build_config.load_composed(
+        "content/data/json/enemies_config.json", root=project
+    )
     boss = enemies["kinds"][_BOSS_KIND]
     player_cfg = build_config.load_composed("content/data/json/player_config.json")
     level_cfg = build_config.load_composed("content/data/json/level_config.json")
@@ -265,7 +267,9 @@ def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runti
         assert field["duration"] == pytest.approx(boss["time_field_duration"])
 
         # The Boss actually moved in the runtime tree, not just in the log.
-        assert s.position("/root/Main/Gameplay/Boss")[0] == pytest.approx(blink["to_x"], abs=2.0)
+        assert s.position("/root/Main/Gameplay/Boss")[0] == pytest.approx(
+            blink["to_x"], abs=2.0
+        )
 
         # The Player is inside the zone: the dilation EDGE record fires with
         # the config factor.

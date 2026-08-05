@@ -21,7 +21,9 @@ import pytest
 import build_config
 
 GRAVITY_JSON_PATH = build_config.GAME_DIR / "content/data/json/gravity_config.json"
-GRAVITY_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/gravity_config.schema.json"
+GRAVITY_SCHEMA_PATH = (
+    build_config.GAME_DIR / "content/data/schema/gravity_config.schema.json"
+)
 GRAVITY_TRES_REL = "content/data/generated/gravity_config.tres"
 
 

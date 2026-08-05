@@ -109,9 +109,9 @@ def test_committed_hud_font_fnt_is_a_fresh_derive() -> None:
     expected = derive_bitmap_font(
         _SHEET_RES, entry.frame_layout, first_codepoint=font_build.FIRST_CODEPOINT
     )
-    committed = (build_config.GAME_DIR / "content" / "assets" / "fonts" / "hud_font.fnt").read_text(
-        encoding="utf-8"
-    )
+    committed = (
+        build_config.GAME_DIR / "content" / "assets" / "fonts" / "hud_font.fnt"
+    ).read_text(encoding="utf-8")
     assert committed == expected
 
 
@@ -144,10 +144,16 @@ def test_documented_rebuild_command_runs_and_regenerates_valid_assets(
         src / "tools", game / "tools", ignore=shutil.ignore_patterns("__pycache__")
     )
     (game / "content" / "data" / "json").mkdir(parents=True)
-    shutil.copy(src / "content" / "data" / "json" / "scale_spec.json", game / "content" / "data" / "json")
+    shutil.copy(
+        src / "content" / "data" / "json" / "scale_spec.json",
+        game / "content" / "data" / "json",
+    )
     (game / "content" / "assets" / "fonts").mkdir(parents=True)
     for name in ("PressStart2P-Regular.ttf", "OFL.txt"):
-        shutil.copy(src / "content" / "assets" / "fonts" / name, game / "content" / "assets" / "fonts")
+        shutil.copy(
+            src / "content" / "assets" / "fonts" / name,
+            game / "content" / "assets" / "fonts",
+        )
 
     env = {**os.environ, "PYTHONPATH": str(game / "tools")}
     run = subprocess.run(

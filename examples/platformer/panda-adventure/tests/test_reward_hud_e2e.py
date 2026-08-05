@@ -224,7 +224,9 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
         # Let the Player settle on the platform (S1-proven poll) so the walk
         # below starts from rest.
         assert poll(
-            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            lambda: (
+                abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            )
         ), "Player did not land"
 
         # The boot readout renders the authoritative values.

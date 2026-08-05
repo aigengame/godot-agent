@@ -292,7 +292,9 @@ def test_enemy_kind_round_trips(gda, kind: str) -> None:
     Compared to the COMPOSED authority: the body/bolt boxes are authored in
     scale_spec.json's enemy_boxes (gADR-0013) and composed into the kind.
     """
-    config = build_config.load_composed("content/data/json/enemies_config.json")["kinds"][kind]
+    config = build_config.load_composed("content/data/json/enemies_config.json")[
+        "kinds"
+    ][kind]
     props = _get_props(gda, f"res://content/data/generated/enemy_{kind}.tres")
 
     # Taxonomy axes come back as the exact strings.

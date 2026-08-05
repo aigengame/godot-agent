@@ -28,7 +28,9 @@ import pytest
 
 import build_config
 
-PROGRESSION_JSON_PATH = build_config.GAME_DIR / "content/data/json/progression_config.json"
+PROGRESSION_JSON_PATH = (
+    build_config.GAME_DIR / "content/data/json/progression_config.json"
+)
 PROGRESSION_SCHEMA_PATH = (
     build_config.GAME_DIR / "content/data/schema/progression_config.schema.json"
 )

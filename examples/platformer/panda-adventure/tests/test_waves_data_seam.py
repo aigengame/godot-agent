@@ -182,7 +182,9 @@ def test_reconfiguring_the_wave_count_is_json_only(tmp_path, count: int) -> None
 
     build_config.build_all(root=tmp_path)
 
-    tres = (tmp_path / "content/data/generated/wave_schedule.tres").read_text(encoding="utf-8")
+    tres = (tmp_path / "content/data/generated/wave_schedule.tres").read_text(
+        encoding="utf-8"
+    )
     assert tres.count('{"spawns": [') == count
     for n in range(1, count + 1):
         assert f'"name": "Wave{n}Minion"' in tres
@@ -284,7 +286,9 @@ def test_wave_schedule_round_trips(gda) -> None:
     all matching the authoritative JSON.
     """
     config = _config()
-    result = gda("resource", "get", "res://content/data/generated/wave_schedule.tres", "--json")
+    result = gda(
+        "resource", "get", "res://content/data/generated/wave_schedule.tres", "--json"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     props = {p["name"]: p["value"] for p in json.loads(result.stdout)["properties"]}
     assert props["spawn_squash"] == pytest.approx(config["spawn_squash"])

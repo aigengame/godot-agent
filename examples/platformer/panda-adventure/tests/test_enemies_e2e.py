@@ -203,7 +203,9 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
 
     project = _make_project_copy(tmp_path / "game", hot_melee)
     # Every expectation derives from the copy's AUTHORITATIVE JSON.
-    enemies = build_config.load_composed("content/data/json/enemies_config.json", root=project)
+    enemies = build_config.load_composed(
+        "content/data/json/enemies_config.json", root=project
+    )
     combat = build_config.load_composed("content/data/json/combat_config.json")
     player_cfg = build_config.load_composed("content/data/json/player_config.json")
     rampart = _rampart()
@@ -321,7 +323,9 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         return config
 
     project = _make_project_copy(tmp_path / "game", ranged_roster)
-    enemies = build_config.load_composed("content/data/json/enemies_config.json", root=project)
+    enemies = build_config.load_composed(
+        "content/data/json/enemies_config.json", root=project
+    )
     combat = build_config.load_composed("content/data/json/combat_config.json")
     player_cfg = build_config.load_composed("content/data/json/player_config.json")
     kind = enemies["kinds"]["robot_elite_ranged"]
@@ -366,9 +370,9 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         ]
         seq = s.run("input", "sequence", "--events", json.dumps(events))
         assert seq.returncode == 0, seq.stdout + seq.stderr
-        assert s.poll(lambda: s.position("/root/Main/Gameplay/Enemy")[0] > enemy_x0 + 30.0), (
-            "crowded ranged enemy never backed off"
-        )
+        assert s.poll(
+            lambda: s.position("/root/Main/Gameplay/Enemy")[0] > enemy_x0 + 30.0
+        ), "crowded ranged enemy never backed off"
         assert s.poll(lambda: s.distance() >= band_min - 40.0), (
             f"ranged enemy never restored its standoff: {s.distance()}"
         )

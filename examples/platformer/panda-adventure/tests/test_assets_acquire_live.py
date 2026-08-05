@@ -41,7 +41,9 @@ def _game_root(tmp_path: Path) -> Path:
     dst = tmp_path / "content" / "data" / "json" / "scale_spec.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(
-        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text("utf-8"),
+        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text(
+            "utf-8"
+        ),
         encoding="utf-8",
     )
     return tmp_path

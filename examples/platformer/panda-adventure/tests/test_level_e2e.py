@@ -373,7 +373,8 @@ def test_losing_run_freezes_and_retries(tmp_path, daemon_runtime_dir):
             )
         ), "the World freeze never disabled the Player"
         assert (
-            s.property_of("/root/Main/Gameplay/Killer", "process_mode") == _PROCESS_MODE_DISABLED
+            s.property_of("/root/Main/Gameplay/Killer", "process_mode")
+            == _PROCESS_MODE_DISABLED
         ), "the World freeze never disabled the Killer"
         attacks_frozen = len(s.records("enemy_attack"))
         time.sleep(1.5)

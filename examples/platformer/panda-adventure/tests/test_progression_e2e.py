@@ -88,7 +88,9 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
     # the retuned drop chance), never hardcoded.
     combat = build_config.load_composed("content/data/json/combat_config.json")
     player_cfg = build_config.load_composed("content/data/json/player_config.json")
-    progression = build_config.load_composed("content/data/json/progression_config.json")
+    progression = build_config.load_composed(
+        "content/data/json/progression_config.json"
+    )
     level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
@@ -229,7 +231,9 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
 
         # Let the Player settle on the platform so the walk starts from rest.
         assert poll(
-            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            lambda: (
+                abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            )
         ), "Player did not land"
 
         # --- The kill: walk into the minion's Aggro Range (the deterministic

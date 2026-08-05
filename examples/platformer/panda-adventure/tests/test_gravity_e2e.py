@@ -249,18 +249,23 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # The in-range Obstacle is lifted (its y decreases: lift is the shipped
         # upward default) without horizontal drift.
         assert poll(
-            lambda: node_position("/root/Main/Gameplay/Obstacle")[1] < obstacle_before[1] - 10.0
+            lambda: (
+                node_position("/root/Main/Gameplay/Obstacle")[1]
+                < obstacle_before[1] - 10.0
+            )
         ), "the Gravity Field did not lift the in-range Obstacle"
         assert node_position("/root/Main/Gameplay/Obstacle")[0] == pytest.approx(
             obstacle_before[0], abs=1.0
         )
 
         # The field is LOCAL: the far-away Enemy does not move...
-        assert node_position("/root/Main/Gameplay/Enemy") == pytest.approx(enemy_pos, abs=1.0), (
-            "the out-of-range Enemy must not be affected"
-        )
+        assert node_position("/root/Main/Gameplay/Enemy") == pytest.approx(
+            enemy_pos, abs=1.0
+        ), "the out-of-range Enemy must not be affected"
         # ...and it NEVER acts on the Player (mask guarantee): still resting.
-        assert node_position("/root/Main/Gameplay/Player")[1] == pytest.approx(rest_y, abs=2.0)
+        assert node_position("/root/Main/Gameplay/Player")[1] == pytest.approx(
+            rest_y, abs=2.0
+        )
 
         # --- Engage the Enemy and lift it with a field (gADR-0002 suspension).
         #
@@ -273,7 +278,9 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # 28703817301: enemy 4.7 px behind the Player, field center 124.7 px
         # away, zero suspension frames). So walk in only until ENGAGED (live
         # gap <= the spawn offset), and aim the shot from LIVE positions.
-        enemies_cfg = build_config.load_composed("content/data/json/enemies_config.json")
+        enemies_cfg = build_config.load_composed(
+            "content/data/json/enemies_config.json"
+        )
         enemy_spawn = next(
             s
             for wave in enemies_cfg["waves"]

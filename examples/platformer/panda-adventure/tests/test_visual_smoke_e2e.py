@@ -347,7 +347,9 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     combat = build_config.load_composed("content/data/json/combat_config.json")
     player_cfg = build_config.load_composed("content/data/json/player_config.json")
     level_cfg = build_config.load_composed("content/data/json/level_config.json")
-    progression = build_config.load_composed("content/data/json/progression_config.json")
+    progression = build_config.load_composed(
+        "content/data/json/progression_config.json"
+    )
     # The Pickups' Scale-spec boxes (gADR-0013, composed into the drop styles).
     pickup_sizes = {
         item: progression["drop_items"][item]["size"]
@@ -500,7 +502,9 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         # capture is both the boot checkpoint and the blend/diff baseline.
         assert poll(lambda: records("hud_ready")), "no gda_log 'hud_ready' record"
         assert poll(
-            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            lambda: (
+                abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            )
         ), "Player did not land"
         time.sleep(_CAMERA_SETTLE)
         anchor_boot = prop("/root/Main/Gameplay/Player", "position")

@@ -176,11 +176,14 @@ def test_boss_warp_fields_round_trip(gda) -> None:
     Compared to the COMPOSED authority (gADR-0013): the Scale spec's
     ``time_field_radius`` rides in the same derived block.
     """
-    config = build_config.load_composed("content/data/json/enemies_config.json")["kinds"][
-        "alien_boss_tank"
-    ]
+    config = build_config.load_composed("content/data/json/enemies_config.json")[
+        "kinds"
+    ]["alien_boss_tank"]
     result = gda(
-        "resource", "get", "res://content/data/generated/enemy_alien_boss_tank.tres", "--json"
+        "resource",
+        "get",
+        "res://content/data/generated/enemy_alien_boss_tank.tres",
+        "--json",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     props = {p["name"]: p["value"] for p in json.loads(result.stdout)["properties"]}

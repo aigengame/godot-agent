@@ -380,9 +380,9 @@ def test_generation_records_the_backend_model(tmp_path: Path) -> None:
         raw_dir=tmp_path / "raw",
     )
     assert entry.model == "gemini-2.5-flash-image"
-    assert manifest.load_manifest(tmp_path, "content/assets")["obstacle_crate"].model == (
-        "gemini-2.5-flash-image"
-    )
+    assert manifest.load_manifest(tmp_path, "content/assets")[
+        "obstacle_crate"
+    ].model == ("gemini-2.5-flash-image")
 
 
 def test_per_asset_model_wins_and_defaults_to_pro() -> None:
@@ -430,7 +430,9 @@ def _stage_scale_spec(root: Path) -> None:
     dst = root / "content" / "data" / "json" / "scale_spec.json"
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(
-        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text("utf-8"),
+        (build_config.GAME_DIR / "content/data/json/scale_spec.json").read_text(
+            "utf-8"
+        ),
         encoding="utf-8",
     )
 
@@ -600,7 +602,9 @@ def test_compose_asset_refs_passthrough() -> None:
 
 def test_gravity_tres_carries_the_resolved_path() -> None:
     """The committed gravity_config.tres renders the resolved obstacle path."""
-    tres = (build_config.GAME_DIR / "content/data/generated/gravity_config.tres").read_text()
+    tres = (
+        build_config.GAME_DIR / "content/data/generated/gravity_config.tres"
+    ).read_text()
     assert 'obstacle_asset = "res://content/assets/textures/obstacle_crate.png"' in tres
 
 
@@ -629,14 +633,19 @@ def test_compose_asset_refs_resolves_nested_pickup_refs() -> None:
     build_config.compose_asset_refs(
         doc, build_config._PROGRESSION_JSON_REL, build_config.load_asset_manifest()
     )
-    assert doc["drop_items"]["gold"]["asset"] == "res://content/assets/textures/pickup_gold.png"
+    assert (
+        doc["drop_items"]["gold"]["asset"]
+        == "res://content/assets/textures/pickup_gold.png"
+    )
     assert doc["drop_items"]["bun"]["asset"] == ""
     assert "asset" not in doc["drop_items"]["nostyle"]
 
 
 def test_combat_tres_carries_the_resolved_projectile_path() -> None:
     """The committed combat_config.tres renders the resolved Laser bolt path."""
-    tres = (build_config.GAME_DIR / "content/data/generated/combat_config.tres").read_text()
+    tres = (
+        build_config.GAME_DIR / "content/data/generated/combat_config.tres"
+    ).read_text()
     assert 'projectile_asset = "res://content/assets/textures/laser_bolt.png"' in tres
 
 
@@ -690,7 +699,9 @@ def test_fk_integrity_fails_on_unrecorded_reference(tmp_path: Path) -> None:
     """A referenced id with no manifest entry fails the FK gate."""
     root = _copy_authority(tmp_path)
     # Drop the manifest entry the authority references.
-    (root / "content" / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
+    (root / "content" / "assets" / "manifest" / "textures.json").write_text(
+        "{}\n", "utf-8"
+    )
     with pytest.raises(jsonschema.ValidationError):
         build_config.validate_asset_refs(root)
 
@@ -720,7 +731,9 @@ def test_build_all_enforces_the_manifest_gate(tmp_path: Path) -> None:
     """build_all FAILS on a missing referenced id — the gate is in the BUILD path,
     not just tests (gADR-0014) — and leaves no partial derived set behind."""
     root = _copy_authority(tmp_path)
-    (root / "content" / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
+    (root / "content" / "assets" / "manifest" / "textures.json").write_text(
+        "{}\n", "utf-8"
+    )
     with pytest.raises(jsonschema.ValidationError):
         build_config.build_all(root=root)
     # The gate ran before the spec loop: no partial writes (gADR-0000 no-drift).

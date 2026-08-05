@@ -281,7 +281,9 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
 
         # Let the Player settle on the platform so the walk starts from rest.
         assert poll(
-            lambda: abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            lambda: (
+                abs(prop("/root/Main/Gameplay/Player", "position")[1] - rest_y) <= 2.0
+            )
         ), "Player did not land"
 
         # --- Supply gating: with nothing held, BOTH use verbs refuse — one

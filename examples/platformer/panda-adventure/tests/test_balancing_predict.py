@@ -202,7 +202,14 @@ def test_cli_predict_out_relative_traversal_is_refused(capsys, monkeypatch) -> N
     monkeypatch.chdir(GAME_DIR / "tools")
     before = _tree_hash(DATA_DIR)
     code = cli_main(
-        _cli("predict", "--json", "--runs", "1", "--out", "../content/data/json/sneaky.json")
+        _cli(
+            "predict",
+            "--json",
+            "--runs",
+            "1",
+            "--out",
+            "../content/data/json/sneaky.json",
+        )
     )
     assert code == EXIT_REFUSED
     assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"

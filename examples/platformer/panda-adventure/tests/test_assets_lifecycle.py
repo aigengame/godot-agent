@@ -298,9 +298,7 @@ def test_committed_asset_files_enumerates_the_assets_tree() -> None:
 
 def test_validate_committed_asset_sizes_passes_on_real_repo() -> None:
     """The committed Content assets carry no >= T binary outside LFS."""
-    lifecycle.validate_committed_asset_sizes(
-        GAME_DIR, _T, assets_root="content/assets"
-    )
+    lifecycle.validate_committed_asset_sizes(GAME_DIR, _T, assets_root="content/assets")
 
 
 def _git(root: Path, *args: str) -> None:

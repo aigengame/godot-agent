@@ -246,7 +246,9 @@ def test_composition_injects_every_migrated_dimension() -> None:
     assert hud["margin"] == scale["hud_margin"]
     assert hud["font_size"] == scale["hud_font_size"]
 
-    progression = build_config.load_composed("content/data/json/progression_config.json")
+    progression = build_config.load_composed(
+        "content/data/json/progression_config.json"
+    )
     assert progression["pickup_spacing"] == scale["pickup_spacing"]
     for item, style in progression["drop_items"].items():
         assert style["size"] == scale["pickup_sizes"][item], item
@@ -263,7 +265,9 @@ def test_composition_rejects_a_kind_without_a_box() -> None:
     enemies = copy.deepcopy(build_config.load_json(build_config.ENEMIES_JSON_PATH))
     enemies["kinds"]["new_kind"] = dict(enemies["kinds"]["monster_minion_melee"])
     with pytest.raises(jsonschema.ValidationError):
-        build_config.compose_scale_spec(enemies, "content/data/json/enemies_config.json", scale)
+        build_config.compose_scale_spec(
+            enemies, "content/data/json/enemies_config.json", scale
+        )
 
 
 # ---------------------------------------------------------------------------

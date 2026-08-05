@@ -100,7 +100,9 @@ def test_asset_reference_materializes_in_nested_view_structures() -> None:
     )
     assert rendered.count('"asset": ""') == len(level["platforms"])
 
-    progression = build_config.load_composed("content/data/json/progression_config.json")
+    progression = build_config.load_composed(
+        "content/data/json/progression_config.json"
+    )
     rendered = build_config._render_field(
         "drop_items", "item_style_map", progression["drop_items"]
     )

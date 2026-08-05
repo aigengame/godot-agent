@@ -38,7 +38,9 @@ def test_runtime_dependencies_point_downward() -> None:
                     rel = path.relative_to(GAME_DIR)
                     violations.append(f"{rel} -> res://{target_root}/")
 
-    assert not violations, "upward runtime dependencies:\n" + "\n".join(sorted(violations))
+    assert not violations, "upward runtime dependencies:\n" + "\n".join(
+        sorted(violations)
+    )
 
 
 def test_runtime_does_not_depend_on_editor_tools() -> None:
