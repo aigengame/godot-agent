@@ -56,6 +56,7 @@ def test_plain_run_prints_logs_despite_committed_dormant_harness() -> None:
     # the boot records (emitted from _ready, deterministic) appear on stdout.
     assert "[info] player_ready" in result.stdout, combined
     assert "[info] boot" in result.stdout, combined
+    assert "[info] game_shell_ready" in result.stdout, combined
     # As PLAIN print lines — never the rich daemon marker (dormant harness = no IPC).
     assert "<<<GDA:LOG>>>" not in result.stdout, combined
     # And the boot itself stayed clean.

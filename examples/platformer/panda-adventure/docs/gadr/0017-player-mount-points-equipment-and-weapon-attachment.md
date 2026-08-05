@@ -87,7 +87,7 @@ Consequences:
   VFX).
 - Phase A is a small slice — the two `Marker2D` nodes in `content/scenes/gameplay.tscn`, the scale_spec
   `player_mounts` section, `_ready` positioning, and tests — that does **not** touch #443's art,
-  `player.tres`, or `src/systems`. Phase B (Paperdoll overlay + weapon sprites + the
+  `player.tres`, or `systems/`. Phase B (Paperdoll overlay + weapon sprites + the
   `weapon_switched` hook) is a separate follow-up, blocked on phase A.
 - The reserved mounts are inert until phase B fills them: an empty `Marker2D` still exists in the
   scene tree but renders nothing and has negligible runtime overhead (no rendering or gameplay
