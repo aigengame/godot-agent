@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Godot Modular Architecture"
+  short_description: "Design modular Godot projects with one-way dependencies"
+  default_prompt: "Use $design-godot-modular-architecture to design or review modular boundaries and dependencies in this Godot project."

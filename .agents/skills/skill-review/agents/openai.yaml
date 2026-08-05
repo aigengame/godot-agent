@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skill Review"
+  short_description: "Review skills for correctness, structure, and clear terms"
+  default_prompt: "Use $skill-review to review this skill or skill-focused change for correctness, consistency, completeness, orthogonality, DRY, terminology, and clear prose."

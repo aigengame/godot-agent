@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handle Review"
+  short_description: "Evaluate PR feedback before making changes"
+  default_prompt: "Use $handle-review to evaluate these PR comments and decide, with evidence, what to fully adopt, partially adopt, or not adopt."
