@@ -26,7 +26,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-cutting invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0024](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0025](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -243,6 +243,44 @@ The major subsystems are:
 | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
 | Artifact publisher | Publish complete immutable artifact sets and retrieval metadata | Artifact envelopes, Locators, and Receipts |
 | Structured CLI | Expose authority artifacts and operations without inventing a second model | Descriptor-derived commands and surface manifest |
+
+### 4.1 Host implementation layers
+
+The Python host follows four dependency-directed implementation layers. This organization is not a
+second Standard Schema authority: Kernel/LDB artifacts still own machine semantics, while the
+layers state where the conforming implementation owns behavior and how code may depend on it.
+
+```mermaid
+flowchart RL
+    I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
+    A["Application<br/>end-to-end use cases"]
+    D["Domain<br/>Standard Schema rules and artifact policy"]
+    N["Infrastructure<br/>domain-neutral I/O and atomic mechanisms"]
+
+    I -->|imports| A
+    A -->|imports| D
+    D -->|imports| N
+```
+
+- `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
+  locking, and atomic filesystem primitives. It does not select authority members or define
+  identity and refusal policy.
+- `domain` owns authority admission and lifecycle, Formula, Model, Runtime, Experiment, Evidence,
+  Template, artifact identity, and publication/recovery rules. Publication policy depends on
+  atomic filesystem mechanisms directly; no speculative Repository layer is present.
+- `application` coordinates one public use case at a time and returns typed results or refusals. It
+  does not know argv syntax, stdout/stderr, exit codes, or CLI envelopes.
+- `interfaces/cli` owns Command descriptors, the one immutable registry, schema/manifest
+  projection, binding, help, rendering, envelopes, exit codes, and the executable composition
+  root. CLI adapters translate values but contain no language or evaluation rules.
+
+Imports may point only to the same layer or a lower layer, and same-layer dependencies remain
+acyclic. An AST gate checks both rules and rejects the removed top-level command, descriptor,
+dispatch, rendering, envelope, and active Schema 2.x implementation modules. The historical
+`schema2/` package now contains only packaged machine-authority resources; `schema/` is isolated to
+the accepted Standard Schema 1.x source-migration input protocol and is not an active 2.x semantic
+path. This is the durable macro structure; detailed module ownership remains in code and bADR-0025
+rather than a second file-by-file map.
 
 ## 5. Language and semantic model
 
@@ -1326,6 +1364,8 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | CLI taxonomy and structured surface | [bADR-0021](badr/0021-schema-2.0-cli-taxonomy-and-structured-surface.md) | Command descriptors and Surface manifest |
 | Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |
 | Sealed multi-member LDB graph | [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md) | Root/package admission, public retrieval, packaging, and mutation vectors |
+| Canonical Formula notation | [bADR-0024](badr/0024-canonical-reversible-formula-notation.md) | Formula pairing, parse/render, and JSON contract vectors |
+| Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, public CLI regressions, and source/wheel parity |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”
