@@ -23,7 +23,8 @@ import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.model.resolution as model_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
-from gda_balancing.domain.diagnostics import ArtifactLocation
+from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.infrastructure.input_bytes import InputTooLargeError
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
@@ -6049,6 +6050,35 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     assert [item["code"] for item in error["diagnostics"]] == [
         "language.source_parse_failure"
     ]
+
+
+def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
+    context = authority_module.packaged_authority_context()
+    max_bytes = cast(int, context.language_bundle["resources"]["max_source_bytes"])
+    calls: list[tuple[str, int]] = []
+
+    def reject_oversized(path: str, limit: int) -> bytes:
+        calls.append((path, limit))
+        raise InputTooLargeError
+
+    monkeypatch.setattr(
+        experiment_admission_module,
+        "read_bounded_input",
+        reject_oversized,
+        raising=False,
+    )
+
+    result = experiment_admission_module.check_experiment(
+        "oversized-experiment.json",
+        authority_context=context,
+    )
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert calls == [("oversized-experiment.json", max_bytes)]
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "language.source_too_large"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.content_identity == "unidentified"
 
 
 def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):

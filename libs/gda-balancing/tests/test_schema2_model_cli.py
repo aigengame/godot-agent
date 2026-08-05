@@ -43,6 +43,7 @@ from gda_balancing.domain.authority.graph import (
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.interfaces.cli.errors import UsageError
+from gda_balancing.infrastructure.input_bytes import InputTooLargeError
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
@@ -2540,6 +2541,32 @@ def test_model_check_reports_source_size_at_ingress(tmp_path, run_cli):
     error = json.loads(stdout)["error"]
     assert error["stage"] == "ingress"
     assert error["diagnostics"][0]["code"] == "language.source_too_large"
+
+
+def test_model_check_bounds_the_file_read_before_admission(monkeypatch):
+    context = authority_module.packaged_authority_context()
+    max_bytes = cast(int, context.language_bundle["resources"]["max_source_bytes"])
+    calls: list[tuple[str, int]] = []
+
+    def reject_oversized(path: str, limit: int) -> bytes:
+        calls.append((path, limit))
+        raise InputTooLargeError
+
+    monkeypatch.setattr(
+        model_checking_module,
+        "read_bounded_input",
+        reject_oversized,
+        raising=False,
+    )
+
+    result = model_checking_module.check_model_source("oversized-source.json")
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert calls == [("oversized-source.json", max_bytes)]
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "language.source_too_large"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.content_identity == "unidentified"
 
 
 def test_model_check_reports_wire_decode_failure_at_parse(tmp_path, run_cli):

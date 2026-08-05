@@ -1,7 +1,6 @@
 """Model Source checking against one admitted authority context."""
 
 import json
-from pathlib import Path
 from typing import Any, cast
 
 import jsonschema
@@ -19,6 +18,11 @@ from gda_balancing.domain.diagnostics import (
     reason_by_id,
 )
 from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.infrastructure.input_bytes import (
+    InputReadError,
+    InputTooLargeError,
+    read_bounded_input,
+)
 from gda_balancing.domain.model.resolution import (
     CheckedModel,
     _EntrypointBindingError,
@@ -51,12 +55,42 @@ from gda_balancing.domain.model.compilation import _lowering_inputs
 
 def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
     """Admit and check one Model Source Package without publishing artifacts."""
+    authority_context = packaged_authority_context()
+    ldb = authority_context.language_bundle
     try:
-        data = Path(path).read_bytes()
-    except OSError as err:
+        data = read_bounded_input(path, _model_source_byte_bound(ldb))
+    except InputTooLargeError:
+        return _model_source_too_large_refusal(ldb)
+    except InputReadError as err:
         raise UnreadableInputError(f"cannot read input document: {path}") from err
 
-    return _check_model_source_bytes(data)
+    return _check_model_source_bytes(data, authority_context=authority_context)
+
+
+def _model_source_byte_bound(ldb: dict[str, Any]) -> int:
+    source_size_reason = _unique_reason(
+        ldb,
+        stage="ingress",
+        operation="greater-than",
+        limit_path="resources.max_source_bytes",
+    )
+    return _path_value(ldb, cast(str, source_size_reason["predicate"]["limit_path"]))
+
+
+def _model_source_too_large_refusal(ldb: dict[str, Any]) -> Schema2RefusalReport:
+    source_size_reason = _unique_reason(
+        ldb,
+        stage="ingress",
+        operation="greater-than",
+        limit_path="resources.max_source_bytes",
+    )
+    return _refusal(
+        cast(str, source_size_reason["diagnostic"]),
+        "unidentified",
+        "",
+        "Model Source Package exceeds the admitted byte bound",
+        ldb,
+    )
 
 
 def check_model_source_value(
@@ -113,23 +147,8 @@ def _check_model_source_bytes(
             authority_context = resolved_context
     kernel = authority_context.kernel
     ldb = authority_context.language_bundle
-    source_size_reason = _unique_reason(
-        ldb,
-        stage="ingress",
-        operation="greater-than",
-        limit_path="resources.max_source_bytes",
-    )
-    max_source_bytes = _path_value(
-        ldb, cast(str, source_size_reason["predicate"]["limit_path"])
-    )
-    if len(data) > max_source_bytes:
-        return _refusal(
-            cast(str, source_size_reason["diagnostic"]),
-            "unidentified",
-            "",
-            "Model Source Package exceeds the admitted byte bound",
-            ldb,
-        )
+    if len(data) > _model_source_byte_bound(ldb):
+        return _model_source_too_large_refusal(ldb)
     try:
         source = _strict_object(data)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as err:

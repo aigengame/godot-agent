@@ -27,7 +27,10 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
 )
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
-from gda_balancing.infrastructure.input_bytes import read_input
+from gda_balancing.infrastructure.input_bytes import (
+    InputTooLargeError,
+    read_bounded_input,
+)
 from gda_balancing.domain.model.resolution import (
     admit_resolved_model,
 )
@@ -327,20 +330,21 @@ def check_experiment(
     authority_context: AdmittedAuthorityContext | None = None,
 ) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
-    data = read_input(path)
-
     context = authority_context or packaged_authority_context()
     kernel = context.kernel
     language_bundle = context.language_bundle
-    observed_identity = _raw_identity(data)
-    if len(data) > language_bundle["resources"]["max_source_bytes"]:
+    max_source_bytes = cast(int, language_bundle["resources"]["max_source_bytes"])
+    try:
+        data = read_bounded_input(path, max_source_bytes)
+    except InputTooLargeError:
         return _refusal(
             stage="ingress",
             code="language.source_too_large",
-            identity=observed_identity,
+            identity="unidentified",
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
         )
+    observed_identity = _raw_identity(data)
     try:
         value = parse_canonical_object(
             data,
