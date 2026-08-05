@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.schema2.formula_types import formula_contract_from_operation
+from gda_balancing.domain.formula.types import formula_contract_from_operation
 
 
 def infer_formula_operation_result(

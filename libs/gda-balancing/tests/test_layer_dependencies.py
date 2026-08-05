@@ -17,7 +17,10 @@ _LEGACY_UI_PREFIXES = (
     "gda_balancing.emit",
     "gda_balancing.envelope",
 )
-_TEMPORARY_INTERFACE_IMPORTS = ("gda_balancing.descriptors",)
+_TEMPORARY_INTERFACE_IMPORTS = (
+    "gda_balancing.descriptors",
+    "gda_balancing.envelope",
+)
 
 
 def _module_name(path: Path) -> str:

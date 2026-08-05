@@ -7,12 +7,12 @@ from typing import cast
 
 import pytest
 
-import gda_balancing.commands.formula as formula_command_module
+import gda_balancing.domain.formula.notation as formula_notation_module
+import gda_balancing.interfaces.cli.formula as formula_command_module
 import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.formula_notation as formula_notation_module
 import gda_balancing.schema2.model as model_module
+from gda_balancing.domain.formula.notation import admit_formula_pair
 from gda_balancing.schema2.canonical import JsonValue, content_identity
-from gda_balancing.schema2.formula_notation import admit_formula_pair
 from schema2_bootstrap_production_support import (
     _refresh_package_closure_and_reidentify,
 )
@@ -765,14 +765,14 @@ def test_formula_parse_reverse_admits_its_canonical_pair(
     source = tmp_path / "parse-request.json"
     source.write_text(formula_command_module._VALID_PARSE_REQUEST, encoding="utf-8")
     admitted_pairs: list[dict] = []
-    real_admit = formula_command_module.admit_formula_pair
+    real_admit = formula_notation_module.admit_formula_pair
 
     def observe_admission(request, authority_context, **kwargs):
         admitted_pairs.append(deepcopy(request))
         return real_admit(request, authority_context, **kwargs)
 
     monkeypatch.setattr(
-        formula_command_module,
+        formula_notation_module,
         "admit_formula_pair",
         observe_admission,
     )

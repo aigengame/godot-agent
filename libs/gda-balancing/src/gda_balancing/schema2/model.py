@@ -45,13 +45,13 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
     reason_by_id,
 )
-from gda_balancing.schema2.formula_notation import (
+from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
     FormulaPairRefusal,
     admit_formula_pair,
     formula_schema_version,
 )
-from gda_balancing.schema2.formula_types import (
+from gda_balancing.domain.formula.types import (
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
     literal_context_contract as _literal_context_contract,

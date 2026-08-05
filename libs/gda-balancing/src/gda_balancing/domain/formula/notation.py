@@ -11,14 +11,14 @@ import jsonschema
 
 from gda_balancing.schema2.authority import AdmittedAuthorityContext
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
-from gda_balancing.schema2.formula_types import (
+from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches,
     formula_contract_matches_operation,
     literal_context_contract,
     resolve_formula_contract,
 )
-from gda_balancing.schema2.formula_inference import infer_formula_operation_result
+from gda_balancing.domain.formula.inference import infer_formula_operation_result
 
 
 @dataclass(frozen=True)

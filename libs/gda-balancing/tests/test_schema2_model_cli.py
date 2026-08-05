@@ -25,7 +25,7 @@ from gda_balancing.schema2.artifact_semantics import artifact_semantic_projectio
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation, Schema2RefusalReport
-from gda_balancing.schema2.formula_notation import (
+from gda_balancing.domain.formula.notation import (
     parse_formula_expression,
     render_formula_body,
 )

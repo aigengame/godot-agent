@@ -39,8 +39,8 @@ dependency direction, not Standard Schema semantics.
   layer or a lower one, never a higher one. Same-layer dependencies must remain acyclic. During
   incremental migration, existing unclassified modules may call newly extracted lower-layer
   modules. Migrated lower layers cannot depend on legacy UI or command modules. A migrated
-  Interface module may temporarily use the legacy descriptor module, whose ownership moves in the
-  final UI-composition step, but it cannot import a legacy command handler.
+  Interface module may temporarily use the legacy descriptor and envelope modules, whose ownership
+  moves in the final UI-composition step, but it cannot import a legacy command handler.
 
 - **The CLI entry point is the composition root.** It may construct and connect lower-layer
   components, but it owns no language, Model, Runtime, Experiment, Template, or publication rule.

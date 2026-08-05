@@ -7,7 +7,6 @@ the tuple.
 """
 
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
-from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.commands.model import (
     MODEL_BUILD,
     MODEL_CHECK,
@@ -23,6 +22,7 @@ from gda_balancing.descriptors import CommandDescriptor, build_registry
 from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST
 from gda_balancing.interfaces.cli.package import PACKAGE_GET
 from gda_balancing.interfaces.cli.manifest import manifest_descriptor
+from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.interfaces.cli.schema import SCHEMA_GET
 from gda_balancing.interfaces.cli.version import VERSION
 

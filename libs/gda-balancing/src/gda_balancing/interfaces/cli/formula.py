@@ -1,37 +1,15 @@
 """Schema 2.0 Formula notation conversion commands."""
 
-import json
-from copy import deepcopy
-from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from gda_balancing.application.formula_conversion import parse_formula, render_formula
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.envelope import UnreadableInputError
-from gda_balancing.schema2.authority import (
-    AdmittedAuthorityContext,
-    packaged_authority_context,
-)
-from gda_balancing.schema2.canonical import (
-    JsonValue,
-    content_identity,
-    parse_canonical_object,
-)
-from gda_balancing.schema2.diagnostics import (
-    ArtifactLocation,
-    RefusalStage,
-    Schema2Diagnostic,
-    Schema2RefusalReport,
-    reason_by_id,
-)
-from gda_balancing.schema2.formula_notation import (
-    FormulaNotationRefusal,
-    admit_formula_pair,
-    formula_notation_request_identity_domain,
-    parse_formula_expression,
-    render_formula_body,
-)
+from gda_balancing.infrastructure.input_bytes import InputReadError
+from gda_balancing.schema2.authority import packaged_authority_context
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import refusal_catalog_for_reasons
 
 
@@ -56,145 +34,37 @@ class FormulaConversionResult(BaseModel):
     language_bundle_identity: str
 
 
-def _read_request(
-    path: str,
-    authority_context: AdmittedAuthorityContext,
-) -> dict[str, Any]:
-    max_bytes = cast(
-        int, authority_context.language_bundle["resources"]["max_source_bytes"]
-    )
-    try:
-        with Path(path).open("rb") as stream:
-            data = stream.read(max_bytes + 1)
-    except OSError as err:
-        raise UnreadableInputError from err
-    if len(data) > max_bytes:
-        raise FormulaNotationRefusal(
-            "model.reason.source-too-large",
-            "Formula conversion request exceeds the admitted ingress bound",
-        )
-    try:
-        return parse_canonical_object(
-            data,
-            artifact_name="Formula conversion request",
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as err:
-        raise FormulaNotationRefusal(
-            "model.reason.source-parse-failure",
-            f"Formula conversion request is outside canonical JSON: {err}",
-        ) from err
-
-
 def run_formula_render(
     inp: FormulaRenderInput,
 ) -> FormulaConversionResult | Schema2RefusalReport:
-    authority_context = packaged_authority_context()
     try:
-        request = _read_request(inp.source, authority_context)
-    except FormulaNotationRefusal as err:
-        return _formula_refusal_report(
-            {},
-            authority_context.language_bundle,
-            err,
-            identity_domain=formula_notation_request_identity_domain(authority_context),
-            pointer="",
-        )
-    formula = request.get("formula")
-    if not isinstance(formula, dict) or not isinstance(formula.get("body"), dict):
-        return _formula_refusal_report(
-            request,
-            authority_context.language_bundle,
-            FormulaNotationRefusal(
-                "model.reason.source-contract-mismatch",
-                "Formula render request has no structured body",
-            ),
-            identity_domain=formula_notation_request_identity_domain(authority_context),
-            pointer="/formula/body",
-        )
-    body = formula["body"]
-    try:
-        expression = render_formula_body(body, authority_context)
-        paired_request = deepcopy(request)
-        paired_formula = cast(dict[str, Any], paired_request["formula"])
-        paired_formula["expression"] = expression
-        admit_formula_pair(paired_request, authority_context)
-    except FormulaNotationRefusal as err:
-        return _formula_refusal_report(
-            request,
-            authority_context.language_bundle,
-            err,
-            identity_domain=formula_notation_request_identity_domain(authority_context),
-            pointer="/formula/body",
-        )
+        result = render_formula(inp.source, packaged_authority_context)
+    except InputReadError as err:
+        raise UnreadableInputError from err
+    if isinstance(result, Schema2RefusalReport):
+        return result
     return FormulaConversionResult(
-        body=body,
-        expression=expression,
-        kernel_identity=authority_context.kernel["content_identity"],
-        language_bundle_identity=authority_context.language_bundle["content_identity"],
+        body=result.body,
+        expression=result.expression,
+        kernel_identity=result.kernel_identity,
+        language_bundle_identity=result.language_bundle_identity,
     )
 
 
 def run_formula_parse(
     inp: FormulaParseInput,
 ) -> FormulaConversionResult | Schema2RefusalReport:
-    authority_context = packaged_authority_context()
     try:
-        request = _read_request(inp.source, authority_context)
-    except FormulaNotationRefusal as err:
-        return _formula_refusal_report(
-            {},
-            authority_context.language_bundle,
-            err,
-            identity_domain=formula_notation_request_identity_domain(authority_context),
-            pointer="",
-        )
-    try:
-        body = parse_formula_expression(request, authority_context)
-        expression = render_formula_body(body, authority_context)
-        paired_request = deepcopy(request)
-        paired_formula = cast(dict[str, Any], paired_request["formula"])
-        paired_formula["body"] = body
-        paired_formula["expression"] = expression
-        admit_formula_pair(paired_request, authority_context)
-    except FormulaNotationRefusal as err:
-        return _formula_refusal_report(
-            request,
-            authority_context.language_bundle,
-            err,
-            identity_domain=formula_notation_request_identity_domain(authority_context),
-            pointer="/formula/expression",
-        )
+        result = parse_formula(inp.source, packaged_authority_context)
+    except InputReadError as err:
+        raise UnreadableInputError from err
+    if isinstance(result, Schema2RefusalReport):
+        return result
     return FormulaConversionResult(
-        body=body,
-        expression=expression,
-        kernel_identity=authority_context.kernel["content_identity"],
-        language_bundle_identity=authority_context.language_bundle["content_identity"],
-    )
-
-
-def _formula_refusal_report(
-    request: dict[str, Any],
-    language_bundle: dict[str, Any],
-    refusal: FormulaNotationRefusal,
-    *,
-    identity_domain: str,
-    pointer: str,
-) -> Schema2RefusalReport:
-    reason = reason_by_id(language_bundle, refusal.reason_id)
-    request_identity = content_identity(identity_domain, cast(JsonValue, request))
-    return Schema2RefusalReport(
-        stage=cast(RefusalStage, reason["stage"]),
-        diagnostics=(
-            Schema2Diagnostic(
-                code=cast(str, reason["diagnostic"]),
-                message=refusal.message,
-                primary=ArtifactLocation(
-                    content_identity=request_identity,
-                    pointer=pointer,
-                ),
-            ),
-        ),
-        truncated=False,
+        body=result.body,
+        expression=result.expression,
+        kernel_identity=result.kernel_identity,
+        language_bundle_identity=result.language_bundle_identity,
     )
 
 
