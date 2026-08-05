@@ -1188,12 +1188,6 @@ def _resolution_diagnostics(
     return diagnostics
 
 
-
-
-
-
-
-
 def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
     """Project generic graph facts consumed by Template admission profiles."""
     lowering = _model_lowering(checked.language_bundle)
@@ -7292,10 +7286,3 @@ def admit_resolved_model(
     if resolved != expected_resolved:
         return ResolvedModelAdmission(False, diagnostic)
     return ResolvedModelAdmission(True, ())
-
-
-
-
-
-
-
