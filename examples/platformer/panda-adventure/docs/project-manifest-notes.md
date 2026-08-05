@@ -65,6 +65,11 @@ submits the End screen's retry request to Gameplay. When Content accepts that
 intent, the shell reloads the composition scene. UI depends on Content;
 Gameplay does not load or locate UI.
 
+`Gameplay`, `Hud`, and `EndScreen` are scene-instance nodes. Their
+`ext_resource` and `instance=` lines were hand-added because `gda node add`
+authors type nodes only and has no scene-instance operation. This remains the
+sanctioned hand-edit fallback cited by gADR-0004.
+
 ## `content/scenes/gameplay.tscn`
 
 The concrete gameplay scene contains the LevelController, Player, and Obstacle;

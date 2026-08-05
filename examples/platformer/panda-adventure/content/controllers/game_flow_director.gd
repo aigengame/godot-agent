@@ -101,8 +101,8 @@ func _apply_end_state() -> void:
 ## sibling in the Game Shell and remains active. NEVER get_tree().paused: the gda harness autoload
 ## serves the live IPC channel from _process under the default pause mode, so a
 ## tree pause would sever gda's live channel exactly when an e2e wants to observe
-## the End state and press retry. The level itself stays processing while its
-## children are disabled, so the explicit retry entry point survives.
+## the End state and press retry. The UI-owned Game Shell is a sibling of the
+## level, remains active, and submits Retry through the explicit Content entry.
 func _freeze_world() -> void:
 	for child in _level.get_children():
 		child.process_mode = Node.PROCESS_MODE_DISABLED

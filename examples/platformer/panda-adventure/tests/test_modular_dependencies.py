@@ -88,14 +88,18 @@ def _dependency_violations(root: Path = GAME_DIR) -> list[str]:
         source_root = rel.parts[0]
         source_rank = LAYERS[source_root]
         text = path.read_text("utf-8")
-        for target_root in _runtime_references(text):
+        code = (
+            _gd_without_comments(text, blank_strings=False)
+            if path.suffix == ".gd"
+            else text
+        )
+        for target_root in _runtime_references(code):
             target_rank = LAYERS.get(target_root)
             if target_rank is not None and target_rank > source_rank:
                 violations.append(f"{rel} -> res://{target_root}/")
 
         if path.suffix != ".gd":
             continue
-        code = _gd_without_comments(text, blank_strings=False)
         if UID_LOAD.search(code):
             violations.append(f"{rel} -> uid:// (unresolved runtime resource)")
         identifiers = _gd_without_comments(text, blank_strings=True)
@@ -111,15 +115,25 @@ def _dependency_violations(root: Path = GAME_DIR) -> list[str]:
 def test_runtime_dependencies_point_downward() -> None:
     violations = _dependency_violations()
 
-    assert not violations, "upward runtime dependencies:\n" + "\n".join(violations)
+    assert not violations, "runtime dependency violations:\n" + "\n".join(violations)
+
+
+def _editor_tool_violations(root: Path = GAME_DIR) -> list[str]:
+    violations: list[str] = []
+    for path in _runtime_files(root):
+        text = path.read_text("utf-8")
+        code = (
+            _gd_without_comments(text, blank_strings=False)
+            if path.suffix == ".gd"
+            else text
+        )
+        if "res://tools/editor/" in code:
+            violations.append(str(path.relative_to(root)))
+    return violations
 
 
 def test_runtime_does_not_depend_on_editor_tools() -> None:
-    violations = [
-        str(path.relative_to(GAME_DIR))
-        for path in _runtime_files()
-        if "res://tools/editor/" in path.read_text("utf-8")
-    ]
+    violations = _editor_tool_violations()
 
     assert not violations, "runtime references development editor tools: " + ", ".join(
         violations
@@ -157,6 +171,8 @@ const LABEL = "FakeHud"
 const MULTILINE = """FakeHud
 is text here too"""
 # FakeHud in a comment is not a dependency.
+# preload("res://ui/hud.gd") in a comment is not a dependency either.
+# preload("res://tools/editor/editor.gd") is also only a comment.
 ''',
         encoding="utf-8",
     )
@@ -166,3 +182,15 @@ is text here too"""
         "systems/bad.gd -> res://ui/",
         "systems/bad.gd -> uid:// (unresolved runtime resource)",
     ]
+    assert _editor_tool_violations(tmp_path) == []
+
+
+def test_editor_guard_rejects_runtime_tool_references(tmp_path: Path) -> None:
+    for layer in LAYERS:
+        (tmp_path / layer).mkdir()
+    (tmp_path / "ui/bad.gd").write_text(
+        'const EDITOR = preload("res://tools/editor/editor_controller.gd")\n',
+        encoding="utf-8",
+    )
+
+    assert _editor_tool_violations(tmp_path) == ["ui/bad.gd"]

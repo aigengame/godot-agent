@@ -77,6 +77,7 @@ import copy
 import json
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -786,8 +787,17 @@ def load_composed(json_rel: str, root: Path = GAME_DIR) -> Any:
 # manifest is a RECORD source (its provenance/license are not derivable), split
 # per category so parallel asset slices don't contend — read as-is, never rebuilt
 # (it is integrity-checked by ``validate_asset_refs``, not freshness-gated).
-_ASSETS_ROOT = "content/assets"
 _MANIFEST_DIRNAME = "manifest"
+
+
+@lru_cache(maxsize=1)
+def _configured_assets_root() -> str:
+    """Read the Asset pipeline's single assets-root authority."""
+    from assets import config as assets_config
+    from panda_assets import STYLE_PATH
+
+    return assets_config.load_style_config(STYLE_PATH).assets_root
+
 
 # The authored TOP-LEVEL asset-reference fields the builder resolves, per source.
 # The tracer (#439) wires the Obstacle; sibling asset slices (#442/#443/#444/#445)
@@ -817,12 +827,13 @@ _ASSET_REF_ITEM_MAPS: dict[str, str] = {
 def load_asset_manifest(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
     """Merge the Asset manifest fragments into ``id -> record`` (gADR-0014).
 
-    Reads every ``content/assets/manifest/<category>.json`` fragment; returns ``{}`` when
-    the manifest directory is absent (a root with no acquired assets yet — an
-    isolated build stages none). Raises on a duplicate id across fragments (the id
-    is the manifest's primary key).
+    Reads every ``<assets_root>/manifest/<category>.json`` fragment, where
+    ``assets_root`` comes from the Asset pipeline's style config. Returns ``{}``
+    when the manifest directory is absent (a root with no acquired assets yet —
+    an isolated build stages none). Raises on a duplicate id across fragments
+    (the id is the manifest's primary key).
     """
-    directory = root / _ASSETS_ROOT / _MANIFEST_DIRNAME
+    directory = root / _configured_assets_root() / _MANIFEST_DIRNAME
     if not directory.exists():
         return {}
     merged: dict[str, dict[str, Any]] = {}
@@ -1193,7 +1204,7 @@ def asset_input_rels(root: Path = GAME_DIR) -> list[str]:
     stage a build root copy exactly what the gate needs — auto-extending as
     sibling asset slices record more assets (no per-test hardcoding).
     """
-    directory = root / _ASSETS_ROOT / _MANIFEST_DIRNAME
+    directory = root / _configured_assets_root() / _MANIFEST_DIRNAME
     if not directory.exists():
         return []
     rels = [str(frag.relative_to(root)) for frag in sorted(directory.glob("*.json"))]

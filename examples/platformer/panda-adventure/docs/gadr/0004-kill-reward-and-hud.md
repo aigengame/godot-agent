@@ -4,6 +4,12 @@ status: accepted
 
 # Kill reward: per-Tier budget resolved to per-kind fields, and a pull-based HUD
 
+> **Outcome (2026-08-05, gADR-0020).** The modular runtime refactor moved the
+> HUD to `ui/hud.tscn`, instanced it from `ui/game_shell.tscn`, and replaced
+> Player group discovery with an explicit Game Shell binding. The pull-based
+> snapshot contract is unchanged; the body below preserves S6a's original
+> placement and decision history.
+
 S6a delivers the reward half of the death/reward story plus the first UI
 surface: defeating an Enemy awards EXP and Gold scaled by its Tier, feeding
 the S2 StatsSystem, and a HUD surfaces the Player's live HP/MP/EXP/Gold and
@@ -44,11 +50,10 @@ The model:
   curve will be that pure decision when it lands.
 - **The HUD pulls a public snapshot each frame.** The HUD (its own
   gda-authored `hud.tscn`: a CanvasLayer — screen-space, untouched by the S1
-  follow-camera — with a Label column, instanced in `ui/game_shell.tscn`) reads
-  one public `PlayerController.hud_state()` Dictionary (live HP/MP/EXP/Gold,
-  their config caps, and the Current weapon) through the Player entry explicitly
-  bound by the Game Shell, instead of reaching into privates. **Pull-per-frame
-  over signals**: at five values a frame the poll
+  follow-camera — with a Label column, instanced in `main.tscn`) reads one
+  new public `PlayerController.hud_state()` Dictionary (live HP/MP/EXP/Gold,
+  their config caps, and the Current weapon) instead of reaching into
+  privates. **Pull-per-frame over signals**: at five values a frame the poll
   costs nothing, needs no signal plumbing across every stat-mutation site
   (take_hit, spend_mp, restore_mp, gain_reward, switch_weapon — five emitters
   today, more later), and keeps the Player the single owner of its state
@@ -106,6 +111,6 @@ The model:
   game-over) reads the same snapshot rather than new privates; new
   HUD-visible state means one new snapshot key.
 - gda gap (dogfooding): gda cannot author a scene-instance node (`node add`
-  builds type nodes only), so `ui/game_shell.tscn`'s `instance=` lines were
+  builds type nodes only), so `main.tscn`'s one `instance=` line was
   hand-added — the sanctioned fallback for this file (see
   `docs/project-manifest-notes.md`).

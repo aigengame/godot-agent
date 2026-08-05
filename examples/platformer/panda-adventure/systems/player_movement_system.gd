@@ -5,7 +5,8 @@ extends RefCounted
 ## this System owns the reusable velocity and facing rules without loading
 ## project-specific configuration Resources.
 ##
-## Time dilation is full slow motion: speed and jump impulse scale by the
+## Godot uses +Y down: jump velocity is negative and gravity is positive. Time
+## dilation is full slow motion (gADR-0009): speed and jump impulse scale by the
 ## factor, while gravity scales by its square. This preserves jump height
 ## (v^2 / 2g) while tracing the same arc at 1/factor pace. Input still takes
 ## effect immediately, so the Player is slowed rather than stunned.
