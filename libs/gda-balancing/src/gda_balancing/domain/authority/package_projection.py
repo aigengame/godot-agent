@@ -119,27 +119,28 @@ def _package_contracts() -> tuple[
     )
 
 
-def package_list_success_schema() -> dict[str, object]:
+def language_bundle_identity_schema() -> dict[str, object]:
     (
         identity_contract,
+        _descriptor_contract,
+        _release_contract,
+        _vector_set_contract,
+        _meta_format,
+        _language_bundle,
+    ) = _package_contracts()
+    return _contract_schema(identity_contract)
+
+
+def package_descriptor_schema() -> dict[str, object]:
+    (
+        _identity_contract,
         descriptor_contract,
         _release_contract,
         _vector_set_contract,
         _meta_format,
         _language_bundle,
     ) = _package_contracts()
-    return {
-        "type": "object",
-        "properties": {
-            "language_bundle_identity": _contract_schema(identity_contract),
-            "packages": {
-                "type": "array",
-                "items": _closed_contract_schema(descriptor_contract),
-            },
-        },
-        "required": ["language_bundle_identity", "packages"],
-        "unevaluatedProperties": False,
-    }
+    return _closed_contract_schema(descriptor_contract)
 
 
 def package_coordinate_contracts() -> dict[str, dict[str, Any]]:
@@ -1169,20 +1170,3 @@ def package_vector_set_success_schema() -> dict[str, object]:
         "items": _conformance_vector_schema(meta_format, language_bundle),
     }
     return schema
-
-
-def package_get_success_schema() -> dict[str, object]:
-    (
-        _identity_contract,
-        _descriptor_contract,
-        _release_contract,
-        _vector_set_contract,
-        _meta_format,
-        _language_bundle,
-    ) = _package_contracts()
-    return {
-        "oneOf": [
-            package_release_success_schema(),
-            package_vector_set_success_schema(),
-        ]
-    }

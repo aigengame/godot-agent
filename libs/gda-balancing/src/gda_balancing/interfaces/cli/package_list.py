@@ -11,7 +11,8 @@ from gda_balancing.interfaces.cli.descriptors import (
     ConformanceFixtures,
 )
 from gda_balancing.domain.authority.package_projection import (
-    package_list_success_schema,
+    language_bundle_identity_schema,
+    package_descriptor_schema,
 )
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
@@ -27,6 +28,19 @@ class PackageListInput(BaseModel):
 
 class PackageListResult(RootModel[dict[str, Any]]):
     """The root-declared package inventory of one admitted LDB."""
+
+
+def package_list_success_schema() -> dict[str, object]:
+    """Project the authority-owned inventory members into the CLI response."""
+    return {
+        "type": "object",
+        "properties": {
+            "language_bundle_identity": language_bundle_identity_schema(),
+            "packages": {"type": "array", "items": package_descriptor_schema()},
+        },
+        "required": ["language_bundle_identity", "packages"],
+        "unevaluatedProperties": False,
+    }
 
 
 def package_list_handler(

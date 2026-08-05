@@ -47,24 +47,6 @@ INTERNAL_ERROR = "internal_error"
 
 CLI_ERROR_CODES = USAGE_CODES | {INTERNAL_ERROR}
 
-# RFC 6901 JSON Pointer ("" is the whole document; each token escapes ~ and /).
-REFUSAL_BOUND = 1000
-_JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
-
-# The published-schema form of the constraint. Sharing the regex TEXT alone
-# is not engine-stable: Python's `re` (the jsonschema validator) lets the
-# terminal `$` also match before a trailing newline, so a lone "\n" would
-# satisfy the pattern via zero repetitions — while pydantic's Rust engine
-# (the model side) anchors `$` at true end-of-text and rejects it. RFC 6901
-# requires empty-or-leading-"/", encoded here explicitly without relying on
-# `$` semantics; the sibling `pattern` keeps the token-escape validity.
-_JSON_POINTER_SCHEMA: dict[str, Any] = {
-    "type": "string",
-    "pattern": _JSON_POINTER_PATTERN,
-    "anyOf": [{"const": ""}, {"pattern": "^/"}],
-}
-
-
 _REPRODUCTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -75,71 +57,38 @@ _REPRODUCTION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-# The closed envelope schema — the `error` key of every command's `--schema`
-# output, byte-identical across the surface (bADR-0009). The `refusal` branch
-# is part of the contract from day one even though #502 never emits it; its
-# per-refusal codes belong to the funnel (bADR-0004), not this registry.
+USAGE_ERROR_SCHEMA: dict[str, Any] = {
+    # No `reproduction` member: usage fails before execution can draw a seed.
+    "type": "object",
+    "properties": {
+        "category": {"const": "usage"},
+        "code": {"enum": sorted(USAGE_CODES)},
+        "message": {"type": "string"},
+    },
+    "required": ["category", "code", "message"],
+    "additionalProperties": False,
+}
+
+INTERNAL_ERROR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "category": {"const": "internal"},
+        "code": {"const": INTERNAL_ERROR},
+        "message": {"type": "string"},
+        "diagnostics": {"type": "string"},
+        "reproduction": _REPRODUCTION_SCHEMA,
+    },
+    "required": ["category", "code", "message"],
+    "additionalProperties": False,
+}
+
+# Closed non-domain failures shared by the active CLI and its tests. Typed
+# Schema 2.x refusals are descriptor-owned and projected in ``surface.py``.
 ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Error envelope",
     "type": "object",
-    "properties": {
-        "error": {
-            "oneOf": [
-                {
-                    "type": "object",
-                    "properties": {
-                        "category": {"const": "refusal"},
-                        "message": {"type": "string"},
-                        "refusals": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": REFUSAL_BOUND,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "code": {"type": "string"},
-                                    "path": _JSON_POINTER_SCHEMA,
-                                    "detail": {"type": "string"},
-                                },
-                                "required": ["code", "path", "detail"],
-                                "additionalProperties": False,
-                            },
-                        },
-                        "truncated": {"type": "boolean"},
-                        "reproduction": _REPRODUCTION_SCHEMA,
-                    },
-                    "required": ["category", "message", "refusals", "truncated"],
-                    "additionalProperties": False,
-                },
-                {
-                    # No `reproduction` member: a usage error is resolved at
-                    # binding, before execution starts, so an effective seed
-                    # can never have been drawn (bADR-0008/0010).
-                    "type": "object",
-                    "properties": {
-                        "category": {"const": "usage"},
-                        "code": {"enum": sorted(USAGE_CODES)},
-                        "message": {"type": "string"},
-                    },
-                    "required": ["category", "code", "message"],
-                    "additionalProperties": False,
-                },
-                {
-                    "type": "object",
-                    "properties": {
-                        "category": {"const": "internal"},
-                        "code": {"const": INTERNAL_ERROR},
-                        "message": {"type": "string"},
-                        "diagnostics": {"type": "string"},
-                        "reproduction": _REPRODUCTION_SCHEMA,
-                    },
-                    "required": ["category", "code", "message"],
-                    "additionalProperties": False,
-                },
-            ]
-        }
-    },
+    "properties": {"error": {"oneOf": [USAGE_ERROR_SCHEMA, INTERNAL_ERROR_SCHEMA]}},
     "required": ["error"],
     "additionalProperties": False,
 }

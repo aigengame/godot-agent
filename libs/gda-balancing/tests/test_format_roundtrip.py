@@ -14,7 +14,7 @@ import os
 import jsonschema
 
 from gda_balancing.interfaces.cli.rendering import canonical_json
-from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from _legacy_design_adapters import LEGACY_ERROR_ENVELOPE_SCHEMA
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 
 
@@ -283,6 +283,6 @@ def test_refusing_document_is_a_refusal_envelope(run_legacy_cli, tmp_path):
     exit_code, stdout, stderr = _format(run_legacy_cli, tmp_path, content)
     assert (exit_code, stderr) == (2, "")
     payload = json.loads(stdout)
-    jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(payload, LEGACY_ERROR_ENVELOPE_SCHEMA)
     assert payload["error"]["category"] == "refusal"
     assert payload["error"]["refusals"][0]["code"] == "unsupported_schema_version"

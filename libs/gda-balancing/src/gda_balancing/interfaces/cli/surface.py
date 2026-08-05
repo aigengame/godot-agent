@@ -5,7 +5,7 @@ from typing import Any, cast
 from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
 from copy import deepcopy
 
-from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.envelope import USAGE_ERROR_SCHEMA
 from gda_balancing.domain.canonical import JsonValue, content_identity
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
@@ -104,8 +104,7 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "required": ["code", "message", "primary", "related"],
         "unevaluatedProperties": False,
     }
-    envelope_variants = deepcopy(ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"])
-    usage = envelope_variants[1]
+    usage = deepcopy(USAGE_ERROR_SCHEMA)
     usage["properties"]["code"] = {"enum": sorted(descriptor.usage_codes)}
     variants: list[dict[str, Any]] = []
     for stage in descriptor.refusal_stages:

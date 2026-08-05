@@ -25,10 +25,11 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.domain.authority.package_projection import (
     package_coordinate_contracts,
-    package_get_success_schema,
-    package_list_success_schema as package_list_success_schema,
     package_release_success_schema as package_release_success_schema,
     package_vector_set_success_schema as package_vector_set_success_schema,
+)
+from gda_balancing.interfaces.cli.package_list import (
+    package_list_success_schema as package_list_success_schema,
 )
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
@@ -90,6 +91,16 @@ class PackageGetInput(BaseModel):
 
 class PackageArtifact(RootModel[dict[str, Any]]):
     """One admitted package inventory or exact Package Release."""
+
+
+def package_get_success_schema() -> dict[str, object]:
+    """Project the two authority-owned Package member shapes into CLI output."""
+    return {
+        "oneOf": [
+            package_release_success_schema(),
+            package_vector_set_success_schema(),
+        ]
+    }
 
 
 def package_get_handler(

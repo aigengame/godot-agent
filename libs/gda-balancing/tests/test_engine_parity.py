@@ -22,7 +22,7 @@ import jsonschema
 import pytest
 from pydantic import ValidationError
 
-from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
+from _legacy_design_adapters import LEGACY_ERROR_ENVELOPE_SCHEMA
 from gda_balancing.interfaces.cli.rendering import canonical_json
 from gda_balancing.schema.bundle import current_bundle
 from gda_balancing.schema.funnel.structural import structural
@@ -48,7 +48,7 @@ def _doc(tmp_path, document: dict) -> str:
 
 def _refusals(stdout: str) -> list[dict]:
     payload = json.loads(stdout)
-    jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(payload, LEGACY_ERROR_ENVELOPE_SCHEMA)
     assert payload["error"]["category"] == "refusal"
     return payload["error"]["refusals"]
 

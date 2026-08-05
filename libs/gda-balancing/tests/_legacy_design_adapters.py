@@ -6,6 +6,7 @@ reintroducing a 1.x descriptor or refusal path into the active CLI.
 """
 
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,14 +14,57 @@ from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.infrastructure.atomic_files import materialize_bytes
-from gda_balancing.interfaces.cli.envelope import internal_envelope, usage_envelope
+from gda_balancing.interfaces.cli.envelope import (
+    ERROR_ENVELOPE_SCHEMA,
+    internal_envelope,
+    usage_envelope,
+)
 from gda_balancing.interfaces.cli.errors import UsageError
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.interfaces.cli.rendering import canonical_json, model_payload
 from gda_balancing.schema import funnel
-from gda_balancing.schema.refusal import RefusalReport
+from gda_balancing.schema.refusal import (
+    JSON_POINTER_PATTERN,
+    REFUSAL_BOUND,
+    RefusalReport,
+)
 
 RunResult = tuple[int, str, str]
+
+_LEGACY_REFUSAL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "category": {"const": "refusal"},
+        "message": {"type": "string"},
+        "refusals": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": REFUSAL_BOUND,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "path": {
+                        "type": "string",
+                        "pattern": JSON_POINTER_PATTERN,
+                        "anyOf": [{"const": ""}, {"pattern": "^/"}],
+                    },
+                    "detail": {"type": "string"},
+                },
+                "required": ["code", "path", "detail"],
+                "additionalProperties": False,
+            },
+        },
+        "truncated": {"type": "boolean"},
+    },
+    "required": ["category", "message", "refusals", "truncated"],
+    "additionalProperties": False,
+}
+
+LEGACY_ERROR_ENVELOPE_SCHEMA = deepcopy(ERROR_ENVELOPE_SCHEMA)
+LEGACY_ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"].insert(
+    0, _LEGACY_REFUSAL_SCHEMA
+)
 
 
 class ValidationResult(BaseModel):

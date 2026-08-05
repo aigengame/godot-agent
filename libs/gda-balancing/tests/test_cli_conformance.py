@@ -23,11 +23,10 @@ from gda_balancing.interfaces.cli.descriptors import (
 from gda_balancing.interfaces.cli.rendering import canonical_json
 from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
-    REFUSAL_BOUND,
     USAGE_CODES,
 )
 from gda_balancing.domain.errors import UnreadableInputError
-from gda_balancing.schema.refusal import Refusal, RefusalReport
+from gda_balancing.schema.refusal import REFUSAL_BOUND, Refusal, RefusalReport
 from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
