@@ -12,14 +12,15 @@ import pytest
 import jsonschema
 
 import gda_balancing.commands.experiment as experiment_command_module
+import gda_balancing.domain.experiment as experiment_admission_module
+import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.domain.experiment as experiment_runtime_module
 import gda_balancing.schema2.model as model_module
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import ArtifactLocation
-from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
+from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.schema2.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
@@ -215,7 +216,7 @@ def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
     ]
 
     with pytest.raises(ValueError, match="conflicting Scenario Input Contract"):
-        experiment_runtime_module._canonical_contract_union(
+        experiment_admission_module._canonical_contract_union(
             rows,
             contract_name="Scenario Input Contract",
         )
@@ -238,8 +239,8 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
     )
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    original_find = experiment_runtime_module.find_published_artifact
-    original_admit = experiment_runtime_module.admit_resolved_model
+    original_find = experiment_admission_module.find_published_artifact
+    original_admit = experiment_admission_module.admit_resolved_model
     original_rir: dict[str, Any] | None = None
 
     def find_with_conflicting_entrypoint(content_identity_value, artifact_kind, ldb):
@@ -275,12 +276,12 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
         )
 
     monkeypatch.setattr(
-        experiment_runtime_module,
+        experiment_admission_module,
         "find_published_artifact",
         find_with_conflicting_entrypoint,
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
+        experiment_admission_module,
         "admit_resolved_model",
         admit_original_model,
     )
@@ -1619,7 +1620,7 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
         )
     ]
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
             entrypoint_id="combat.plan-casts",
             runtime_profile=specification["runtime"]["profile"],
@@ -1759,8 +1760,8 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     )
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 4}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan = next(
         row["definition"]
@@ -1770,7 +1771,7 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
     checked_value = deepcopy(checked.value)
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             rir,
             entrypoint_id="combat.plan-casts",
             runtime_profile=checked_value["runtime"]["profile"],
@@ -1810,8 +1811,8 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     entrypoint = next(
         row for row in checked.rir["entrypoints"] if row["id"] == "combat.cast"
     )
@@ -1864,8 +1865,8 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
 
 def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -2182,8 +2183,8 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
     values = {
@@ -2236,8 +2237,8 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2308,8 +2309,8 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -2422,8 +2423,8 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2488,8 +2489,8 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2545,8 +2546,8 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     cast_operation = next(
         row["definition"]
@@ -2637,8 +2638,8 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
 
 def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
     catalog = deepcopy(artifacts.members["snapshot-series"].value["event_catalog"])
@@ -2682,8 +2683,8 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     tmp_path, run_cli, schedule_shape
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2782,8 +2783,8 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2889,8 +2890,8 @@ def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2936,8 +2937,8 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2948,7 +2949,7 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
     per_event_steps = sum(
         runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
-        for instruction in experiment_runtime_module._expanded_operation_body(
+        for instruction in experiment_admission_module._expanded_operation_body(
             operation, operations
         )
     )
@@ -3005,8 +3006,8 @@ def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     ]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
 
@@ -3067,8 +3068,8 @@ def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, r
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -3082,8 +3083,8 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3122,8 +3123,8 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     tmp_path, run_cli, mutation, expected_code
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3188,8 +3189,8 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     tmp_path, run_cli, monkeypatch, mutation, expected_code
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     apply_operation = next(
         row["definition"]
@@ -3261,8 +3262,8 @@ def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3287,8 +3288,8 @@ def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
 
 def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -3331,8 +3332,8 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
     scenario["event_plan"].append(second)
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -3352,8 +3353,8 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     value = deepcopy(checked.value)
     second = deepcopy(value["scenarios"][0])
     second["id"] = "second-scenario"
@@ -3374,7 +3375,7 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     checked = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -3434,7 +3435,7 @@ def test_external_input_sources_require_canonical_contiguous_sequences(
     scenario["terminal_condition"] = {"kind": "queue-drained"}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_runtime_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(str(specification_path))
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -3506,7 +3507,7 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     specification_path = tmp_path / "external-fact-contract-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_runtime_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(str(specification_path))
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -3776,8 +3777,8 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     specification_path = tmp_path / "formula-runtime-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     selected_entrypoints = [checked.rir["entrypoints"][0]]
     actual_values = {
         canonical_bytes(cast(Any, initializer["target"])): initializer["value"]
@@ -4266,8 +4267,8 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     assert "terminal_audit" not in error
     assert not out.exists()
 
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.Schema2RefusalReport)
     assert evaluation.variant == "pre-event"
@@ -4332,8 +4333,8 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     ]
     spec_path = tmp_path / "snapshot-derived-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(spec_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(spec_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     observation_frames: list[str | None] = []
     observation_cache_growth: list[int] = []
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
@@ -4422,8 +4423,8 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     second["id"] = "second-cast"
     specification["scenarios"].append(second)
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
     observation_cache_growth: list[int] = []
@@ -4562,7 +4563,7 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
         }
     )
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
             entrypoint_id=specification["scenarios"][0]["event_plan"][0]["entrypoint"],
             runtime_profile=specification["runtime"]["profile"],
@@ -4572,8 +4573,8 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     specification["runtime"]["required_evaluator"] = requirements
     spec_path = tmp_path / "event-symbol-formula-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(spec_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(spec_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -4971,8 +4972,8 @@ def test_optional_experiment_override_uses_the_model_default_or_exact_override(
         path = tmp_path / f"optional-{case}.json"
         path.write_text(json.dumps(specification), encoding="utf-8")
 
-        checked = experiment_runtime_module.check_experiment(str(path))
-        assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+        checked = experiment_admission_module.check_experiment(str(path))
+        assert isinstance(checked, experiment_admission_module.CheckedExperiment)
         artifacts = experiment_runtime_module.evaluate_experiment(checked)
         assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
         event = artifacts.members["event-trace"].value["events"][0]
@@ -5228,9 +5229,9 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         and baseline_resolved["content_identity"]
         != renamed_resolved["content_identity"]
     )
-    assert experiment_runtime_module.experiment_input_identity(
+    assert experiment_admission_module.experiment_input_identity(
         baseline_spec
-    ) != experiment_runtime_module.experiment_input_identity(renamed_spec)
+    ) != experiment_admission_module.experiment_input_identity(renamed_spec)
     assert all(
         baseline_artifacts[name]["content_identity"]
         != renamed_artifacts[name]["content_identity"]
@@ -6093,8 +6094,8 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     tmp_path, run_cli, monkeypatch
 ):
     specification = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     first = experiment_runtime_module._evaluator_manifest(checked)
     operations = {
@@ -6106,7 +6107,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
-        for instruction in experiment_runtime_module._expanded_operation_body(
+        for instruction in experiment_admission_module._expanded_operation_body(
             operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
@@ -6508,8 +6509,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         run_cli,
         base_damage=90,
     )
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6573,7 +6574,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     candidate = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -6614,8 +6615,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
 
 def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6678,8 +6679,8 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
 
 def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6740,8 +6741,8 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     run_cli,
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6802,7 +6803,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     candidate = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -7401,8 +7402,8 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
     values = {
@@ -7524,8 +7525,8 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row

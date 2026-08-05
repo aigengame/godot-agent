@@ -22,6 +22,7 @@ import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_modul
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
+import gda_balancing.domain.runtime.execution as runtime_execution_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest
@@ -6494,8 +6495,8 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
         resolved_model=resolved_model,
         rir=cast(dict[str, Any], artifacts["rir-semantic-payload"]),
     )
-    evaluation = experiment_module.evaluate_experiment(experiment)
-    assert isinstance(evaluation, experiment_module.EvaluationArtifacts)
+    evaluation = runtime_execution_module.evaluate_experiment(experiment)
+    assert isinstance(evaluation, runtime_execution_module.EvaluationArtifacts)
     event_trace = evaluation.members["event-trace"].value
     assert event_trace["events"][0]["operation"] == "genre.economy.purchase-v1"
     assert event_trace["events"][0]["state_after"] == [
@@ -6505,7 +6506,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     host_sources = (
         Path(model_module.__file__),
         Path(model_command_module.__file__),
-        Path(experiment_module.__file__),
+        Path(runtime_execution_module.__file__),
     )
     assert all("genre.economy" not in path.read_text() for path in host_sources)
 

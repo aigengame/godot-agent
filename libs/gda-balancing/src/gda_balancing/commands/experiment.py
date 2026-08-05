@@ -15,10 +15,12 @@ from gda_balancing.descriptors import (
 from gda_balancing.domain.experiment import (
     EXPERIMENT_CHECK_REFUSAL_REASONS,
     CheckedExperiment,
-    RuntimeRefusalOutcome,
     check_experiment,
-    evaluate_experiment,
     experiment_input_identity,
+)
+from gda_balancing.domain.runtime.execution import (
+    RuntimeRefusalOutcome,
+    evaluate_experiment,
     runtime_terminal_audit_members,
     validate_experiment_artifact_set,
     validate_experiment_member,
