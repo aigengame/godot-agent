@@ -6,7 +6,6 @@ modules import :mod:`gda_balancing.descriptors`; only this package assembles
 the tuple.
 """
 
-from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
 from gda_balancing.commands.model import (
@@ -23,8 +22,16 @@ from gda_balancing.commands.template import (
 from gda_balancing.descriptors import CommandDescriptor, build_registry
 from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST
 from gda_balancing.interfaces.cli.package import PACKAGE_GET
+from gda_balancing.interfaces.cli.manifest import manifest_descriptor
 from gda_balancing.interfaces.cli.schema import SCHEMA_GET
 from gda_balancing.interfaces.cli.version import VERSION
+
+
+def _live_registry() -> tuple[CommandDescriptor, ...]:
+    return REGISTRY
+
+
+MANIFEST = manifest_descriptor(_live_registry)
 
 REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     VERSION,
