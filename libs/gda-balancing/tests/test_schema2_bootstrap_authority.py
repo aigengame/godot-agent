@@ -3,7 +3,7 @@
 # ruff: noqa: F403, F405
 from dataclasses import replace
 
-from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
+from gda_balancing.interfaces.cli.schema import SCHEMA_GET, schema_get_handler
 
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *

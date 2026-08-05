@@ -8,36 +8,25 @@ shape, executable vectors, or resource contract fails.
 """
 
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
+from gda_balancing.application.schema_get import get_schema
+from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.interfaces.cli.package import (
     package_release_success_schema,
     package_vector_set_success_schema,
 )
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,
-    AuthorityLoadError,
     packaged_authority_context,
-    resolve_authority_context,
 )
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
     SCHEMA2_REFUSAL_STAGES,
-    BootstrapAdmission,
 )
-from gda_balancing.schema2.canonical import JsonValue
-from gda_balancing.schema2.diagnostics import (
-    Schema2RefusalReport,
-    bootstrap_refusal,
-    ingress_refusal,
-)
-from gda_balancing.schema2.projections import (
-    diagnostic_catalog_projection,
-    wire_schema_projection,
-)
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 
 class SchemaGetInput(BaseModel):
@@ -66,49 +55,10 @@ def schema_get_handler(
     """
 
     def _run(inp: SchemaGetInput) -> SchemaArtifact | Schema2RefusalReport:
-        try:
-            context = resolve_authority_context(provider)
-        except AuthorityLoadError as err:
-            return ingress_refusal(err.code, err.subject, err.message)
-        if isinstance(context, BootstrapAdmission):
-            return bootstrap_refusal(context)
-        # This command publishes authority content through Pydantic. Give that
-        # serializer an independently owned builtin-container snapshot while
-        # keeping the process context itself structurally immutable.
-        kernel, ldb = context.mutable_pair()
-        admission = context.admission
-        authorities: dict[str, JsonValue] = {
-            "kernel": cast(JsonValue, kernel),
-            "language_bundle": cast(JsonValue, ldb),
-            "admission": {
-                "admitted": True,
-                "kernel_identity": admission.kernel_identity,
-                "language_bundle_identity": admission.language_bundle_identity,
-            },
-        }
-        if inp.artifact == "language-bundle":
-            root = getattr(ldb, "root", None)
-            package_releases = getattr(ldb, "package_releases", None)
-            package_vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
-            if (
-                isinstance(root, dict)
-                and isinstance(package_releases, list)
-                and isinstance(package_vector_sets, list)
-            ):
-                public_authorities = {
-                    "kernel": cast(JsonValue, kernel),
-                    "language_bundle": cast(JsonValue, root),
-                    "package_releases": cast(JsonValue, package_releases),
-                    "package_conformance_vector_sets": cast(
-                        JsonValue, package_vector_sets
-                    ),
-                    "admission": authorities["admission"],
-                }
-                return SchemaArtifact(root=cast(dict[str, Any], public_authorities))
-            return SchemaArtifact(root=cast(dict[str, Any], authorities))
-        if inp.artifact == "wire-schema":
-            return SchemaArtifact(root=wire_schema_projection(authorities))
-        return SchemaArtifact(root=diagnostic_catalog_projection(authorities))
+        result = get_schema(provider, inp.artifact)
+        if isinstance(result, Schema2RefusalReport):
+            return result
+        return SchemaArtifact(root=result.root)
 
     return _run
 

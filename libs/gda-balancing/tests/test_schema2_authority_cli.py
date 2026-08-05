@@ -22,7 +22,7 @@ import pytest
 
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.commands.schema as schema_command_module
+import gda_balancing.interfaces.cli.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
@@ -37,7 +37,7 @@ from gda_balancing.interfaces.cli.package import (
     package_list_success_schema,
     package_vector_set_success_schema,
 )
-from gda_balancing.commands.schema import (
+from gda_balancing.interfaces.cli.schema import (
     SCHEMA_GET,
     schema_get_handler,
     schema_get_success_schema,

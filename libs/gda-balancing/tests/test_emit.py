@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from gda_balancing.commands.schema import SchemaArtifact
+from gda_balancing.interfaces.cli.schema import SchemaArtifact
 from gda_balancing.emit import canonical_json, model_payload
 from gda_balancing.schema.artifacts import generate_catalog, generate_structural_schema
 
