@@ -28,6 +28,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
         "test_format_roundtrip.py",
         "test_formula_seam.py",
         "test_isolation.py",
+        "test_layer_dependencies.py",
         "test_schema2_authority_lifecycle.py",
         "test_schema2_bootstrap_authority.py",
         "test_schema2_bootstrap_resources.py",

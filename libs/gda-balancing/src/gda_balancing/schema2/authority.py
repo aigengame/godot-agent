@@ -17,6 +17,7 @@ from importlib.resources import files
 from types import MappingProxyType
 from typing import Any, Never, cast
 
+from gda_balancing.infrastructure.package_resources import read_package_resource
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
@@ -352,9 +353,8 @@ def _load(
     max_bytes: int = _BOOTSTRAP_MAX_AUTHORITY_BYTES,
     require_canonical_bytes: bool = True,
 ) -> tuple[dict[str, Any], int]:
-    resource = files(_AUTHORITY_PACKAGE).joinpath(*name.split("/"))
     try:
-        data = resource.read_bytes()
+        data = read_package_resource(files, _AUTHORITY_PACKAGE, name)
     except OSError as err:
         raise AuthorityLoadError(
             code="kernel.member_set_mismatch",
