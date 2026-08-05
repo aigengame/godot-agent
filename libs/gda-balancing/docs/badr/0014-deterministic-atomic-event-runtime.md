@@ -30,6 +30,25 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > public `step` advances to the next declared observation or logical boundary. These are not a
 > universal tick or a second Experiment timeline.
 
+> **Amendment (2026-08-04, #595):** A Model entrypoint may declare a typed Event-reference operand.
+> Its Experiment transition binds the operand's role to one authored `root_event_ref` in the same
+> Scenario, and Runtime resolves it to the target's already admitted `event_id` before dispatch.
+> The Kernel `cancel` target therefore admits either a scheduled-Event local produced in the active
+> transaction or an exact Event-reference port; it never admits ambient queue lookup. Same-time
+> roots remain sequential atomic transactions, and Runtime infers no defeat, interruption, or
+> eligibility policy from health-like state.
+
+> **Amendment (2026-08-04, #596):** A Domain-package Operation may implement one bounded periodic
+> lifecycle only by scheduling ordinary child Events through this same queue. The selected package
+> owns duration/period, tick/expiry times, capture/read policy, contribution and outcomes; Runtime
+> owns generic schedule admission, total order, budgets, atomicity and Snapshot visibility.
+> Snapshot magnitude evaluates once in apply's pre-Event committed frame and is carried as a typed
+> scheduled argument; live magnitude evaluates in each tick's own pre-Event committed frame. An
+> apply transaction buffers its state writes, Named-stream draw and every scheduled child together,
+> so Formula, Numeric or schedule refusal publishes none of them. A tick sharing logical time with
+> an ordinary Event observes only the latest previously committed Snapshot under the existing
+> phase/priority/enqueue order. No Effect loop or repeated Scenario becomes a second time authority.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable

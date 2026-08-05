@@ -879,7 +879,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab",
+  "content_identity": "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2349,6 +2349,9 @@
         },
         "capabilities": {
           "field_types": {
+            "extensions": {
+              "type": "object"
+            },
             "id": {
               "type": "non-empty-string"
             },
@@ -2359,6 +2362,9 @@
           "required_members": [
             "id",
             "rule"
+          ],
+          "optional_members": [
+            "extensions"
           ]
         },
         "components": {
@@ -3788,6 +3794,56 @@
           ]
         },
         {
+          "declaration_extension": "standard.operation-relations",
+          "declaration_members": [
+            "id",
+            "probe"
+          ],
+          "id": "operation-relation",
+          "integer_range_members": [
+            "start_path",
+            "stop_path",
+            "step_path"
+          ],
+          "operators": [
+            "canonical-equal",
+            "integer-equal",
+            "integer-greater-than",
+            "integer-less-than-or-equal",
+            "integer-range-equal",
+            "schedule-projection-equal"
+          ],
+          "policy_authority_path": "language.capabilities",
+          "policy_contract_members": [
+            "expect",
+            "path"
+          ],
+          "policy_extension": "standard.operation-relation-policy",
+          "policy_members": [
+            "contract",
+            "operation",
+            "relations"
+          ],
+          "probe_members": [
+            "left_path",
+            "operator",
+            "right_path",
+            "right_value"
+          ],
+          "required_members": [
+            "category",
+            "id",
+            "kind",
+            "operation",
+            "probe",
+            "role"
+          ],
+          "schedule_projection_members": [
+            "logical_time",
+            "operation"
+          ]
+        },
+        {
           "expect_members": [
             "outcome",
             "rng_draws",
@@ -4825,6 +4881,20 @@
             "version": "2.0.0"
           },
           "unit": "1"
+        },
+        "kernel-event-reference": {
+          "domain": {
+            "kind": "runtime-event"
+          },
+          "kind": "event-reference",
+          "numeric_policy": "exact-reference",
+          "representation": "EventRef",
+          "type": {
+            "id": "EventReference",
+            "package": "kernel",
+            "version": "2.0.0"
+          },
+          "unit": "1"
         }
       },
       "expression_nodes": [
@@ -5580,9 +5650,18 @@
             "operator": "cancel-event",
             "target_reference": {
               "instruction_member": "event",
-              "kind": "local",
-              "producer_result_kind": "scheduled-event",
-              "value_member": "local"
+              "variants": [
+                {
+                  "kind": "local",
+                  "producer_result_kind": "scheduled-event",
+                  "value_member": "local"
+                },
+                {
+                  "kind": "port",
+                  "value_contract": "kernel-event-reference",
+                  "value_member": "port"
+                }
+              ]
             }
           }
         }

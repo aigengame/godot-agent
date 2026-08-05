@@ -1,6 +1,10 @@
 """Schema 2.0 bootstrap conformance: authority ownership."""
 
 # ruff: noqa: F403, F405
+from dataclasses import replace
+
+from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
+
 import schema2_bootstrap_conformance_support as bootstrap_support
 from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
@@ -19,6 +23,593 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert first["law_ids"]
     assert first["rule_ids"] == ["quantity.declare", "quantity.lower"]
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
+
+
+def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        item for item in ldb["language"]["packages"] if item["id"] == "game.effect"
+    )
+    operations = {
+        operation["id"]: operation
+        for operation in ldb["language"]["operations"]
+        if operation["id"].startswith("game.effect.")
+    }
+    expected = {
+        "game.effect.apply-snapshot-periodic-v1": {
+            "version": "1.0.0",
+            "variant": "bounded-periodic-v1",
+            "stage": "apply",
+            "timing": {
+                "duration": 3,
+                "period": 1,
+                "tick_times": [1, 2],
+                "expiry_time": 3,
+            },
+            "schedule": [
+                {
+                    "logical_time": 1,
+                    "operation": {
+                        "id": "game.effect.tick-snapshot-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 2,
+                    "operation": {
+                        "id": "game.effect.tick-snapshot-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 3,
+                    "operation": {
+                        "id": "game.effect.expire-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+            ],
+            "magnitude": {
+                "policy": "snapshot",
+                "evaluate_at": "apply",
+                "read_at": "captured-value",
+                "frame": "pre-event-snapshot",
+            },
+            "instance": {
+                "kind": "named-rng-draw",
+                "stream": "effect-instance",
+                "minimum": 1,
+                "maximum": 2147483647,
+            },
+        },
+        "game.effect.apply-live-periodic-v1": {
+            "version": "1.0.0",
+            "variant": "bounded-periodic-v1",
+            "stage": "apply",
+            "timing": {
+                "duration": 3,
+                "period": 1,
+                "tick_times": [1, 2],
+                "expiry_time": 3,
+            },
+            "schedule": [
+                {
+                    "logical_time": 1,
+                    "operation": {
+                        "id": "game.effect.tick-live-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 2,
+                    "operation": {
+                        "id": "game.effect.tick-live-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+                {
+                    "logical_time": 3,
+                    "operation": {
+                        "id": "game.effect.expire-periodic-v1",
+                        "package": "game.effect",
+                        "version": "1.0.0",
+                    },
+                },
+            ],
+            "magnitude": {
+                "policy": "live",
+                "evaluate_at": "tick",
+                "read_at": "pre-event-snapshot",
+                "frame": "pre-event-snapshot",
+            },
+            "instance": {
+                "kind": "named-rng-draw",
+                "stream": "effect-instance",
+                "minimum": 1,
+                "maximum": 2147483647,
+            },
+        },
+    }
+    vectors = {
+        vector["id"]: vector
+        for vector in _package_vector_set(ldb, package)["vector_definitions"]
+    }
+
+    for operation_id, contract in expected.items():
+        operation = operations[operation_id]
+        assert operation["extensions"]["game.effect.periodic"] == contract
+        vector_id = f"{operation_id}.periodic-contract"
+        assert vectors[vector_id] == {
+            "category": "positive",
+            "expect": operation["extensions"],
+            "id": vector_id,
+            "kind": "operation-contract",
+            "operation": operation_id,
+            "probe": {"path": "extensions"},
+        }
+        assert vector_id in operation["vectors"]
+        scheduled = [
+            instruction
+            for instruction in operation["body"]
+            if instruction["node"] == "schedule"
+        ]
+        assert [
+            instruction["logical_time"]
+            for instruction in scheduled
+            if instruction["operation"]["id"].startswith("game.effect.tick-")
+        ] == contract["timing"]["tick_times"]
+        assert (
+            next(
+                instruction["logical_time"]
+                for instruction in scheduled
+                if instruction["operation"]["id"] == "game.effect.expire-periodic-v1"
+            )
+            == contract["timing"]["expiry_time"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("member", "invalid"),
+    (("duration", 0), ("period", 0), ("period", 4)),
+)
+def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
+    member, invalid
+):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    changed_operations = {}
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            operation["extensions"]["game.effect.periodic"]["timing"][member] = invalid
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_effect_tick_declaration_must_equal_the_scheduled_body():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    changed_operations = {}
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            operation["extensions"]["game.effect.periodic"]["timing"]["tick_times"] = [
+                1
+            ]
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_effect_relation_role_inventory_is_mandatory():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    removed_id = "game.effect.apply-live-periodic-v1.schedule-times-match"
+    vector_set["vector_definitions"] = [
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] != removed_id
+    ]
+    vector_set["vectors"].remove(removed_id)
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-live-periodic-v1"
+    )
+    operation["vectors"].remove(removed_id)
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize("scope", ("one", "all"))
+def test_periodic_effect_relation_policy_rejects_coherent_inventory_removal(scope):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    operations = {
+        row["id"]: row
+        for row in ldb["language"]["operations"]
+        if row["id"].startswith("game.effect.apply-")
+    }
+    removed_ids = {
+        vector["id"]
+        for vector in vector_set["vector_definitions"]
+        if vector["kind"] == "operation-relation"
+        and (
+            scope == "all"
+            or vector["id"] == "game.effect.apply-live-periodic-v1.schedule-times-match"
+        )
+    }
+    vector_set["vector_definitions"] = [
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] not in removed_ids
+    ]
+    vector_set["vectors"] = [
+        vector_id for vector_id in vector_set["vectors"] if vector_id not in removed_ids
+    ]
+    for operation in operations.values():
+        operation["vectors"] = [
+            vector_id
+            for vector_id in operation["vectors"]
+            if vector_id not in removed_ids
+        ]
+        declarations = operation["extensions"]["standard.operation-relations"]
+        declarations[:] = [
+            declaration
+            for declaration in declarations
+            if f"{operation['id']}.{declaration['id']}" not in removed_ids
+        ]
+        if not declarations:
+            del operation["extensions"]["standard.operation-relations"]
+        contract = next(
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector["id"] == f"{operation['id']}.periodic-contract"
+        )
+        contract["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_operation_relation_policy_is_independent_of_vector_order():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    moved = vector_set["vector_definitions"].pop(0)
+    vector_set["vector_definitions"].append(moved)
+    vector_set["vectors"] = [
+        vector["id"] for vector in vector_set["vector_definitions"]
+    ]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+
+
+def test_operation_relation_policy_refuses_empty_vectors_without_host_error():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    vector_set["vector_definitions"] = []
+    vector_set["vectors"] = []
+    package_operations = set(package["exports"]["operations"])
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in package_operations:
+            operation["vectors"] = []
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_relation_ownership_is_package_local():
+    authority = _authority_candidate()
+    kernel_kind = next(
+        row
+        for row in authority["kernel"]["meta_format"]["package_vector"]["kinds"]
+        if row["id"] == "operation-relation"
+    )
+    encoded_kernel_kind = json.dumps(kernel_kind, sort_keys=True)
+
+    assert "timing_members" not in kernel_kind
+    assert "roles" not in kernel_kind
+    assert not any(
+        term in encoded_kernel_kind for term in ("duration", "expiry", "period", "tick")
+    )
+
+    operations = {
+        row["id"]: row for row in authority["language_bundle"]["language"]["operations"]
+    }
+    periodic_capability = next(
+        row
+        for row in authority["language_bundle"]["language"]["capabilities"]
+        if row["id"] == "game.effect.periodic"
+    )
+    policies = periodic_capability["extensions"]["standard.operation-relation-policy"]
+    assert [row["operation"] for row in policies] == [
+        "game.effect.apply-live-periodic-v1",
+        "game.effect.apply-snapshot-periodic-v1",
+    ]
+    for operation_id in {
+        "game.effect.apply-live-periodic-v1",
+        "game.effect.apply-snapshot-periodic-v1",
+    }:
+        declarations = operations[operation_id]["extensions"][
+            "standard.operation-relations"
+        ]
+        assert [row["id"] for row in declarations] == [
+            "duration-positive",
+            "period-positive",
+            "period-within-duration",
+            "expiry-matches-duration",
+            "tick-times-match-period",
+            "schedule-times-match",
+        ]
+        policy = next(row for row in policies if row["operation"] == operation_id)
+        assert policy["relations"] == declarations
+        assert policy["contract"] == {
+            "path": ["extensions", "game.effect.periodic"],
+            "expect": operations[operation_id]["extensions"]["game.effect.periodic"],
+        }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("tick-target", "expiry-target", "coherent-tick-target", "coherent-expiry-target"),
+)
+def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    schedules = [row for row in operation["body"] if row["node"] == "schedule"]
+    if mutation.endswith("tick-target"):
+        for instruction in schedules[:2]:
+            instruction["operation"]["id"] = "game.effect.tick-live-periodic-v1"
+            magnitude = next(
+                row for row in instruction["arguments"] if row["port"] == "magnitude"
+            )
+            magnitude["port"] = "threshold"
+            magnitude["operand"] = {"kind": "port", "port": "threshold"}
+    else:
+        expiry = schedules[-1]
+        expiry["operation"]["id"] = "game.effect.tick-snapshot-periodic-v1"
+        expiry["arguments"] = [
+            {
+                "port": "target_health",
+                "operand": {"kind": "port", "port": "target_health"},
+            },
+            {
+                "port": "magnitude",
+                "operand": {"kind": "local", "local": "captured_magnitude"},
+            },
+            {
+                "port": "effect_instance_id",
+                "operand": {"kind": "local", "local": "instance_id"},
+            },
+        ]
+    if mutation.startswith("coherent-"):
+        declared_schedule = operation["extensions"]["game.effect.periodic"]["schedule"]
+        if mutation.endswith("tick-target"):
+            for row in declared_schedule[:2]:
+                row["operation"]["id"] = "game.effect.tick-live-periodic-v1"
+        else:
+            declared_schedule[-1]["operation"]["id"] = (
+                "game.effect.tick-snapshot-periodic-v1"
+            )
+        package = next(
+            row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+        )
+        vector_set = _package_vector_set(ldb, package)
+        contract = next(
+            vector
+            for vector in vector_set["vector_definitions"]
+            if vector["id"]
+            == "game.effect.apply-snapshot-periodic-v1.periodic-contract"
+        )
+        contract["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_periodic_effect_tick_times_must_equal_the_declared_integer_range():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    periodic = operation["extensions"]["game.effect.periodic"]
+    periodic["timing"]["duration"] = 4
+    periodic["timing"]["expiry_time"] = 4
+    expiry = next(
+        row
+        for row in operation["body"]
+        if row["node"] == "schedule"
+        and row["operation"]["id"] == "game.effect.expire-periodic-v1"
+    )
+    expiry["logical_time"] = 4
+    periodic["schedule"][-1]["logical_time"] = 4
+
+    capability = next(
+        row
+        for row in ldb["language"]["capabilities"]
+        if row["id"] == "game.effect.periodic"
+    )
+    for policy in capability.get("extensions", {}).get(
+        "standard.operation-relation-policy", []
+    ):
+        if policy["operation"] == operation["id"]:
+            policy["contract"]["expect"] = deepcopy(periodic)
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    contract = next(
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector["id"] == "game.effect.apply-snapshot-periodic-v1.periodic-contract"
+    )
+    contract["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
+def test_public_schema_command_refuses_periodic_timing_that_breaks_owned_relations(
+    run_cli,
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    changed_operations = {}
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in {
+            "game.effect.apply-snapshot-periodic-v1",
+            "game.effect.apply-live-periodic-v1",
+        }:
+            timing = operation["extensions"]["game.effect.periodic"]["timing"]
+            timing.update(
+                {"duration": 0, "period": 0, "tick_times": [], "expiry_time": 0}
+            )
+            changed_operations[operation["id"]] = operation
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    for vector in vector_set["vector_definitions"]:
+        operation = changed_operations.get(vector.get("operation"))
+        if operation is not None and vector["id"].endswith(".periodic-contract"):
+            vector["expect"] = deepcopy(operation["extensions"])
+    _refresh_package_closure_and_reidentify(ldb)
+    descriptor = replace(
+        SCHEMA_GET,
+        handler=schema_get_handler(lambda: (kernel, ldb)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        ["schema", "get", "language-bundle"], registry=(descriptor,)
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [row["code"] for row in error["diagnostics"]] == ["kernel.vector_mismatch"]
 
 
 @pytest.mark.parametrize(
@@ -63,9 +654,18 @@ def test_cancel_target_is_a_kernel_owned_schedule_result_reference():
     assert nodes["schedule"]["result"]["kind"] == "scheduled-event"
     assert nodes["cancel"]["semantics"]["target_reference"] == {
         "instruction_member": "event",
-        "kind": "local",
-        "producer_result_kind": "scheduled-event",
-        "value_member": "local",
+        "variants": [
+            {
+                "kind": "local",
+                "value_member": "local",
+                "producer_result_kind": "scheduled-event",
+            },
+            {
+                "kind": "port",
+                "value_member": "port",
+                "value_contract": "kernel-event-reference",
+            },
+        ],
     }
 
 
@@ -1252,7 +1852,7 @@ def test_reidentified_local_result_source_requires_a_compatible_node_producer():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 
@@ -1291,7 +1891,7 @@ def test_local_result_source_must_exist_before_every_successful_exit_path():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.game.combat@2.0.0.game.combat.damage-v1.result.source",
+        "language.operations.game.combat@2.1.0.game.combat.damage-v1.result.source",
     ) in first["diagnostics"]
 
 

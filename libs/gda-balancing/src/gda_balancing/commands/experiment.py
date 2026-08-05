@@ -111,6 +111,16 @@ _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
     "runtime.reason.capability-unsupported",
     "runtime.reason.step-limit",
     "runtime.reason.numeric-overflow",
+    "runtime.reason.schedule-backward",
+    "runtime.reason.schedule-hidden-input",
+    "runtime.reason.schedule-illegal-same-time-priority",
+    "runtime.reason.queue-limit",
+    "runtime.reason.zero-time-depth-limit",
+    "runtime.reason.event-limit",
+    "runtime.reason.logical-time-limit",
+    "runtime.reason.cancel-active",
+    "runtime.reason.cancel-completed",
+    "runtime.reason.cancel-unknown",
     "evaluation.reason.observation-unavailable",
 )
 EXPERIMENT_CHECK_REFUSAL_CATALOG = refusal_catalog_for_reasons(
@@ -316,7 +326,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
     vector_set = next(
         row
         for row in language_bundle.package_conformance_vector_sets
-        if row["package_id"] == "game.combat" and row["package_version"] == "2.0.0"
+        if row["package_id"] == "game.combat" and row["package_version"] == "2.1.0"
     )
     vectors = {row["id"]: row for row in vector_set["vector_definitions"]}
     source_fixture = vectors["game.combat.model-binding.positive"]["source_fixture"]

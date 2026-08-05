@@ -12,7 +12,6 @@ import jsonschema
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     admit_authority_context,
-    load_authorities,
 )
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
@@ -30,6 +29,7 @@ from gda_balancing.schema2.model import (
     check_model_source,
     lower_checked_model,
 )
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -255,7 +255,7 @@ def _exact_path(root: Any, dotted: str) -> Any:
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
-    kernel, _ = load_authorities()
+    kernel, _ = mutable_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -809,7 +809,7 @@ def _reference_check_source(
 def _renamed_reason_authorities(
     reason_id: str, diagnostic: str
 ) -> tuple[dict[str, Any], dict[str, Any], str]:
-    kernel, candidate_ldb = deepcopy(load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     language = candidate_ldb["language"]
     renamed_reason = f"{reason_id}.renamed"
     renamed_diagnostic = f"{diagnostic}.renamed"
@@ -2727,6 +2727,7 @@ def _reference_entrypoints(
         initializers: dict[str, dict[str, Any]] = {}
         targets: dict[str, dict[str, Any]] = {}
         event_payload_targets: dict[str, dict[str, Any]] = {}
+        event_reference_targets: dict[str, dict[str, Any]] = {}
         external_fact_targets: dict[str, dict[str, Any]] = {}
 
         def record_external_fact_target(
@@ -2938,6 +2939,47 @@ def _reference_entrypoints(
                         domains["actual_operand"], operand_body
                     ),
                 }
+            elif operand["kind"] == "event-reference":
+                event_reference_contract = checked.kernel["meta_format"][
+                    "runtime_program"
+                ]["fixed_value_contracts"]["kernel-event-reference"]
+                name = operand["name"]
+                if formal["access"] != "read" or not (
+                    _reference_operation_contract_matches(
+                        event_reference_contract,
+                        formal,
+                    )
+                ):
+                    raise _ReferenceEntrypointError(
+                        operand_pointer,
+                        "Event reference is incompatible",
+                    )
+                operand_body = {
+                    "kind": "event-reference",
+                    "name": name,
+                }
+                operand_identity = _reference_content_identity(
+                    domains["actual_operand"], operand_body
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(
+                    (formal["id"], formal["access"])
+                )
+                reference_contract = {
+                    "name": name,
+                    "operand_identity": operand_identity,
+                    "cardinality": "required",
+                }
+                previous_reference = event_reference_targets.get(name)
+                if (
+                    previous_reference is not None
+                    and previous_reference != reference_contract
+                ):
+                    raise ValueError("conflicting Event reference targets")
+                event_reference_targets[name] = reference_contract
             else:
                 raise _ReferenceEntrypointError(
                     operand_pointer,
@@ -3017,7 +3059,11 @@ def _reference_entrypoints(
                 "targets": sorted(
                     event_payload_targets.values(),
                     key=lambda row: row["target_identity"],
-                )
+                ),
+                "event_references": sorted(
+                    event_reference_targets.values(),
+                    key=lambda row: row["name"],
+                ),
             },
             "external_fact_contract": {
                 "targets": sorted(
@@ -3706,7 +3752,7 @@ def _lock_oracle(lock: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path):
-    kernel, language_bundle = load_authorities()
+    kernel, language_bundle = mutable_authorities()
     vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
     vector_ids = {item["id"] for item in vectors}
     assert {
@@ -3935,7 +3981,7 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
     path = tmp_path / "source.json"
     source = _source([_symbol(role, role) for role in roles])
     _write_source(path, source)
-    kernel, language_bundle = load_authorities()
+    kernel, language_bundle = mutable_authorities()
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, language_bundle)
     assert isinstance(checked, CheckedModel)
@@ -3974,7 +4020,7 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
         dict[str, Any],
         json.loads(path.read_text(encoding="utf-8")),
     )
-    kernel, language_bundle = load_authorities()
+    kernel, language_bundle = mutable_authorities()
     checked = check_model_source(str(path))
     reference_checked = _reference_check_source(source, kernel, language_bundle)
     assert isinstance(checked, CheckedModel)
@@ -3988,8 +4034,13 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     assert [
         entrypoint["id"]
         for entrypoint in cast(list[dict[str, Any]], rir["entrypoints"])
-    ] == ["combat.cast", "combat.plan-casts"]
-    assert len(cast(list[Any], rir["call_sites"])) == 4
+    ] == [
+        "combat.enemy-attacks-player",
+        "combat.player-attacks-enemy",
+        "combat.player-attacks-enemy-and-cancels-counterattack",
+        "combat.player-plans-attacks",
+    ]
+    assert len(cast(list[Any], rir["call_sites"])) == 5
     assert admit_resolved_model(
         {
             name: reference[name]
@@ -4010,7 +4061,7 @@ def test_independent_lowerers_treat_empty_collection_exclusion_as_noop(monkeypat
         dict[str, Any],
         json.loads(path.read_text(encoding="utf-8")),
     )
-    kernel, candidate_ldb = deepcopy(load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     contract = next(
         row
         for row in candidate_ldb["language"]["artifact_contracts"]
@@ -4057,7 +4108,7 @@ def test_nested_integer_literal_is_identical_across_lowerers(
         dict[str, Any],
         json.loads(path.read_text(encoding="utf-8")),
     )
-    kernel, candidate_ldb = deepcopy(load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     cast_operation = next(
         operation
         for operation in candidate_ldb["language"]["operations"]
@@ -4141,7 +4192,7 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
     source["modules"][0]["imports"].append(deepcopy(source["modules"][0]["imports"][0]))
     path = tmp_path / "source.json"
     _write_source(path, source)
-    kernel, language_bundle = load_authorities()
+    kernel, language_bundle = mutable_authorities()
 
     production = check_model_source(str(path))
     reference = _reference_check_source(source, kernel, language_bundle)
@@ -4160,7 +4211,7 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
 
 def test_resolution_step_budget_drives_both_independent_consumers():
     source = _source([_symbol("health", "state")])
-    kernel, language_bundle = deepcopy(load_authorities())
+    kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_rule_match_steps"] = 1
     vectors = {
         vector["id"]: vector
@@ -4195,7 +4246,7 @@ def test_runtime_projection_budget_drives_both_independent_consumers(
     source = _source([_symbol("health", "state")])
     path = tmp_path / "source.json"
     _write_source(path, source)
-    kernel, language_bundle = deepcopy(load_authorities())
+    kernel, language_bundle = mutable_authorities()
     language_bundle["resources"]["max_runtime_projection_steps"] = 1
     vectors = {
         vector["id"]: vector
@@ -4229,7 +4280,7 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     source["modules"][0]["imports"].append(second_import)
     path = tmp_path / "source.json"
     _write_source(path, source)
-    kernel, language_bundle = deepcopy(load_authorities())
+    kernel, language_bundle = mutable_authorities()
     operation = next(
         item
         for item in kernel["meta_format"]["resolution_judgment"]["operations"]
@@ -4264,7 +4315,7 @@ def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_pat
     source["modules"][0]["imports"].append(second_import)
     path = tmp_path / "source.json"
     _write_source(path, source)
-    kernel, language_bundle = deepcopy(load_authorities())
+    kernel, language_bundle = mutable_authorities()
     profile = language_bundle["language"]["resolution_profiles"][0]
     imports_recipe = next(
         item for item in profile["relation_recipes"] if item["id"] == "imports"
@@ -4385,7 +4436,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     path = tmp_path / "profile-routed-source.json"
     source = renamed_source(_source([_symbol("health", "state")]))
     _write_source(path, source)
-    kernel, candidate_ldb = deepcopy(load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     language = candidate_ldb["language"]
     profile = language["resolution_profiles"][0]
     old_profile_id = profile["id"]
@@ -4605,7 +4656,7 @@ def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
     path = tmp_path / "renamed-rir-output.json"
     source = _source([_symbol("health", "state")])
     _write_source(path, source)
-    kernel, candidate_ldb = deepcopy(load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     language = candidate_ldb["language"]
     lowering = _reference_lowering(language)
     lowering["output_member"] = "items"
@@ -4651,7 +4702,7 @@ def test_schema_error_mapping_uses_the_complete_ldb_selector_path():
     error = next(
         jsonschema.Draft202012Validator(schema).iter_errors({"metadata": {"unit": 7}})
     )
-    _, language_bundle = load_authorities()
+    _, language_bundle = mutable_authorities()
 
     code = model_module._schema_error_code(error, language_bundle)
 

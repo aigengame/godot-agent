@@ -341,6 +341,371 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
     }
 
 
+def _instruction_evaluation_sites(
+    operation: dict[str, Any],
+) -> dict[int, str]:
+    extensions = operation.get("extensions")
+    if not isinstance(extensions, dict):
+        return {}
+    provenance = extensions.get("standard.instruction-provenance")
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("kind") != "instruction-evaluation-sites"
+        or not isinstance(provenance.get("sites"), list)
+    ):
+        return {}
+    return {
+        cast(int, row["instruction_index"]): cast(str, row["evaluation_site_identity"])
+        for row in cast(list[dict[str, Any]], provenance["sites"])
+    }
+
+
+def _operation_formula_slot(
+    operation: dict[str, Any], slot_id: str
+) -> dict[str, Any] | None:
+    extensions = operation.get("extensions")
+    slots = (
+        extensions.get("standard.formula-slots")
+        if isinstance(extensions, dict)
+        else None
+    )
+    matches = (
+        [row for row in slots if isinstance(row, dict) and row.get("id") == slot_id]
+        if isinstance(slots, list)
+        else []
+    )
+    return cast(dict[str, Any], matches[0]) if len(matches) == 1 else None
+
+
+def _operation_formula_evaluation_record(
+    operation: dict[str, Any],
+    binding: dict[str, Any],
+    variables: dict[str, Any],
+    *,
+    evaluation_site_identity: str,
+    frame_identity: JsonValue,
+    call_path: tuple[str, ...],
+) -> dict[str, JsonValue] | None:
+    """Build the one canonical Formula-evaluation record shape."""
+    binding_site = cast(dict[str, Any], binding["site"])
+    slot = _operation_formula_slot(operation, cast(str, binding_site["slot"]))
+    if slot is None:
+        return None
+    formula_parameter_by_slot_parameter = {
+        cast(str, argument["operand"]["parameter"]): cast(str, argument["parameter"])
+        for argument in cast(list[dict[str, Any]], binding["arguments"])
+    }
+    evaluated_arguments: list[dict[str, JsonValue]] = []
+    for parameter in cast(list[dict[str, Any]], slot["parameters"]):
+        source = cast(dict[str, Any], parameter["source"])
+        source_name = source.get("name")
+        parameter_id = parameter.get("id")
+        if (
+            source.get("kind") not in {"port", "local"}
+            or not isinstance(source_name, str)
+            or source_name not in variables
+            or not isinstance(parameter_id, str)
+            or parameter_id not in formula_parameter_by_slot_parameter
+        ):
+            return None
+        evaluated_arguments.append(
+            {
+                "parameter": formula_parameter_by_slot_parameter[parameter_id],
+                "value": cast(JsonValue, variables[source_name]),
+            }
+        )
+    target = slot.get("target")
+    if not isinstance(target, str) or target not in variables:
+        return None
+    return {
+        "evaluation_site_identity": evaluation_site_identity,
+        "binding_identity": cast(JsonValue, binding["identity"]),
+        "formula": cast(JsonValue, binding["formula"]),
+        "operation": cast(JsonValue, binding_site["operation"]),
+        "slot": cast(JsonValue, binding_site["slot"]),
+        "context": cast(JsonValue, binding_site["context"]),
+        "arguments": cast(
+            JsonValue,
+            sorted(
+                evaluated_arguments,
+                key=lambda row: cast(str, row["parameter"]),
+            ),
+        ),
+        "result": cast(JsonValue, variables[target]),
+        "frame_identity": frame_identity,
+        "call_path": "/".join(call_path),
+    }
+
+
+_INVALID_FORMULA_EVIDENCE = object()
+
+
+def _evaluate_formula_evidence_result(
+    checked: CheckedExperiment,
+    formula: dict[str, Any],
+    arguments: list[dict[str, Any]],
+) -> JsonValue | object:
+    """Independently evaluate one traced Formula from admitted RIR semantics."""
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
+        )
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, row["definition"]["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
+        )
+    }
+    formulas = {
+        cast(str, row["identity"]): row
+        for row in cast(list[dict[str, Any]], checked.rir["formulas"])
+    }
+    runtime_nodes = _runtime_nodes(checked)
+    numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
+
+    def operand_value(
+        operand: dict[str, Any], values: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        kind = operand.get("kind")
+        if kind == "parameter":
+            return values.get(
+                cast(str, operand.get("parameter")), _INVALID_FORMULA_EVIDENCE
+            )
+        if kind == "local":
+            return values.get(
+                cast(str, operand.get("local")), _INVALID_FORMULA_EVIDENCE
+            )
+        if kind == "literal":
+            return cast(JsonValue, operand.get("value"))
+        return _INVALID_FORMULA_EVIDENCE
+
+    def evaluate_operation(
+        reference: dict[str, Any], values: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        operation = operations.get(
+            (
+                cast(str, reference.get("package")),
+                cast(str, reference.get("version")),
+                cast(str, reference.get("id")),
+            )
+        )
+        if operation is None:
+            return _INVALID_FORMULA_EVIDENCE
+        variables: dict[str, Any] = dict(values)
+        try:
+            for instruction in cast(list[dict[str, Any]], operation["body"]):
+                node = runtime_nodes.get(cast(str, instruction.get("node")))
+                if node is None or node.get("family") != "expression":
+                    return _INVALID_FORMULA_EVIDENCE
+                _execute_value_instruction(instruction, variables, numeric, node)
+            source = cast(dict[str, Any], operation["result"]["source"])
+            if source.get("kind") not in {"local", "port"}:
+                return _INVALID_FORMULA_EVIDENCE
+            return cast(
+                JsonValue,
+                variables[cast(str, source["name"])],
+            )
+        except (KeyError, OverflowError, TypeError, ValueError):
+            return _INVALID_FORMULA_EVIDENCE
+
+    def evaluate_formula(
+        selected_formula: dict[str, Any], parameters: dict[str, JsonValue]
+    ) -> JsonValue | object:
+        body = cast(dict[str, Any], selected_formula["body"])
+        if body.get("node") == "parameter":
+            return parameters.get(
+                cast(str, body.get("parameter")), _INVALID_FORMULA_EVIDENCE
+            )
+        values = dict(parameters)
+        for node in cast(list[dict[str, Any]], body.get("nodes", [])):
+            kind = node.get("node")
+            if kind == "operation-call":
+                inputs: dict[str, JsonValue] = {}
+                for argument in cast(list[dict[str, Any]], node["arguments"]):
+                    value = operand_value(
+                        cast(dict[str, Any], argument["operand"]), values
+                    )
+                    if value is _INVALID_FORMULA_EVIDENCE:
+                        return value
+                    inputs[cast(str, argument["port"])] = cast(JsonValue, value)
+                result = evaluate_operation(
+                    cast(dict[str, Any], node["operation"]), inputs
+                )
+            elif kind == "formula-call":
+                child_reference = cast(dict[str, Any], node["formula"])
+                child = formulas.get(cast(str, child_reference.get("identity")))
+                if child is None:
+                    return _INVALID_FORMULA_EVIDENCE
+                inputs = {}
+                for argument in cast(list[dict[str, Any]], node["arguments"]):
+                    value = operand_value(
+                        cast(dict[str, Any], argument["operand"]), values
+                    )
+                    if value is _INVALID_FORMULA_EVIDENCE:
+                        return value
+                    inputs[cast(str, argument["parameter"])] = cast(JsonValue, value)
+                result = evaluate_formula(child, inputs)
+            elif kind == "conditional":
+                condition = operand_value(
+                    cast(dict[str, Any], node["condition"]), values
+                )
+                if not isinstance(condition, bool):
+                    return _INVALID_FORMULA_EVIDENCE
+                result = operand_value(
+                    cast(
+                        dict[str, Any],
+                        node["when_true"] if condition else node["when_false"],
+                    ),
+                    values,
+                )
+            else:
+                return _INVALID_FORMULA_EVIDENCE
+            if result is _INVALID_FORMULA_EVIDENCE:
+                return result
+            values[cast(str, node["id"])] = cast(JsonValue, result)
+        return operand_value(cast(dict[str, Any], body["result"]), values)
+
+    parameters = {
+        cast(str, row["parameter"]): cast(JsonValue, row["value"]) for row in arguments
+    }
+    return evaluate_formula(formula, parameters)
+
+
+def _event_formula_evaluations_are_authoritative(
+    checked: CheckedExperiment, event: dict[str, Any]
+) -> bool:
+    evaluations = event.get("formula_evaluations")
+    if not isinstance(evaluations, list):
+        return False
+    bindings = cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+    formulas = {
+        cast(str, row["identity"]): row
+        for row in cast(list[dict[str, Any]], checked.rir["formulas"])
+    }
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["packages"]
+        )
+    }
+    operations = {
+        (
+            cast(str, row["package"]),
+            package_versions[cast(str, row["package"])],
+            cast(str, row["definition"]["id"]),
+        ): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]], checked.rir["selected_semantics"]["operations"]
+        )
+    }
+    executions: dict[str, str] = {}
+    entrypoint = event.get("entrypoint")
+    operation_id = event.get("operation")
+    if isinstance(operation_id, str):
+        root_path = (
+            cast(str, entrypoint["id"])
+            if isinstance(entrypoint, dict)
+            else f"scheduled:{event.get('schedule_call_site_identity')}"
+        )
+        executions[root_path] = operation_id
+    for call in cast(list[dict[str, Any]], event.get("calls", [])):
+        call_operation = call.get("operation")
+        if not isinstance(call.get("site"), str) or not isinstance(
+            call_operation, dict
+        ):
+            return False
+        executions[cast(str, call["site"])] = cast(str, call_operation.get("id"))
+
+    seen: set[tuple[str, str]] = set()
+    for evaluation in evaluations:
+        if not isinstance(evaluation, dict):
+            return False
+        site_identity = evaluation.get("evaluation_site_identity")
+        binding_identity = evaluation.get("binding_identity")
+        call_path = evaluation.get("call_path")
+        matches = [
+            binding
+            for binding in bindings
+            if binding.get("identity") == binding_identity
+            and cast(dict[str, Any], binding.get("site", {})).get("identity")
+            == site_identity
+        ]
+        if len(matches) != 1 or not isinstance(call_path, str):
+            return False
+        binding = matches[0]
+        site = cast(dict[str, Any], binding["site"])
+        operation_reference = cast(dict[str, Any], site["operation"])
+        operation = operations.get(
+            (
+                cast(str, operation_reference["package"]),
+                cast(str, operation_reference["version"]),
+                cast(str, operation_reference["id"]),
+            )
+        )
+        formula_reference = cast(dict[str, Any], binding["formula"])
+        formula = formulas.get(cast(str, formula_reference["identity"]))
+        slot = (
+            _operation_formula_slot(operation, cast(str, site["slot"]))
+            if operation is not None
+            else None
+        )
+        if (
+            operation is None
+            or formula is None
+            or slot is None
+            or evaluation.get("formula") != formula_reference
+            or evaluation.get("operation") != operation_reference
+            or evaluation.get("slot") != site["slot"]
+            or evaluation.get("context") != site["context"]
+            or evaluation.get("frame_identity") != event.get("snapshot_before_identity")
+            or executions.get(call_path) != operation_reference["id"]
+            or site_identity not in _instruction_evaluation_sites(operation).values()
+            or (call_path, cast(str, site_identity)) in seen
+        ):
+            return False
+        seen.add((call_path, cast(str, site_identity)))
+        formula_parameters = cast(list[dict[str, Any]], formula["parameters"])
+        parameter_ids = [cast(str, row["id"]) for row in formula_parameters]
+        binding_parameter_ids = [
+            cast(str, row["parameter"])
+            for row in cast(list[dict[str, Any]], binding["arguments"])
+        ]
+        arguments = evaluation.get("arguments")
+        if (
+            not isinstance(arguments, list)
+            or binding_parameter_ids != sorted(parameter_ids)
+            or [row.get("parameter") for row in arguments] != sorted(parameter_ids)
+        ):
+            return False
+        domains = {
+            cast(str, row["id"]): cast(dict[str, int], row["domain"])
+            for row in formula_parameters
+        }
+        if any(
+            not isinstance(row.get("value"), int)
+            or isinstance(row["value"], bool)
+            or not domains[cast(str, row["parameter"])]["minimum"]
+            <= row["value"]
+            <= domains[cast(str, row["parameter"])]["maximum"]
+            for row in arguments
+        ):
+            return False
+        result = _evaluate_formula_evidence_result(
+            checked,
+            formula,
+            cast(list[dict[str, Any]], arguments),
+        )
+        if result is _INVALID_FORMULA_EVIDENCE or result != evaluation.get("result"):
+            return False
+    return True
+
+
 def _scheduler_contract(checked: CheckedExperiment) -> Mapping[str, Any]:
     return RuntimeScheduler.from_kernel(checked.kernel).contract
 
@@ -393,13 +758,19 @@ def _pending_event_projection(event: dict[str, Any]) -> dict[str, JsonValue]:
             "facts": cast(JsonValue, event["facts"]),
         }
     if "entrypoint" in event:
-        return {
-            **common,
-            "kind": "transition-invocation",
-            "root_event_ref": cast(str, event["root_event_ref"]),
-            "entrypoint": cast(str, event["entrypoint"]),
-            "payload": cast(JsonValue, event["payload"]),
-        }
+        projected = cast(
+            dict[str, JsonValue],
+            {
+                **common,
+                "kind": "transition-invocation",
+                "root_event_ref": cast(str, event["root_event_ref"]),
+                "entrypoint": cast(str, event["entrypoint"]),
+                "payload": cast(JsonValue, event["payload"]),
+            },
+        )
+        if event.get("event_references"):
+            projected["event_references"] = cast(JsonValue, event["event_references"])
+        return projected
     return {
         **common,
         "kind": "scheduled-transition",
@@ -553,10 +924,12 @@ def _authoritative_event_actual_values(
     if scenario is None:
         return None
     entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
+    scenario_entrypoints: list[dict[str, Any]] = []
     actual_values: dict[bytes, int] = {}
     try:
         for root_event in _scenario_transition_events(scenario):
             selected_entrypoint = entrypoints[cast(str, root_event["entrypoint"])]
+            scenario_entrypoints.append(selected_entrypoint)
             contract = cast(
                 dict[str, Any], selected_entrypoint["scenario_input_contract"]
             )
@@ -576,6 +949,7 @@ def _authoritative_event_actual_values(
             consumed_steps=0,
             runtime_limit=(1 << 63) - 1,
             cache=None,
+            selected_entrypoints=scenario_entrypoints,
             frame_token={"scenario": scenario_id, "recovery": "initialization"},
             phase="initialization",
         )
@@ -616,6 +990,7 @@ def _authoritative_event_actual_values(
             consumed_steps=0,
             runtime_limit=(1 << 63) - 1,
             cache=None,
+            selected_entrypoints=scenario_entrypoints,
             frame_identity=cast(str, event["snapshot_before_identity"]),
             phase="event",
         )
@@ -689,7 +1064,34 @@ def _committed_event_arguments(
     for binding in entrypoint["arguments"]:
         port = cast(str, binding["port"]["name"])
         operand = cast(dict[str, Any], binding["operand"])
+        if operand["kind"] == "event-reference":
+            reference_bindings = {
+                cast(str, row["name"]): cast(str, row["root_event_ref"])
+                for row in cast(
+                    list[dict[str, JsonValue]],
+                    event_spec.get("event_references", []),
+                )
+            }
+            root_event_ref = reference_bindings.get(cast(str, operand.get("name")))
+            matching_event_ids = [
+                event_id
+                for event_id, record in catalog_by_id.items()
+                if record.get("scenario") == scenario_id
+                and isinstance(record.get("event_spec"), dict)
+                and cast(dict[str, JsonValue], record["event_spec"]).get("kind")
+                == "transition-invocation"
+                and cast(dict[str, JsonValue], record["event_spec"]).get(
+                    "root_event_ref"
+                )
+                == root_event_ref
+            ]
+            if root_event_ref is None or len(matching_event_ids) != 1:
+                return None
+            arguments[port] = matching_event_ids[0]
+            continue
         if operand["kind"] != "symbol":
+            if "value" not in operand:
+                return None
             arguments[port] = cast(JsonValue, operand["value"])
             continue
         target = cast(dict[str, JsonValue], operand["symbol"])
@@ -706,16 +1108,22 @@ def _committed_event_arguments(
     return arguments, state_references, actual_values
 
 
-def _replayed_schedule_arguments(
+def _replayed_event_evidence(
     checked: CheckedExperiment,
     parent_event: dict[str, JsonValue],
     parent_spec: dict[str, JsonValue],
-    target_schedule: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue] | None,
     *,
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+) -> (
+    tuple[
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
+        list[dict[str, JsonValue]],
+    ]
+    | None
+):
     root_arguments = _committed_event_arguments(
         checked,
         parent_event,
@@ -730,6 +1138,11 @@ def _replayed_schedule_arguments(
     operations = {
         cast(str, row["definition"]["id"]): row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
+    }
+    formula_bindings_by_site = {
+        cast(str, cast(dict[str, Any], binding["site"])["identity"]): binding
+        for binding in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+        if cast(dict[str, Any], binding["site"])["kind"] == "operation-slot"
     }
     root_operation = operations.get(parent_operation_id)
     if root_operation is None:
@@ -754,6 +1167,7 @@ def _replayed_schedule_arguments(
     schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
     draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
     draw_index = 0
+    formula_evaluations: list[dict[str, JsonValue]] = []
     rng = _NamedRng(
         cast(int, checked.value["seed"]["value"]),
         cast(dict[str, Any], _runtime_contract(checked)["named_rng"]),
@@ -829,7 +1243,11 @@ def _replayed_schedule_arguments(
                 variables[cast(str, row["name"])] = actual_values[identity]
         operation_results: dict[str, JsonValue] = {}
         outcome = cast(str, operation["default_outcome"])
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
+        evaluation_sites = _instruction_evaluation_sites(operation)
+        for instruction_index, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            evaluation_site_identity = evaluation_sites.get(instruction_index)
             node_contract = node_contracts[instruction["node"]]
             operator = node_contract["semantics"]["operator"]
             if operator == "invoke-operation":
@@ -922,10 +1340,10 @@ def _replayed_schedule_arguments(
                         },
                     ),
                 )
-                if target_schedule[
-                    "call_site_identity"
-                ] == call_site_identity and target_schedule["call_path"] == "/".join(
-                    call_path
+                if (
+                    target_schedule is not None
+                    and target_schedule["call_site_identity"] == call_site_identity
+                    and target_schedule["call_path"] == "/".join(call_path)
                 ):
                     return "", None, (child_arguments, child_state_references)
                 scheduled = next(
@@ -976,17 +1394,42 @@ def _replayed_schedule_arguments(
             elif operator in {"state-integer-subtract", "state-write"}:
                 formal = cast(str, instruction["symbol"])
                 target = canonical_bytes(cast(JsonValue, state_references[formal]))
-                state[target] = _admit_numeric(
+                declaration = declarations.get(target)
+                if declaration is None:
+                    return "", None, None
+                state[target] = _admit_declared_numeric(
                     state[target] - cast(int, variables[instruction["value"]])
                     if operator == "state-integer-subtract"
                     else cast(int, variables[instruction["value"]]),
                     numeric,
+                    declaration,
                 )
                 for alias, alias_target in state_references.items():
                     if canonical_bytes(cast(JsonValue, alias_target)) == target:
                         variables[alias] = state[target]
             else:
                 return "", None, None
+            if (
+                evaluation_site_identity is not None
+                and evaluation_sites.get(instruction_index + 1)
+                != evaluation_site_identity
+            ):
+                binding = formula_bindings_by_site.get(evaluation_site_identity)
+                if binding is None:
+                    return "", None, None
+                evaluation = _operation_formula_evaluation_record(
+                    operation,
+                    binding,
+                    variables,
+                    evaluation_site_identity=evaluation_site_identity,
+                    frame_identity=cast(
+                        JsonValue, parent_event["snapshot_before_identity"]
+                    ),
+                    call_path=call_path,
+                )
+                if evaluation is None:
+                    return "", None, None
+                formula_evaluations.append(evaluation)
         outcome_definition = next(
             row for row in operation["outcomes"] if row["id"] == outcome
         )
@@ -1011,7 +1454,7 @@ def _replayed_schedule_arguments(
         else (f"scheduled:{parent_spec['call_site_identity']}",)
     )
     try:
-        _outcome, _result, found = execute(
+        replayed_outcome, _result, found = execute(
             root_operation,
             root_arguments[0],
             root_state_references,
@@ -1019,7 +1462,60 @@ def _replayed_schedule_arguments(
         )
     except (KeyError, OverflowError, StopIteration, TypeError, ValueError):
         return None
-    return found
+    if not replayed_outcome and found is None:
+        return None
+    return found, formula_evaluations
+
+
+def _replayed_schedule_arguments(
+    checked: CheckedExperiment,
+    parent_event: dict[str, JsonValue],
+    parent_spec: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue],
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None:
+    replayed = _replayed_event_evidence(
+        checked,
+        parent_event,
+        parent_spec,
+        target_schedule,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    return replayed[0] if replayed is not None else None
+
+
+def _event_formula_evaluations_match_replay(
+    checked: CheckedExperiment,
+    event: dict[str, JsonValue],
+    record: dict[str, JsonValue],
+    *,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> bool:
+    evaluations = event.get("formula_evaluations")
+    if not isinstance(evaluations, list):
+        return False
+    if not isinstance(event.get("operation"), str):
+        return evaluations == []
+    event_spec = record.get("event_spec")
+    scenario_id = record.get("scenario")
+    if not isinstance(event_spec, dict) or not isinstance(scenario_id, str):
+        return False
+    replayed = _replayed_event_evidence(
+        checked,
+        event,
+        cast(dict[str, JsonValue], event_spec),
+        None,
+        scenario_id=scenario_id,
+        catalog_by_id=catalog_by_id,
+        events_by_id=events_by_id,
+    )
+    return replayed is not None and evaluations == replayed[1]
 
 
 def _scheduled_catalog_record_is_authoritative(
@@ -1700,6 +2196,11 @@ def check_experiment(
                 for event in event_plan
                 if event["kind"] == "external-input"
             )
+            or any(
+                not _unique_rows(event.get("event_references", []), "name")
+                for event in event_plan
+                if event["kind"] == "transition-invocation"
+            )
             or not _external_input_plan_is_admitted(scenario, scheduler)
         ):
             return _refusal(
@@ -1930,6 +2431,55 @@ def check_experiment(
                         pointer=f"{payload_pointer}/{payload_index}/value",
                         message="Event-local payload is outside its declared domain",
                     )
+            reference_contracts = cast(
+                list[dict[str, Any]], payload_contract["event_references"]
+            )
+            references = cast(list[dict[str, str]], event.get("event_references", []))
+            reference_pointer = (
+                f"/scenarios/{scenario_index}/event_plan/{event_index}/event_references"
+            )
+            allowed_reference_names = {
+                cast(str, row["name"]) for row in reference_contracts
+            }
+            provided_reference_names = {row["name"] for row in references}
+            required_reference_names = {
+                cast(str, row["name"])
+                for row in reference_contracts
+                if row["cardinality"] == "required"
+            }
+            if (
+                len(provided_reference_names) != len(references)
+                or not required_reference_names <= provided_reference_names
+                or not provided_reference_names <= allowed_reference_names
+            ):
+                return _refusal(
+                    stage="static",
+                    code="language.source_contract_mismatch",
+                    identity=experiment_identity,
+                    pointer=reference_pointer,
+                    message=(
+                        "Transition Event references do not exactly close the "
+                        "entrypoint contract"
+                    ),
+                )
+            root_references = {
+                cast(str, root["root_event_ref"])
+                for root in _scenario_root_events(scenario)
+            }
+            for reference_index, reference in enumerate(references):
+                if reference["root_event_ref"] not in root_references:
+                    return _refusal(
+                        stage="static",
+                        code="language.resolution_binding_mismatch",
+                        identity=experiment_identity,
+                        pointer=(
+                            f"{reference_pointer}/{reference_index}/root_event_ref"
+                        ),
+                        message=(
+                            "Event reference does not resolve to an admitted root "
+                            "Event in the same Scenario"
+                        ),
+                    )
         contract_targets = [
             target
             for entrypoint in selected_entrypoints
@@ -2092,6 +2642,19 @@ def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
     if value < numeric["minimum"] or value > numeric["maximum"]:
         raise OverflowError("exact-int64 arithmetic overflow")
     return value
+
+
+def _admit_declared_numeric(
+    value: int,
+    numeric: dict[str, Any],
+    declaration: dict[str, Any],
+) -> int:
+    admitted = _admit_numeric(value, numeric)
+    if declaration["domain_kind"] == "closed-interval":
+        domain = cast(dict[str, int], declaration["domain"])
+        if not domain["minimum"] <= admitted <= domain["maximum"]:
+            raise OverflowError("value is outside its declared numeric domain")
+    return admitted
 
 
 def _integer_compare(comparison: str, left: int, right: int) -> bool:
@@ -2792,6 +3355,47 @@ def _evaluate_value_program_vector(
     }
 
 
+def _formula_programs_reachable_from_entrypoints(
+    checked: CheckedExperiment,
+    selected_entrypoints: Sequence[dict[str, Any]],
+    *,
+    phase: str,
+) -> list[dict[str, Any]]:
+    """Project one lifecycle phase to the sites selected by a Scenario."""
+    programs = [
+        program
+        for program in cast(
+            list[dict[str, Any]], checked.rir["initialization_programs"]
+        )
+        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
+    ]
+    reachable_targets = {
+        canonical_bytes(cast(JsonValue, operand["symbol"]))
+        for entrypoint in selected_entrypoints
+        for binding in cast(list[dict[str, Any]], entrypoint["arguments"])
+        if (operand := cast(dict[str, Any], binding["operand"]))["kind"] == "symbol"
+    }
+    while True:
+        previous_targets = len(reachable_targets)
+        for program in programs:
+            target = canonical_bytes(cast(JsonValue, program["target"]))
+            if target not in reachable_targets:
+                continue
+            reachable_targets.update(
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+            )
+        if len(reachable_targets) == previous_targets:
+            break
+    return [
+        program
+        for program in programs
+        if canonical_bytes(cast(JsonValue, program["target"])) in reachable_targets
+    ]
+
+
 def _evaluate_initialization_programs(
     checked: CheckedExperiment,
     actual_values: dict[bytes, int],
@@ -2799,19 +3403,41 @@ def _evaluate_initialization_programs(
     consumed_steps: int,
     runtime_limit: int,
     cache: dict[bytes, int] | None,
+    selected_entrypoints: Sequence[dict[str, Any]],
     frame_token: JsonValue | None = None,
     frame_identity: str | None = None,
     phase: str = "initialization",
 ) -> int:
     """Evaluate closed generic programs in one authority-owned lifecycle frame."""
-    programs = [
-        program
-        for program in cast(
-            list[dict[str, Any]],
-            checked.rir["initialization_programs"],
-        )
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
-    ]
+    programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase=phase,
+    )
+    if not programs:
+        return consumed_steps
+    # A selected site can still depend on an explicit input absent from this
+    # Scenario. Remove that open branch and every dependent branch, but keep a
+    # closed cycle intact so the evaluator's invariant guard can reject it.
+    available_identities = set(actual_values)
+    while programs:
+        program_targets = {
+            canonical_bytes(cast(JsonValue, program["target"])) for program in programs
+        }
+        closed_programs = [
+            program
+            for program in programs
+            if {
+                canonical_bytes(cast(JsonValue, operand["resolved_symbol"]))
+                for row in cast(list[dict[str, Any]], program["inputs"])
+                if (operand := cast(dict[str, Any], row["operand"]))["kind"]
+                != "literal"
+            }
+            <= available_identities | program_targets
+        ]
+        if len(closed_programs) == len(programs):
+            break
+        programs = closed_programs
     if not programs:
         return consumed_steps
     program_targets = {
@@ -3030,6 +3656,11 @@ def evaluate_experiment(
         ): row
         for row in checked.rir["call_sites"]
     }
+    formula_bindings_by_site = {
+        cast(str, cast(dict[str, Any], binding["site"])["identity"]): binding
+        for binding in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+        if cast(dict[str, Any], binding["site"])["kind"] == "operation-slot"
+    }
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
@@ -3049,11 +3680,16 @@ def evaluate_experiment(
     scheduler = _scheduler_contract(checked)
     runtime_scheduler = RuntimeScheduler(scheduler)
     root_events_by_scenario: dict[str, list[dict[str, Any]]] = {}
+    root_event_ids_by_scenario: dict[str, dict[str, str]] = {}
     for scenario in checked.value["scenarios"]:
         ordered_events = _ordered_root_events(checked, scenario)
         for root_event in ordered_events:
             root_event["event_id"] = _root_event_id(checked, scenario["id"], root_event)
         root_events_by_scenario[scenario["id"]] = ordered_events
+        root_event_ids_by_scenario[scenario["id"]] = {
+            cast(str, root_event["root_event_ref"]): cast(str, root_event["event_id"])
+            for root_event in ordered_events
+        }
         root_event_map.extend(
             {
                 "scenario": scenario["id"],
@@ -3163,6 +3799,7 @@ def evaluate_experiment(
                 consumed_steps=total_steps,
                 runtime_limit=runtime_limit,
                 cache=initialization_cache,
+                selected_entrypoints=scenario_entrypoints,
                 frame_token={
                     "scenario": scenario["id"],
                     "snapshot_index": len(snapshots),
@@ -3258,31 +3895,12 @@ def evaluate_experiment(
         )
         draws: list[dict[str, JsonValue]] = []
         call_trace: list[dict[str, JsonValue]] = []
+        formula_evaluations: list[dict[str, JsonValue]] = []
         schedule_trace: list[dict[str, JsonValue]] = []
         cancellation_trace: list[dict[str, JsonValue]] = []
         buffered_children: list[dict[str, Any]] = []
         canceled_event_ids: set[str] = set()
         event_id = ""
-
-        def instruction_evaluation_sites(
-            selected_operation: dict[str, Any],
-        ) -> dict[int, str]:
-            extensions = selected_operation.get("extensions")
-            if not isinstance(extensions, dict):
-                return {}
-            provenance = extensions.get("standard.instruction-provenance")
-            if (
-                not isinstance(provenance, dict)
-                or provenance.get("kind") != "instruction-evaluation-sites"
-                or not isinstance(provenance.get("sites"), list)
-            ):
-                return {}
-            return {
-                cast(int, row["instruction_index"]): cast(
-                    str, row["evaluation_site_identity"]
-                )
-                for row in cast(list[dict[str, Any]], provenance["sites"])
-            }
 
         def execute_operation(
             selected_operation: dict[str, Any],
@@ -3311,7 +3929,7 @@ def evaluate_experiment(
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
-            evaluation_sites = instruction_evaluation_sites(selected_operation)
+            evaluation_sites = _instruction_evaluation_sites(selected_operation)
             for instruction_index, instruction in enumerate(selected_operation["body"]):
                 evaluation_site_identity = evaluation_sites.get(instruction_index)
                 node_contract = node_contracts[instruction["node"]]
@@ -3538,13 +4156,22 @@ def evaluate_experiment(
                         "target_reference"
                     ]
                     target = instruction[target_contract["instruction_member"]]
-                    target_value_member = target_contract["value_member"]
+                    target_variants = {
+                        variant["kind"]: variant
+                        for variant in target_contract["variants"]
+                    }
+                    target_variant = target_variants.get(target.get("kind"))
+                    target_value_member = (
+                        target_variant["value_member"]
+                        if target_variant is not None
+                        else ""
+                    )
                     target_variable = target.get(target_value_member)
                     cancel_signals = _scheduler_contract(checked)["cancel"][
                         "refusal_signals"
                     ]
                     if (
-                        target.get("kind") != target_contract["kind"]
+                        target_variant is None
                         or not isinstance(target_variable, str)
                         or target_variable not in variables
                     ):
@@ -3668,7 +4295,11 @@ def evaluate_experiment(
                         else variables[instruction["value"]]
                     )
                     try:
-                        state[actual] = _admit_numeric(value, numeric)
+                        state[actual] = _admit_declared_numeric(
+                            value,
+                            numeric,
+                            declarations[actual],
+                        )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
                             signal="numeric-overflow",
@@ -3685,6 +4316,25 @@ def evaluate_experiment(
                     raise ValueError(
                         f"admitted evaluator lacks runtime operator {operator}"
                     )
+                if (
+                    evaluation_site_identity is not None
+                    and evaluation_sites.get(instruction_index + 1)
+                    != evaluation_site_identity
+                ):
+                    binding = formula_bindings_by_site[evaluation_site_identity]
+                    evaluation = _operation_formula_evaluation_record(
+                        selected_operation,
+                        binding,
+                        variables,
+                        evaluation_site_identity=evaluation_site_identity,
+                        frame_identity=current_snapshot_identity,
+                        call_path=call_path,
+                    )
+                    if evaluation is None:
+                        raise ValueError(
+                            "admitted Formula evaluation record is incomplete"
+                        )
+                    formula_evaluations.append(evaluation)
             outcome_definition = next(
                 row for row in selected_operation["outcomes"] if row["id"] == outcome
             )
@@ -3735,6 +4385,7 @@ def evaluate_experiment(
             )
             draws = []
             call_trace = []
+            formula_evaluations = []
             schedule_trace = []
             cancellation_trace = []
             buffered_children = []
@@ -3776,6 +4427,7 @@ def evaluate_experiment(
                         consumed_steps=total_steps,
                         runtime_limit=runtime_limit,
                         cache=initialization_cache,
+                        selected_entrypoints=scenario_entrypoints,
                         frame_identity=current_snapshot_identity,
                         phase="event",
                     )
@@ -3810,6 +4462,15 @@ def evaluate_experiment(
                         ]
                         if declaration["role"] == "state":
                             root_state_references[binding["port"]["name"]] = identity
+                    elif resolved_operand["kind"] == "event-reference":
+                        reference_bindings = {
+                            row["name"]: row["root_event_ref"]
+                            for row in event_spec.get("event_references", [])
+                        }
+                        root_event_ref = reference_bindings[resolved_operand["name"]]
+                        root_arguments[binding["port"]["name"]] = (
+                            root_event_ids_by_scenario[scenario["id"]][root_event_ref]
+                        )
                     else:
                         root_arguments[binding["port"]["name"]] = resolved_operand[
                             "value"
@@ -3916,7 +4577,6 @@ def evaluate_experiment(
                     result_identity = canonical_bytes(
                         cast(JsonValue, entrypoint["result"]["symbol"])
                     )
-                    actual_values[result_identity] = root_result
                     event_actual_values[result_identity] = root_result
                 typed_outcome = {
                     "id": outcome,
@@ -3963,6 +4623,7 @@ def evaluate_experiment(
                         else None
                     ),
                     "calls": call_trace,
+                    "formula_evaluations": formula_evaluations,
                     "schedules": schedule_trace,
                     "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
@@ -4075,6 +4736,7 @@ def evaluate_experiment(
                     consumed_steps=total_steps,
                     runtime_limit=runtime_limit,
                     cache=initialization_cache,
+                    selected_entrypoints=scenario_entrypoints,
                     frame_identity=snapshot_identity,
                     phase="observation",
                 )
@@ -4250,6 +4912,7 @@ def evaluate_experiment(
                     "operation": None,
                     "entrypoint": None,
                     "calls": [],
+                    "formula_evaluations": [],
                     "schedules": [],
                     "cancellations": [],
                     "outcome": {
@@ -4587,7 +5250,22 @@ def validate_experiment_member(
 ) -> bool:
     """Re-admit one prepared Experiment output against the exact LDB."""
     del logical_name
-    return verify_artifact(value, checked.language_bundle)
+    if not verify_artifact(value, checked.language_bundle):
+        return False
+    kind = value.get("artifact_kind")
+    if kind == "event-trace":
+        return all(
+            _event_formula_evaluations_are_authoritative(checked, event)
+            for event in cast(list[dict[str, Any]], value.get("events", []))
+        )
+    if kind == "runtime-terminal-audit":
+        return all(
+            _event_formula_evaluations_are_authoritative(checked, event)
+            for event in cast(
+                list[dict[str, Any]], value.get("committed_trace_prefix", [])
+            )
+        )
+    return True
 
 
 def _expected_root_event_map(
@@ -4635,6 +5313,24 @@ def _artifact_set_runtime_journals_are_valid(
             snapshot.get("index") != index for index, snapshot in enumerate(snapshots)
         )
         or any(event.get("index") != index for index, event in enumerate(events))
+        or any(
+            not _event_formula_evaluations_are_authoritative(checked, event)
+            for event in events
+        )
+    ):
+        return False
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    events_by_id = {cast(str, row["event_id"]): row for row in events}
+    if any(
+        (record := catalog_by_id.get(cast(str, event["event_id"]))) is None
+        or not _event_formula_evaluations_match_replay(
+            checked,
+            event,
+            record,
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
+        for event in events
     ):
         return False
     snapshots_by_identity = {
@@ -4664,8 +5360,15 @@ def _artifact_set_runtime_journals_are_valid(
         for event in events
         for schedule in cast(list[dict[str, JsonValue]], event["schedules"])
     }
-    if catalog_ids != {cast(str, event["event_id"]) for event in events} | (
-        scheduled_ids - {cast(str, event["event_id"]) for event in events}
+    canceled_ids = {
+        cast(str, cancellation["event_id"])
+        for event in events
+        for cancellation in cast(list[dict[str, JsonValue]], event["cancellations"])
+    }
+    if catalog_ids != (
+        {cast(str, event["event_id"]) for event in events}
+        | scheduled_ids
+        | canceled_ids
     ):
         return False
     for scenario in checked.value["scenarios"]:
@@ -4879,16 +5582,15 @@ def _formula_charge_through_evaluation_site(
     *,
     phase: str,
     evaluation_site_identity: str | None,
+    selected_entrypoints: Sequence[dict[str, Any]],
 ) -> int | None:
     if evaluation_site_identity is None:
         return None
-    programs = [
-        program
-        for program in cast(
-            list[dict[str, Any]], checked.rir["initialization_programs"]
-        )
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == phase
-    ]
+    programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase=phase,
+    )
     program_targets = {
         canonical_bytes(cast(JsonValue, program["target"])) for program in programs
     }
@@ -4961,7 +5663,13 @@ def _attempted_operation_charge(
             cast(str, entrypoint["operation"]["id"]) if entrypoint is not None else None
         )
     elif refusing_event_spec["kind"] == "scheduled-transition":
-        root_operation_id = cast(str, refusing_event_spec["operation"])
+        operation_reference = refusing_event_spec.get("operation")
+        root_operation_id = (
+            cast(str, operation_reference["id"])
+            if isinstance(operation_reference, dict)
+            and isinstance(operation_reference.get("id"), str)
+            else None
+        )
     else:
         return None
     root_operation = operations.get(root_operation_id) if root_operation_id else None
@@ -5224,13 +5932,32 @@ def _terminal_audit_is_valid(
     required_root_scenarios = {
         cast(str, row["id"]) for row in checked.value["scenarios"][: scenario_index + 1]
     }
+    if (
+        any(not _event_catalog_record_is_valid(checked, record) for record in catalog)
+        or any(
+            not _event_formula_evaluations_are_authoritative(checked, event)
+            for event in events
+        )
+        or not _event_catalog_records_are_authoritative(
+            checked,
+            catalog,
+            cast(list[dict[str, JsonValue]], events),
+            required_root_scenarios=required_root_scenarios,
+        )
+    ):
+        return False
+    catalog_by_id = {cast(str, row["event_id"]): row for row in catalog}
+    events_by_id = {cast(str, row["event_id"]): row for row in events}
     if any(
-        not _event_catalog_record_is_valid(checked, record) for record in catalog
-    ) or not _event_catalog_records_are_authoritative(
-        checked,
-        catalog,
-        cast(list[dict[str, JsonValue]], events),
-        required_root_scenarios=required_root_scenarios,
+        (record := catalog_by_id.get(cast(str, event["event_id"]))) is None
+        or not _event_formula_evaluations_match_replay(
+            checked,
+            cast(dict[str, JsonValue], event),
+            record,
+            catalog_by_id=catalog_by_id,
+            events_by_id=events_by_id,
+        )
+        for event in events
     ):
         return False
     if refusing_event.get("index") != len(events):
@@ -5504,20 +6231,36 @@ def _terminal_audit_is_valid(
     evaluation_site_identity = cast(
         str | None, refusing_event.get("evaluation_site_identity")
     )
+    scenario = next(
+        row for row in checked.value["scenarios"] if row["id"] == scenario_id
+    )
+    resolved_entrypoints = {
+        cast(str, row["id"]): row for row in checked.rir["entrypoints"]
+    }
+    selected_entrypoints = [
+        resolved_entrypoints[cast(str, event["entrypoint"])]
+        for event in _scenario_transition_events(scenario)
+    ]
+    event_formula_programs = _formula_programs_reachable_from_entrypoints(
+        checked,
+        selected_entrypoints,
+        phase="event",
+    )
     event_formula_charge = sum(
         cast(int, program["resource_bounds"]["max_steps"])
-        for program in checked.rir["initialization_programs"]
-        if cast(dict[str, Any], program["site"])["context"]["phase"] == "event"
+        for program in event_formula_programs
     )
     event_formula_fault_charge = _formula_charge_through_evaluation_site(
         checked,
         phase="event",
         evaluation_site_identity=evaluation_site_identity,
+        selected_entrypoints=selected_entrypoints,
     )
     observation_formula_fault_charge = _formula_charge_through_evaluation_site(
         checked,
         phase="observation",
         evaluation_site_identity=evaluation_site_identity,
+        selected_entrypoints=selected_entrypoints,
     )
     if refusing_event_spec["kind"] == "observation":
         exact_event_steps = 0

@@ -35,6 +35,7 @@ from gda_balancing.schema2.authority_graph import (
 )
 from gda_balancing.schema2.surface import descriptor_identity
 from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -450,7 +451,7 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
-    _kernel, language_bundle = authority_module.load_authorities()
+    _kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
         row
@@ -1367,7 +1368,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
                 "kind": "operation-slot",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "id": "game.combat.damage-v1",
                 },
                 "slot": "damage-policy",
@@ -1422,7 +1423,7 @@ def test_model_build_binds_a_formula_to_an_operation_slot(tmp_path, run_cli):
     assert binding["site"]["kind"] == "operation-slot"
     assert binding["site"]["operation"] == {
         "package": "game.combat",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "id": "game.combat.damage-v1",
         "identity": binding["site"]["operation"]["identity"],
     }
@@ -1514,17 +1515,17 @@ def test_operation_slot_direct_result_charge_matches_its_lowered_instruction(
         (
             "duplicate-binding",
             "language.formula_binding_duplicate",
-            "/formula_bindings/2/site",
+            "/formula_bindings/3/site",
         ),
         (
             "duplicate-operation-slot-binding",
             "language.formula_binding_duplicate",
-            "/formula_bindings/2/site",
+            "/formula_bindings/3/site",
         ),
         (
             "resource-budget",
             "language.formula_resource_exhausted",
-            "/formula_bindings/1/formula",
+            "/formula_bindings/2/formula",
         ),
     ),
 )
@@ -1548,7 +1549,7 @@ def test_model_check_refuses_operation_formula_slot_contract_violations(
         )
     elif mutation == "duplicate-operation-slot-binding":
         source_document["formula_bindings"].append(
-            deepcopy(source_document["formula_bindings"][1])
+            deepcopy(source_document["formula_bindings"][2])
         )
     else:
         formula = source_document["modules"][0]["formulas"][0]
@@ -1611,7 +1612,7 @@ def test_model_check_refuses_an_effectful_operation_in_a_formula(tmp_path, run_c
                 "node": "operation-call",
                 "operation": {
                     "package": "game.combat",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "id": "game.combat.cast-v1",
                 },
                 "arguments": [],
@@ -1724,7 +1725,7 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
     diagnostic_row = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic_row["code"] == diagnostic
     assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     assert (
         model_module.reason_by_id(language_bundle, reason_id)["diagnostic"]
         == diagnostic
@@ -1739,14 +1740,14 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
             "formula.refuse.context-mismatch",
             "model.reason.formula-context-mismatch",
             "language.formula_context_mismatch",
-            "/formula_bindings/1/site",
+            "/formula_bindings/2/site",
         ),
         (
             "refusals",
             "formula.refuse.refusal-widening",
             "model.reason.formula-refusal-widening",
             "language.formula_refusal_widening",
-            "/formula_bindings/1/formula",
+            "/formula_bindings/2/formula",
         ),
     ),
 )
@@ -1871,7 +1872,7 @@ def test_model_check_points_a_non_first_binding_budget_error_at_its_formula(
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.formula_resource_exhausted"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings/1/formula"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/formula"
 
 
 def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
@@ -1893,10 +1894,10 @@ def test_model_check_refuses_an_event_formula_symbol_absent_before_the_event(
         "result": {
             "kind": "symbol",
             "module": "combat",
-            "symbol": "damage_dealt",
+            "symbol": "player_damage_dealt",
         },
     }
-    formula["expression"] = "combat.damage_dealt"
+    formula["expression"] = "combat.player_damage_dealt"
     source = tmp_path / "event-formula-output-symbol.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
 
@@ -1920,7 +1921,7 @@ def test_model_check_refuses_a_derived_formula_result_outside_its_symbol_contrac
     derived = next(
         symbol
         for symbol in source_document["modules"][0]["symbols"]
-        if symbol["symbol"] == "effective_accuracy"
+        if symbol["symbol"] == "player_effective_accuracy"
     )
     derived["domain"]["maximum"] = 10
     source = tmp_path / "incompatible-derived-result.json"
@@ -1946,7 +1947,7 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
         next(
             symbol
             for symbol in module["symbols"]
-            if symbol["symbol"] == "effective_accuracy"
+            if symbol["symbol"] == "player_effective_accuracy"
         )
     )
     unused_symbol["symbol"] = "unused_derived"
@@ -1972,7 +1973,7 @@ def test_model_check_refuses_an_unreachable_derived_formula_binding(tmp_path, ru
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.formula_unreachable"
-    assert diagnostic["primary"]["pointer"] == "/formula_bindings/2/site"
+    assert diagnostic["primary"]["pointer"] == "/formula_bindings/3/site"
 
 
 def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run_cli):
@@ -2027,6 +2028,106 @@ def test_model_check_refuses_an_unreachable_operation_slot_binding(tmp_path, run
     assert diagnostic["primary"]["pointer"] == "/formula_bindings/0/site"
 
 
+def test_model_check_reaches_formula_slots_through_scheduled_operations(
+    tmp_path, run_cli
+):
+    source_document = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-periodic-effect/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    source_document["package_requirements"] = [
+        requirement
+        for requirement in source_document["package_requirements"]
+        if requirement["id"] in {"core.quantity", "game.effect"}
+    ]
+    source_document["modules"][0]["formulas"] = [
+        formula
+        for formula in source_document["modules"][0]["formulas"]
+        if formula["id"] == "periodic-magnitude"
+    ]
+    source_document["formula_bindings"] = [
+        binding
+        for binding in source_document["formula_bindings"]
+        if binding["site"].get("operation", {}).get("id")
+        == "game.effect.tick-live-periodic-v1"
+    ]
+    source_document["entrypoints"] = [
+        entrypoint
+        for entrypoint in source_document["entrypoints"]
+        if entrypoint["id"] == "effect.apply-live-periodic"
+    ]
+    source = tmp_path / "scheduled-operation-slot.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, ""), stdout
+
+
+def test_operation_reachability_follows_kernel_operation_members_after_node_rename():
+    kernel = {
+        "meta_format": {
+            "runtime_program": {
+                "nodes": [
+                    {
+                        "id": "defer",
+                        "required_members": ["node", "site", "operation"],
+                        "semantics": {"operator": "schedule-operation"},
+                    },
+                    {
+                        "id": "copy",
+                        "required_members": ["node", "target", "value"],
+                        "semantics": {"operator": "copy-value"},
+                    },
+                ]
+            }
+        }
+    }
+    child = {"package": "example.runtime", "version": "1.0.0", "id": "child"}
+    root = {"package": "example.runtime", "version": "1.0.0", "id": "root"}
+    operations = [
+        {
+            "package": "example.runtime",
+            "definition": {
+                "id": "root",
+                "body": [{"node": "defer", "operation": child}],
+            },
+        },
+        {"package": "example.runtime", "definition": {"id": "child", "body": []}},
+    ]
+    lock = {
+        "packages": [{"id": "example.runtime", "version": "1.0.0"}],
+        "operations": operations,
+    }
+    source = {"entrypoints": [{"operation": root}]}
+    selected_semantics = {
+        "packages": lock["packages"],
+        "operations": operations,
+    }
+    entrypoints = [{"operation": root}]
+    operation_nodes = model_module._operation_reference_node_ids(kernel)
+
+    expected = {
+        ("example.runtime", "1.0.0", "root"),
+        ("example.runtime", "1.0.0", "child"),
+    }
+    assert operation_nodes == {"defer"}
+    assert (
+        model_module._selected_source_operation_coordinates(
+            source, lock, operation_nodes
+        )
+        == expected
+    )
+    assert (
+        model_module._selected_resolved_operation_coordinates(
+            entrypoints, selected_semantics, operation_nodes
+        )
+        == expected
+    )
+
+
 def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     tmp_path, run_cli
 ):
@@ -2067,7 +2168,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     seed = next(
@@ -2226,7 +2327,7 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
         symbol["kind"] = "unknown-kind"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
@@ -3516,7 +3617,7 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
 
 
 def test_receipt_content_identity_excludes_transport_locators():
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     common = {
         "descriptor_identity": "sha256:" + "1" * 64,
         "invocation_key": "2" * 64,
@@ -3754,7 +3855,7 @@ def _package_vector_set(
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
-    kernel, _ = authority_module.load_authorities()
+    kernel, _ = mutable_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -4068,7 +4169,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
     assert model_module.admit_resolved_model(artifacts).admitted is True
 
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     policy = model_module._formula_policy(language_bundle)
     actual_operand_domain = kernel["meta_format"]["runtime_program"][
         "invocation_contract"
@@ -4558,7 +4659,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert isinstance(original_checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(original_checked)
 
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     profile = candidate_ldb["language"]["literal_typing_profiles"][0]
     old_id = profile["id"]
     profile["id"] = "quantity.dimensionless-int64-reidentified"
@@ -4607,7 +4708,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
             "id": "combat.damage",
             "operation": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.damage-v1",
             },
             "arguments": [
@@ -4616,7 +4717,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "base_damage",
+                        "symbol": "player_base_damage",
                     },
                 },
                 {
@@ -4628,7 +4729,7 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "target_defense",
+                        "symbol": "enemy_defense",
                     },
                 },
                 {
@@ -4636,14 +4737,14 @@ def test_model_entrypoint_refuses_integer_literal_for_boolean_formal(
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "target_health",
+                        "symbol": "enemy_health",
                     },
                 },
             ],
             "result": {
                 "kind": "symbol",
                 "module": "combat",
-                "symbol": "damage_dealt",
+                "symbol": "player_damage_dealt",
             },
         }
     ]
@@ -4887,18 +4988,18 @@ def test_rpg_entrypoints_export_a_separate_event_local_payload_contract():
     entrypoint = next(
         row
         for row in cast(list[dict[str, Any]], rir["entrypoints"])
-        if row["id"] == "combat.cast"
+        if row["id"] == "combat.player-attacks-enemy"
     )
 
     assert {
         row["target"]["name"]: (row["cardinality"], row["value_source"])
         for row in entrypoint["event_local_payload_contract"]["targets"]
     } == {
-        "action_cost": ("optional", "event-payload"),
-        "accuracy": ("optional", "event-payload"),
-        "base_damage": ("optional", "event-payload"),
-        "critical_threshold": ("optional", "event-payload"),
-        "target_defense": ("optional", "event-payload"),
+        "enemy_defense": ("optional", "event-payload"),
+        "player_accuracy": ("optional", "event-payload"),
+        "player_action_cost": ("optional", "event-payload"),
+        "player_base_damage": ("optional", "event-payload"),
+        "player_critical_threshold": ("optional", "event-payload"),
     }
     assert all(
         row["override"] is True
@@ -4932,12 +5033,12 @@ def test_rpg_external_fact_contract_is_owned_by_the_assignment_mode():
     entrypoint = next(
         row
         for row in cast(list[dict[str, Any]], rir["entrypoints"])
-        if row["id"] == "combat.cast"
+        if row["id"] == "combat.player-attacks-enemy"
     )
     assert {
         row["target"]["name"]: row["cardinality"]
         for row in entrypoint["external_fact_contract"]["targets"]
-    } == {"target_defense": "optional"}
+    } == {"enemy_defense": "optional"}
 
 
 @pytest.mark.parametrize(
@@ -5059,21 +5160,21 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "effect",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.effects"
             ),
         ),
         (
             "refusal",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.refusals"
             ),
         ),
         (
             "resource",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.resource_bounds"
             ),
         ),
@@ -5087,7 +5188,7 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         (
             "argument-contract",
             (
-                "language.operations.game.combat@2.0.0."
+                "language.operations.game.combat@2.1.0."
                 "game.combat.cast-v1.body.hit-check.arguments"
             ),
         ),
@@ -5216,7 +5317,7 @@ def test_authority_admission_rejects_operation_closure_at_the_package_site():
     assert admission.admitted is False
     assert any(
         diagnostic.subject
-        == "language.operations.game.combat@2.0.0.game.combat.cast-v1.body.hit-check.effects"
+        == "language.operations.game.combat@2.1.0.game.combat.cast-v1.body.hit-check.effects"
         for diagnostic in admission.diagnostics
     )
 
@@ -5306,7 +5407,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "actor_mana",
+                        "symbol": "player_mana",
                     },
                 },
                 {
@@ -5314,7 +5415,7 @@ def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
                     "operand": {
                         "kind": "symbol",
                         "module": "combat",
-                        "symbol": "action_cost",
+                        "symbol": "player_action_cost",
                     },
                 },
             ],
@@ -6062,7 +6163,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
 def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     package = deepcopy(
@@ -6215,8 +6316,9 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    assert kernel == authority_module.load_authorities()[0]
-    assert baseline_ldb == authority_module.load_authorities()[1]
+    pristine_kernel, pristine_ldb = mutable_authorities()
+    assert kernel == pristine_kernel
+    assert baseline_ldb == pristine_ldb
 
     source_document = _model_source()
     source_document["package_requirements"] = [
@@ -6449,7 +6551,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_rule_match_steps"] = 1
     boundary = next(
         vector
@@ -6483,7 +6585,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
     boundary = next(
         vector

@@ -51,7 +51,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:f8642b14c9e1b743f8d5636a3d9804469caea461ffd6f4a0b0524754a0c2afab"
+    "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -400,6 +400,20 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "probe_members",
         "required_members",
     },
+    "operation-relation": {
+        "declaration_extension",
+        "declaration_members",
+        "id",
+        "integer_range_members",
+        "operators",
+        "policy_authority_path",
+        "policy_contract_members",
+        "policy_extension",
+        "policy_members",
+        "probe_members",
+        "required_members",
+        "schedule_projection_members",
+    },
     "runtime-scenario": {
         "expect_members",
         "id",
@@ -479,6 +493,14 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
             "operation",
             "probe",
         },
+        "operation-relation": {
+            "category",
+            "id",
+            "kind",
+            "operation",
+            "probe",
+            "role",
+        },
         "runtime-scenario": {
             "category",
             "expect",
@@ -511,6 +533,32 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
     return (
         kinds["package-contract"].get("probe_members") == ["path"]
         and kinds["operation-contract"].get("probe_members") == ["path"]
+        and kinds["operation-relation"].get("probe_members")
+        == ["left_path", "operator", "right_path", "right_value"]
+        and kinds["operation-relation"].get("operators")
+        == [
+            "canonical-equal",
+            "integer-equal",
+            "integer-greater-than",
+            "integer-less-than-or-equal",
+            "integer-range-equal",
+            "schedule-projection-equal",
+        ]
+        and kinds["operation-relation"].get("declaration_extension")
+        == "standard.operation-relations"
+        and kinds["operation-relation"].get("declaration_members") == ["id", "probe"]
+        and kinds["operation-relation"].get("integer_range_members")
+        == ["start_path", "stop_path", "step_path"]
+        and kinds["operation-relation"].get("policy_authority_path")
+        == "language.capabilities"
+        and kinds["operation-relation"].get("policy_contract_members")
+        == ["expect", "path"]
+        and kinds["operation-relation"].get("policy_extension")
+        == "standard.operation-relation-policy"
+        and kinds["operation-relation"].get("policy_members")
+        == ["contract", "operation", "relations"]
+        and kinds["operation-relation"].get("schedule_projection_members")
+        == ["logical_time", "operation"]
         and kinds["runtime-scenario"].get("input_members")
         == ["seed", "state_names", "values"]
         and kinds["runtime-scenario"].get("expect_members")
@@ -604,6 +652,147 @@ def _signed_int64(value: Any) -> bool:
         isinstance(value, int)
         and not isinstance(value, bool)
         and -(2**63) <= value <= 2**63 - 1
+    )
+
+
+def _operation_relation_is_satisfied(
+    operation: dict[str, Any],
+    vector: dict[str, Any],
+    kind: dict[str, Any],
+    roots: list[str],
+    runtime_nodes: list[dict[str, Any]],
+) -> bool:
+    probe = vector.get("probe")
+    if not isinstance(probe, dict) or set(probe) != set(kind["probe_members"]):
+        return False
+    declaration_extension = kind.get("declaration_extension")
+    declaration_members = kind.get("declaration_members")
+    extensions = operation.get("extensions")
+    declarations = (
+        extensions.get(declaration_extension)
+        if isinstance(extensions, dict) and isinstance(declaration_extension, str)
+        else None
+    )
+    if not isinstance(declaration_members, list) or not isinstance(declarations, list):
+        return False
+    matches = [
+        declaration
+        for declaration in declarations
+        if isinstance(declaration, dict)
+        and set(declaration) == set(declaration_members)
+        and declaration.get("id") == vector.get("role")
+    ]
+    if len(matches) != 1 or not _canonical_equal(probe, matches[0].get("probe")):
+        return False
+    left_path = probe.get("left_path")
+    right_path = probe.get("right_path")
+    right_value = probe.get("right_value")
+    operator = probe.get("operator")
+
+    def member_path(value: Any) -> list[str] | None:
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(member, str) and member for member in value)
+        ):
+            return None
+        return cast(list[str], value)
+
+    def observed(path: list[str]) -> tuple[bool, Any]:
+        current: Any = operation
+        for member in path:
+            if not isinstance(current, dict) or member not in current:
+                return False, None
+            current = current[member]
+        return True, current
+
+    left_members = member_path(left_path)
+    right_members = member_path(right_path) if right_path is not None else None
+    if (
+        left_members is None
+        or left_members[0] not in roots
+        or operator not in kind["operators"]
+        or (right_members is not None) == (right_value is not None)
+    ):
+        return False
+    declared, left = observed(left_members)
+    if not declared:
+        return False
+    if right_members is not None:
+        if right_members[0] not in roots:
+            return False
+        declared, right = observed(right_members)
+        if not declared:
+            return False
+    else:
+        right = right_value
+    if operator == "canonical-equal":
+        return _canonical_equal(left, right)
+    if operator == "schedule-projection-equal":
+        projection_members = kind.get("schedule_projection_members")
+        schedule_nodes = {
+            node.get("id")
+            for node in runtime_nodes
+            if isinstance(node, dict)
+            and isinstance(node.get("semantics"), dict)
+            and node["semantics"].get("operator") == "schedule-operation"
+        }
+        if (
+            not isinstance(projection_members, list)
+            or not isinstance(left, list)
+            or not all(isinstance(instruction, dict) for instruction in left)
+        ):
+            return False
+        projected = [
+            {member: instruction[member] for member in projection_members}
+            for instruction in left
+            if instruction.get("node") in schedule_nodes
+            and all(member in instruction for member in projection_members)
+        ]
+        return _canonical_equal(projected, right)
+    if operator == "integer-range-equal":
+        range_members = kind.get("integer_range_members")
+        if (
+            not isinstance(range_members, list)
+            or len(range_members) != 3
+            or not isinstance(right, dict)
+            or set(right) != set(range_members)
+            or not isinstance(left, list)
+            or not all(_signed_int64(item) for item in left)
+        ):
+            return False
+        range_paths = [member_path(right.get(member)) for member in range_members]
+        if any(path is None or path[0] not in roots for path in range_paths):
+            return False
+        range_values: list[int] = []
+        for path in range_paths:
+            declared, value = observed(cast(list[str], path))
+            if not declared or not _signed_int64(value):
+                return False
+            range_values.append(cast(int, value))
+        start, stop, step = range_values
+        if step == 0:
+            return False
+        expected_length = (
+            0
+            if (step > 0 and start >= stop) or (step < 0 and start <= stop)
+            else (
+                (stop - start - 1) // step + 1
+                if step > 0
+                else (start - stop - 1) // -step + 1
+            )
+        )
+        return len(left) == expected_length and all(
+            item == start + index * step for index, item in enumerate(left)
+        )
+    if not _signed_int64(left) or not _signed_int64(right):
+        return False
+    return (
+        left == right
+        if operator == "integer-equal"
+        else left > right
+        if operator == "integer-greater-than"
+        else left <= right
     )
 
 
@@ -811,8 +1000,18 @@ def _package_evidence_vectors_are_closed(
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
-    scheduler_contract: Any,
+    runtime_program_contract: Any,
 ) -> bool:
+    scheduler_contract = (
+        runtime_program_contract.get("scheduler")
+        if isinstance(runtime_program_contract, dict)
+        else None
+    )
+    runtime_nodes = (
+        runtime_program_contract.get("nodes")
+        if isinstance(runtime_program_contract, dict)
+        else None
+    )
     ordering = (
         scheduler_contract.get("ordering")
         if isinstance(scheduler_contract, dict)
@@ -842,6 +1041,8 @@ def _package_evidence_vectors_are_closed(
         or not isinstance(phase_rank, list)
         or not phase_rank
         or not all(isinstance(phase, str) and phase for phase in phase_rank)
+        or not isinstance(runtime_nodes, list)
+        or not all(isinstance(node, dict) for node in runtime_nodes)
     ):
         return False
     phase_inventory = set(phase_rank)
@@ -886,6 +1087,7 @@ def _package_evidence_vectors_are_closed(
     ):
         return False
     evidence_ids: set[str] = set()
+    relation_roles_by_operation: dict[str, list[str]] = {}
     for vector in vectors:
         if not isinstance(vector, dict) or "kind" not in vector:
             continue
@@ -1004,6 +1206,19 @@ def _package_evidence_vectors_are_closed(
             if not declared or not _canonical_equal(observed, vector.get("expect")):
                 return False
             continue
+        if kind_id == "operation-relation":
+            if not _operation_relation_is_satisfied(
+                operation,
+                vector,
+                kind,
+                cast(list[str], contract["operation_probe_roots"]),
+                cast(list[dict[str, Any]], runtime_nodes),
+            ):
+                return False
+            relation_roles_by_operation.setdefault(operation["id"], []).append(
+                cast(str, vector["role"])
+            )
+            continue
         if operation.get("operation_kind") != "event-program":
             return False
         inp = vector.get("input")
@@ -1079,11 +1294,173 @@ def _package_evidence_vectors_are_closed(
         }:
             return False
 
+    relation_kind = kinds.get("operation-relation")
+    declaration_extension = (
+        relation_kind.get("declaration_extension")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    declaration_members = (
+        relation_kind.get("declaration_members")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_authority_path = (
+        relation_kind.get("policy_authority_path")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_contract_members = (
+        relation_kind.get("policy_contract_members")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_extension = (
+        relation_kind.get("policy_extension")
+        if isinstance(relation_kind, dict)
+        else None
+    )
+    policy_members = (
+        relation_kind.get("policy_members") if isinstance(relation_kind, dict) else None
+    )
+    relation_probe_members = (
+        relation_kind.get("probe_members") if isinstance(relation_kind, dict) else None
+    )
+    declared_roles_by_operation: dict[str, list[str]] = {}
+    if (
+        not isinstance(declaration_extension, str)
+        or not isinstance(declaration_members, list)
+        or not isinstance(policy_authority_path, str)
+        or not isinstance(policy_contract_members, list)
+        or not isinstance(policy_extension, str)
+        or not isinstance(policy_members, list)
+        or not isinstance(relation_probe_members, list)
+    ):
+        return False
+    for operation_id, operation in operations.items():
+        extensions = operation.get("extensions")
+        declarations = (
+            extensions.get(declaration_extension)
+            if isinstance(extensions, dict)
+            else None
+        )
+        if declarations is None:
+            continue
+        if (
+            not isinstance(declarations, list)
+            or not declarations
+            or not all(
+                isinstance(declaration, dict)
+                and set(declaration) == set(declaration_members)
+                and isinstance(declaration.get("id"), str)
+                and bool(declaration["id"])
+                and isinstance(declaration.get("probe"), dict)
+                for declaration in declarations
+            )
+        ):
+            return False
+        roles = [cast(str, declaration["id"]) for declaration in declarations]
+        if len(roles) != len(set(roles)):
+            return False
+        declared_roles_by_operation[cast(str, operation_id)] = roles
+
+    policy_entry = next(
+        (
+            item
+            for item in cast(list[dict[str, Any]], package.get("semantic_closure"))
+            if item.get("authority_path") == policy_authority_path
+        ),
+        None,
+    )
+    policy_definitions = (
+        policy_entry.get("definitions") if isinstance(policy_entry, dict) else None
+    )
+    if not isinstance(policy_definitions, list):
+        return False
+    policy_roles_by_operation: dict[str, list[str]] = {}
+    for definition in policy_definitions:
+        extensions = (
+            definition.get("extensions") if isinstance(definition, dict) else None
+        )
+        policies = (
+            extensions.get(policy_extension) if isinstance(extensions, dict) else None
+        )
+        if policies is None:
+            continue
+        if not isinstance(policies, list) or not policies:
+            return False
+        for policy in policies:
+            if not isinstance(policy, dict) or set(policy) != set(policy_members):
+                return False
+            operation_id = policy.get("operation")
+            operation = operations.get(operation_id)
+            contract_probe = policy.get("contract")
+            relations = policy.get("relations")
+            if (
+                not isinstance(operation_id, str)
+                or not operation_id
+                or operation_id in policy_roles_by_operation
+                or not isinstance(operation, dict)
+                or not isinstance(contract_probe, dict)
+                or set(contract_probe) != set(policy_contract_members)
+                or not isinstance(relations, list)
+                or not relations
+                or not all(
+                    isinstance(relation, dict)
+                    and set(relation) == set(declaration_members)
+                    and isinstance(relation.get("id"), str)
+                    and bool(relation["id"])
+                    and isinstance(relation.get("probe"), dict)
+                    and set(relation["probe"]) == set(relation_probe_members)
+                    for relation in relations
+                )
+            ):
+                return False
+            policy_roles = [cast(str, relation["id"]) for relation in relations]
+            if len(policy_roles) != len(set(policy_roles)):
+                return False
+            path = contract_probe.get("path")
+            if (
+                not isinstance(path, list)
+                or not path
+                or not all(isinstance(member, str) and member for member in path)
+                or path[0] not in contract["operation_probe_roots"]
+            ):
+                return False
+            observed: Any = operation
+            for member in path:
+                if not isinstance(observed, dict) or member not in observed:
+                    return False
+                observed = observed[member]
+            operation_extensions = operation.get("extensions")
+            declarations = (
+                operation_extensions.get(declaration_extension)
+                if isinstance(operation_extensions, dict)
+                else None
+            )
+            if not _canonical_equal(observed, contract_probe.get("expect")) or not (
+                _canonical_equal(declarations, relations)
+            ):
+                return False
+            policy_roles_by_operation[operation_id] = policy_roles
+    operation_ids = set(relation_roles_by_operation)
+    if (
+        operation_ids != set(declared_roles_by_operation)
+        or operation_ids != set(policy_roles_by_operation)
+        or any(
+            roles != declared_roles_by_operation[operation_id]
+            or roles != policy_roles_by_operation[operation_id]
+            for operation_id, roles in relation_roles_by_operation.items()
+        )
+    ):
+        return False
+
     operation_evidence_ids = {
         vector["id"]
         for vector in vectors
         if isinstance(vector, dict)
-        and vector.get("kind") in {"operation-contract", "runtime-scenario"}
+        and vector.get("kind")
+        in {"operation-contract", "operation-relation", "runtime-scenario"}
     }
     referenced = {
         vector_id
@@ -5345,6 +5722,44 @@ def _operation_composition_diagnostic_subjects(
                     ):
                         refuse(owner, operation, str(instruction_index), "typing")
                         return None
+                if node["semantics"]["operator"] == "cancel-event":
+                    target_contract = node["semantics"]["target_reference"]
+                    target = instruction.get(target_contract["instruction_member"])
+                    variants = {
+                        variant["kind"]: variant
+                        for variant in target_contract["variants"]
+                    }
+                    target_variant = (
+                        variants.get(target.get("kind"))
+                        if isinstance(target, dict)
+                        else None
+                    )
+                    target_value = (
+                        target.get(target_variant["value_member"])
+                        if isinstance(target, dict) and isinstance(target_variant, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(target_variant, dict)
+                        or not isinstance(target_value, str)
+                        or not target_value
+                        or set(cast(dict[str, Any], target))
+                        != {"kind", target_variant["value_member"]}
+                        or (
+                            target_variant["kind"] == "port"
+                            and (
+                                target_value not in parent_ports
+                                or not _operation_value_contract_matches(
+                                    parent_ports[target_value],
+                                    fixed_value_contracts[
+                                        target_variant["value_contract"]
+                                    ],
+                                )
+                            )
+                        )
+                    ):
+                        refuse(owner, operation, str(instruction_index), "event")
+                        return None
                 result_definition = cast(dict[str, Any], node["result"])
                 if result_definition["kind"] in {"local", "draw"}:
                     if (
@@ -6692,11 +7107,7 @@ def admit_authorities(
                         vector_set,
                         package_vector_contract,
                         candidate_encoding_contract,
-                        (
-                            runtime_program_contract.get("scheduler")
-                            if isinstance(runtime_program_contract, dict)
-                            else None
-                        ),
+                        runtime_program_contract,
                     )
                 )
             ):
@@ -8028,6 +8439,18 @@ def _runtime_authority_is_closed(
             "domain": {"kind": "unit"},
             "numeric_policy": "exact-unit",
         },
+        "kernel-event-reference": {
+            "type": {
+                "package": "kernel",
+                "version": "2.0.0",
+                "id": "EventReference",
+            },
+            "representation": "EventRef",
+            "kind": "event-reference",
+            "unit": "1",
+            "domain": {"kind": "runtime-event"},
+            "numeric_policy": "exact-reference",
+        },
     }:
         return False
     assert isinstance(fixed_value_contracts, dict)
@@ -8138,25 +8561,42 @@ def _runtime_authority_is_closed(
         if isinstance(cancel_semantics, dict)
         else None
     )
+    cancel_variants = (
+        cancel_target.get("variants") if isinstance(cancel_target, dict) else None
+    )
     if (
         not isinstance(cancel_target, dict)
-        or set(cancel_target)
-        != {
-            "instruction_member",
-            "kind",
-            "producer_result_kind",
-            "value_member",
-        }
-        or not all(
-            isinstance(cancel_target.get(member), str) and cancel_target[member]
-            for member in cancel_target
+        or set(cancel_target) != {"instruction_member", "variants"}
+        or not isinstance(cancel_target.get("instruction_member"), str)
+        or not cancel_target["instruction_member"]
+        or not isinstance(cancel_variants, list)
+        or len(cancel_variants) != 2
+        or {variant.get("kind") for variant in cancel_variants} != {"local", "port"}
+        or any(
+            not isinstance(variant, dict)
+            or set(variant)
+            != (
+                {"kind", "value_member", "producer_result_kind"}
+                if variant.get("kind") == "local"
+                else {"kind", "value_member", "value_contract"}
+            )
+            or not isinstance(variant.get("value_member"), str)
+            or not variant["value_member"]
+            or (
+                variant.get("kind") == "local"
+                and not any(
+                    node["result"]["kind"] == variant.get("producer_result_kind")
+                    for node in nodes.values()
+                )
+            )
+            or (
+                variant.get("kind") == "port"
+                and variant.get("value_contract") not in fixed_value_contracts
+            )
+            for variant in cancel_variants
         )
         or cancel_target["instruction_member"]
         not in nodes["cancel"]["required_members"]
-        or not any(
-            node["result"]["kind"] == cancel_target["producer_result_kind"]
-            for node in nodes.values()
-        )
     ):
         return False
     for family, member in family_members.items():
@@ -8376,6 +8816,11 @@ def _runtime_authority_is_closed(
         visiting.add(operation_id)
         referenced: set[str] = set()
         local_result_kinds: dict[str, str] = {}
+        formal_ports = {
+            port.get("id"): port
+            for port in operation.get("inputs", [])
+            if isinstance(port, dict) and isinstance(port.get("id"), str)
+        }
         body = operation.get("body")
         if not isinstance(body, list):
             visiting.remove(operation_id)
@@ -8391,14 +8836,40 @@ def _runtime_authority_is_closed(
             if node["semantics"]["operator"] == "cancel-event":
                 target_contract = node["semantics"]["target_reference"]
                 target = instruction.get(target_contract["instruction_member"])
+                variants = {
+                    variant["kind"]: variant for variant in target_contract["variants"]
+                }
+                target_variant = (
+                    variants.get(target.get("kind"))
+                    if isinstance(target, dict)
+                    else None
+                )
+                target_value = (
+                    target.get(target_variant["value_member"])
+                    if isinstance(target, dict) and isinstance(target_variant, dict)
+                    else None
+                )
                 if (
                     not isinstance(target, dict)
-                    or set(target) != {"kind", target_contract["value_member"]}
-                    or target.get("kind") != target_contract["kind"]
-                    or not isinstance(target.get(target_contract["value_member"]), str)
-                    or not target[target_contract["value_member"]]
-                    or local_result_kinds.get(target[target_contract["value_member"]])
-                    != target_contract["producer_result_kind"]
+                    or not isinstance(target_variant, dict)
+                    or set(target) != {"kind", target_variant["value_member"]}
+                    or not isinstance(target_value, str)
+                    or not target_value
+                    or (
+                        target_variant["kind"] == "local"
+                        and local_result_kinds.get(target_value)
+                        != target_variant["producer_result_kind"]
+                    )
+                    or (
+                        target_variant["kind"] == "port"
+                        and (
+                            target_value not in formal_ports
+                            or not _operation_value_contract_matches(
+                                formal_ports[target_value],
+                                fixed_value_contracts[target_variant["value_contract"]],
+                            )
+                        )
+                    )
                 ):
                     visiting.remove(operation_id)
                     return None
@@ -8426,13 +8897,13 @@ def _runtime_authority_is_closed(
                     visiting.remove(operation_id)
                     return None
                 arguments = instruction.get("arguments")
-                formal_ports = invoked.get("inputs")
+                invoked_formal_ports = invoked.get("inputs")
                 result_binding = instruction.get("result")
                 mappings = instruction.get("outcomes")
                 callee_outcomes = invoked.get("outcomes")
                 if (
                     not isinstance(arguments, list)
-                    or not isinstance(formal_ports, list)
+                    or not isinstance(invoked_formal_ports, list)
                     or not all(
                         isinstance(argument, dict)
                         and set(argument) == {"port", "operand"}
@@ -8443,7 +8914,7 @@ def _runtime_authority_is_closed(
                         for argument in arguments
                     )
                     or [argument["port"] for argument in arguments]
-                    != [port.get("id") for port in formal_ports]
+                    != [port.get("id") for port in invoked_formal_ports]
                     or not isinstance(result_binding, dict)
                     or result_binding.get("kind")
                     not in set(invocation["result_binding_kinds"])

@@ -1056,6 +1056,33 @@ ascending. Input admits ordered external facts, transition owns model mutation, 
 read-only evidence collection (bADR-0014).
 _Avoid_: callback, message (unqualified), async task
 
+**Periodic Effect**:
+A gameplay Effect whose selected Domain package closes one bounded apply/tick/expire lifecycle:
+duration and period, scheduled logical times, magnitude capture/read policy, contribution, expiry,
+typed outcomes/refusals, Numeric behavior and resource bounds. Its lifecycle Operations schedule
+ordinary Runtime events and use the same atomic transaction, ordering and Snapshot laws as every
+other transition. It is not a Kernel primitive or a second time-advancement system
+(bADR-0014/0016).
+_Avoid_: Effect loop, fixed tick loop, repeated Experiment scenarios
+
+**Effect instance**:
+One package-defined occurrence of a Periodic Effect, identified at apply by the package's declared
+bounded Named-stream draw and carried through every scheduled tick and expiry Event. The instance
+value correlates one lifecycle; Runtime still owns each Event identity and does not infer stacking,
+dispel, contributor or defeat policy from the value. This periodic slice creates one directly at
+apply; buildup-based Effects create one at threshold activation under the broader Effect
+specification (bADR-0014/0016).
+_Avoid_: Effect Event identity, ambient effect object, host timer handle
+
+**Magnitude timing policy**:
+The Domain-package contract that determines when one exact bound Formula is evaluated and when its
+result is read. `snapshot` evaluates once against apply's pre-Event committed Snapshot and carries
+the captured result into scheduled ticks; `live` evaluates at each tick against that tick Event's
+pre-Event committed Snapshot. Both use ordinary Formula bindings/evaluation sites and never read
+another Event's buffered writes. This policy specializes the Effect specification's capture-timing
+axis by binding it to a Formula evaluation context (bADR-0014/0016/0022).
+_Avoid_: evaluator callback timing, host-side magnitude mode, second Effect expression
+
 **Root Event reference**:
 The unique stable authored identity of one external-input or transition-invocation root member in
 an Executable Event plan. Runtime admission maps canonical root order to Runtime-owned `event_id`
@@ -1063,6 +1090,15 @@ and enqueue sequence before dispatch and exposes the complete reference map. Sch
 have Runtime Event identities and parent/call-site provenance but no invented root reference
 (bADR-0014/0018/0022).
 _Avoid_: Event id, array index, host object identity
+
+**Event reference**:
+A typed Runtime-Event value passed through an explicit Model entrypoint operand. Model Source names
+the operand's role, such as `counterattack`; the Experiment binds that role to one authored Root
+Event reference in the same Scenario; and Runtime resolves the binding to the already admitted
+Event's stable `event_id` before dispatch. It is neither ambient queue lookup nor permission to
+infer a target from time, ordering, combatant name, or game state. A Kernel node such as `cancel`
+may consume it only through its declared Event-reference port contract (bADR-0014/0022).
+_Avoid_: next Event, queue cursor, Root Event reference (the authored name), raw Event id
 
 **Signal**:
 An ephemeral typed fact emitted during one Event transaction to subscribers declared statically in

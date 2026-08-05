@@ -21,6 +21,15 @@ append-only evidence graph.
 > artifacts bind the admitted root-reference map, complete Event ordering keys, logical windows,
 > terminal condition, and Runtime profile rather than treating an authored scenario as one step.
 
+> **Amendment (2026-08-04, #596):** Event trace records each Runtime Formula evaluation with exact
+> evaluation-site, binding, Formula and Operation identities, slot/context, ordered arguments,
+> result, immutable frame identity and call path. Periodic schedule rows carry the generated child
+> Event id, call-site/parent provenance, ordering key, Effect-instance value and captured arguments;
+> child Events and Snapshots close the resulting state chain. A terminal audit's committed prefix
+> uses the same Event schema and a refusing Formula Event identifies its exact evaluation site.
+> Metric datasets and Evaluation/reproduction artifacts bind these trace/Snapshot/Runtime-profile
+> identities instead of copying Effect or Formula authority into evidence artifacts.
+
 ## Decision
 
 - **One Metrics schema represents both simulated and observed samples.** Every Metric definition

@@ -28,8 +28,12 @@ from schema2_scheduler_production_support import (
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
 )
+from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+_PERIODIC_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
+)
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
@@ -40,6 +44,7 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "ordering_key",
     "snapshot_before_identity",
     "snapshot_after_identity",
+    "formula_evaluations",
     "external_input_identity",
     "observation",
 }
@@ -63,7 +68,7 @@ def test_tutorial_tuning_values_are_not_package_conformance_configuration():
         row["target"]["name"]: row["value"]
         for row in specification["scenarios"][0]["assignments"]
     }
-    _kernel, language_bundle = authority_module.load_authorities()
+    _kernel, language_bundle = mutable_authorities()
     combat_vectors = next(
         row
         for row in language_bundle.package_conformance_vector_sets
@@ -77,11 +82,12 @@ def test_tutorial_tuning_values_are_not_package_conformance_configuration():
     vector_values = {row["name"]: row["value"] for row in positive["input"]["values"]}
 
     assert {
-        name: tutorial_values[name]
-        for name in ("action_cost", "accuracy", "base_damage")
+        "action_cost": tutorial_values["player_action_cost"],
+        "accuracy": tutorial_values["player_accuracy"],
+        "base_damage": tutorial_values["player_base_damage"],
     } == {
         "action_cost": 9,
-        "accuracy": 25,
+        "accuracy": 1000,
         "base_damage": 45,
     }
     assert {
@@ -115,7 +121,59 @@ def _rpg_value(name: str, role: str) -> dict[str, Any]:
 
 
 def _rpg_model_source() -> dict[str, Any]:
-    return json.loads((_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8"))
+    """Project the stable one-actor #540 fixture from the reciprocal tutorial."""
+    source = json.loads(
+        (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+    )
+    symbol_names = {
+        "player_mana": "actor_mana",
+        "player_action_cost": "action_cost",
+        "player_accuracy": "accuracy",
+        "player_base_damage": "base_damage",
+        "player_critical_threshold": "critical_threshold",
+        "enemy_defense": "target_defense",
+        "enemy_health": "target_health",
+        "player_effective_accuracy": "effective_accuracy",
+        "player_damage_dealt": "damage_dealt",
+    }
+    module = source["modules"][0]
+    module["symbols"] = [
+        symbol for symbol in module["symbols"] if symbol["symbol"] in symbol_names
+    ]
+    for symbol in module["symbols"]:
+        symbol["symbol"] = symbol_names[symbol["symbol"]]
+
+    source["formula_bindings"] = [
+        binding
+        for binding in source["formula_bindings"]
+        if binding["site"]["kind"] == "operation-slot"
+        or binding["site"].get("symbol") == "player_effective_accuracy"
+    ]
+    cast_entrypoint = deepcopy(source["entrypoints"][0])
+    cast_entrypoint["id"] = "combat.cast"
+    plan_entrypoint = deepcopy(cast_entrypoint)
+    plan_entrypoint["id"] = "combat.plan-casts"
+    plan_entrypoint["operation"] = {
+        "package": "game.combat",
+        "version": "2.1.0",
+        "id": "game.combat.plan-casts-v1",
+    }
+    plan_entrypoint["result"] = {"kind": "discard"}
+    source["entrypoints"] = [cast_entrypoint, plan_entrypoint]
+
+    def rename_symbols(value: Any) -> None:
+        if isinstance(value, dict):
+            if value.get("symbol") in symbol_names:
+                value["symbol"] = symbol_names[value["symbol"]]
+            for member in value.values():
+                rename_symbols(member)
+        elif isinstance(value, list):
+            for member in value:
+                rename_symbols(member)
+
+    rename_symbols(source["formula_bindings"])
+    rename_symbols(source["entrypoints"])
+    return source
 
 
 def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
@@ -373,6 +431,47 @@ def _reference_execute_event(
             }
         )
         pending_programs = list(resolved_initialization_programs or [])
+        reachable_formula_targets = {
+            (
+                operand["symbol"]["model"],
+                operand["symbol"]["module"],
+                operand["symbol"]["name"],
+            )
+            for binding in resolved_entrypoint["arguments"]
+            if (operand := binding["operand"])["kind"] == "symbol"
+        }
+        while True:
+            previous_target_count = len(reachable_formula_targets)
+            for program in pending_programs:
+                target = program["target"]
+                target_coordinate = (
+                    target["model"],
+                    target["module"],
+                    target["name"],
+                )
+                if target_coordinate not in reachable_formula_targets:
+                    continue
+                reachable_formula_targets.update(
+                    (
+                        operand["resolved_symbol"]["model"],
+                        operand["resolved_symbol"]["module"],
+                        operand["resolved_symbol"]["name"],
+                    )
+                    for row in program["inputs"]
+                    if (operand := row["operand"])["kind"] != "literal"
+                )
+            if len(reachable_formula_targets) == previous_target_count:
+                break
+        pending_programs = [
+            program
+            for program in pending_programs
+            if (
+                program["target"]["model"],
+                program["target"]["module"],
+                program["target"]["name"],
+            )
+            in reachable_formula_targets
+        ]
         while pending_programs:
             progressed = False
             for program in list(pending_programs):
@@ -460,6 +559,16 @@ def _reference_execute_event(
         display_names = {name: name for name in legacy_variables}
     cells = {name: {"value": value} for name, value in variables.items()}
     state_cells = {name: cells[name] for name in state_targets if name in cells}
+    declared_domains_by_cell = (
+        {
+            id(cells[coordinate]): declaration["domain"]
+            for coordinate, declaration in declarations.items()
+            if coordinate in state_cells
+            and declaration["domain_kind"] == "closed-interval"
+        }
+        if resolved_entrypoint is not None
+        else {}
+    )
     before = {name: cell["value"] for name, cell in state_cells.items()}
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
@@ -470,8 +579,13 @@ def _reference_execute_event(
         for row in (resolved_call_sites or [])
     }
 
-    def exact(value: int) -> int:
+    def exact(value: int, target: dict[str, Any] | None = None) -> int:
         if not numeric["minimum"] <= value <= numeric["maximum"]:
+            raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
+        domain = (
+            declared_domains_by_cell.get(id(target)) if target is not None else None
+        )
+        if domain is not None and not domain["minimum"] <= value <= domain["maximum"]:
             raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
         return value
 
@@ -630,11 +744,14 @@ def _reference_execute_event(
                 elif operator == "state-integer-subtract":
                     target = arguments[instruction["symbol"]]
                     target["value"] = exact(
-                        target["value"] - cell(instruction["value"])["value"]
+                        target["value"] - cell(instruction["value"])["value"],
+                        target,
                     )
                 elif operator == "state-write":
-                    arguments[instruction["symbol"]]["value"] = exact(
-                        cell(instruction["value"])["value"]
+                    target = arguments[instruction["symbol"]]
+                    target["value"] = exact(
+                        cell(instruction["value"])["value"],
+                        target,
                     )
                 else:
                     raise AssertionError(
@@ -851,6 +968,42 @@ def _reference_evaluate_value_program_vector(
         "signal": signal,
         "site": inp["site"] if admitted else site,
     }
+
+
+def _reference_evaluate_formula_document(
+    formula: dict[str, Any], arguments: list[dict[str, Any]]
+) -> int:
+    values = {row["parameter"]: row["value"] for row in arguments}
+
+    def operand_value(operand: dict[str, Any]) -> int:
+        if operand["kind"] == "parameter":
+            return values[operand["parameter"]]
+        if operand["kind"] == "local":
+            return values[operand["local"]]
+        assert operand["kind"] == "literal"
+        return operand["value"]
+
+    for node in formula["body"]["nodes"]:
+        operands = {
+            argument["port"]: operand_value(argument["operand"])
+            for argument in node["arguments"]
+        }
+        operation = node["operation"]["id"]
+        if operation == "quantity.add":
+            result = operands["left"] + operands["right"]
+        elif operation == "quantity.subtract":
+            result = operands["left"] - operands["right"]
+        elif operation == "quantity.multiply":
+            result = operands["left"] * operands["right"]
+        elif operation == "quantity.maximum":
+            result = max(operands["left"], operands["right"])
+        else:
+            assert operation == "quantity.floor-zero"
+            result = max(operands["value"], 0)
+        assert -(1 << 63) <= result <= (1 << 63) - 1
+        values[node["id"]] = result
+
+    return operand_value(formula["body"]["result"])
 
 
 @dataclass(frozen=True)
@@ -1234,6 +1387,38 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     spec_path = tmp_path / "experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
     return spec_path
+
+
+def _write_built_periodic_experiment(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_PERIODIC_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-periodic-model.json"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = json.loads(
+        (_PERIODIC_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    specification["kernel_identity"] = build_record["kernel_identity"]
+    specification["language_bundle_identity"] = build_record["language_bundle_identity"]
+    specification["model"] = {
+        "source_identity": build_record["source_identity"],
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
+    specification_path = tmp_path / "periodic-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path, build_receipt
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
@@ -1883,7 +2068,7 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
 
 
 def test_kernel_closes_runtime_configuration_transition_and_public_step():
-    kernel, _language_bundle = authority_module.load_authorities()
+    kernel, _language_bundle = mutable_authorities()
     runtime_program = kernel["meta_format"]["runtime_program"]
 
     assert runtime_program["runtime_configuration"] == {
@@ -1966,7 +2151,7 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
 
 
 def test_runtime_profile_bounds_are_ldb_owned_under_the_kernel_shape():
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     profile_contract = kernel["meta_format"]["runtime_profile_definition"]
     assert profile_contract["active_runtime"]["resource_bounds"] == {
         "members": [
@@ -2984,6 +3169,93 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     assert result.state_after == result.state_before
 
 
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        ("backward", "runtime.schedule_backward"),
+        ("hidden-input", "runtime.schedule_hidden_input"),
+        (
+            "illegal-same-time-priority",
+            "runtime.schedule_illegal_same_time_priority",
+        ),
+        ("logical-time-limit", "runtime.logical_time_exceeded"),
+        ("zero-time-depth", "runtime.zero_time_depth_exceeded"),
+        ("event-limit", "runtime.event_limit_exceeded"),
+    ],
+)
+def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
+    tmp_path, run_cli, monkeypatch, mutation, expected_code
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    apply_operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.effect.apply-snapshot-periodic-v1"
+    )
+    first_schedule = next(
+        instruction
+        for instruction in apply_operation["body"]
+        if instruction["node"] == "schedule"
+    )
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    if mutation == "backward":
+        first_schedule["logical_time"] = -1
+    elif mutation == "hidden-input":
+        first_schedule["phase"] = "input"
+    elif mutation == "illegal-same-time-priority":
+        first_schedule["logical_time"] = 0
+        first_schedule["priority"] = 1
+    elif mutation == "logical-time-limit":
+        first_schedule["logical_time"] = 1 << 63
+    elif mutation == "zero-time-depth":
+        first_schedule["logical_time"] = 0
+        runtime_profile["resource_bounds"]["max_zero_time_depth"] = 0
+    else:
+        runtime_profile["resource_bounds"]["max_total_events"] = 1
+
+    # These refusals originate in selected Package/Runtime semantics rather than
+    # authored Experiment fields. Inject the checked semantic candidate at the
+    # public handler seam, then drive the real dispatch, refusal envelope,
+    # rollback audit, and publication path end to end.
+    monkeypatch.setattr(
+        experiment_command_module,
+        "check_experiment",
+        lambda _path: replace(checked, rir=rir),
+    )
+    out = tmp_path / f"periodic-{mutation}-refusal"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [row["code"] for row in error["diagnostics"]] == [expected_code]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["operation"] == (
+        "game.effect.apply-snapshot-periodic-v1"
+    )
+    assert audit["refusing_event"]["reason"] == expected_code
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
 def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
     tmp_path, run_cli
 ):
@@ -3321,7 +3593,7 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     assert events[0]["operation"] is None
     assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
     reproduction = _member(receipt, "reproduction-receipt")
-    kernel, _language_bundle = authority_module.load_authorities()
+    kernel, _language_bundle = mutable_authorities()
     input_contract = kernel["meta_format"]["runtime_program"]["scheduler"][
         "external_input_identity"
     ]
@@ -3505,6 +3777,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
 
     checked = experiment_runtime_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    selected_entrypoints = [checked.rir["entrypoints"][0]]
     actual_values = {
         canonical_bytes(cast(Any, initializer["target"])): initializer["value"]
         for initializer in checked.rir["entrypoints"][0]["scenario_input_contract"][
@@ -3527,6 +3800,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
         consumed_steps=0,
         runtime_limit=exact_charge,
         cache=cache,
+        selected_entrypoints=selected_entrypoints,
     )
     assert consumed == exact_charge
     derived_identity = canonical_bytes(
@@ -3557,6 +3831,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=cache,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )
@@ -3568,6 +3843,7 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=cache,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )
@@ -3581,10 +3857,68 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
             consumed_steps=0,
             runtime_limit=exact_charge,
             cache=None,
+            selected_entrypoints=selected_entrypoints,
         )
         == exact_charge
     )
     assert without_cache[derived_identity] == 32
+
+    cyclic_rir = deepcopy(checked.rir)
+    template_program = next(
+        program
+        for program in cyclic_rir["initialization_programs"]
+        if program["site"]["context"]["phase"] == "initialization"
+    )
+    cycle_a = {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "cycle_a",
+    }
+    cycle_b = {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": "cycle_b",
+    }
+
+    def cyclic_program(target: dict[str, str], dependency: dict[str, str]) -> dict:
+        program = deepcopy(template_program)
+        program["target"] = target
+        program["inputs"] = [
+            {
+                "name": "base",
+                "operand": {
+                    "kind": "symbol",
+                    "resolved_symbol": dependency,
+                },
+            }
+        ]
+        return program
+
+    cyclic_rir["initialization_programs"] = [
+        cyclic_program(cycle_a, cycle_b),
+        cyclic_program(cycle_b, cycle_a),
+    ]
+    cyclic_entrypoint = deepcopy(selected_entrypoints[0])
+    next(
+        binding
+        for binding in cyclic_entrypoint["arguments"]
+        if binding["operand"]["kind"] == "symbol"
+    )["operand"]["symbol"] = cycle_a
+    cyclic_checked = replace(checked, rir=cyclic_rir)
+
+    with pytest.raises(
+        ValueError,
+        match="admitted initialization program graph is cyclic",
+    ):
+        experiment_runtime_module._evaluate_initialization_programs(
+            cyclic_checked,
+            {},
+            consumed_steps=0,
+            runtime_limit=exact_charge,
+            cache=None,
+            selected_entrypoints=[cyclic_entrypoint],
+        )
+
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
@@ -4274,7 +4608,7 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
             "id": "combat.cast",
             "operation": {
                 "package": "game.combat",
-                "version": "2.0.0",
+                "version": "2.1.0",
                 "id": "game.combat.cast-v1",
             },
             "arguments": [
@@ -4673,568 +5007,99 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
     source = tmp_path / "rpg-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
-    model_out = tmp_path / "resolved-model.json"
-
     build_exit, build_stdout, build_stderr = run_cli(
         [
             "model",
             "build",
             str(source),
             "--out",
-            str(model_out),
+            str(tmp_path / "resolved-model"),
             "--invocation-key",
             "1" * 64,
         ]
     )
-
-    assert (build_exit, build_stderr) == (0, ""), (
-        build_stdout,
-        build_stderr,
-    )
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
-    source_identity = content_identity("model-source-package-v2", source_value)
-    first_spec = json.loads(
+
+    baseline = json.loads(
         (_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    assert first_spec["kernel_identity"] == build_record["kernel_identity"]
+    assert baseline["kernel_identity"] == build_record["kernel_identity"]
     assert (
-        first_spec["language_bundle_identity"]
-        == (build_record["language_bundle_identity"])
+        baseline["language_bundle_identity"] == build_record["language_bundle_identity"]
     )
-    assert first_spec["model"] == {
-        "source_identity": source_identity,
+    assert baseline["model"] == {
+        "source_identity": content_identity("model-source-package-v2", source_value),
         "build_receipt_identity": build_record["content_identity"],
         "resolved_model_identity": build_record["resolved_model_identity"],
         "package_lock_identity": build_record["package_lock_identity"],
         "rir_identity": build_record["rir_identity"],
     }
-    first_path = tmp_path / "experiment-45.json"
-    first_path.write_text(json.dumps(first_spec), encoding="utf-8")
 
-    check_exit, check_stdout, check_stderr = run_cli(
-        ["experiment", "check", str(first_path)]
-    )
+    def run(specification: dict[str, Any], name: str, key: str):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(specification), encoding="utf-8")
+        check_exit, check_stdout, check_stderr = run_cli(
+            ["experiment", "check", str(path)]
+        )
+        assert (check_exit, check_stderr) == (0, ""), check_stdout
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(path),
+                "--out",
+                str(tmp_path / name),
+                "--invocation-key",
+                key,
+            ]
+        )
+        assert (exit_code, stderr) == (0, ""), stdout
+        receipt = json.loads(stdout)
+        return (
+            _member(receipt, "event-trace"),
+            _member(receipt, "metric-dataset"),
+        )
 
-    assert (check_exit, check_stderr) == (0, ""), check_stdout
-    assert json.loads(check_stdout)["checked"] is True
+    baseline_trace, baseline_metrics = run(baseline, "baseline", "2" * 64)
+    tuned = deepcopy(baseline)
+    tuned["id"] = "example.rpg-combat-cast.player-damage-tuned"
+    next(
+        assignment
+        for assignment in tuned["scenarios"][0]["assignments"]
+        if assignment["target"]["name"] == "player_base_damage"
+    )["value"] = 55
+    tuned_trace, tuned_metrics = run(tuned, "tuned", "3" * 64)
 
-    first_exit, first_stdout, first_stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(first_path),
-            "--out",
-            str(tmp_path / "evaluation-45.json"),
-            "--invocation-key",
-            "2" * 64,
-        ]
-    )
+    assert tuned["kernel_identity"] == baseline["kernel_identity"]
+    assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
+    assert tuned["model"] == baseline["model"]
+    assert tuned["runtime"] == baseline["runtime"]
+    assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
 
-    assert (first_exit, first_stderr) == (0, "")
-    first_receipt = json.loads(first_stdout)
-    first_trace = _member(first_receipt, "event-trace")
-    first_snapshots = _member(first_receipt, "snapshot-series")["snapshots"]
-    first_metrics = _member(first_receipt, "metric-dataset")
-    first_events = first_trace["events"]
-    assert [event["operation"] for event in first_events] == [
-        None,
-        "game.combat.plan-casts-v1",
-        "game.combat.cast-v1",
-        "game.combat.cast-v1",
-        None,
-        None,
-    ]
-    assert [event["ordering_key"]["logical_time"] for event in first_events] == [
-        0,
-        0,
-        1,
-        2,
-        2,
-        2,
-    ]
-    assert [event["ordering_key"]["phase"] for event in first_events] == [
-        "input",
-        "transition",
-        "transition",
-        "transition",
-        "observation",
-        "observation",
-    ]
-    input_event, plan_event, cast_event = first_events[:3]
-    direct_cast_event = first_events[3]
-    assert first_trace["root_event_map"] == [
-        {
-            "scenario": "multi-cast",
-            "root_event_ref": "raise-defense",
-            "event_id": input_event["event_id"],
-        },
-        {
-            "scenario": "multi-cast",
-            "root_event_ref": "plan-casts",
-            "event_id": plan_event["event_id"],
-        },
-        {
-            "scenario": "multi-cast",
-            "root_event_ref": "retry-cast",
-            "event_id": direct_cast_event["event_id"],
-        },
-    ]
-    assert cast_event["parent_event_id"] == plan_event["event_id"]
-    assert plan_event["schedules"][0]["event_id"] == cast_event["event_id"]
-    assert plan_event["schedules"][1]["outcome"] == "canceled"
-    assert plan_event["cancellations"] == [
-        {
-            "call_site_identity": plan_event["cancellations"][0]["call_site_identity"],
-            "event_id": plan_event["schedules"][1]["event_id"],
-            "outcome": "canceled",
-        }
-    ]
-    assert plan_event["schedules"][1]["event_id"] not in {
-        event["event_id"] for event in first_events
+    baseline_values = {
+        sample["metric"]: sample["value"] for sample in baseline_metrics["samples"]
     }
-    assert direct_cast_event.get("parent_event_id") is None
-    assert direct_cast_event["outcome"]["id"] == "cast-resolved"
-    assert direct_cast_event["state_after"] != direct_cast_event["state_before"]
-    assert (
-        next(
-            item["integer"]
-            for item in direct_cast_event["facts"]
-            if item["name"] == "action_cost"
-        )
-        == 0
-    )
-    assert len(first_snapshots) == len(first_events) + 1
-    assert [
-        (event["snapshot_before_identity"], event["snapshot_after_identity"])
-        for event in first_events
-    ] == [
-        (
-            first_snapshots[index]["snapshot_identity"],
-            first_snapshots[index + 1]["snapshot_identity"],
-        )
-        for index in range(len(first_events))
-    ]
-    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(first_path),
-            "--out",
-            str(tmp_path / "evaluation-45.json"),
-            "--invocation-key",
-            "2" * 64,
-        ]
-    )
-    assert (recovered_exit, recovered_stderr) == (0, "")
-    assert json.loads(recovered_stdout) == first_receipt
-    kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
-    _loaded_kernel, ldb = authority_module.load_authorities()
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
-    operation = next(
-        row for row in operations.values() if row["id"] == "game.combat.cast-v1"
-    )
-    rir = _member(build_receipt, "rir-semantic-payload")
-    resolved_entrypoint = next(
-        row for row in rir["entrypoints"] if row["id"] == "combat.cast"
-    )
-    reference_scenario = deepcopy(first_spec["scenarios"][0])
-    external_fact = input_event["facts"]
-    defense = next(
-        row["integer"] for row in external_fact if row["name"] == "target_defense"
-    )
-    for assignment in reference_scenario["assignments"]:
-        if assignment["target"]["name"] == "target_defense":
-            assignment["value"] = defense
-    reference_event = _reference_execute_event(
-        kernel,
-        operation,
-        operations,
-        reference_scenario,
-        seed=first_spec["seed"]["value"],
-        resolved_entrypoint=resolved_entrypoint,
-        resolved_declarations=rir["declarations"],
-        resolved_call_sites=rir["call_sites"],
-        resolved_initialization_programs=rir["initialization_programs"],
-    )
+    tuned_values = {
+        sample["metric"]: sample["value"] for sample in tuned_metrics["samples"]
+    }
     assert {
-        member: cast_event[member]
-        for member in ("outcome", "rng_draws", "state_before", "state_after")
+        metric: tuned_values[metric]
+        for metric in tuned_values
+        if tuned_values[metric] != baseline_values[metric]
     } == {
-        member: reference_event[member]
-        for member in ("outcome", "rng_draws", "state_before", "state_after")
+        "enemy_health_remaining": 53,
+        "player_damage_dealt": 47,
     }
-    assert (
-        next(
-            item["integer"]
-            for item in cast_event["facts"]
-            if item["name"] == "base_damage"
-        )
-        == 45
-    )
-    assert cast_event["state_after"] == [
-        {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 16},
-    ]
-    first_health = next(
-        sample["value"]
-        for sample in first_metrics["samples"]
-        if sample["metric"] == "target_health_remaining"
-    )
-    assert first_health == 12
-    assert (
-        next(
-            sample["value"]
-            for sample in first_metrics["samples"]
-            if sample["metric"] == "damage_dealt"
-        )
-        == 4
-    )
-
-    edited_source_value = deepcopy(source_value)
-    edited_source_value["manifest"]["version"] = "1.1.0"
-    damage_formula = next(
-        formula
-        for formula in edited_source_value["modules"][0]["formulas"]
-        if formula["id"] == "mitigated-damage"
-    )
-    damage_formula["body"] = {
-        "nodes": [
-            {
-                "id": "unmitigated-damage",
-                "node": "operation-call",
-                "operation": {
-                    "package": "core.quantity",
-                    "version": "2.1.0",
-                    "id": "quantity.identity",
-                },
-                "arguments": [
-                    {
-                        "port": "value",
-                        "operand": {
-                            "kind": "parameter",
-                            "parameter": "damage_before_defense",
-                        },
-                    }
-                ],
-                "result": deepcopy(damage_formula["result"]),
-            }
-        ],
-        "result": {"kind": "local", "local": "unmitigated-damage"},
-    }
-    damage_formula["expression"] = (
-        "let `unmitigated-damage` = identity(damage_before_defense);\n"
-        "`unmitigated-damage`"
-    )
-    edited_source = tmp_path / "rpg-model-edited.json"
-    edited_source.write_text(json.dumps(edited_source_value), encoding="utf-8")
-    edited_model_out = tmp_path / "resolved-model-edited.json"
-    edited_build_exit, edited_build_stdout, edited_build_stderr = run_cli(
-        [
-            "model",
-            "build",
-            str(edited_source),
-            "--out",
-            str(edited_model_out),
-            "--invocation-key",
-            "3" * 64,
-        ]
-    )
-    assert (edited_build_exit, edited_build_stderr) == (0, "")
-    edited_build_receipt = json.loads(edited_build_stdout)
-    edited_build_record = _member(edited_build_receipt, "build-receipt")
-    edited_rir = _member(edited_build_receipt, "rir-semantic-payload")
-    assert (
-        edited_build_record["kernel_identity"] == build_record["kernel_identity"]
-        and edited_build_record["language_bundle_identity"]
-        == build_record["language_bundle_identity"]
-        and edited_build_record["package_lock_identity"]
-        == build_record["package_lock_identity"]
-        and edited_build_record["compiler"] == build_record["compiler"]
-    )
-    assert (
-        edited_build_record["rir_identity"] != build_record["rir_identity"]
-        and edited_build_record["resolved_model_identity"]
-        != build_record["resolved_model_identity"]
-    )
-    baseline_formulas = {row["id"]: row["identity"] for row in rir["formulas"]}
-    edited_formulas = {row["id"]: row["identity"] for row in edited_rir["formulas"]}
-    assert edited_formulas["mitigated-damage"] != baseline_formulas["mitigated-damage"]
-    assert (
-        edited_formulas["effective-accuracy"] == baseline_formulas["effective-accuracy"]
-    )
-
-    stale_spec = deepcopy(first_spec)
-    stale_spec["model"]["source_identity"] = content_identity(
-        "model-source-package-v2",
-        edited_source_value,
-    )
-    stale_path = tmp_path / "experiment-stale-model-binding.json"
-    stale_path.write_text(json.dumps(stale_spec), encoding="utf-8")
-    stale_exit, stale_stdout, stale_stderr = run_cli(
-        ["experiment", "check", str(stale_path)]
-    )
-    assert (stale_exit, stale_stderr) == (2, "")
-    assert json.loads(stale_stdout)["error"]["diagnostics"][0]["code"] == (
-        "language.resolved_authority_mismatch"
-    )
-
-    tuned_spec = deepcopy(first_spec)
-    tuned_spec["version"] = "1.1.0"
-    tuned_spec["model"] = {
-        "source_identity": content_identity(
-            "model-source-package-v2",
-            edited_source_value,
-        ),
-        "build_receipt_identity": edited_build_record["content_identity"],
-        "resolved_model_identity": edited_build_record["resolved_model_identity"],
-        "package_lock_identity": edited_build_record["package_lock_identity"],
-        "rir_identity": edited_build_record["rir_identity"],
-    }
-    tuned_requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
-            _member(edited_build_receipt, "rir-semantic-payload"),
-            entrypoint_id=next(
-                event["entrypoint"]
-                for event in tuned_spec["scenarios"][0]["event_plan"]
-                if event["kind"] == "transition-invocation"
-            ),
-            runtime_profile=tuned_spec["runtime"]["profile"],
-            rng_algorithm=tuned_spec["seed"]["algorithm"],
-        )
-    )
-    tuned_spec["runtime"]["required_evaluator"] = tuned_requirements
-    tuned_path = tmp_path / "experiment-formula-edited.json"
-    tuned_path.write_text(json.dumps(tuned_spec), encoding="utf-8")
-    tuned_check_exit, tuned_check_stdout, tuned_check_stderr = run_cli(
-        ["experiment", "check", str(tuned_path)]
-    )
-    assert (tuned_check_exit, tuned_check_stderr) == (0, ""), tuned_check_stdout
-    tuned_exit, tuned_stdout, tuned_stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(tuned_path),
-            "--out",
-            str(tmp_path / "evaluation-formula-edited.json"),
-            "--invocation-key",
-            "4" * 64,
-        ]
-    )
-
-    assert (tuned_exit, tuned_stderr) == (0, "")
-    tuned_receipt = json.loads(tuned_stdout)
-    tuned_trace = _member(tuned_receipt, "event-trace")
-    tuned_metrics = _member(tuned_receipt, "metric-dataset")
-    tuned_evaluator = _member(tuned_receipt, "evaluator-capability-manifest")
-    baseline_evaluator = _member(first_receipt, "evaluator-capability-manifest")
-    assert (
-        tuned_evaluator["evaluator_build_identity"]
-        == baseline_evaluator["evaluator_build_identity"]
-    )
-    assert tuned_trace["experiment_identity"] != first_trace["experiment_identity"]
-    tuned_health = next(
-        sample["value"]
-        for sample in tuned_metrics["samples"]
-        if sample["metric"] == "target_health_remaining"
-    )
-    assert (
-        next(
-            item["integer"]
-            for item in next(
-                event
-                for event in tuned_trace["events"]
-                if event["operation"] == "game.combat.cast-v1"
-            )["facts"]
-            if item["name"] == "base_damage"
-        )
-        == 45
-    )
-    assert tuned_health == 0 < first_health
-    assert (
-        next(
-            sample["value"]
-            for sample in tuned_metrics["samples"]
-            if sample["metric"] == "damage_dealt"
-        )
-        == 10
-    )
-    assert next(
-        event
-        for event in tuned_trace["events"]
-        if event["operation"] == "game.combat.cast-v1"
-    )["state_after"] == [
-        {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 10},
-    ]
-    assert (
-        tuned_trace["content_identity"] != first_trace["content_identity"]
-        and tuned_metrics["content_identity"] != first_metrics["content_identity"]
-    )
-    alternate_seed_spec = deepcopy(first_spec)
-    alternate_seed_spec["seed"]["value"] = 4
-    alternate_seed_path = tmp_path / "experiment-seed-4.json"
-    alternate_seed_path.write_text(
-        json.dumps(alternate_seed_spec),
-        encoding="utf-8",
-    )
-    alternate_exit, alternate_stdout, alternate_stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(alternate_seed_path),
-            "--out",
-            str(tmp_path / "evaluation-seed-4.json"),
-            "--invocation-key",
-            "5" * 64,
-        ]
-    )
-
-    assert (alternate_exit, alternate_stderr) == (0, "")
-    alternate_receipt = json.loads(alternate_stdout)
-    alternate_trace = _member(alternate_receipt, "event-trace")
-    alternate_metrics = _member(alternate_receipt, "metric-dataset")
-    alternate_event = next(
-        event
-        for event in alternate_trace["events"]
-        if event["operation"] == "game.combat.cast-v1"
-    )
-    assert alternate_event["outcome"]["id"] == "cast-resolved"
     assert [
-        (draw["stream"], draw["value"]) for draw in alternate_event["rng_draws"]
+        event["outcome"]
+        for event in tuned_trace["events"]
+        if event["operation"] is not None
     ] == [
-        ("hit", 22),
-        ("critical", 72),
+        {"id": "cast-resolved", "kind": "success"},
+        {"id": "cast-resolved", "kind": "success"},
     ]
-    assert alternate_event["state_after"] == [
-        {"name": "actor_mana", "value": 26},
-        {"name": "target_health", "value": 61},
-    ]
-    assert (
-        next(
-            sample["value"]
-            for sample in alternate_metrics["samples"]
-            if sample["metric"] == "target_health_remaining"
-        )
-        == 57
-    )
-    assert (
-        next(
-            sample["value"]
-            for sample in alternate_metrics["samples"]
-            if sample["metric"] == "damage_dealt"
-        )
-        == 4
-    )
-    assert (
-        alternate_trace["content_identity"] != first_trace["content_identity"]
-        and alternate_metrics["content_identity"] != first_metrics["content_identity"]
-    )
-
-    repeat_exit, repeat_stdout, repeat_stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(first_path),
-            "--out",
-            str(tmp_path / "evaluation-45-repeat.json"),
-            "--invocation-key",
-            "6" * 64,
-        ]
-    )
-    assert (repeat_exit, repeat_stderr) == (0, "")
-    repeat_receipt = json.loads(repeat_stdout)
-    first_locators = {
-        row["logical_name"]: Path(row["locator"])
-        for row in first_receipt["member_locators"]
-    }
-    repeat_locators = {
-        row["logical_name"]: Path(row["locator"])
-        for row in repeat_receipt["member_locators"]
-    }
-    assert set(repeat_locators) == set(first_locators)
-    assert all(
-        repeat_locators[name].read_bytes() == first_locators[name].read_bytes()
-        for name in first_locators
-    )
-
-    evaluator = _member(first_receipt, "evaluator-capability-manifest")
-    resolved_runtime = _member(first_receipt, "resolved-runtime-profile")
-    runtime_definition = next(
-        row
-        for row in rir["selected_semantics"]["runtime_profiles"]
-        if row["id"] == first_spec["runtime"]["profile"]
-    )
-    checked_experiment = experiment_runtime_module.check_experiment(str(first_path))
-    assert isinstance(
-        checked_experiment,
-        experiment_runtime_module.CheckedExperiment,
-    )
-    runtime_definition_identity = (
-        experiment_runtime_module._runtime_profile_definition_identity(
-            checked_experiment,
-            runtime_definition,
-        )
-    )
-    assert (
-        resolved_runtime["runtime_profile_definition_identity"]
-        == runtime_definition_identity
-    )
-    changed_definition = deepcopy(runtime_definition)
-    changed_definition["resource_bounds"]["max_event_steps"] += 1
-    assert (
-        experiment_runtime_module._runtime_profile_definition_identity(
-            checked_experiment,
-            changed_definition,
-        )
-        != runtime_definition_identity
-    )
-    assert resolved_runtime["runtime_profile"] == {
-        "id": runtime_definition["id"],
-        "version": runtime_definition["version"],
-        "evaluation": runtime_definition["evaluation"],
-        "numeric_policy": runtime_definition["numeric_policy"],
-        "runtime_program_version": runtime_definition["runtime_program_version"],
-        "numeric_law": runtime_definition["numeric_law"],
-        "rng": runtime_definition["rng"],
-        "budget_scopes": runtime_definition["budget_scopes"],
-        "effects": runtime_definition["effects"],
-        "resource_bounds": runtime_definition["resource_bounds"],
-    }
-    identity_nodes = {
-        runtime_definition_identity,
-        evaluator["content_identity"],
-        resolved_runtime["content_identity"],
-    }
-
-    def referenced_nodes(value: Any) -> set[str]:
-        if isinstance(value, dict):
-            return {
-                reference
-                for child in value.values()
-                for reference in referenced_nodes(child)
-            }
-        if isinstance(value, list):
-            return {
-                reference for child in value for reference in referenced_nodes(child)
-            }
-        return {value} if isinstance(value, str) and value in identity_nodes else set()
-
-    identity_graph = {
-        runtime_definition_identity: referenced_nodes(runtime_definition),
-        evaluator["content_identity"]: referenced_nodes(evaluator)
-        - {evaluator["content_identity"]},
-        resolved_runtime["content_identity"]: referenced_nodes(resolved_runtime)
-        - {resolved_runtime["content_identity"]},
-    }
-    assert identity_graph == {
-        runtime_definition_identity: set(),
-        evaluator["content_identity"]: set(),
-        resolved_runtime["content_identity"]: {
-            runtime_definition_identity,
-            evaluator["content_identity"],
-        },
-    }
 
 
 def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
@@ -5538,7 +5403,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
 
 
 def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
         vector
@@ -5546,7 +5411,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             vector_set["vector_definitions"]
             for vector_set in ldb.package_conformance_vector_sets
             if vector_set["package_id"] == "game.combat"
-            and vector_set["package_version"] == "2.0.0"
+            and vector_set["package_version"] == "2.1.0"
         )
         if vector.get("kind") == "runtime-scenario"
     ]
@@ -5611,7 +5476,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vectors = {
         vector["id"]: vector
         for vector in next(
@@ -5689,7 +5554,7 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
 
 
 def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     events = [
         {
             "id": "observation",
@@ -5732,7 +5597,7 @@ def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
 
 
 def test_runtime_scheduler_seam_refuses_backward_scheduling():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5750,7 +5615,7 @@ def test_runtime_scheduler_seam_refuses_backward_scheduling():
 
 
 def test_runtime_scheduler_seam_refuses_completed_cancellation():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5767,7 +5632,7 @@ def test_runtime_scheduler_seam_refuses_completed_cancellation():
 
 
 def test_scheduler_conformance_harness_refuses_missing_detector_implementations():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
 
     with pytest.raises(ValueError, match="missing detector implementations"):
         require_complete_scheduler_detector_bindings(
@@ -5778,7 +5643,7 @@ def test_scheduler_conformance_harness_refuses_missing_detector_implementations(
 
 
 def test_scheduler_conformance_harness_refuses_unexpected_detector_implementations():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     declared = {
         detector: object()
         for detector in next(
@@ -5809,7 +5674,7 @@ def test_scheduler_conformance_harness_refuses_unexpected_detector_implementatio
     ids=["not-list", "empty", "unsorted", "duplicate", "empty-name", "non-string"],
 )
 def test_scheduler_detector_inventory_refuses_a_nonclosed_declaration(detectors):
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5823,7 +5688,7 @@ def test_scheduler_detector_inventory_refuses_a_nonclosed_declaration(detectors)
 
 
 def test_reference_scheduler_consumer_refuses_an_unimplemented_kernel_detector():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5846,7 +5711,7 @@ def test_reference_scheduler_consumer_refuses_an_unimplemented_kernel_detector()
 
 
 def test_production_scheduler_consumer_refuses_an_unimplemented_kernel_detector():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5874,7 +5739,7 @@ def test_production_scheduler_consumer_refuses_an_unimplemented_kernel_detector(
     ids=["production", "reference"],
 )
 def test_scheduler_consumers_refuse_unknown_requested_mutations(consumer):
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5888,7 +5753,7 @@ def test_scheduler_consumers_refuse_unknown_requested_mutations(consumer):
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():
-    _kernel, ldb = authority_module.load_authorities()
+    _kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -5914,7 +5779,7 @@ def test_package_value_program_vectors_execute_in_two_consumers():
 
 
 def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
-    _kernel, ldb = authority_module.load_authorities()
+    _kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -6439,14 +6304,20 @@ def test_metric_dataset_canonicalizer_orders_multiple_replications():
     ]
 
 
-def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
+def _assert_numeric_overflow_rolls_back_the_entire_current_event(
+    tmp_path,
+    run_cli,
+    base_damage_value,
+    extend_base_damage_domain,
+):
     source_value = _rpg_model_source()
     base_damage = next(
         symbol
         for symbol in source_value["modules"][0]["symbols"]
         if symbol["symbol"] == "base_damage"
     )
-    base_damage["domain"]["maximum"] = (1 << 63) - 1
+    if extend_base_damage_domain:
+        base_damage["domain"]["maximum"] = (1 << 63) - 1
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -6468,7 +6339,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         language_bundle_identity=build_record["language_bundle_identity"],
         source_identity=content_identity("model-source-package-v2", source_value),
         build_receipt=build_receipt,
-        base_damage=1 << 62,
+        base_damage=base_damage_value,
     )
     threshold = next(
         row
@@ -6511,7 +6382,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         {"name": "target_health", "value": 100},
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     rir = _member(build_receipt, "rir-semantic-payload")
     resolved_entrypoint = next(
@@ -6538,6 +6409,27 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
     }
+
+
+def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
+    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+        tmp_path,
+        run_cli,
+        1 << 62,
+        True,
+    )
+
+
+def test_receiving_resource_domain_overflow_rolls_back_the_entire_current_event(
+    tmp_path,
+    run_cli,
+):
+    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+        tmp_path,
+        run_cli,
+        101,
+        False,
+    )
 
 
 def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
@@ -7292,6 +7184,449 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
     ).removeprefix("sha256:")
     assert not (store / "invocations" / descriptor_key / key).exists()
     assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "after-member-write",
+        "before-commit",
+        "before-anchor-commit",
+        "after-commit",
+    ],
+)
+def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
+    tmp_path, run_cli, monkeypatch, fault
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    out = tmp_path / f"periodic-{fault}.json"
+    key = "8" * 64
+    argv = [
+        "experiment",
+        "run",
+        str(specification),
+        "--out",
+        str(out),
+        "--invocation-key",
+        key,
+    ]
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault=fault
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(argv, registry=(faulting,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    if fault == "after-commit":
+
+        def evaluator_must_not_run(_checked):
+            raise AssertionError("Invocation-key recovery reran the periodic evaluator")
+
+        monkeypatch.setattr(
+            experiment_command_module,
+            "evaluate_experiment",
+            evaluator_must_not_run,
+        )
+    else:
+        store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+        descriptor_key = descriptor_identity(
+            experiment_command_module.EXPERIMENT_RUN
+        ).removeprefix("sha256:")
+        assert not (store / "invocations" / descriptor_key / key).exists()
+        assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
+
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        argv,
+        registry=(experiment_command_module.EXPERIMENT_RUN,),
+    )
+
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    recovered = json.loads(recovered_stdout)
+    assert recovered["invocation_key"] == key
+    trace = _member(recovered, "event-trace")
+    lifecycle = [
+        event["entrypoint"]["id"]
+        if event.get("entrypoint") is not None
+        else event["operation"]
+        for event in trace["events"]
+        if event["ordering_key"]["phase"] == "transition"
+        and event["operation"].startswith("game.effect.")
+    ]
+    assert lifecycle == [
+        "effect.apply-snapshot-periodic",
+        "game.effect.tick-snapshot-periodic-v1",
+        "game.effect.tick-snapshot-periodic-v1",
+        "game.effect.expire-periodic-v1",
+    ]
+    formula_evaluations = [
+        evaluation
+        for event in trace["events"]
+        for evaluation in event["formula_evaluations"]
+    ]
+    assert [evaluation["result"] for evaluation in formula_evaluations] == [15]
+    assert out.exists()
+
+
+def test_periodic_effect_public_artifacts_replay_in_an_independent_evaluator(
+    tmp_path, run_cli
+):
+    specification, build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "independent-periodic-evaluation.json"),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+    assert (exit_code, stderr) == (0, "")
+
+    receipt = json.loads(stdout)
+    rir = _member(build_receipt, "rir-semantic-payload")
+    trace = _member(receipt, "event-trace")
+    snapshots = _member(receipt, "snapshot-series")["snapshots"]
+    metrics = _member(receipt, "metric-dataset")["samples"]
+    lifecycle = [
+        event
+        for event in trace["events"]
+        if event["ordering_key"]["phase"] == "transition"
+        and event["operation"].startswith("game.effect.")
+    ]
+    assert len(lifecycle) == 4
+    apply_event, *children = lifecycle
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+    }
+    apply_operation = operations[apply_event["operation"]]
+    periodic = apply_operation["extensions"]["game.effect.periodic"]
+    timing = periodic["timing"]
+    independently_derived_tick_times = list(
+        range(timing["period"], timing["duration"], timing["period"])
+    )
+    assert timing["tick_times"] == independently_derived_tick_times == [1, 2]
+    assert timing["expiry_time"] == timing["duration"] == 3
+
+    evaluation = apply_event["formula_evaluations"][0]
+    binding = next(
+        row
+        for row in rir["formula_bindings"]
+        if row["identity"] == evaluation["binding_identity"]
+    )
+    formula = next(
+        row
+        for row in rir["formulas"]
+        if row["identity"] == evaluation["formula"]["identity"]
+    )
+    assert binding["site"] == {
+        "kind": "operation-slot",
+        "operation": evaluation["operation"],
+        "slot": evaluation["slot"],
+        "context": evaluation["context"],
+        "identity": evaluation["evaluation_site_identity"],
+    }
+    assert evaluation["frame_identity"] == apply_event["snapshot_before_identity"]
+    magnitude = _reference_evaluate_formula_document(formula, evaluation["arguments"])
+    assert magnitude == evaluation["result"] == 15
+
+    policy = periodic["magnitude"]["policy"]
+    expected_schedule = [
+        (logical_time, f"game.effect.tick-{policy}-periodic-v1")
+        for logical_time in independently_derived_tick_times
+    ] + [(timing["expiry_time"], "game.effect.expire-periodic-v1")]
+    assert [
+        (row["ordering_key"]["logical_time"], row["operation"]["id"])
+        for row in apply_event["schedules"]
+    ] == expected_schedule
+    for scheduled, child in zip(apply_event["schedules"], children, strict=True):
+        assert child["event_id"] == scheduled["event_id"]
+        assert child["parent_event_id"] == apply_event["event_id"]
+        assert child["schedule_call_site_identity"] == scheduled["call_site_identity"]
+        assert child["ordering_key"] == scheduled["ordering_key"]
+        assert child["operation"] == scheduled["operation"]["id"]
+
+    reference_state = {row["name"]: row["value"] for row in apply_event["state_before"]}
+    instance = apply_event["rng_draws"][0]
+    instance_contract = periodic["instance"]
+    assert instance["stream"] == instance_contract["stream"]
+    assert (
+        instance_contract["minimum"]
+        <= instance["value"]
+        <= instance_contract["maximum"]
+    )
+    reference_state["effect_active"] = 1
+    reference_state["effect_instance_id"] = instance["value"]
+    assert apply_event["state_after"] == [
+        {"name": name, "value": value}
+        for name, value in sorted(reference_state.items())
+    ]
+    for child in children:
+        assert child["state_before"] == [
+            {"name": name, "value": value}
+            for name, value in sorted(reference_state.items())
+        ]
+        if child["operation"] == f"game.effect.tick-{policy}-periodic-v1":
+            reference_state["target_health"] -= magnitude
+        else:
+            assert child["operation"] == "game.effect.expire-periodic-v1"
+            reference_state["effect_active"] = 0
+        assert child["state_after"] == [
+            {"name": name, "value": value}
+            for name, value in sorted(reference_state.items())
+        ]
+
+    assert snapshots[0]["snapshot_identity"] == apply_event["snapshot_before_identity"]
+    assert snapshots[0]["values"] == apply_event["state_before"]
+    lifecycle_snapshots = {
+        row["event_id"]: row for row in snapshots if row["event_id"] is not None
+    }
+    for event in lifecycle:
+        snapshot = lifecycle_snapshots[event["event_id"]]
+        assert snapshot["snapshot_identity"] == event["snapshot_after_identity"]
+        assert snapshot["values"] == event["state_after"]
+    assert {sample["member"]: sample["value"] for sample in metrics} == reference_state
+
+
+@pytest.mark.parametrize("mutation", ("result", "omission", "arguments"))
+def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
+    tmp_path, run_cli, mutation
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    evaluation = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
+    values = {
+        name: deepcopy(member.value) for name, member in evaluation.members.items()
+    }
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    trace = values["event-trace"]
+    snapshots = values["snapshot-series"]
+    dataset = values["metric-dataset"]
+    events = trace["events"]
+    forged_event = next(event for event in events if event["formula_evaluations"])
+    forged = forged_event["formula_evaluations"][0]
+    if mutation == "result":
+        forged["result"] += 1
+    elif mutation == "omission":
+        forged_event["formula_evaluations"] = []
+    else:
+        forged["arguments"][0]["value"] -= 1
+        formula = next(
+            row
+            for row in checked.rir["formulas"]
+            if row["identity"] == forged["formula"]["identity"]
+        )
+        forged["result"] = _reference_evaluate_formula_document(
+            formula, forged["arguments"]
+        )
+
+    journal = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["committed_trace"]
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    trace_prefix = experiment_runtime_module._empty_runtime_journal_identity(journal)
+    previous_snapshot = snapshots["snapshots"][0]
+    snapshot_identity_changes = {}
+    for event, snapshot in zip(events, snapshots["snapshots"][1:], strict=True):
+        old_identity = snapshot["snapshot_identity"]
+        event["snapshot_before_identity"] = previous_snapshot["snapshot_identity"]
+        trace_prefix = experiment_runtime_module._extend_runtime_journal_identity(
+            journal,
+            trace_prefix,
+            experiment_runtime_module._committed_event_projection(event),
+        )
+        snapshot["continuation"]["committed_trace"]["prefix_identity"] = trace_prefix
+        snapshot["snapshot_identity"] = (
+            experiment_runtime_module._projected_runtime_identity(
+                snapshot_contract,
+                {
+                    "experiment_identity": checked.content_identity,
+                    "scenario_id": snapshot["scenario"],
+                    "index": snapshot["index"],
+                    "logical_time": snapshot["logical_time"],
+                    "event_id": snapshot["event_id"],
+                    "values": snapshot["values"],
+                    "continuation": snapshot["continuation"],
+                },
+            )
+        )
+        event["snapshot_after_identity"] = snapshot["snapshot_identity"]
+        snapshot_identity_changes[old_identity] = snapshot["snapshot_identity"]
+        previous_snapshot = snapshot
+
+    final_snapshot_identity = snapshots["snapshots"][-1]["snapshot_identity"]
+    events_by_id = {event["event_id"]: event for event in events}
+    for status in trace["terminal_statuses"]:
+        status["terminal_snapshot_identity"] = events_by_id[
+            status["terminal_event_id"]
+        ]["snapshot_after_identity"]
+        status["final_snapshot_identity"] = final_snapshot_identity
+    for sample in dataset["samples"]:
+        sample["snapshot_identity"] = snapshot_identity_changes.get(
+            sample["snapshot_identity"], sample["snapshot_identity"]
+        )
+
+    def reidentify(kind):
+        payload = {
+            key: value
+            for key, value in values[kind].items()
+            if key
+            not in {
+                "artifact_kind",
+                "artifact_version",
+                "wire_schema_identity",
+                "content_identity",
+            }
+        }
+        values[kind] = experiment_runtime_module._artifact(checked, kind, payload).value
+
+    reidentify("event-trace")
+    values["snapshot-series"]["event_trace_identity"] = values["event-trace"][
+        "content_identity"
+    ]
+    reidentify("snapshot-series")
+    reidentify("metric-dataset")
+    primary = values["evaluation-run"]
+    primary["event_trace_identity"] = values["event-trace"]["content_identity"]
+    primary["snapshot_series_identity"] = values["snapshot-series"]["content_identity"]
+    primary["metric_dataset_identity"] = values["metric-dataset"]["content_identity"]
+    primary["terminal_statuses"] = values["event-trace"]["terminal_statuses"]
+    reidentify("evaluation-run")
+
+    assert all(
+        model_module.verify_artifact(value, checked.language_bundle)
+        for value in values.values()
+    )
+    if mutation == "result":
+        assert not experiment_runtime_module.validate_experiment_member(
+            checked, "event-trace", values["event-trace"]
+        )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
+
+
+@pytest.mark.parametrize("mutation", ("result", "omission", "arguments"))
+def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
+    tmp_path, run_cli, mutation
+):
+    specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    runtime_profile = next(
+        row
+        for row in rir["selected_semantics"]["runtime_profiles"]
+        if row["id"] == "standard.exact-int64-event-v1"
+    )
+    runtime_profile["resource_bounds"]["max_total_events"] = 4
+    checked = replace(checked, rir=rir)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    assert outcome.report.diagnostics[0].code == "runtime.event_limit_exceeded"
+    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+
+    audit = values["runtime-terminal-audit"]
+    events = audit["committed_trace_prefix"]
+    forged_event = next(event for event in events if event["formula_evaluations"])
+    forged = forged_event["formula_evaluations"][0]
+    if mutation == "result":
+        forged["result"] += 1
+    elif mutation == "omission":
+        forged_event["formula_evaluations"] = []
+    else:
+        forged["arguments"][0]["value"] -= 1
+        formula = next(
+            row
+            for row in checked.rir["formulas"]
+            if row["identity"] == forged["formula"]["identity"]
+        )
+        forged["result"] = _reference_evaluate_formula_document(
+            formula, forged["arguments"]
+        )
+    for index, event in enumerate(events[:-1]):
+        replacement = content_identity(
+            "forged-intermediate-snapshot-v1",
+            {"event_id": event["event_id"], "index": event["index"]},
+        )
+        event["snapshot_after_identity"] = replacement
+        events[index + 1]["snapshot_before_identity"] = replacement
+
+    journal = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "runtime_journal"
+    ]["committed_trace"]
+    trace_prefix = experiment_runtime_module._empty_runtime_journal_identity(journal)
+    for event in events:
+        trace_prefix = experiment_runtime_module._extend_runtime_journal_identity(
+            journal,
+            trace_prefix,
+            experiment_runtime_module._committed_event_projection(event),
+        )
+    last_snapshot = audit["last_snapshot_record"]
+    last_snapshot["continuation"]["committed_trace"]["prefix_identity"] = trace_prefix
+    snapshot_contract = checked.kernel["meta_format"]["runtime_program"]["scheduler"][
+        "snapshot_identity"
+    ]
+    last_snapshot["snapshot_identity"] = (
+        experiment_runtime_module._projected_runtime_identity(
+            snapshot_contract,
+            {
+                "experiment_identity": checked.content_identity,
+                "scenario_id": last_snapshot["scenario"],
+                "index": last_snapshot["index"],
+                "logical_time": last_snapshot["logical_time"],
+                "event_id": last_snapshot["event_id"],
+                "values": last_snapshot["values"],
+                "continuation": last_snapshot["continuation"],
+            },
+        )
+    )
+    events[-1]["snapshot_after_identity"] = last_snapshot["snapshot_identity"]
+    audit["last_snapshot_identity"] = last_snapshot["snapshot_identity"]
+    audit["refusing_event"]["snapshot_before_identity"] = last_snapshot[
+        "snapshot_identity"
+    ]
+    payload = {
+        key: value
+        for key, value in audit.items()
+        if key
+        not in {
+            "artifact_kind",
+            "artifact_version",
+            "wire_schema_identity",
+            "content_identity",
+        }
+    }
+    values["runtime-terminal-audit"] = experiment_runtime_module._artifact(
+        checked, "runtime-terminal-audit", payload
+    ).value
+
+    assert model_module.verify_artifact(
+        values["runtime-terminal-audit"], checked.language_bundle
+    )
+    if mutation == "result":
+        assert not experiment_runtime_module.validate_experiment_member(
+            checked,
+            "runtime-terminal-audit",
+            values["runtime-terminal-audit"],
+        )
+    assert not experiment_runtime_module.validate_experiment_artifact_set(
+        checked, values
+    )
 
 
 @pytest.mark.parametrize("outcome", ["success", "verdict", "runtime"])

@@ -45,6 +45,13 @@ _AUTHORITY_COMMANDS = tuple(
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_packaged_authority_context_after_test():
+    """Keep deliberate lifecycle mutations inside this module."""
+    yield
+    authority_module.reset_packaged_authority_context_for_tests()
+
+
 def test_packaged_context_initialization_is_single_flight(monkeypatch):
     authority_module.reset_packaged_authority_context_for_tests()
     original = authority_module._load_packaged_authority_context_uncached
