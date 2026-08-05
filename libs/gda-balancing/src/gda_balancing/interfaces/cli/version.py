@@ -1,27 +1,17 @@
 """The Schema 2.0 `version` meta command."""
 
 from collections.abc import Callable
-from importlib.metadata import version as package_version
-from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from gda_balancing.application.version import report_version
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import (
     AuthorityContextProvider,
-    AuthorityLoadError,
     packaged_authority_context,
-    resolve_authority_context,
 )
-from gda_balancing.schema2.bootstrap import (
-    BOOTSTRAP_REFUSAL_CATALOG,
-    BootstrapAdmission,
-)
-from gda_balancing.schema2.diagnostics import (
-    Schema2RefusalReport,
-    bootstrap_refusal,
-    ingress_refusal,
-)
+from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 
 class VersionInput(BaseModel):
@@ -45,30 +35,12 @@ def version_handler(
     """Build the version tracer around one admitted authority provider."""
 
     def _run(_: VersionInput) -> VersionResult | Schema2RefusalReport:
-        try:
-            context = resolve_authority_context(provider)
-        except AuthorityLoadError as err:
-            return ingress_refusal(err.code, err.subject, err.message)
-        if isinstance(context, BootstrapAdmission):
-            return bootstrap_refusal(context)
-        language_bundle = context.language_bundle
-        versions = cast(
-            list[str],
-            cast(dict[str, Any], language_bundle["language"])[
-                "model_source_schema_versions"
-            ],
-        )
-        parsed = [
-            tuple(int(part) for part in version.split(".")) for version in versions
-        ]
-        if not parsed or any(len(version) != 3 for version in parsed):
-            raise ValueError(
-                "LDB model source version inventory is not semantic versioned"
-            )
-        newest = max(parsed)
+        result = report_version(provider)
+        if isinstance(result, Schema2RefusalReport):
+            return result
         return VersionResult(
-            toolkit_version=package_version("gda-balancing"),
-            supported_schema_line=f"{newest[0]}.{newest[1]}",
+            toolkit_version=result.toolkit_version,
+            supported_schema_line=result.supported_schema_line,
         )
 
     return _run
