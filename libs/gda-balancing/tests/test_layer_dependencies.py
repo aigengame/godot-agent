@@ -170,6 +170,33 @@ def test_schema1_is_imported_only_by_the_model_migration_boundary() -> None:
     assert violations == []
 
 
+def test_model_checking_does_not_depend_on_model_compilation() -> None:
+    known_modules = _production_modules()
+    checking = _SOURCE_ROOT / "domain" / "model" / "checking.py"
+
+    assert "gda_balancing.domain.model.compilation" not in _resolved_imports(
+        _module_name(checking), checking, known_modules
+    )
+
+
+def test_cross_domain_refusal_catalogs_are_not_model_owned() -> None:
+    known_modules = _production_modules()
+    consumers = (
+        _SOURCE_ROOT / "interfaces" / "cli" / "experiment_check.py",
+        _SOURCE_ROOT / "interfaces" / "cli" / "experiment_run.py",
+        _SOURCE_ROOT / "interfaces" / "cli" / "formula.py",
+        _SOURCE_ROOT / "interfaces" / "cli" / "model_migration.py",
+    )
+    violations = [
+        _module_name(path)
+        for path in consumers
+        if "gda_balancing.domain.model.resolution"
+        in _resolved_imports(_module_name(path), path, known_modules)
+    ]
+
+    assert violations == []
+
+
 def test_architectural_modules_are_acyclic() -> None:
     modules = _architectural_modules()
     edges = {

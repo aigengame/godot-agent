@@ -25,7 +25,7 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
     prepare_verdict_experiment,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.resolution import refusal_catalog_for_reasons
+from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 

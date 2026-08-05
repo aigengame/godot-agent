@@ -16,7 +16,7 @@ from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.resolution import refusal_catalog_for_stages
+from gda_balancing.domain.diagnostics import refusal_catalog_for_stages
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 

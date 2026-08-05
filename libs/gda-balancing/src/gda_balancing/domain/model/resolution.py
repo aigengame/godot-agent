@@ -19,7 +19,6 @@ from gda_balancing.domain.authority.context import (
     packaged_authority_context,
 )
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
-from gda_balancing.domain.authority.graph import LanguageBundleIndex
 from gda_balancing.domain.authority.admission import (
     BOOTSTRAP_REFUSAL_CATALOG,
 )
@@ -35,6 +34,7 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     bound_diagnostics,
     reason_by_id,
+    refusal_catalog_for_reasons,
 )
 from gda_balancing.domain.formula.notation import (
     FormulaNotationRefusal,
@@ -66,14 +66,6 @@ MODEL_INSPECT_REFUSAL_CATALOG = tuple(
 )
 
 
-def _descriptor_language_bundle() -> LanguageBundleIndex:
-    """Admit the packaged graph once while assembling static command descriptors."""
-    return cast(
-        LanguageBundleIndex,
-        packaged_authority_context().language_bundle,
-    )
-
-
 def _normalized_absolute_path(value: str) -> Path:
     path = Path(os.path.abspath(os.path.expanduser(value)))
     for alias in (Path("/tmp"), Path("/var")):
@@ -85,59 +77,6 @@ def _normalized_absolute_path(value: str) -> Path:
             continue
         return Path(os.path.realpath(alias)) / relative
     return path
-
-
-def refusal_catalog_for_stages(
-    stages: frozenset[str],
-    language_bundle: dict[str, Any] | None = None,
-) -> tuple[tuple[str, str], ...]:
-    """Project only the LDB refusals reachable by one command family."""
-    if language_bundle is None:
-        language_bundle = _descriptor_language_bundle()
-    return BOOTSTRAP_REFUSAL_CATALOG + tuple(
-        (cast(str, item["code"]), cast(str, item["stage"]))
-        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
-        if item.get("stage") in stages
-    )
-
-
-def refusal_catalog_for_reasons(
-    reason_ids: Iterable[str],
-    language_bundle: dict[str, Any] | None = None,
-) -> tuple[tuple[str, str], ...]:
-    """Project one command's reachable semantic reasons through the current LDB."""
-    if language_bundle is None:
-        language_bundle = _descriptor_language_bundle()
-    requested = tuple(reason_ids)
-    if len(set(requested)) != len(requested):
-        raise ValueError("a command refusal catalog cannot contain duplicate reasons")
-    reasons = {
-        cast(str, item["id"]): item
-        for item in cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
-    }
-    diagnostics = {
-        cast(str, item["code"]): cast(str, item["stage"])
-        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
-    }
-    missing = [reason_id for reason_id in requested if reason_id not in reasons]
-    if missing:
-        raise ValueError(
-            "command refusal catalog references unknown LDB reasons: "
-            + ", ".join(missing)
-        )
-    projected: list[tuple[str, str]] = []
-    for reason_id in requested:
-        reason = reasons[reason_id]
-        code = cast(str, reason["diagnostic"])
-        stage = cast(str, reason["stage"])
-        if diagnostics.get(code) != stage:
-            raise ValueError(
-                f"LDB reason {reason_id} does not match its diagnostic declaration"
-            )
-        pair = (code, stage)
-        if pair not in projected:
-            projected.append(pair)
-    return BOOTSTRAP_REFUSAL_CATALOG + tuple(projected)
 
 
 _FORMULA_REASON = {
@@ -184,6 +123,37 @@ class CheckedModel:
     kernel: dict[str, Any]
     language_bundle: dict[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
+
+
+def lowering_inputs(
+    checked: CheckedModel,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, JsonValue]],
+    dict[str, Any],
+    list[tuple[dict[str, Any], tuple[object, ...]]],
+]:
+    """Resolve the authority-owned inputs shared by checking and compilation."""
+    lock = _package_lock(checked)
+    language = _language(checked.language_bundle)
+    lowering = _model_lowering(checked.language_bundle)
+    source_rows = _resolved_source_symbols(checked.source, checked.language_bundle)
+    declarations: list[dict[str, JsonValue]] = []
+    for fields, _source_pointer in source_rows:
+        fact = {
+            "kind": lowering["initial_fact_kind"],
+            "fields": fields,
+        }
+        for invocation in cast(list[dict[str, str]], lowering["rule_chain"]):
+            fact = _apply_language_rule(
+                language,
+                rule_id=invocation["rule"],
+                phase=invocation["phase"],
+                judgment=invocation["judgment"],
+                facts=[fact],
+            )
+        declarations.append(cast(dict[str, JsonValue], fact["fields"]))
+    return lock, declarations, lowering, source_rows
 
 
 @dataclass(frozen=True)

@@ -34,6 +34,7 @@ from gda_balancing.domain.model.resolution import (
     _formula_pair_diagnostics,
     _invalid_source_value_policy_pointer,
     _language,
+    lowering_inputs,
     _model_check_diagnostics,
     _model_lowering,
     _path_value,
@@ -50,7 +51,6 @@ from gda_balancing.domain.model.resolution import (
     _strict_object,
     _unique_reason,
 )
-from gda_balancing.domain.model.compilation import _lowering_inputs
 
 
 def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
@@ -259,7 +259,7 @@ def _check_model_source_bytes(
             ldb,
         )
     try:
-        _lock, formula_declarations, _lowering, _rows = _lowering_inputs(checked)
+        _lock, formula_declarations, _lowering, _rows = lowering_inputs(checked)
         (
             resolved_formulas,
             resolved_formula_bindings,
@@ -296,7 +296,7 @@ def _check_model_source_bytes(
     if formula_pair_refusal is not None:
         return formula_pair_refusal
     try:
-        lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
+        lock, declarations, admitted_lowering, _source_rows = lowering_inputs(checked)
         selected_semantics = _runtime_projection(
             lock,
             declarations,

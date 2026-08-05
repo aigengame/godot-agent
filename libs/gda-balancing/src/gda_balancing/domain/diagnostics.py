@@ -5,7 +5,11 @@ from typing import Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gda_balancing.domain.authority.admission import BootstrapAdmission
+from gda_balancing.domain.authority.admission import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    BootstrapAdmission,
+)
+from gda_balancing.domain.authority.context import packaged_authority_context
 
 RefusalStage = Literal[
     "ingress",
@@ -110,6 +114,59 @@ def reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, A
     if len(matches) != 1:
         raise ValueError(f"admitted reason is not unique: {reason_id}")
     return matches[0]
+
+
+def refusal_catalog_for_stages(
+    stages: frozenset[str],
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project only the LDB refusals reachable by one command family."""
+    if language_bundle is None:
+        language_bundle = packaged_authority_context().language_bundle
+    return BOOTSTRAP_REFUSAL_CATALOG + tuple(
+        (cast(str, item["code"]), cast(str, item["stage"]))
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+        if item.get("stage") in stages
+    )
+
+
+def refusal_catalog_for_reasons(
+    reason_ids: Iterable[str],
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project one command's reachable semantic reasons through the current LDB."""
+    if language_bundle is None:
+        language_bundle = packaged_authority_context().language_bundle
+    requested = tuple(reason_ids)
+    if len(set(requested)) != len(requested):
+        raise ValueError("a command refusal catalog cannot contain duplicate reasons")
+    reasons = {
+        cast(str, item["id"]): item
+        for item in cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
+    }
+    diagnostics = {
+        cast(str, item["code"]): cast(str, item["stage"])
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    }
+    missing = [reason_id for reason_id in requested if reason_id not in reasons]
+    if missing:
+        raise ValueError(
+            "command refusal catalog references unknown LDB reasons: "
+            + ", ".join(missing)
+        )
+    projected: list[tuple[str, str]] = []
+    for reason_id in requested:
+        reason = reasons[reason_id]
+        code = cast(str, reason["diagnostic"])
+        stage = cast(str, reason["stage"])
+        if diagnostics.get(code) != stage:
+            raise ValueError(
+                f"LDB reason {reason_id} does not match its diagnostic declaration"
+            )
+        pair = (code, stage)
+        if pair not in projected:
+            projected.append(pair)
+    return BOOTSTRAP_REFUSAL_CATALOG + tuple(projected)
 
 
 def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:

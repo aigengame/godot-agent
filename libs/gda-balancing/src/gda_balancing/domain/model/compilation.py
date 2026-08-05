@@ -13,22 +13,19 @@ from gda_balancing.domain.model.resolution import (
     CheckedModel,
     _LOWERER_IMPLEMENTATION_IDENTITY,
     _RESOLVER_IMPLEMENTATION_IDENTITY,
-    _apply_language_rule,
     _compile_initialization_programs,
     _composition_policy,
     _formula_operation_identity,
     _formula_policy,
     _identified_rir_artifact,
-    _language,
+    lowering_inputs,
     _model_explanation_pairs_are_admitted,
     _model_lowering,
-    _package_lock,
     _pointer,
     _resolution_profile,
     _resolved_call_sites,
     _resolved_entrypoints,
     _resolved_formulas_and_bindings,
-    _resolved_source_symbols,
     _runtime_projection,
     _runtime_projection_budget,
     _specialize_operation_formula_slots,
@@ -157,36 +154,6 @@ def validate_compiled_artifacts(
 def verify_checked_model(checked: CheckedModel) -> None:
     """Compile and self-admit a checked Model under the same authority."""
     compile_checked_model(checked)
-
-
-def _lowering_inputs(
-    checked: CheckedModel,
-) -> tuple[
-    dict[str, Any],
-    list[dict[str, JsonValue]],
-    dict[str, Any],
-    list[tuple[dict[str, Any], tuple[object, ...]]],
-]:
-    lock = _package_lock(checked)
-    language = _language(checked.language_bundle)
-    lowering = _model_lowering(checked.language_bundle)
-    source_rows = _resolved_source_symbols(checked.source, checked.language_bundle)
-    declarations: list[dict[str, JsonValue]] = []
-    for fields, _source_pointer in source_rows:
-        fact = {
-            "kind": lowering["initial_fact_kind"],
-            "fields": fields,
-        }
-        for invocation in cast(list[dict[str, str]], lowering["rule_chain"]):
-            fact = _apply_language_rule(
-                language,
-                rule_id=invocation["rule"],
-                phase=invocation["phase"],
-                judgment=invocation["judgment"],
-                facts=[fact],
-            )
-        declarations.append(cast(dict[str, JsonValue], fact["fields"]))
-    return lock, declarations, lowering, source_rows
 
 
 def _model_explanation(
@@ -376,7 +343,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         )
     if not context.admission.admitted:
         raise ValueError("lowerer received authorities that failed admission")
-    lock, declarations, lowering, source_rows = _lowering_inputs(checked)
+    lock, declarations, lowering, source_rows = lowering_inputs(checked)
     formulas, formula_bindings, formula_debug_entries = _resolved_formulas_and_bindings(
         checked, cast(list[dict[str, Any]], declarations)
     )
