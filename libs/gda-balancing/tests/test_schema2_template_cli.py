@@ -13,13 +13,17 @@ import jsonschema
 import pytest
 import gda_balancing.schema2.model as schema2_model
 from gda_balancing.commands.template import (
-    TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
-    _member_schema_identities,
-    _minimal_release,
-    _validate_template_release,
-    template_get_handler,
     template_instantiate_handler,
+)
+from gda_balancing.domain.template import (
+    _member_schema_identities,
+    minimal_release,
+    validate_template_release,
+)
+from gda_balancing.interfaces.cli.template_catalog import (
+    TEMPLATE_GET,
+    template_get_handler,
 )
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
@@ -1093,7 +1097,7 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
     context = admit_authority_context(kernel, language_bundle)
 
     assert isinstance(context, AdmittedAuthorityContext)
-    release = _minimal_release(
+    release = minimal_release(
         cast(Any, context.kernel),
         cast(Any, context.language_bundle),
     )
@@ -1108,7 +1112,7 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
         "negative-vector",
     )
     assert (
-        _validate_template_release(
+        validate_template_release(
             release,
             cast(Any, context.kernel),
             cast(Any, context.language_bundle),
@@ -1165,7 +1169,7 @@ def test_minimal_release_derives_every_authority_identity_from_its_inputs():
     )
     schema["title"] = "Changed boundary vector schema"
 
-    release = cast(Any, _minimal_release(kernel, language_bundle))
+    release = cast(Any, minimal_release(kernel, language_bundle))
 
     assert release["kernel_identity"] == kernel["content_identity"]
     assert release["language_bundle_identity"] == language_bundle["content_identity"]

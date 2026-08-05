@@ -44,10 +44,9 @@ from gda_balancing.interfaces.cli.schema import (
     schema_get_success_schema,
 )
 from gda_balancing.commands.template import (
-    TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
-    TEMPLATE_LIST,
 )
+from gda_balancing.interfaces.cli.template_catalog import TEMPLATE_GET, TEMPLATE_LIST
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleGraph,
     derive_language_index,
