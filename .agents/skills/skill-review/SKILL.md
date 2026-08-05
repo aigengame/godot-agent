@@ -67,6 +67,8 @@ Start with one conclusion:
 
 Then group actionable findings under **Required changes**, **Terminology and prose**, or **Minor** as appropriate. For each finding, give the location, evidence, impact, and the smallest practical alternative that preserves the intent. Keep optional improvements separate and include them only when they materially help.
 
+If new context invalidates a proposed fix but not the underlying problem, revise the fix instead of dropping the finding. For example, if a proposed cross-reference conflicts with a self-contained skill, keep the finding that an instruction relies on missing context and propose a self-contained rewrite.
+
 If there are no substantive findings, report **Pass** with the reviewed target and a one- or two-sentence summary of the material checks performed. Mention any important validation that was not performed, then stop.
 
 Return the review in the medium the user requested. Edit files, post comments, or perform other remote writes only when the user explicitly authorizes them.
