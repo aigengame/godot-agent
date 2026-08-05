@@ -1,0 +1,4 @@
+interface:
+  display_name: "Entropy Review"
+  short_description: "Review designs, plans, and changes for software entropy"
+  default_prompt: "Use $entropy-review to review this software design, implementation plan, or implemented change for disproportionate software entropy and, where warranted, suggest smaller, reversible alternatives."
