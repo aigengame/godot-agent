@@ -1,13 +1,13 @@
 ---
 name: artifact-review
-description: Review project artifacts such as issues, ADRs, architecture documents, specifications, plans, and documentation changes for correctness, usability, consistency, completeness, orthogonality, DRY, terminology accuracy, and clear prose. Use only when the user explicitly asks for an artifact review or a re-review of claimed fixes.
+description: Review project documents such as issues, ADRs, architecture documents, specifications, plans, and documentation changes for correctness, usability, consistency, completeness, orthogonality, DRY, terminology accuracy, and clear prose. Use only when the user explicitly asks for a review of such a document or a re-review of claimed fixes to one. For skill documents and skill-focused changes, use skill-review.
 ---
 
 # Artifact Review
 
 ## Goal
 
-Decide whether an artifact fulfills its purpose with accurate, coherent,
+Decide whether a project document fulfills its purpose with accurate, coherent,
 sufficiently complete, and non-duplicative content, so its intended readers can
 understand it, make decisions, or act on it reliably.
 

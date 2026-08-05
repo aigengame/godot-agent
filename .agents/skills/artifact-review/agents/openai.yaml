@@ -1,7 +1,7 @@
 interface:
   display_name: "Artifact Review"
-  short_description: "Review project artifacts with evidence"
-  default_prompt: "Use $artifact-review to review this artifact and report evidence-backed, actionable findings."
+  short_description: "Review project documents with evidence"
+  default_prompt: "Use $artifact-review to review this project document and report evidence-backed, actionable findings."
 
 policy:
   allow_implicit_invocation: false
