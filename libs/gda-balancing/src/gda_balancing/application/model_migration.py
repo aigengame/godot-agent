@@ -1,27 +1,15 @@
-"""Schema 2.0 Model Source checking and build commands."""
+"""Migrate an admitted Standard Schema 1.x source into 2.x artifacts."""
 
+from collections.abc import Callable
 from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from gda_balancing.descriptors import (
-    ArtifactSetMemberSpec,
-    CommandDescriptor,
-    ConformanceFixtures,
-    RefusalDetailSpec,
-)
+from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.artifacts import (
-    artifact_wire_schema,
     identified_artifact,
     verify_artifact,
     wire_schema_identity,
 )
-from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
-from gda_balancing.path_contracts import reject_input_aliasing
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.canonical import JsonValue
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.migration import (
+from gda_balancing.domain.migration import (
     MigrationFailure,
     MigrationSuccess,
     converter_specification,
@@ -33,63 +21,32 @@ from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_artifact_set,
 )
-from gda_balancing.schema2.model import (
-    CheckedModel,
-    check_model_source_value,
-    refusal_catalog_for_stages,
+from gda_balancing.schema2.authority import (
+    AdmittedAuthorityContext,
+    packaged_authority_context,
 )
-from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.schema2.model import CheckedModel, check_model_source_value
 
 
-class ModelMigrateInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source: str
-    out: str
-    invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+MigrationAuthorityProvider = Callable[[], AdmittedAuthorityContext]
 
 
-class ModelMigrateResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    artifact_kind: str
-    artifact_version: str
-    wire_schema_identity: str
-    descriptor_identity: str
-    invocation_key: str
-    manifest_identity: str
-    manifest_locator: str
-    member_locators: list[ArtifactSetMemberLocator]
-    content_identity: str
-
-
-_MODEL_MIGRATE_ARTIFACT_SET = (
-    ArtifactSetMemberSpec("migration-report", "migration-report"),
-    ArtifactSetMemberSpec(
-        "model-source-package", "model-source-package", role="primary"
-    ),
-)
-MIGRATION_REFUSAL_CATALOG = refusal_catalog_for_stages(frozenset({"migration"}))
-
-
-def _migration_authorities() -> tuple[dict[str, Any], dict[str, Any]]:
-    """Borrow the one immutable packaged authority lifecycle."""
-    context = packaged_authority_context()
-    return context.kernel, context.language_bundle
-
-
-def _migration_report_schema() -> dict[str, object]:
-    _, language_bundle = _migration_authorities()
-    return artifact_wire_schema(language_bundle, "migration-refusal-report")
-
-
-def run_model_migrate(
-    inp: ModelMigrateInput,
-) -> ModelMigrateResult | Schema2RefusalReport:
-    reject_input_aliasing(inp.out, inp.source, input_is_known_path=True)
-    data, input_identity = load_design_source_observation(inp.source)
-    kernel, language_bundle = _migration_authorities()
-    context = packaged_authority_context()
+def migrate_model(
+    source: str,
+    out: str,
+    invocation_key: str,
+    descriptor_identity: str,
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    *,
+    authority_context_provider: MigrationAuthorityProvider = packaged_authority_context,
+) -> dict[str, Any] | Schema2RefusalReport:
+    """Convert, self-admit, and publish one supported 1.x source."""
+    data, input_identity = load_design_source_observation(source)
+    context = authority_context_provider()
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     converter = converter_specification(language_bundle)
     converter_identity = cast(str, converter["content_identity"])
 
@@ -135,6 +92,7 @@ def run_model_migrate(
             truncated=migrated.refusal.truncated,
             migration_report=cast(dict[str, Any], report),
         )
+
     assert isinstance(migrated, MigrationSuccess)
     checked = check_model_source_value(
         cast(dict[str, Any], migrated.source),
@@ -194,67 +152,20 @@ def run_model_migrate(
     def member_is_admitted(name: str, value: dict[str, Any]) -> bool:
         if name == "migration-report":
             return verify_artifact(value, language_bundle)
-        admitted = check_model_source_value(
-            value,
-            authority_context=context,
-        )
+        admitted = check_model_source_value(value, authority_context=context)
         return (
             isinstance(admitted, CheckedModel)
             and admitted.source_identity == checked.source_identity
         )
 
-    receipt = publish_artifact_set(
+    return publish_artifact_set(
         artifacts,
-        inp.out,
-        inp.invocation_key,
-        descriptor_identity(MODEL_MIGRATE),
+        out,
+        invocation_key,
+        descriptor_identity,
         cast(str, command_input["content_identity"]),
         language_bundle,
-        _MODEL_MIGRATE_ARTIFACT_SET,
+        artifact_set,
         member_is_admitted,
         authentication_key=publication_authentication_key(),
     )
-    return ModelMigrateResult.model_validate(receipt)
-
-
-MODEL_MIGRATE = CommandDescriptor(
-    group="model",
-    command="migrate",
-    description=(
-        "Migrate the semantics-preserving Standard Schema 1.x source subset "
-        "into a new 2.0 Model Source Package."
-    ),
-    input_model=ModelMigrateInput,
-    output_model=ModelMigrateResult,
-    handler=run_model_migrate,
-    fixtures=ConformanceFixtures(
-        valid_document=(
-            '{"schema_version":"1.0.0","meta":{"name":"legacy.parameters"},'
-            '"parameters":{"hit_points":100}}'
-        ),
-        refusing_document=(
-            '{"schema_version":"1.0.0","meta":{"name":"legacy.parameters"},'
-            '"parameters":{"hit_points":1.5}}'
-        ),
-    ),
-    positional_field="source",
-    artifact_set=_MODEL_MIGRATE_ARTIFACT_SET,
-    schema_major=2,
-    structured_params=True,
-    refusal_catalog=MIGRATION_REFUSAL_CATALOG,
-    refusal_details=(
-        RefusalDetailSpec(
-            stage="migration",
-            field_name="migration_report",
-            schema=_migration_report_schema,
-        ),
-    ),
-    usage_codes=(
-        "argument_conflict",
-        "invalid_argument",
-        "invocation_key_conflict",
-        "unknown_argument",
-        "unreadable_input",
-        "unwritable_output",
-    ),
-)

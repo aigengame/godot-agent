@@ -6,9 +6,8 @@ import math
 import os
 import stat
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
-from gda_balancing.envelope import RefusalReport, UnreadableInputError
 from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.model.document import DesignDocument
@@ -26,6 +25,22 @@ _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _SOURCE_IDENTITY_PREFIX = b"gda-balancing:design-document-source-v1:"
 MAX_SOURCE_OBSERVATION_BYTES = 16 * 1024 * 1024
+
+
+class MigrationInputError(OSError):
+    """The authored 1.x source cannot be observed for migration."""
+
+
+class _LegacyRefusalItem(Protocol):
+    code: str
+    path: str
+    detail: str
+
+
+class _LegacyRefusalReport(Protocol):
+    refusals: tuple[_LegacyRefusalItem, ...]
+    truncated: bool
+
 
 _CONVERTER_DEFAULTS: tuple[dict[str, JsonValue], ...] = (
     {
@@ -190,9 +205,9 @@ def load_design_source_observation(path: str) -> tuple[bytes, str]:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
-            raise UnreadableInputError(f"input document is not a regular file: {path}")
+            raise MigrationInputError(f"input document is not a regular file: {path}")
         if metadata.st_size > MAX_SOURCE_OBSERVATION_BYTES:
-            raise UnreadableInputError(
+            raise MigrationInputError(
                 "input document exceeds the "
                 f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
             )
@@ -206,7 +221,7 @@ def load_design_source_observation(path: str) -> tuple[bytes, str]:
                 break
             observed += len(chunk)
             if observed > MAX_SOURCE_OBSERVATION_BYTES:
-                raise UnreadableInputError(
+                raise MigrationInputError(
                     "input document grew beyond the "
                     f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
                 )
@@ -215,7 +230,7 @@ def load_design_source_observation(path: str) -> tuple[bytes, str]:
             if remaining > 0:
                 bounded.extend(chunk[:remaining])
     except OSError as err:
-        raise UnreadableInputError(f"cannot read input document: {path}") from err
+        raise MigrationInputError(f"cannot read input document: {path}") from err
     finally:
         if descriptor is not None:
             os.close(descriptor)
@@ -230,16 +245,16 @@ def migrate_design_source(
 ) -> MigrationSuccess | MigrationFailure:
     """Convert the currently admitted semantics-preserving 1.x subset."""
     outcome = validate(data)
-    if isinstance(outcome, RefusalReport):
+    if not isinstance(outcome, DesignDocument):
+        report = cast(_LegacyRefusalReport, outcome)
         return _migration_failure(
             input_identity,
             None,
             (),
             (),
             (),
-            _source_refusal(outcome, input_identity, language_bundle),
+            _source_refusal(report, input_identity, language_bundle),
         )
-    assert isinstance(outcome, DesignDocument)
     raw = cast(dict[str, Any], json.loads(data))
 
     diagnostics: list[Schema2Diagnostic] = []
@@ -606,7 +621,7 @@ def _diagnostic(
 
 
 def _source_refusal(
-    report: RefusalReport,
+    report: _LegacyRefusalReport,
     input_identity: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:

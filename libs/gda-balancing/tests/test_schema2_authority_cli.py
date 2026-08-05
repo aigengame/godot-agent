@@ -30,9 +30,7 @@ from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
 from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.interfaces.cli.model_inspect import MODEL_INSPECT
 from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
-from gda_balancing.commands.model import (
-    MODEL_MIGRATE,
-)
+from gda_balancing.interfaces.cli.model_migration import MODEL_MIGRATE
 from gda_balancing.interfaces.cli.package import (
     package_get_success_schema,
     package_list_success_schema,

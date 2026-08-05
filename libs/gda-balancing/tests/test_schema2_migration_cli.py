@@ -12,7 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 
-import gda_balancing.schema2.migration as migration_module
+import gda_balancing.domain.migration as migration_module
 from gda_balancing.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
@@ -21,7 +21,7 @@ from gda_balancing.schema2.authority_graph import (
     derive_language_index,
 )
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.migration import MAX_SOURCE_OBSERVATION_BYTES
+from gda_balancing.domain.migration import MAX_SOURCE_OBSERVATION_BYTES
 from gda_balancing.schema2.model import verify_artifact
 
 
@@ -1037,7 +1037,7 @@ def test_source_observation_never_reads_a_non_regular_file(
 
     monkeypatch.setattr(migration_module.os, "read", forbidden_read)
 
-    with pytest.raises(migration_module.UnreadableInputError):
+    with pytest.raises(migration_module.MigrationInputError):
         migration_module.load_design_source_observation(str(source))
 
     assert reads == 0

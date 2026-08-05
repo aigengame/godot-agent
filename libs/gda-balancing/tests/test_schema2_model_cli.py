@@ -14,11 +14,11 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-import gda_balancing.commands.model as model_command_module
 import gda_balancing.domain.model.compilation as model_compilation_module
 import gda_balancing.domain.model.checking as model_checking_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
+import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
@@ -6505,7 +6505,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     assert evaluation.members["metric-dataset"].value["samples"][0]["value"] == 75
     host_sources = (
         Path(model_module.__file__),
-        Path(model_command_module.__file__),
+        Path(model_migration_command_module.__file__),
         Path(runtime_execution_module.__file__),
     )
     assert all("genre.economy" not in path.read_text() for path in host_sources)
