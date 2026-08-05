@@ -11,17 +11,7 @@ Decide whether a skill can do its declared job with accurate instructions and th
 
 ## Workflow
 
-### 1. Pin the Target and Intent
-
-- Determine whether the target is a whole skill, a local change, a pull request, a merged change, or a re-review.
-- For a pull request, record the exact head, base, merge base, and changed files. For a local change, identify the files and comparison point.
-- For a merged change, record the merge commit and its comparison point. Review the merge-time diff when the user asks about the change; review the current artifact when the user asks about the skill as it exists now.
-- Read the user request, repository rules, and any issue, specification, or pull-request description that defines the intended result.
-- Follow higher-priority requirements when sources disagree. Treat a local convention as a constraint only when the user or project has accepted it and its trade-offs are documented; otherwise review it as a proposal.
-- Treat historical pull-request text as context, not as a required fix, unless it is authoritative or the user asks to review it.
-- State material assumptions or missing evidence instead of filling gaps with guesses.
-
-### 2. Inspect Relevant Materials
+### 1. Inspect Relevant Materials
 
 - Read the complete `SKILL.md` and agent metadata.
 - Inventory companion references, examples, scripts, and assets. Read only those relevant to the skill's declared behavior or the change under review.
@@ -29,7 +19,7 @@ Decide whether a skill can do its declared job with accurate instructions and th
 - For a change, inspect both the full current skill and the relevant diff.
 - Confirm that the frontmatter description gives accurate skill-selection triggers and that the body fulfills them.
 
-### 3. Review the Skill
+### 2. Review the Skill
 
 #### Correctness and Usability
 
@@ -41,7 +31,7 @@ Decide whether a skill can do its declared job with accurate instructions and th
 
 #### Consistency and Completeness
 
-- Use one name for each concept. Frontmatter, body, metadata, filenames, and companion resources agree.
+- Use one term for each concept and one meaning for each term. Frontmatter, body, metadata, filenames, and companion resources agree.
 - Answer the first practical questions raised by every declared use case; do not add speculative cases merely for completeness.
 - When reviewing a change, verify that its description matches the files and behavior actually changed.
 - Do not let a skill contradict its own guidance.
@@ -56,12 +46,11 @@ Decide whether a skill can do its declared job with accurate instructions and th
 #### Terminology and Prose
 
 - Prefer established domain terms. If a local convention deliberately broadens one, label the convention, explain the trade-off, and handle its practical consequences.
-- Use one meaning per term within the skill.
 - Prefer plain, concrete instructions. Remove formulaic or stilted prose, long abstract noun chains, slogans, empty bullets, and legal or procurement language.
 - Keep concrete domain examples when they teach a non-obvious distinction; remove examples that merely repeat a rule.
 - Describe observable text and behavior. Do not infer who or what produced the prose.
 
-### 4. Validate When Applicable
+### 3. Validate When Applicable
 
 - Run the repository's skill validator and check frontmatter, directory naming, and agent metadata.
 - After a rename or move, search for stale references and verify skill discovery paths.
@@ -69,14 +58,16 @@ Decide whether a skill can do its declared job with accurate instructions and th
 - Treat a passing validator or green CI as structural evidence, not proof that the workflow is correct.
 - Test scripts or resources whose behavior is required for the skill to work.
 
-### 5. Report
+### 4. Report
 
 Start with one conclusion:
 
 - **Pass**: no substantive issue prevents the skill from fulfilling its declared purpose.
 - **Changes required**: one or more substantive issues must be resolved.
 
-Then group actionable findings under **Required changes**, **Terminology and prose**, or **Minor** as appropriate. For each finding, give the location, evidence, impact, and the smallest practical alternative that preserves the intent. Keep optional improvements separate and include them only when they materially help. If there are no substantive findings, state **Pass** and stop.
+Then group actionable findings under **Required changes**, **Terminology and prose**, or **Minor** as appropriate. For each finding, give the location, evidence, impact, and the smallest practical alternative that preserves the intent. Keep optional improvements separate and include them only when they materially help.
+
+If there are no substantive findings, report **Pass** with the reviewed target and a one- or two-sentence summary of the material checks performed. Mention any important validation that was not performed, then stop.
 
 Return the review in the medium the user requested. Edit files, post comments, or perform other remote writes only when the user explicitly authorizes them.
 
