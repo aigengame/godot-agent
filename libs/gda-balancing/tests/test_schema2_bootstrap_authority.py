@@ -3,6 +3,7 @@
 # ruff: noqa: F403, F405
 from dataclasses import replace
 
+import gda_balancing.domain.authority.runtime_validation as runtime_validation
 from gda_balancing.interfaces.cli.schema import SCHEMA_GET, schema_get_handler
 
 import schema2_bootstrap_conformance_support as bootstrap_support
@@ -819,7 +820,7 @@ def test_runtime_component_contract_identity_is_an_evaluator_capability():
     )
     assert (
         contract["content_identity"]
-        == production_bootstrap._SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
+        == runtime_validation._SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
         == bootstrap_support._SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY
     )
 
