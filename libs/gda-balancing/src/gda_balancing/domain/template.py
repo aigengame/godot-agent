@@ -7,6 +7,9 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
 import jsonschema
+
+from gda_balancing.domain.artifacts import identified_artifact, verify_artifact
+from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     AuthorityContextProvider,
@@ -1667,4 +1670,133 @@ def load_admitted_template(
         language_bundle=cast(dict[str, JsonValue], language_bundle),
         profile=_template_admission_profile(language_bundle),
         schema_identities=_member_schema_identities(language_bundle),
+    )
+
+
+@dataclass(frozen=True)
+class TemplateInstantiationPlan:
+    """Authenticated Template-derived members ready for publication."""
+
+    artifacts: dict[str, PublicationMember]
+    command_input_identity: str
+    language_bundle: dict[str, JsonValue]
+    source_schema: dict[str, JsonValue]
+    source_identity_domain: str
+    source_identity: str
+
+    def member_is_admitted(self, name: str, value: dict[str, Any]) -> bool:
+        """Re-admit one planned publication member."""
+        if name == "model-source-package":
+            try:
+                jsonschema.validate(value, self.source_schema)
+            except jsonschema.ValidationError:
+                return False
+            return (
+                content_identity(
+                    self.source_identity_domain,
+                    cast(JsonValue, value),
+                )
+                == self.source_identity
+            )
+        return verify_artifact(value, self.language_bundle)
+
+
+def prepare_template_instantiation(
+    template_id: str,
+    version: str,
+    package_id: str,
+    provider: TemplateProvider,
+    authority_context_provider: AuthorityContextProvider,
+) -> TemplateInstantiationPlan | Schema2RefusalReport:
+    """Admit one release and derive its editable Model Source publication."""
+    admitted = load_admitted_template(provider, authority_context_provider)
+    if isinstance(admitted, Schema2RefusalReport):
+        return admitted
+    release = admitted.release
+    kernel = admitted.kernel
+    language_bundle = admitted.language_bundle
+    if (template_id, version) != (release["id"], release["version"]):
+        return template_refusal(
+            "language.package_version_unavailable",
+            "resolution",
+            cast(str, release["content_identity"]),
+            "/id",
+            f"Template release {template_id}@{version} is unavailable",
+        )
+
+    source_kind = _template_model_source_member_kind(kernel, admitted.profile)
+    starter_members = [
+        member
+        for member in cast(list[dict[str, JsonValue]], release["members"])
+        if member["member_kind"] == source_kind
+    ]
+    if len(starter_members) != 1:
+        return _template_contract_refusal(
+            release,
+            "/members",
+            "Template release must contain one LDB-profiled Model Source member",
+        )
+    starter = cast(dict[str, JsonValue], starter_members[0]["payload"])
+    source = cast(dict[str, JsonValue], deepcopy(starter))
+    source_identity_domain = model_source_identity_domain(language_bundle)
+    starter_identity = content_identity(source_identity_domain, starter)
+    manifest = cast(dict[str, JsonValue], source["manifest"])
+    manifest["id"] = package_id
+    manifest["template_provenance"] = {
+        "template_id": release["id"],
+        "template_version": release["version"],
+        "template_identity": release["content_identity"],
+        "starter_identity": starter_identity,
+    }
+    source_identity = content_identity(source_identity_domain, source)
+    command_input = identified_artifact(
+        language_bundle,
+        "template-instantiate-command-input",
+        {
+            "template_identity": release["content_identity"],
+            "package_id": package_id,
+            "kernel_identity": kernel["content_identity"],
+            "language_bundle_identity": language_bundle["content_identity"],
+        },
+    )
+    instantiation_receipt = identified_artifact(
+        language_bundle,
+        "template-instantiation-receipt",
+        {
+            "template_identity": release["content_identity"],
+            "starter_identity": starter_identity,
+            "model_source_identity": source_identity,
+            "package_id": package_id,
+            "kernel_identity": kernel["content_identity"],
+            "language_bundle_identity": language_bundle["content_identity"],
+        },
+    )
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    source_schema = next(
+        cast(dict[str, JsonValue], item["schema"])
+        for item in cast(list[dict[str, JsonValue]], language["wire_schemas"])
+        if item["artifact_kind"] == "model-source-package"
+    )
+    return TemplateInstantiationPlan(
+        artifacts={
+            "model-source-package": PublicationMember(
+                value=cast(dict[str, Any], source),
+                artifact_kind="model-source-package",
+                wire_schema_identity=admitted.schema_identities["model-source-package"],
+                content_identity=source_identity,
+            ),
+            "template-instantiation-receipt": PublicationMember(
+                value=cast(dict[str, Any], instantiation_receipt),
+                artifact_kind="template-instantiation-receipt",
+                wire_schema_identity=cast(
+                    str, instantiation_receipt["wire_schema_identity"]
+                ),
+                content_identity=cast(str, instantiation_receipt["content_identity"]),
+            ),
+        },
+        command_input_identity=cast(str, command_input["content_identity"]),
+        language_bundle=language_bundle,
+        source_schema=source_schema,
+        source_identity_domain=source_identity_domain,
+        source_identity=source_identity,
     )

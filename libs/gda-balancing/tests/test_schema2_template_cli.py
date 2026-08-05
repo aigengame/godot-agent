@@ -12,7 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 import gda_balancing.schema2.model as schema2_model
-from gda_balancing.commands.template import (
+from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
     template_instantiate_handler,
 )
