@@ -13,6 +13,7 @@ import jsonschema
 
 import gda_balancing.application.experiment_run as experiment_run_application_module
 import gda_balancing.domain.experiment as experiment_admission_module
+import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.evidence as experiment_evidence_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
@@ -7521,7 +7522,7 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     reidentify("evaluation-run")
 
     assert all(
-        model_module.verify_artifact(value, checked.language_bundle)
+        artifacts_module.verify_artifact(value, checked.language_bundle)
         for value in values.values()
     )
     if mutation == "result":
@@ -7632,7 +7633,7 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
         checked, "runtime-terminal-audit", payload
     ).value
 
-    assert model_module.verify_artifact(
+    assert artifacts_module.verify_artifact(
         values["runtime-terminal-audit"], checked.language_bundle
     )
     if mutation == "result":

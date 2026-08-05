@@ -27,11 +27,11 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
 )
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
-from gda_balancing.domain.artifacts import find_published_artifact
 from gda_balancing.infrastructure.input_bytes import read_input
 from gda_balancing.domain.model.semantics import (
     admit_resolved_model,
 )
+from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"

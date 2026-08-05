@@ -15,6 +15,7 @@ from typing import Any, cast
 
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifacts import _identified_artifact, _verify_artifact
 from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import (
     admit_authority_context,
@@ -32,14 +33,12 @@ from gda_balancing.domain.model.semantics import (
     _LOWERER_IMPLEMENTATION_IDENTITY,
     _RESOLVER_IMPLEMENTATION_IDENTITY,
     _capability_manifest,
-    _identified_artifact,
     _model_explanation,
     _model_explanation_pairs_are_admitted,
     _model_lowering,
     _normalized_absolute_path,
     _resolution_profile,
     _strict_object,
-    _verify_artifact,
     admit_resolved_model,
     lower_checked_model,
 )

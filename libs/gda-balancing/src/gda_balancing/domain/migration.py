@@ -165,7 +165,7 @@ def converter_specification(
     language_bundle: dict[str, Any],
 ) -> dict[str, JsonValue]:
     """Build the LDB-validated, independently rehashable converter artifact."""
-    from gda_balancing.domain.model.semantics import identified_artifact
+    from gda_balancing.domain.artifacts import identified_artifact
 
     return identified_artifact(
         language_bundle,

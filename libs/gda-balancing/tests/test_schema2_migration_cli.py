@@ -22,7 +22,7 @@ from gda_balancing.domain.authority.graph import (
 )
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.migration import MAX_SOURCE_OBSERVATION_BYTES
-from gda_balancing.domain.model.semantics import verify_artifact
+from gda_balancing.domain.artifacts import verify_artifact
 
 
 def _member(receipt: dict, logical_name: str) -> dict:

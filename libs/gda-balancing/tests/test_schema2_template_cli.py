@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import jsonschema
 import pytest
-import gda_balancing.domain.model.semantics as schema2_model
+import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
@@ -964,12 +964,12 @@ def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain(
 
     assert _member_schema_identities(context.language_bundle)[
         "model-source-package"
-    ] == schema2_model._wire_schema_identity_for_kind(
+    ] == artifacts_module.wire_schema_identity(
         context.language_bundle,
         "model-source-package",
     )
     assert (
-        schema2_model._wire_schema_identity_for_kind(
+        artifacts_module.wire_schema_identity(
             context.language_bundle,
             "model-source-package",
         )
