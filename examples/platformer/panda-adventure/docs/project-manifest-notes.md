@@ -31,13 +31,16 @@ since gda #380 landed, actions are authored with
 **`[layer_names]`.** S2+S3 collision topology — structural wiring, not balance
 data (gADR-0000 governs config NUMBERS; what-can-act-on-what lives here and in
 the scenes): 1 `terrain`, 2 `player`, 3 `enemy`, 4 `projectile`, 5
-`gravity_field`, 6 `pickup`. Layer 5 is IN USE since S3: the Gravity Field Area2D
+`gravity_field`, 6 `pickup`, 7 `time_field`. Layer 5 is IN USE since S3: the Gravity Field Area2D
 (`gravity_field.tscn`, runtime-instanced by PlayerController) sits ON layer 5
 and masks `terrain|enemy` (5) — the Player's layer is invisible to it, which is
 the never-on-the-Player guarantee (gADR-0002, the Projectile's mask pattern).
 Layer 6 is the S6b Pickup (`pickup.tscn`, an Area2D runtime-instanced by
 LevelController per resolved drop, gADR-0006): ON layer 6, masking `player` (2)
 ONLY — nothing but the Player can touch a drop, and a drop blocks nothing.
+Layer 7 is the Boss's Time Field (`time_field.tscn`): ON layer 7, masking
+`player|projectile` (10), so it slows the Player and opted-in Player bolts but
+never enemies.
 
 **`[debug]`.** Godot's default desktop file logging is disabled so no engine
 launch writes a shared `user://logs/godot.log` (the #180 RotatedFileLogger race
@@ -58,7 +61,8 @@ see `AGENTS.md` ("The gda daemon harness is COMMITTED").
 The project main scene is the UI-owned composition root (gADR-0020). It instances
 three siblings: `Gameplay`, `Hud`, and `EndScreen`. `GameShell` binds the HUD to
 Gameplay's explicit Player entry, observes Gameplay's `run_ended` signal, and
-forwards the End screen's retry request to Gameplay. UI depends on Content;
+submits the End screen's retry request to Gameplay. When Content accepts that
+intent, the shell reloads the composition scene. UI depends on Content;
 Gameplay does not load or locate UI.
 
 ## `content/scenes/gameplay.tscn`
@@ -68,9 +72,18 @@ all runtime-spawned platforms, enemies, Projectiles, Gravity Fields, and Pickups
 remain Content. Visual dimensions and positions are applied at runtime from the
 derived configuration Resources (gADR-0000), not baked into the scene.
 
-Collision topology remains unchanged: Player=`player`(2) and Enemy=`enemy`(3)
-both mask terrain without physically blocking one another; attacks use the
-range-gated combat rules. Projectiles and areas retain their established masks.
-The `gravity_affectable` and `time_dilatable` groups remain open capability
-contracts. The unique Player reference is injected or obtained from Gameplay's
-public entry instead of a global `player` group.
+Collision topology remains unchanged: Platform=`terrain`(1); Player=`player`(2)
+masking terrain only; Enemy=`enemy`(3) masking terrain only, so Player and Enemy
+bodies pass through one another and attacks use the range-gated combat rules;
+Obstacle=`terrain`(1) masking nothing. Enemies are runtime-instanced by
+LevelController. Player Projectiles mask terrain|enemy; Enemy Projectiles mask
+terrain|player; Gravity Fields sit on `gravity_field`(5) and mask terrain|enemy;
+Pickups sit on `pickup`(6) and mask player only; Time Fields sit on
+`time_field`(7) and mask player|projectile.
+
+The Obstacle is a gravity-affectable environment prop. Its position comes from
+`GravityConfig.obstacle_position`; it floats clear of the Player's bolt line,
+and only a Gravity Field moves it. The `gravity_affectable` and
+`time_dilatable` groups remain open capability contracts. The unique Player
+reference is injected or obtained from Gameplay's public entry instead of a
+global `player` group.

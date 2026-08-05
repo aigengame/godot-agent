@@ -576,6 +576,44 @@ clamps the Warp Blink's landing (gADR-0010, replacing S8's platform-extent
 derivation). Authored data, not a derived extent.
 _Avoid_: platform extent (the rejected derivation), level bounds
 
+### Runtime architecture
+
+**Add-ons**:
+Reusable, domain-independent runtime support under `addons/`, such as the
+structured logger and gda harness. The term is architectural and library-like;
+it is broader than Godot editor plug-ins (gADR-0020).
+_Avoid_: Godot plug-in (the narrower engine feature), utilities (generic)
+
+**Systems**:
+Reusable game rules, state transitions, invariants, and shared state types under
+`systems/`. They accept the values a rule needs and do not load Content
+configuration, scenes, or UI (gADR-0020).
+_Avoid_: manager, controller (Content orchestration)
+
+**Content**:
+The concrete application layer under `content/`: controllers, configuration and
+generated data, gameplay scenes, presentation adapters, and assets. It selects
+and coordinates Systems into playable behavior (gADR-0020).
+_Avoid_: Systems (rules), UI (screen-space surfaces)
+
+**UI**:
+Screen-space surfaces and the Game Shell under `ui/`. UI sends application
+intent downward, binds to Content's public surface, and observes published state
+changes without Content locating it (gADR-0020).
+_Avoid_: presentation (Content also has world-space presentation), GUI (generic)
+
+**Gameplay**:
+The Content-owned playable scene rooted at `content/scenes/gameplay.tscn`,
+containing the level, actors, and world objects but no UI. The Game Shell
+instances it as one sibling of the HUD and End screen (gADR-0020).
+_Avoid_: Game Shell (the composition root), game (the whole project)
+
+**Game Shell**:
+The UI-owned runtime composition root that instances Gameplay, HUD, and End
+screen; binds their explicit public seams; and owns composition-scene lifecycle.
+It contains no game rules (gADR-0020).
+_Avoid_: game manager, Gameplay (the playable Content scene)
+
 ### Game flow
 
 **End state**:
@@ -604,8 +642,9 @@ the win)
 
 **Retry**:
 The restart verb that closes the GDD's one-more-try loop: the `retry` action
-(Enter), live only in an End state, reloads the level scene so the whole run
-re-derives from config — a fresh run, never an in-place respawn (gADR-0010).
+(Enter), accepted by Content only in an End state. The Game Shell then reloads
+the composition scene so the whole run re-derives from config — a fresh run,
+never an in-place respawn (gADR-0010, gADR-0020).
 _Avoid_: respawn (the rejected in-place variant), restart level (the demo is a
 single level)
 

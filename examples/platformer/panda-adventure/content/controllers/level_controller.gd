@@ -283,8 +283,8 @@ func player_node() -> Node:
 	return _player
 
 
-func retry() -> void:
-	_flow.retry()
+func retry() -> bool:
+	return _flow.retry()
 
 
 func _on_run_ended(won: bool) -> void:

@@ -4,10 +4,6 @@ status: accepted
 
 # Level integration: the Great-Wall blockout and the end-state loop
 
-> **Current placement.** gADR-0020 split the End screen into `ui/`. Systems own
-> the End-state rules; Content owns the World freeze, verdict logs, gated Retry
-> entry point, and publication to the UI-owned Game Shell.
-
 S9 closes Phase 1: the single demo level assembled as the GDD's Great-Wall
 blockout, and the arc's end states — win (schedule cleared), lose (Player HP
 0), retry — so the "one-more-try" loop the GDD names as the emotional goal
@@ -33,9 +29,10 @@ We decide seven things:
   (GDD "Level & Blockout": long rampart-like spans, proportioned to the
   Player). `LevelController` instances `platform.tscn` per entry (the
   enemy.tscn / Spawn Roster precedent, gADR-0005); the static `Platform`
-  node leaves `main.tscn`. The rampart keeps the S1 slab's top line
-  (y = 476), so the Wave schedule's spawn line and every position-derived
-  test stay valid — the wall extends around the fight, it does not move it.
+  node leaves `content/scenes/gameplay.tscn`. The rampart keeps the S1 slab's
+  top line (y = 476), so the Wave schedule's spawn line and every
+  position-derived test stay valid — the wall extends around the fight, it does
+  not move it.
 - **The Arena is authored, not derived.** The Warp Blink's landing clamp
   (gADR-0009) read "the platform extent" off the PlayerConfig; a
   multi-segment wall has no single extent to derive, and the open span
@@ -54,29 +51,30 @@ We decide seven things:
   autoload serves the live IPC channel from `_process` under the default
   pause mode, so `get_tree().paused = true` would sever `gda`'s live channel
   exactly when an e2e wants to observe the end state and press retry.
-  Instead `LevelController` freezes gameplay by setting
-  `PROCESS_MODE_DISABLED` on every non-CanvasLayer child of Main (deferred
-  to the frame boundary — the freeze edge lands frame-coherently, never
+  Instead the Content-owned Game-flow director sets
+  `PROCESS_MODE_DISABLED` on every child of Gameplay (deferred to the frame
+  boundary — the freeze edge lands frame-coherently, never
   mid-physics-callback). Enemies, bolts, fields, and pickups halt where they
   are — the time-stopped tableau reads as the finale's own spacetime motif —
-  while the HUD (CanvasLayer) keeps the final readout and the End screen
-  (CanvasLayer) plays its fade. Static platforms stay solid; nothing moves.
+  while the sibling HUD keeps the final readout and the sibling End screen
+  plays its fade. Static platforms stay solid; nothing moves.
 - **Retry is a scene reload, not an in-place respawn.** A new `retry` input
-  action (Enter — every other verb's key is taken), read by
-  `LevelController` ONLY in an end state, logs `game_retried` and
-  `reload_current_scene()`s. The whole level re-derives from config —
+  action (Enter — every other verb's key is taken), read by the End screen.
+  The Game Shell submits it to `LevelController`; Content accepts it only in
+  an End state and logs `game_retried`, then the shell calls
+  `reload_current_scene()`. The whole composition re-derives from config —
   stats, waves, drops, HUD — with zero reset code to drift; an in-place
-  respawn would have to hand-unwind every subsystem. The gda session
-  survives the reload (same process; the log accumulates), so retry stays
-  observable live.
-- **The End screen is a level-owned blockout overlay.** `end_screen.tscn`
-  (CanvasLayer above the HUD): a full-screen dim rect + title + retry-hint
+  respawn would have to hand-unwind every subsystem. The gda session survives
+  the reload (same process; the log accumulates), so retry stays observable
+  live.
+- **The End screen is a UI-owned blockout overlay.** `ui/end_screen.tscn`
+  (CanvasLayer above the HUD) is a full-screen dim rect + title + retry-hint
   labels, faded in by tween. Colors, font sizes, and fade duration are
   LevelConfig data; the copy ("VICTORY!", "GAME OVER", "Press Enter to
   retry") is structural code, like the weapon identifiers. It is NOT part of
   the HUD: gADR-0004's HUD reads live state every frame and its LINES
-  contract stays untouched (gADR-0009's scope note honored); the End screen
-  is the level announcing its own closure, shown once per run.
+  contract stays untouched (gADR-0009's scope note honored). The Game Shell
+  shows it after observing Content's run-ended signal.
 
 ## Considered options
 
@@ -108,7 +106,7 @@ We decide seven things:
 - `content/data/json/level_config.json` + schema + `LevelConfig` Resource + a
   builder spec join the pipeline: a `platform_list` renderer, and
   `validate_level_semantics` enforcing the cross-field rules — platform
-  names unique (they become sibling node names in Main, the gADR-0005
+  names unique (they become sibling node names in Gameplay, the gADR-0005
   addressability argument) and `arena_min_x < arena_max_x`.
 - `player_config.json` loses `platform_color/size/position`; every test
   that derived the ground line from the player config reads the level
@@ -118,7 +116,8 @@ We decide seven things:
   note retires: the world freeze now owns post-death.
 - New pure decisions in `systems/game_state_system.gd`; new
   `end_screen_controller.gd` + `platform.tscn` + `end_screen.tscn`;
-  `main.tscn` drops `Platform`, gains the `EndScreen` instance;
+  `content/scenes/gameplay.tscn` drops `Platform`, while
+  `ui/game_shell.tscn` gains the `EndScreen` instance;
   `project.godot` gains the `retry` action.
 - Logging, per the `gda logger tail` protocol: `level_ready` (platform
   count + arena), `game_won`, `game_lost`, `game_retried`,

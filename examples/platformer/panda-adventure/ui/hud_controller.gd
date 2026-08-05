@@ -105,7 +105,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _config == null:
 		return
-	if _player == null or not is_instance_valid(_player) or not _player.has_method("hud_state"):
+	if not is_instance_valid(_player) or not _player.has_method("hud_state"):
 		return
 	var state: Dictionary = _player.hud_state()
 	if state.is_empty():

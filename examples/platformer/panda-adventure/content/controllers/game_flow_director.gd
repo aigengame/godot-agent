@@ -22,9 +22,8 @@ signal run_ended(won: bool)
 ## typing it as LevelController would preload back into the controller that
 ## preloads this director (a cycle), and this project has no editor-generated
 ## global_script_class_cache, so a bare LevelController type name would not
-## resolve in a headless runtime. The director only needs the level's Node2D/
-## SceneTree surface: get_children() for the World freeze and
-## get_tree().reload_current_scene() for Retry.
+## resolve in a headless runtime. The director only needs the level's Node2D
+## surface: get_children() for the World freeze.
 
 const GameStateSystemScript := preload("res://systems/game_state_system.gd")
 const GameLogScript := preload("res://addons/game_log/game_log.gd")
@@ -65,12 +64,13 @@ func can_retry() -> bool:
 
 
 ## Retry is an application entry point. UI translates input into this request;
-## Content keeps the state gate and reload behavior.
-func retry() -> void:
+## Content keeps the state gate and reports whether the intent was accepted.
+## The UI-owned composition root performs its own scene lifecycle operation.
+func retry() -> bool:
 	if not can_retry():
-		return
+		return false
 	GameLogScript.emit("info", "game_retried", {"from_state": _state})
-	_level.get_tree().reload_current_scene()
+	return true
 
 
 ## Fold one game-flow event through the pure GameStateSystem (gADR-0010). On the

@@ -31,7 +31,8 @@ lower modules do not locate or load higher modules.
   selects and coordinates Systems into playable behavior.
 - `ui/` holds screen-space surfaces and the `GameShell` composition root. UI
   binds to Content's public application surface, observes `run_ended`, and sends
-  retry intent downward through `LevelController.retry()`.
+  retry intent downward through `LevelController.retry()`. When Content accepts
+  that intent, the Game Shell reloads its composition scene.
 
 The Game Shell instances `content/scenes/gameplay.tscn`, the HUD, and the End
 screen. Gameplay contains no UI nodes or UI resource paths. `LevelController`
@@ -57,8 +58,8 @@ Consequences:
 
 - Directory placement communicates responsibility and allowed dependencies.
 - The Game Shell is the single runtime composition point for UI and Content.
-- A small static test rejects upward runtime references and dependencies on the
-  development editor.
+- A small static test rejects upward runtime resource paths, global class
+  references, unresolved UID loads, and dependencies on the development editor.
 - Adding a global event bus, interface layer, or wrapper for every cross-module
   call is unnecessary. Direct downward calls and narrow upward signals are the
   default.

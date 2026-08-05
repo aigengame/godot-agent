@@ -34,7 +34,6 @@ const TITLE_LOST := "GAME OVER"
 const HINT_RETRY := "Press Enter to retry"
 
 var _config: LevelConfigScript
-var _shown := false
 
 
 func _ready() -> void:
@@ -72,7 +71,6 @@ func show_end(win: bool) -> void:
 	_center(hint, _config.end_hint_font_size)
 
 	visible = true
-	_shown = true
 	var overlay := $Overlay as ColorRect
 	overlay.modulate.a = 0.0
 	var tween := create_tween()
@@ -85,9 +83,10 @@ func show_end(win: bool) -> void:
 
 ## Translate the retry action into an application intent. Polling the InputMap
 ## also accepts actions injected through gda's live input seam. The Game Shell
-## calls the Content entry point; this UI node does not reload scenes itself.
+## calls the Content entry point and owns the accepted reload; this surface only
+## emits while it is visible.
 func _process(_delta: float) -> void:
-	if not _shown or not Input.is_action_just_pressed("retry"):
+	if not visible or not Input.is_action_just_pressed("retry"):
 		return
 	retry_requested.emit()
 
