@@ -24,7 +24,6 @@ from pydantic import BaseModel, ValidationError
 
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.publication_types import PublicationError
-from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
 from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.descriptors import (
@@ -39,14 +38,12 @@ from gda_balancing.interfaces.cli.rendering import (
     model_payload,
 )
 from gda_balancing.interfaces.cli.envelope import (
-    ERROR_ENVELOPE_SCHEMA,
     EXIT_INTERNAL,
     EXIT_REFUSAL,
     EXIT_SUCCESS,
     EXIT_USAGE,
     EXIT_VERDICT_FAIL,
     internal_envelope,
-    refusal_envelope,
     schema2_refusal_envelope,
     usage_envelope,
 )
@@ -95,7 +92,7 @@ def dispatch(
         message = f"the toolkit failed unexpectedly ({type(exc).__name__})"
         envelope = internal_envelope(message, diagnostics)
         descriptor = _descriptor_for_invocation(argv, registry)
-        if descriptor is not None and descriptor.schema_major == 2 and diagnostics:
+        if descriptor is not None and diagnostics:
             envelope["error"]["debug"] = envelope["error"].pop("diagnostics")
         stderr.write(canonical_json(envelope))
         return EXIT_INTERNAL
@@ -165,12 +162,9 @@ def _dispatch(
 
     # Bare `--schema` wins over any other argument (bADR-0009).
     if _SCHEMA_FLAG in tail:
-        if descriptor.schema_major == 2:
-            from gda_balancing.interfaces.cli.surface import command_schema_projection
+        from gda_balancing.interfaces.cli.surface import command_schema_projection
 
-            stdout.write(canonical_json(command_schema_projection(descriptor)))
-        else:
-            stdout.write(canonical_json(_schema_projection(descriptor)))
+        stdout.write(canonical_json(command_schema_projection(descriptor)))
         return EXIT_SUCCESS
     if _HELP_FLAG in tail:
         stdout.write(_render_command_help(descriptor))
@@ -180,22 +174,19 @@ def _dispatch(
         return _invoke_descriptor(descriptor, tail, stdout, stdin)
     except PublicationError as err:
         usage = publication_usage_error(err)
-        if descriptor.schema_major == 2 and usage.code not in descriptor.usage_codes:
+        if usage.code not in descriptor.usage_codes:
             raise TypeError(
                 "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
             ) from err
         raise usage from err
     except UsageError as err:
-        if descriptor.schema_major == 2 and err.code not in descriptor.usage_codes:
+        if err.code not in descriptor.usage_codes:
             raise TypeError(
                 "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
             ) from err
         raise
     except UnreadableInputError as err:
-        if (
-            descriptor.schema_major == 2
-            and "unreadable_input" not in descriptor.usage_codes
-        ):
+        if "unreadable_input" not in descriptor.usage_codes:
             raise TypeError(
                 "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
             ) from err
@@ -216,9 +207,6 @@ def _invoke_descriptor(
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
     outcome = descriptor.handler(input_obj)
-    if descriptor.schema_major == 1 and isinstance(outcome, RefusalReport):
-        stdout.write(canonical_json(refusal_envelope(outcome)))
-        return EXIT_REFUSAL
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
         if not observed <= set(descriptor.refusal_catalog):
@@ -286,7 +274,7 @@ def _invoke_descriptor(
             f"output model {descriptor.output_model.__name__}"
         )
     payload = model_payload(outcome)
-    if descriptor.schema_major == 2 and descriptor.success_schema is not None:
+    if descriptor.success_schema is not None:
         jsonschema.validate(payload, descriptor.success_schema())
     presentation = (
         getattr(input_obj, descriptor.json_presentation_field)
@@ -473,19 +461,6 @@ def _write_artifact(descriptor: CommandDescriptor, out: str, body: str) -> BaseM
             artifact=ArtifactSpec(path=os.path.realpath(out), bytes=len(body_bytes))
         )
     )
-
-
-def _schema_projection(descriptor: CommandDescriptor) -> dict[str, Any]:
-    """The per-command ``--schema`` object (bADR-0009).
-
-    ``error`` is the one closed envelope schema, byte-identical across every
-    command because it is the same constant rendered canonically.
-    """
-    return {
-        "input": descriptor.input_model.model_json_schema(),
-        "output": descriptor.output_model.model_json_schema(),
-        "error": ERROR_ENVELOPE_SCHEMA,
-    }
 
 
 def _summarize(err: ValidationError) -> str:

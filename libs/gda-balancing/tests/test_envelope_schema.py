@@ -17,9 +17,9 @@ from gda_balancing.interfaces.cli.envelope import (
     REFUSAL_BOUND,
     USAGE_CODES,
     internal_envelope,
-    refusal_envelope,
     usage_envelope,
 )
+from _legacy_design_adapters import refusal_envelope
 from gda_balancing.schema.refusal import Refusal, RefusalReport
 
 

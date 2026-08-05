@@ -193,14 +193,13 @@ class CommandDescriptor:
     # the receipt as the declared output type.
     artifact_sink: bool = field(default=False)
     # A Schema 2.x multi-artifact producer owns publication in its handler and
-    # returns the committed set receipt. This is distinct from the legacy 1.x
-    # single-file ``artifact_sink`` dispatch tail.
+    # returns the committed set receipt. This is distinct from the single-file
+    # ``artifact_sink`` dispatch tail.
     artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     verdict_artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
-    # The current registry temporarily contains historical 1.x commands while
-    # Schema 2.0 lands in vertical slices.  Only descriptors marked ``2`` are
-    # projected into the 2.x Surface manifest.
-    schema_major: int = field(default=1)
+    # The active surface is Standard Schema 2.x. Standard Schema 1.x is
+    # consumed only by the Model migration application flow.
+    schema_major: Literal[2] = field(default=2)
     structured_params: bool = field(default=False)
     # Exact per-command error authority for Schema 2.x.  The catalog is a
     # reverse-conformance projection of Kernel/LDB Diagnostics; dispatch and
@@ -224,14 +223,8 @@ class CommandDescriptor:
             self.group is None and self.command in RESERVED_GROUPS | RESERVED_META
         ):
             raise ValueError(f"reserved name: {self.group or self.command!r}")
-        if self.schema_major not in (1, 2):
-            raise ValueError(
-                f"unsupported descriptor schema major: {self.schema_major}"
-            )
-        if self.structured_params and self.schema_major != 2:
-            raise ValueError("structured params are a Schema 2.x descriptor contract")
-        if (self.artifact_set or self.verdict_artifact_set) and self.schema_major != 2:
-            raise ValueError("artifact sets are a Schema 2.x descriptor contract")
+        if self.schema_major != 2:
+            raise ValueError("the active descriptor surface is Standard Schema 2.x")
         if (self.artifact_set or self.verdict_artifact_set) and self.artifact_sink:
             raise ValueError(
                 "one descriptor cannot use both artifact publication paths"
@@ -253,16 +246,6 @@ class CommandDescriptor:
             self.verdict_artifact_set or self.verdict_schema is not None
         ):
             raise ValueError("verdict contracts require a declared verdict model")
-        if self.verdict_model is not None and self.schema_major != 2:
-            raise ValueError("typed Verdicts are a Schema 2.x descriptor contract")
-        if self.schema_major != 2 and (
-            self.refusal_catalog
-            or self.refusal_details
-            or self.refusal_variants
-            or self.refusal_artifact_sets
-            or self.usage_codes
-        ):
-            raise ValueError("Schema 2.x error contracts require schema_major=2")
         if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
             raise ValueError("duplicate Schema 2.x refusal catalog entry")
         if any(

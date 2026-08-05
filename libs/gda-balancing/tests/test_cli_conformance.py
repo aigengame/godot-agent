@@ -28,7 +28,6 @@ from gda_balancing.interfaces.cli.envelope import (
 )
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.schema.refusal import Refusal, RefusalReport
-from gda_balancing.schema.funnel import refusal_code_namespace
 from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
@@ -171,16 +170,10 @@ class TestPerDescriptorRows:
         assert (exit_code, stderr) == (2, "")
         payload = json.loads(stdout)
         assert payload["error"]["category"] == "refusal"
-        if descriptor.schema_major == 2:
-            jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
-            catalog = {code for code, _stage in descriptor.refusal_catalog}
-            for entry in payload["error"]["diagnostics"]:
-                assert entry["code"] in catalog
-        else:
-            jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-            namespace = refusal_code_namespace()
-            for entry in payload["error"]["refusals"]:
-                assert entry["code"] in namespace
+        jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
+        catalog = {code for code, _stage in descriptor.refusal_catalog}
+        for entry in payload["error"]["diagnostics"]:
+            assert entry["code"] in catalog
 
     def test_input_immutability_row(self, descriptor, run_cli, invocation):
         # A document-taking command never rewrites its input (bADR-0011).
@@ -307,18 +300,11 @@ class TestPerDescriptorRows:
 
 class TestSurfaceLaws:
     def test_error_schema_is_line_or_descriptor_owned(self, run_cli):
-        legacy_renderings: set[str] = set()
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])
             actual = canonical_json(json.loads(stdout)["error"])
-            if descriptor.schema_major == 1:
-                legacy_renderings.add(actual)
-            else:
-                assert actual == canonical_json(
-                    schema2_error_envelope_schema(descriptor)
-                )
+            assert actual == canonical_json(schema2_error_envelope_schema(descriptor))
         assert all(descriptor.schema_major == 2 for descriptor in REGISTRY)
-        assert legacy_renderings == set()
 
     def test_schema2_runtime_rejects_usage_outside_descriptor_catalog(self, run_cli):
         descriptor = next(item for item in REGISTRY if item.schema_major == 2)

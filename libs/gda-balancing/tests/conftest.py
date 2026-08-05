@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from gda_balancing.interfaces.cli.registry import REGISTRY
-from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
+from _legacy_design_adapters import run_legacy_cli as _run_legacy_cli
 from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
 from gda_balancing.interfaces.cli.dispatch import dispatch
 from gda_balancing.domain.authority.context import (
@@ -122,12 +122,8 @@ def run_cli() -> Callable[..., RunResult]:
 
 @pytest.fixture
 def run_legacy_cli() -> Callable[..., RunResult]:
-    """Drive the unregistered 1.x source-input adapters for migration regression."""
-
-    def _run_legacy(argv: list[str]) -> RunResult:
-        return _run(argv, registry=(DESIGN_VALIDATE, DESIGN_FORMAT))
-
-    return _run_legacy
+    """Drive the test-only 1.x source-input regression harness."""
+    return _run_legacy_cli
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:

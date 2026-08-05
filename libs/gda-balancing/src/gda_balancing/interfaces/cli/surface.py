@@ -104,8 +104,8 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
         "required": ["code", "message", "primary", "related"],
         "unevaluatedProperties": False,
     }
-    legacy_variants = deepcopy(ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"])
-    usage = legacy_variants[1]
+    envelope_variants = deepcopy(ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"])
+    usage = envelope_variants[1]
     usage["properties"]["code"] = {"enum": sorted(descriptor.usage_codes)}
     variants: list[dict[str, Any]] = []
     for stage in descriptor.refusal_stages:
@@ -596,11 +596,9 @@ def surface_manifest_success_schema() -> dict[str, object]:
 def surface_manifest(
     registry: tuple[CommandDescriptor, ...],
 ) -> dict[str, JsonValue]:
-    """Enumerate the delivered 2.x subset from the live descriptor registry."""
+    """Enumerate the delivered 2.x commands from the live descriptor registry."""
     rows: list[JsonValue] = []
     for descriptor in registry:
-        if descriptor.schema_major != 2:
-            continue
         rows.append(
             {
                 "group": descriptor.group,

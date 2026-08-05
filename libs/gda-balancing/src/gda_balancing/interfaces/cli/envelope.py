@@ -18,11 +18,6 @@ command is stochastic, bADR-0010).
 from typing import Any
 
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.schema.refusal import (
-    JSON_POINTER_PATTERN,
-    REFUSAL_BOUND,
-    RefusalReport,
-)
 
 
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
@@ -53,7 +48,8 @@ INTERNAL_ERROR = "internal_error"
 CLI_ERROR_CODES = USAGE_CODES | {INTERNAL_ERROR}
 
 # RFC 6901 JSON Pointer ("" is the whole document; each token escapes ~ and /).
-_JSON_POINTER_PATTERN = JSON_POINTER_PATTERN
+REFUSAL_BOUND = 1000
+_JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
 
 # The published-schema form of the constraint. Sharing the regex TEXT alone
 # is not engine-stable: Python's `re` (the jsonschema validator) lets the
@@ -147,27 +143,6 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
     "required": ["error"],
     "additionalProperties": False,
 }
-
-
-def refusal_envelope(report: RefusalReport) -> dict[str, Any]:
-    """Build a `refusal` envelope carrying the report's refusals verbatim.
-
-    Items are projected field-by-field, not ``model_dump``ed: a `Refusal`
-    subclass could otherwise serialize extra fields past the closed
-    (additionalProperties: false) item schema — the envelope's shape is
-    owned here, never by whatever runtime type the handler supplied.
-    """
-    return {
-        "error": {
-            "category": "refusal",
-            "message": "the document was refused; see refusals",
-            "refusals": [
-                {"code": r.code, "path": r.path, "detail": r.detail}
-                for r in report.refusals
-            ],
-            "truncated": report.truncated,
-        }
-    }
 
 
 def schema2_refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
