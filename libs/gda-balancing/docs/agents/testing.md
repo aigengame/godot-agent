@@ -153,8 +153,8 @@ The median was 268 s, a 44.5% improvement, with a 277 s maximum. These runs
 establish the accepted six-shard partition. Review-fix heads require ordinary
 CI before merge, but unchanged shard membership does not require another
 three-run performance sample. #597 uses this fixed comparison; the rolling
-20-run p95 protocol from the superseded implementation is not a standing gate
-for this refactor.
+20-run p95 protocol introduced with #587 is not a standing gate for this
+refactor.
 
 Nightly and release flows are not restructured by this member change. Any
 future workflow change must be justified independently by measured CI evidence
