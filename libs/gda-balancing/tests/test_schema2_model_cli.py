@@ -35,6 +35,7 @@ from gda_balancing.schema2.authority_graph import (
 )
 from gda_balancing.schema2.surface import descriptor_identity
 from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -450,7 +451,7 @@ def test_formula_parameter_sugar_normalizes_to_same_formula_and_rir_through_conv
 
 
 def test_formula_policy_uses_authority_values_without_host_spelling_or_limit_pins():
-    _kernel, language_bundle = authority_module.load_authorities()
+    _kernel, language_bundle = mutable_authorities()
     candidate = deepcopy(language_bundle)
     profile = next(
         row
@@ -1724,7 +1725,7 @@ def test_formula_slot_value_axes_have_stable_authority_diagnostics(
     diagnostic_row = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic_row["code"] == diagnostic
     assert diagnostic_row["primary"]["pointer"] == "/formula_bindings/0/formula"
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     assert (
         model_module.reason_by_id(language_bundle, reason_id)["diagnostic"]
         == diagnostic
@@ -2167,7 +2168,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     seed = next(
@@ -2326,7 +2327,7 @@ def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
         symbol["kind"] = "unknown-kind"
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] = 2
     _reidentify_language_bundle(candidate_ldb)
@@ -3616,7 +3617,7 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
 
 
 def test_receipt_content_identity_excludes_transport_locators():
-    _, language_bundle = authority_module.load_authorities()
+    _, language_bundle = mutable_authorities()
     common = {
         "descriptor_identity": "sha256:" + "1" * 64,
         "invocation_key": "2" * 64,
@@ -3854,7 +3855,7 @@ def _package_vector_set(
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     assert isinstance(language_bundle, LanguageBundleIndex)
-    kernel, _ = authority_module.load_authorities()
+    kernel, _ = mutable_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
     ]
@@ -4168,7 +4169,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
     assert model_module.admit_resolved_model(artifacts).admitted is True
 
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     policy = model_module._formula_policy(language_bundle)
     actual_operand_domain = kernel["meta_format"]["runtime_program"][
         "invocation_contract"
@@ -4658,7 +4659,7 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     assert isinstance(original_checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(original_checked)
 
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     profile = candidate_ldb["language"]["literal_typing_profiles"][0]
     old_id = profile["id"]
     profile["id"] = "quantity.dimensionless-int64-reidentified"
@@ -6162,7 +6163,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
 def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     tmp_path, monkeypatch
 ):
-    kernel, baseline_ldb = authority_module.load_authorities()
+    kernel, baseline_ldb = mutable_authorities()
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     package = deepcopy(
@@ -6315,8 +6316,9 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    assert kernel == authority_module.load_authorities()[0]
-    assert baseline_ldb == authority_module.load_authorities()[1]
+    pristine_kernel, pristine_ldb = mutable_authorities()
+    assert kernel == pristine_kernel
+    assert baseline_ldb == pristine_ldb
 
     source_document = _model_source()
     source_document["package_requirements"] = [
@@ -6549,7 +6551,7 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_rule_match_steps"] = 1
     boundary = next(
         vector
@@ -6583,7 +6585,7 @@ def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
 ):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
-    kernel, candidate_ldb = deepcopy(authority_module.load_authorities())
+    kernel, candidate_ldb = mutable_authorities()
     candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
     boundary = next(
         vector

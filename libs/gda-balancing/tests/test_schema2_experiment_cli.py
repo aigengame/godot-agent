@@ -28,6 +28,7 @@ from schema2_scheduler_production_support import (
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
 )
+from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 _PERIODIC_EXAMPLE_DIR = (
@@ -67,7 +68,7 @@ def test_tutorial_tuning_values_are_not_package_conformance_configuration():
         row["target"]["name"]: row["value"]
         for row in specification["scenarios"][0]["assignments"]
     }
-    _kernel, language_bundle = authority_module.load_authorities()
+    _kernel, language_bundle = mutable_authorities()
     combat_vectors = next(
         row
         for row in language_bundle.package_conformance_vector_sets
@@ -2049,7 +2050,7 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
 
 
 def test_kernel_closes_runtime_configuration_transition_and_public_step():
-    kernel, _language_bundle = authority_module.load_authorities()
+    kernel, _language_bundle = mutable_authorities()
     runtime_program = kernel["meta_format"]["runtime_program"]
 
     assert runtime_program["runtime_configuration"] == {
@@ -2132,7 +2133,7 @@ def test_kernel_closes_runtime_configuration_transition_and_public_step():
 
 
 def test_runtime_profile_bounds_are_ldb_owned_under_the_kernel_shape():
-    kernel, language_bundle = authority_module.load_authorities()
+    kernel, language_bundle = mutable_authorities()
     profile_contract = kernel["meta_format"]["runtime_profile_definition"]
     assert profile_contract["active_runtime"]["resource_bounds"] == {
         "members": [
@@ -3574,7 +3575,7 @@ def test_public_experiment_admits_external_input_before_transition_until_queue_d
     assert events[0]["operation"] is None
     assert events[0]["outcome"] == {"id": "input-admitted", "kind": "success"}
     reproduction = _member(receipt, "reproduction-receipt")
-    kernel, _language_bundle = authority_module.load_authorities()
+    kernel, _language_bundle = mutable_authorities()
     input_contract = kernel["meta_format"]["runtime_program"]["scheduler"][
         "external_input_identity"
     ]
@@ -5384,7 +5385,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
 
 
 def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
         vector
@@ -5457,7 +5458,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vectors = {
         vector["id"]: vector
         for vector in next(
@@ -5535,7 +5536,7 @@ def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations
 
 
 def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     events = [
         {
             "id": "observation",
@@ -5578,7 +5579,7 @@ def test_runtime_scheduler_seam_orders_events_from_the_kernel_contract():
 
 
 def test_runtime_scheduler_seam_refuses_backward_scheduling():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5596,7 +5597,7 @@ def test_runtime_scheduler_seam_refuses_backward_scheduling():
 
 
 def test_runtime_scheduler_seam_refuses_completed_cancellation():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5613,7 +5614,7 @@ def test_runtime_scheduler_seam_refuses_completed_cancellation():
 
 
 def test_scheduler_conformance_harness_refuses_missing_detector_implementations():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
 
     with pytest.raises(ValueError, match="missing detector implementations"):
         require_complete_scheduler_detector_bindings(
@@ -5624,7 +5625,7 @@ def test_scheduler_conformance_harness_refuses_missing_detector_implementations(
 
 
 def test_scheduler_conformance_harness_refuses_unexpected_detector_implementations():
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     declared = {
         detector: object()
         for detector in next(
@@ -5655,7 +5656,7 @@ def test_scheduler_conformance_harness_refuses_unexpected_detector_implementatio
     ids=["not-list", "empty", "unsorted", "duplicate", "empty-name", "non-string"],
 )
 def test_scheduler_detector_inventory_refuses_a_nonclosed_declaration(detectors):
-    kernel, _ldb = authority_module.load_authorities()
+    kernel, _ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5669,7 +5670,7 @@ def test_scheduler_detector_inventory_refuses_a_nonclosed_declaration(detectors)
 
 
 def test_reference_scheduler_consumer_refuses_an_unimplemented_kernel_detector():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5692,7 +5693,7 @@ def test_reference_scheduler_consumer_refuses_an_unimplemented_kernel_detector()
 
 
 def test_production_scheduler_consumer_refuses_an_unimplemented_kernel_detector():
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     altered_kernel = deepcopy(kernel)
     vector_contract = next(
         kind
@@ -5720,7 +5721,7 @@ def test_production_scheduler_consumer_refuses_an_unimplemented_kernel_detector(
     ids=["production", "reference"],
 )
 def test_scheduler_consumers_refuse_unknown_requested_mutations(consumer):
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     vector = next(
         vector
         for vector_set in ldb.package_conformance_vector_sets
@@ -5734,7 +5735,7 @@ def test_scheduler_consumers_refuse_unknown_requested_mutations(consumer):
 
 
 def test_package_value_program_vectors_execute_in_two_consumers():
-    _kernel, ldb = authority_module.load_authorities()
+    _kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -5760,7 +5761,7 @@ def test_package_value_program_vectors_execute_in_two_consumers():
 
 
 def test_package_observation_lifecycle_vectors_execute_in_two_consumers():
-    _kernel, ldb = authority_module.load_authorities()
+    _kernel, ldb = mutable_authorities()
     vectors = [
         vector
         for vector in next(
@@ -6357,7 +6358,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         {"name": "target_health", "value": 100},
     ]
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
-    kernel, ldb = authority_module.load_authorities()
+    kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     rir = _member(build_receipt, "rir-semantic-payload")
     resolved_entrypoint = next(
