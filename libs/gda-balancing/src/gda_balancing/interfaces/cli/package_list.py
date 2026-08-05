@@ -10,7 +10,9 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.interfaces.cli.package_contracts import package_list_success_schema
+from gda_balancing.domain.authority.package_projection import (
+    package_list_success_schema,
+)
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
     packaged_authority_context,
