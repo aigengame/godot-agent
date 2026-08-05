@@ -29,7 +29,7 @@ from gda_balancing.schema2.model import (
     check_model_source,
     lower_checked_model,
 )
-from schema2_test_authority import mutable_authorities
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):

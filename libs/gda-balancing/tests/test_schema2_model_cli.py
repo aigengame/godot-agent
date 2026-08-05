@@ -35,7 +35,7 @@ from gda_balancing.schema2.authority_graph import (
 )
 from gda_balancing.schema2.surface import descriptor_identity
 from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
-from schema2_test_authority import mutable_authorities
+from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
@@ -2236,7 +2236,7 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
 
 
 def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
-    kernel, language_bundle = mutable_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     admission = admit_authorities(kernel, language_bundle)
 
     checked = model_module.check_model_source_value(
@@ -3067,7 +3067,7 @@ def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
     artifact_dir = _artifact_directory(json.loads(first[1]))
     before = {path.name: path.read_bytes() for path in artifact_dir.iterdir()}
 
-    kernel, language_bundle = mutable_authorities()
+    kernel, language_bundle = authority_module.load_authorities()
     candidate_ldb = deepcopy(language_bundle)
     candidate_ldb["resources"]["max_diagnostics"] -= 1
     _reidentify_language_bundle(candidate_ldb)
@@ -6316,8 +6316,9 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
-    assert kernel == mutable_authorities()[0]
-    assert baseline_ldb == mutable_authorities()[1]
+    pristine_kernel, pristine_ldb = mutable_authorities()
+    assert kernel == pristine_kernel
+    assert baseline_ldb == pristine_ldb
 
     source_document = _model_source()
     source_document["package_requirements"] = [

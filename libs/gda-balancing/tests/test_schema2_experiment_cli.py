@@ -28,7 +28,7 @@ from schema2_scheduler_production_support import (
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
 )
-from schema2_test_authority import mutable_authorities
+from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
 _PERIODIC_EXAMPLE_DIR = (

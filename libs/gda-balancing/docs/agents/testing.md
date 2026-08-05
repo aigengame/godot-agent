@@ -46,8 +46,8 @@ cached by the actual canonical schema and Kernel profile bytes.
 Tests preserve those boundaries:
 
 - `pristine_authority_context` supplies the immutable packaged baseline;
-- `authority_candidate` and `mutable_authorities()` return independently owned
-  deep mutable copies;
+- `mutable_authorities()` is the shared deep-copy helper, and the
+  `authority_candidate` fixture builds its candidate from that helper;
 - loader, failure-publication, cache, and cold-command tests continue to use
   the dedicated loading and lifecycle seams; and
 - Consumer B remains an independent interpreter and does not call production
@@ -63,13 +63,20 @@ uv run --frozen --project libs/gda-balancing python \
   --report /tmp/gda-balancing-inventory.json
 ```
 
+`schema2-test-inventory-v1.json` remains the source for baseline test and
+vector identities and allowed skips. `schema2-bootstrap-migration-map.json`
+remains the mapping for the earlier bootstrap test split. Pytest collection
+rejects `xfail(strict=False)` before execution.
+
 CI also runs the existing outcome check on each JUnit file; undeclared skips
 and xfails fail the job. Balancing-affecting or unknown paths run inventory,
 all six required shards, the separate smoke shard, and the stable
 `gda-balancing required` result. Each test process retains the existing
 eight-minute bound and fifteen-minute job timeout. Scheduled and release flows
-retain their complete unfiltered-suite checks and existing fifteen-minute
-process bound; this member change does not alter those workflows.
+retain their complete unfiltered-suite checks, existing fifteen-minute process
+bound, outcome verification, and diagnostic uploads. Member release PRs remain
+restricted to `libs/gda-balancing/**`; this change does not alter those
+workflows or their ownership boundary.
 
 ## Optimizations
 
@@ -91,23 +98,25 @@ The complete suite is partitioned by file. The `smoke` shard remains a separate
 real-subprocess and end-to-end job. The other six shards feed the stable
 `gda-balancing required` check.
 
-| Shard | Main ownership | Local median test time |
-| --- | --- | ---: |
-| `fast` | policy, lifecycle, authority bootstrap, resources, migration, and small suites | 80.444 s |
-| `authority` | authority CLI | 93.359 s |
-| `language` | language bootstrap and formula CLI | 85.316 s |
-| `model` | model CLI and independent lowerer | 86.394 s |
-| `experiment` | experiment CLI | 113.766 s |
-| `composition` | CLI conformance, composition bootstrap, and templates | 82.880 s |
-| `smoke` | end-to-end CLI paths | 96.557 s |
+| Shard | Main ownership |
+| --- | --- |
+| `fast` | policy, lifecycle, authority bootstrap, resources, migration, and small suites |
+| `authority` | authority CLI |
+| `language` | language bootstrap and formula CLI |
+| `model` | model CLI and independent lowerer |
+| `experiment` | experiment CLI |
+| `composition` | CLI conformance, composition bootstrap, and templates |
+| `smoke` | end-to-end CLI paths |
 
-The figures are medians calculated from the same three post-change full-suite
-JUnit reports used below. Shard membership is deliberately static and
-reviewable; the existing partition test proves that files neither overlap nor
-fall outside the matrix. The combined authority job reached 310 seconds in the
-362-second CI sample. Moving the independently selectable bootstrap file to
-`fast` changes the three-report local medians to 80.444 and 93.359 seconds
-without adding a shard; exact-head CI revalidates the resulting critical path.
+Shard membership is deliberately static and reviewable; the existing partition
+test proves that files neither overlap nor fall outside the matrix. The `model`
+and `experiment` files are measured indivisible hotspots. Giving each a matrix
+entry keeps the largest local required shard near 114 seconds instead of
+combining files into partitions near 172 and 197 seconds. The workflow already
+derives its matrix from `REQUIRED_TEST_SHARDS`, so the split costs two additional
+standard matrix executions but adds no custom runner or new aggregator, timer,
+inventory, or artifact protocol. Moving the two independently selectable
+bootstrap files to `fast` separates them from the authority CLI hotspot.
 
 ## Local evidence
 
@@ -124,17 +133,27 @@ time comes from JUnit; wall time comes from `/usr/bin/time -p`.
 All three optimized runs collected 1,409 tests and finished with 1,382 passed
 and 27 skipped. Their wall times were 636.840 s, 643.920 s, and 632.840 s.
 
-The remaining largest file medians are experiment CLI (113.766 s), end-to-end
-CLI (96.557 s), authority CLI (93.359 s), and language bootstrap (79.369 s).
+The remaining largest file medians are experiment CLI (about 114 s), end-to-end
+CLI (about 97 s), authority CLI (about 93 s), and language bootstrap (about 79 s).
 These values explain the shard split; they are not new test policy.
 
 ## CI acceptance
 
 Before #597, three required-CI runs at the clean base took 483 s, 496 s, and
 483 s from the scope job start to the stable required check, for a 483 s
-median. Record the three exact-head post-change runs and their URLs in the PR.
-Acceptance requires a median improvement of at least 25% and no run above six
-minutes.
+median. Three successful six-shard runs produced these results:
+
+| Run | Elapsed |
+| --- | ---: |
+| [Attempt 1](https://github.com/aigengame/godot-agent/actions/runs/30927209932/attempts/1) | 277 s |
+| [Attempt 3](https://github.com/aigengame/godot-agent/actions/runs/30927209932/attempts/3) | 268 s |
+| [Attempt 4](https://github.com/aigengame/godot-agent/actions/runs/30927209932/attempts/4) | 229 s |
+
+The median was 268 s, a 44.5% improvement, with a 277 s maximum. These runs
+establish the accepted six-shard partition. The final review-fix head still
+needs ordinary CI before merge; no four-shard remeasurement is required. #597
+uses this fixed three-run comparison; the rolling 20-run p95 protocol from the
+superseded implementation is not a standing gate for this refactor.
 
 Nightly and release flows are not restructured by this member change. Any
 future workflow change must be justified independently by measured CI evidence

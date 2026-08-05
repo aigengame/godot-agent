@@ -10,7 +10,7 @@ from dataclasses import replace
 from importlib.metadata import version as package_version
 
 from gda_balancing.commands.version import VERSION, version_handler
-from schema2_test_authority import mutable_authorities
+from schema2_authority_support import mutable_authorities
 
 SUPPORTED_SCHEMA_LINE = "2.0"
 

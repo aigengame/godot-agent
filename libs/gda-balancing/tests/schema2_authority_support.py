@@ -1,4 +1,4 @@
-"""Fast authority candidates for tests that do not exercise loading."""
+"""Shared authority inputs for tests that do not exercise loading."""
 
 from typing import Any
 

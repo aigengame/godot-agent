@@ -1027,9 +1027,11 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
         cwd=tmp_path,
         environment=environment,
     )
-    for source, from_wheel in zip(source_gets, wheel_gets, strict=True):
-        assert (from_wheel[0], from_wheel[2]) == (0, "")
-        assert from_wheel[1] == source[1]
+    for source, (returncode, stdout, stderr) in zip(
+        source_gets, wheel_gets, strict=True
+    ):
+        assert (returncode, stderr) == (0, "")
+        assert stdout == source[1]
 
 
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
