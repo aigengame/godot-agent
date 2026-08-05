@@ -1,6 +1,6 @@
 ---
 name: entropy-review
-description: Review software designs, implementation plans, and implemented changes from an agile perspective to determine whether their software entropy is proportionate to current goals. Identify scope drift, overengineering, excessive defensive design, premature generalization, and hard-to-maintain mechanisms whose costs outweigh their value; provide smaller, more reversible alternatives with faster feedback. Use when the user asks for an entropy review, design simplification, complexity control, an overengineering review, or whether a mechanism is worth introducing, retaining, or expanding.
+description: Review software designs, implementation plans, and implemented changes from an agile perspective to determine whether their software entropy is proportionate to current goals. Identify scope creep, overengineering, excessive defensive design, premature generalization, and hard-to-maintain mechanisms whose costs outweigh their value; provide smaller, more reversible alternatives with faster feedback. Use when the user asks for an entropy review, design simplification, complexity control, an overengineering review, or whether a mechanism is worth introducing, retaining, or expanding.
 ---
 
 # Entropy Review
@@ -177,7 +177,6 @@ exists, return **Keep** and stop; do not manufacture findings to fill the format
 - When reviewing architecture, first clarify what the design must do and how it will be checked.
   Then compare its cost with simpler options.
 - Do not use agility as a reason to ignore known risks, safety, integrity, or hard constraints.
-- Do not replace engineering judgment with pseudo-precise scoring.
 - Do not require extra artifacts merely to prove that the review occurred.
 - Do not expand this into a comprehensive correctness, security, or style review, or redesign the
   whole system unless the current goal requires it.
