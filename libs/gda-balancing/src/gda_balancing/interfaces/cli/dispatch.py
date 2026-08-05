@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.domain.publication_types import PublicationError
+from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.interfaces.cli.errors import UsageError, publication_usage_error
 from gda_balancing.interfaces.cli.registry import REGISTRY
 from gda_balancing.interfaces.cli.descriptors import (
@@ -45,6 +46,7 @@ from gda_balancing.interfaces.cli.envelope import (
     EXIT_USAGE,
     EXIT_VERDICT_FAIL,
     internal_envelope,
+    refusal_envelope,
     schema2_refusal_envelope,
     usage_envelope,
 )
@@ -214,6 +216,9 @@ def _invoke_descriptor(
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
     outcome = descriptor.handler(input_obj)
+    if descriptor.schema_major == 1 and isinstance(outcome, RefusalReport):
+        stdout.write(canonical_json(refusal_envelope(outcome)))
+        return EXIT_REFUSAL
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
         if not observed <= set(descriptor.refusal_catalog):
