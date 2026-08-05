@@ -3,7 +3,7 @@
 The fast tier ``test_fonts_deriver.py`` pins the deriver's TEXT (header, glyph
 regions, determinism); it cannot prove the emitted ``.fnt`` is a *valid Godot
 font*. This engine-tier test closes that gap: it copies the committed project
-(carrying ``assets/fonts/hud_font.{png,fnt}`` and their ``.import`` sidecars),
+(carrying ``content/assets/fonts/hud_font.{png,fnt}`` and their ``.import`` sidecars),
 imports it (so the ``.fnt``'s external PNG page resolves), then loads the font in
 a headless Godot ``SceneTree`` and asserts it is a ``Font`` whose monospace
 metrics match the deriver's grid — the exact property the styled HUD's
@@ -49,7 +49,7 @@ _EXPECTED_WIDTH = 10 * _CELL
 # of a known HUD string at the Scale-spec size (__SIZE__ is substituted per run).
 _PROBE = """extends SceneTree
 func _initialize() -> void:
-	var f = load("res://assets/fonts/hud_font.fnt")
+	var f = load("res://content/assets/fonts/hud_font.fnt")
 	if f == null:
 		print("RESULT=LOAD_FAILED")
 		quit()

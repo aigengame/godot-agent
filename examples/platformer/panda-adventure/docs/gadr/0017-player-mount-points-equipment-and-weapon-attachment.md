@@ -28,7 +28,7 @@ We decide:
 1. **A Mount point is a named `Marker2D` socket on the Player node, positioned from config
    at `_ready` — not a skeleton, not baked scene coordinates.** The Player's on-screen figure
    is its base sprite (the Model-S `SpriteFrames`, gADR-0016) plus empty `Marker2D` mount
-   points authored as children of the Player node in `main.tscn`; nothing wraps them under an
+   points authored as children of the Player node in `content/scenes/gameplay.tscn`; nothing wraps them under an
    umbrella node or name. Positions are set in `_ready` from config — mirroring how
    `player_size` is applied via `ViewBuilder.apply_box` — never baked into the scene, so the
    offset stays data-driven (gADR-0000). The **View seam stays generic and stateless** (its
@@ -85,9 +85,9 @@ Consequences:
   a textured skin is its own future concern with **no owner assigned here**, and is explicitly
   **not** folded into #447 (enemy Faction sprites) or #448 (hit/explosion/pickup/level-up/Warp
   VFX).
-- Phase A is a small slice — the two `Marker2D` nodes in `main.tscn`, the scale_spec
+- Phase A is a small slice — the two `Marker2D` nodes in `content/scenes/gameplay.tscn`, the scale_spec
   `player_mounts` section, `_ready` positioning, and tests — that does **not** touch #443's art,
-  `player.tres`, or `src/systems`. Phase B (Paperdoll overlay + weapon sprites + the
+  `player.tres`, or `systems/`. Phase B (Paperdoll overlay + weapon sprites + the
   `weapon_switched` hook) is a separate follow-up, blocked on phase A.
 - The reserved mounts are inert until phase B fills them: an empty `Marker2D` still exists in the
   scene tree but renders nothing and has negligible runtime overhead (no rendering or gameplay

@@ -1,0 +1,29 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://content/controllers/level_controller.gd" id="1_f5q0d"]
+[ext_resource type="Script" path="res://content/controllers/player_controller.gd" id="2_idpsm"]
+[ext_resource type="Script" path="res://content/controllers/obstacle_controller.gd" id="3_e5m6w"]
+
+[sub_resource type="RectangleShape2D" id="PlayerShape"]
+
+[node name="Gameplay" type="Node2D" unique_id=1303069056]
+script = ExtResource("1_f5q0d")
+
+[node name="Player" type="CharacterBody2D" parent="." unique_id=190221684]
+collision_layer = 2
+script = ExtResource("2_idpsm")
+
+[node name="Visual" type="ColorRect" parent="Player" unique_id=1589511213]
+
+[node name="Collision" type="CollisionShape2D" parent="Player" unique_id=317821343]
+shape = SubResource("PlayerShape")
+
+[node name="Camera2D" type="Camera2D" parent="Player" unique_id=861829757]
+
+[node name="Obstacle" type="StaticBody2D" parent="." unique_id=809261887]
+collision_mask = 0
+script = ExtResource("3_e5m6w")
+
+[node name="Visual" type="ColorRect" parent="Obstacle" unique_id=356445025]
+
+[node name="Collision" type="CollisionShape2D" parent="Obstacle" unique_id=1884195731]

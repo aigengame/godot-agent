@@ -33,7 +33,7 @@ _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__", "tests")
 # and frame-0 atlas region so the test can assert on stdout.
 _PROBE = """extends SceneTree
 func _initialize() -> void:
-	var sf = load("res://assets/sprites/hero_run_frames.tres")
+	var sf = load("res://content/assets/sprites/hero_run_frames.tres")
 	if sf == null:
 		print("RESULT=LOAD_FAILED")
 		quit()
@@ -65,12 +65,12 @@ def test_derived_spriteframes_loads_in_godot(tmp_path: Path) -> None:
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
 
     # Pack a fixture frame set into the copy and derive its SpriteFrames next to it.
-    sprites = project / "assets" / "sprites"
+    sprites = project / "content" / "assets" / "sprites"
     layout = pack_frames(
         _frames(tmp_path / "in", 5, (16, 16)), sprites / "hero_run.png"
     )
     (sprites / "hero_run_frames.tres").write_text(
-        derive_spriteframes("res://assets/sprites/hero_run.png", layout, "run"),
+        derive_spriteframes("res://content/assets/sprites/hero_run.png", layout, "run"),
         encoding="utf-8",
     )
 

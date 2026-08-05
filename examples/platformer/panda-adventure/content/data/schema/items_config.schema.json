@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/content/data/schema/items_config.schema.json",
+  "title": "Panda Adventure items configuration",
+  "description": "Authoritative config for the S7 Items & Equipment story (gADR-0000, gADR-0008): every item number in one source. The Consumable restore amounts (Bun -> HP, Wine -> MP; `wine_mp_restore` migrated here from gravity_config — gravity keeps only the MP sink), the consume-flash juice (per-item flash color + one shared duration, the hit-flash tween idiom), and the Spacesuit's protective value — the defense bonus composed onto the Player's defender stat block for the S2 damage formula's mitigation term (ItemSystem.effective_defender; the formula itself is untouched). Converted by scripts/build_config.py into the derived content/data/generated/items_config.tres (ItemsConfig).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bun_hp_restore",
+    "wine_mp_restore",
+    "spacesuit_defense",
+    "bun_flash_color",
+    "wine_flash_color",
+    "consume_flash_duration"
+  ],
+  "$defs": {
+    "rgba": {
+      "description": "A color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    }
+  },
+  "properties": {
+    "bun_hp_restore": {
+      "description": "HP restored by eating a Bun (capped at the stat block's max_hp at use time); strictly positive — a no-op Consumable is a config bug.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "wine_mp_restore": {
+      "description": "MP restored by drinking a Wine (capped at the stat block's max_mp at use time); strictly positive. Migrated from gravity_config.json (the S3 Wine hook's home) so every Consumable effect reads from the one items authority (gADR-0008).",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "spacesuit_defense": {
+      "description": "The Spacesuit's defense bonus, added onto the Player's base defense to form the effective defender for the damage formula's mitigation term (gADR-0008). Non-negative like every stat-block defense; 0 is a legal (purely cosmetic) suit.",
+      "type": "number",
+      "minimum": 0.0
+    },
+    "bun_flash_color": { "$ref": "#/$defs/rgba" },
+    "wine_flash_color": { "$ref": "#/$defs/rgba" },
+    "consume_flash_duration": {
+      "description": "Seconds the consume flash tween takes (shared by both Consumables). SUPERSEDED by the Player sprite animations (#443, gADR-0016) — consuming now plays the sprite's 'consume' one-shot; no longer read at runtime; retained for the editor schema forms (#441/#481). Strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

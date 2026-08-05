@@ -2,7 +2,7 @@ extends SceneTree
 
 ## Logic seam (b) for S2: exercise the PURE combat decisions headless —
 ## CombatSystem.compute_damage / is_invulnerable / is_dead, StatsSystem's
-## init_from / apply_damage, and PlayerController.compute_facing. These are the
+## init_from / apply_damage, and PlayerMovementSystem.compute_facing. These are the
 ## functions the offline Monte-Carlo balancing sim reuses (gADR-0001), so they
 ## must stay node/physics/clock-free.
 ##
@@ -14,11 +14,11 @@ extends SceneTree
 ## construct in-memory configs with KNOWN values, and assert each combat rule.
 ## Prints "LOGIC_SEAM: PASS" + quit(0) on success, else push_error + quit(1).
 
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
-const CombatConfigScript := preload("res://src/resources/combat_config.gd")
-const StatsSystemScript := preload("res://src/systems/stats_system.gd")
-const CombatSystemScript := preload("res://src/systems/combat_system.gd")
-const PlayerControllerScript := preload("res://src/controllers/player_controller.gd")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
+const CombatConfigScript := preload("res://content/config/combat_config.gd")
+const StatsSystemScript := preload("res://systems/stats_system.gd")
+const CombatSystemScript := preload("res://systems/combat_system.gd")
+const PlayerMovementSystemScript := preload("res://systems/player_movement_system.gd")
 
 # Fixed formula params so every expectation is exact (distinct scales prove each
 # term is applied to the right stat).
@@ -52,6 +52,20 @@ func _make_stats(max_hp: float, max_mp: float, attack: float, defense: float) ->
 	return s
 
 
+func _damage(
+	attacker: StatsConfigScript,
+	defender: StatsConfigScript,
+	params: CombatConfigScript,
+) -> float:
+	return CombatSystemScript.compute_damage(
+		attacker,
+		defender,
+		params.attack_scale,
+		params.defense_scale,
+		params.min_damage,
+	)
+
+
 func _fail(msg: String) -> void:
 	push_error("LOGIC_SEAM: " + msg)
 	quit(1)
@@ -64,13 +78,13 @@ func _init() -> void:
 
 	# Behavior 1 — zero defense: damage is attack * attack_scale, undiminished.
 	var undefended := _make_stats(25.0, 0.0, ENEMY_ATTACK, 0.0)
-	var raw := CombatSystemScript.compute_damage(player, undefended, params)
+	var raw := _damage(player, undefended, params)
 	if not is_equal_approx(raw, PLAYER_ATTACK * ATTACK_SCALE):
 		_fail("zero defense: expected %s, got %s" % [PLAYER_ATTACK * ATTACK_SCALE, raw])
 		return
 
 	# Behavior 2 — mitigation: defense * defense_scale is subtracted.
-	var mitigated := CombatSystemScript.compute_damage(player, enemy, params)
+	var mitigated := _damage(player, enemy, params)
 	var expected_pe := PLAYER_ATTACK * ATTACK_SCALE - ENEMY_DEFENSE * DEFENSE_SCALE
 	if not is_equal_approx(mitigated, expected_pe):
 		_fail("mitigation: expected %s, got %s" % [expected_pe, mitigated])
@@ -79,14 +93,14 @@ func _init() -> void:
 	# Behavior 3 — floor: when defense swamps attack, damage clamps to min_damage.
 	var weak := _make_stats(100.0, 0.0, 1.0, 0.0)
 	var tank := _make_stats(100.0, 0.0, 0.0, 10.0)
-	var floored := CombatSystemScript.compute_damage(weak, tank, params)
+	var floored := _damage(weak, tank, params)
 	if not is_equal_approx(floored, MIN_DAMAGE):
 		_fail("min-damage floor: expected %s, got %s" % [MIN_DAMAGE, floored])
 		return
 
 	# Behavior 4 — symmetry: the SAME function serves both directions (the S4
 	# enemy->Player reuse contract), each direction reading its own stats.
-	var enemy_on_player := CombatSystemScript.compute_damage(enemy, player, params)
+	var enemy_on_player := _damage(enemy, player, params)
 	var expected_ep := ENEMY_ATTACK * ATTACK_SCALE - PLAYER_DEFENSE * DEFENSE_SCALE
 	if not is_equal_approx(enemy_on_player, expected_ep):
 		_fail("symmetry enemy->player: expected %s, got %s" % [expected_ep, enemy_on_player])
@@ -149,13 +163,13 @@ func _init() -> void:
 
 	# Behavior 9 — compute_facing: a nonzero input re-aims (sign-normalized),
 	# zero input preserves the current facing.
-	if not is_equal_approx(PlayerControllerScript.compute_facing(1.0, -0.5), -1.0):
+	if not is_equal_approx(PlayerMovementSystemScript.compute_facing(1.0, -0.5), -1.0):
 		_fail("facing: left input should face -1")
 		return
-	if not is_equal_approx(PlayerControllerScript.compute_facing(-1.0, 1.0), 1.0):
+	if not is_equal_approx(PlayerMovementSystemScript.compute_facing(-1.0, 1.0), 1.0):
 		_fail("facing: right input should face 1")
 		return
-	if not is_equal_approx(PlayerControllerScript.compute_facing(-1.0, 0.0), -1.0):
+	if not is_equal_approx(PlayerMovementSystemScript.compute_facing(-1.0, 0.0), -1.0):
 		_fail("facing: zero input should keep the current facing")
 		return
 

@@ -2,12 +2,12 @@ extends SceneTree
 
 ## Regression seam for the review-round correctness finding on #438: a FAILED
 ## save+derive must ABORT the edit->play switch. Playing after a failed builder
-## run would silently instance main.tscn against STALE derived .tres — the exact
+## run would silently instance the Game Shell against stale derived .tres — the exact
 ## "plays the edited level immediately" promise broken.
 ##
 ## Run via gda (ADR-0031) with the builder FORCED TO FAIL — the seam test points
 ## PANDA_EDITOR_PYTHON at an interpreter that exits non-zero (/usr/bin/false) —
-## against a THROWAWAY PROJECT COPY (the save half succeeds, so data/json is
+## against a THROWAWAY PROJECT COPY (the save half succeeds, so content/data/json is
 ## written in place):
 ##   PANDA_EDITOR_PYTHON=/usr/bin/false gda script run \
 ##       res://tests/gdscript/test_editor_play_abort.gd
@@ -17,7 +17,7 @@ extends SceneTree
 ## asserts the abort: edit mode holds, no play instance under PlayHost, and the
 ## status carries derive_failed. Prints "PLAY_ABORT: PASS" + quit(0) on success.
 
-const EditorScene := preload("res://scenes/editor.tscn")
+const EditorScene := preload("res://tools/editor/editor.tscn")
 
 
 func _fail(msg: String) -> void:

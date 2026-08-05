@@ -19,7 +19,7 @@ We decide two things:
   the animation state machine (this slice), the SFX players (#444), and the VFX (#448)
   each `connect` to the subset they present. So look/sound/effect stay OUT of the
   controller and entirely out of the pure Systems — the Phase-2 closed logic-change
-  list is *view-integration hooks + numeric config only*, never a `src/systems/`
+  list is *view-integration hooks + numeric config only*, never a `systems/`
   behavioral diff. The surface splits in two: a **locomotion base state**
   (`locomotion_changed(state)`, one of idle/run/jump/fall) emitted on the change edge
   only (the gda-logger no-spam convention), which the animator loops; and **discrete

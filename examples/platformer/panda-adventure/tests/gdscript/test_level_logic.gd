@@ -11,7 +11,7 @@ extends SceneTree
 ## global_script_class_cache) and assert every transition and boundary.
 ## Prints "LOGIC_SEAM: PASS" + quit(0) on success, else push_error + quit(1).
 
-const GameStateSystemScript := preload("res://src/systems/game_state_system.gd")
+const GameStateSystemScript := preload("res://systems/game_state_system.gd")
 
 
 func _fail(msg: String) -> void:

@@ -4,6 +4,14 @@ status: accepted
 
 # Level integration: the Great-Wall blockout and the end-state loop
 
+> **Outcome (2026-08-05, gADR-0020).** The modular runtime refactor preserved
+> the S9 behavior while relocating it: `main.tscn` became the Content-owned
+> `content/scenes/gameplay.tscn`, composed by `ui/game_shell.tscn` with the HUD
+> and End screen; `GameStateSystem` now lives at `systems/game_state_system.gd`.
+> Content freezes Gameplay and accepts Retry; the Game Shell observes the result
+> and reloads its composition scene. The body below preserves S9's original
+> placement and decision history.
+
 S9 closes Phase 1: the single demo level assembled as the GDD's Great-Wall
 blockout, and the arc's end states — win (schedule cleared), lose (Player HP
 0), retry — so the "one-more-try" loop the GDD names as the emotional goal

@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/content/data/schema/enemies_config.schema.json",
+  "title": "Panda Adventure enemy taxonomy configuration",
+  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003), the S6a per-Tier Kill reward table (gADR-0004), and the S5 Wave schedule (gADR-0005). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward, drops}) — the AUTHORITY for what a kill awards and drops (gADR-0004, gADR-0006); the builder resolves it into per-kind derived exp_reward/gold_reward/drop_table fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001) and its Archetype-AI params; the body box, the bolt box, and the Time Dilation Field radius migrated to scale_spec.json's enemy_boxes (gADR-0013), composed back in by the builder. `waves` is the Wave schedule: the ordered list of Waves the level plays through, each Wave one Spawn Roster (the which-kind-spawns-where entries of gADR-0003); the wave COUNT is the array's length — config, never code. `spawn_squash`/`spawn_tween_duration` are the spawn-telegraph tween numbers (the wave system's juice, gADR-0005). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (content/data/generated/enemy_<kind>.tres) plus content/data/generated/wave_schedule.tres (WaveScheduleConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity across every wave, spawn-name uniqueness across the whole schedule, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tiers", "kinds", "spawn_squash", "spawn_tween_duration", "waves"],
+  "$defs": {
+    "tier_reward": {
+      "description": "One Tier's Kill reward budget: the EXP and Gold awarded to the Player when an Enemy of this Tier dies (gADR-0004), plus the Tier's Drop table (gADR-0006) — the same per-Tier reward authority extended to drops.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exp_reward", "gold_reward", "drops"],
+      "properties": {
+        "exp_reward": {
+          "description": "EXP awarded per kill of this Tier; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "gold_reward": {
+          "description": "Gold awarded per kill of this Tier; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "drops": {
+          "description": "The Tier's Drop table: what a kill of this Tier may leave behind as Pickups (gADR-0006). May be empty (a Tier that drops nothing); each entry rolls independently.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/drop_entry" }
+        }
+      }
+    },
+    "drop_entry": {
+      "description": "One Drop-table entry: the item a Pickup carries, how much of it, and the independent probability the entry drops at all. Every item name has a pickup blockout style in progression_config.json's drop_items (all Phase-1 items required there — coverage by construction).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "amount", "chance"],
+      "properties": {
+        "item": {
+          "description": "What drops: gold (accumulates onto the Player's Gold), or a Consumable item (bun/wine — counted by the S6b item hook; S7 owns their use-effects).",
+          "enum": ["gold", "bun", "wine"]
+        },
+        "amount": {
+          "description": "How much one Pickup of this entry carries (gold value, or item count); a whole number, at least 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "chance": {
+          "description": "Independent drop probability in (0, 1]: 1.0 always drops; a 0 chance would be dead config and is rejected.",
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0
+        }
+      }
+    },
+    "rgba": {
+      "description": "A color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "vec2": {
+      "description": "A 2D vector (x, y) in pixels.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "enemy_kind": {
+      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block) and the Archetype-AI params; the body/bolt boxes and the Time Dilation Field radius live in scale_spec.json's enemy_boxes (gADR-0013). Ranged kinds additionally carry their bolt's projectile motion/color block (enforced by the if/then below). A kind MAY carry the presence-gated Warp block (gADR-0009) — the warp_*/time_field_* params of the Boss's Warp kit, keyed to neither Tier nor Archetype; the dependentRequired map makes the block all-or-none.",
+      "type": "object",
+      "additionalProperties": false,
+      "dependentRequired": {
+        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_color", "time_field_fade_duration"],
+        "time_field_color": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_fade_duration"],
+        "time_field_fade_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color"]
+      },
+      "required": [
+        "faction",
+        "tier",
+        "archetype",
+        "max_hp",
+        "max_mp",
+        "attack",
+        "defense",
+        "color",
+        "move_speed",
+        "gravity",
+        "max_fall_speed",
+        "aggro_range",
+        "attack_range",
+        "attack_cooldown",
+        "keep_range_min",
+        "keep_range_max",
+        "attack_squash",
+        "attack_tween_duration"
+      ],
+      "if": { "properties": { "archetype": { "const": "ranged" } } },
+      "then": {
+        "required": [
+          "projectile_color",
+          "projectile_speed",
+          "projectile_lifetime",
+          "projectile_spawn_offset"
+        ]
+      },
+      "properties": {
+        "faction": {
+          "description": "Visual-and-lore family axis (cosmetic and narrative only).",
+          "enum": ["monster", "xenomorph", "alien", "robot"]
+        },
+        "tier": {
+          "description": "Power-and-reward grade axis: drives the stat budget, and keys this kind's Kill reward in the top-level `tiers` table (gADR-0004).",
+          "enum": ["minion", "elite", "boss"]
+        },
+        "archetype": {
+          "description": "Combat-style axis, driving AI behavior and attack delivery. All three run the shared Steering-Band rule since S8 (gADR-0009 lifted gADR-0003's Tank deferral); delivery is contact for melee/tank, a bolt for ranged.",
+          "enum": ["melee", "ranged", "tank"]
+        },
+        "max_hp": {
+          "description": "Maximum (and starting) HP; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "max_mp": {
+          "description": "Maximum (and starting) MP; non-negative (enemies spend no MP in Phase 1).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "attack": {
+          "description": "Attack stat fed to the symmetric damage formula when this kind attacks; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "defense": {
+          "description": "Defense/mitigation stat fed to the damage formula when this kind defends; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "color": { "$ref": "#/$defs/rgba" },
+        "asset": {
+          "description": "Optional view asset reference for this kind's body block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        },
+        "move_speed": {
+          "description": "Horizontal steering speed in px/s; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "gravity": {
+          "description": "Downward acceleration in px/s^2 while airborne; non-negative (0 = floating kind).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "max_fall_speed": {
+          "description": "Terminal fall speed in px/s; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "aggro_range": {
+          "description": "Distance within which the Archetype AI activates (Aggro Range); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_range": {
+          "description": "Maximum distance at which an attack may fire; strictly positive. For contact-delivery kinds (every non-ranged archetype: melee, and tank since gADR-0009) it must not exceed keep_range_max — contact damage is gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_cooldown": {
+          "description": "Seconds between attacks; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "keep_range_min": {
+          "description": "Steering Band lower edge: back off when the Player is closer than this; non-negative (0 = never back off, the Melee shape). Must not exceed keep_range_max (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "keep_range_max": {
+          "description": "Steering Band upper edge: close in while the Player is farther than this; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_squash": {
+          "description": "Visual scale punch at the moment of an attack (the attack-telegraph tween); each component strictly positive.",
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0.0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "attack_tween_duration": {
+          "description": "Seconds for the attack squash to recover to normal scale; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_color": { "$ref": "#/$defs/rgba" },
+        "projectile_asset": {
+          "description": "Optional view asset reference for this kind's bolt block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        },
+        "projectile_speed": {
+          "description": "Enemy bolt travel speed in px/s; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_lifetime": {
+          "description": "Seconds before an unhit enemy bolt despawns; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_spawn_offset": {
+          "description": "Enemy bolt spawn offset (x, y) from the enemy origin; x is scaled by the aim direction's sign.",
+          "$ref": "#/$defs/vec2"
+        },
+        "warp_cooldown": {
+          "description": "Seconds between Warp casts (gADR-0009); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_trigger_range": {
+          "description": "The Warp Blink fires only when the Player is FARTHER than this — the anti-kite engage gate. Must not undercut attack_range (the Boss never warps inside a brawl — enforced by build_config.validate_enemies_semantics; not expressible here); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_offset": {
+          "description": "Blink landing offset (x, y) from the Player's cast-time position; x is applied on the Player's far side from the Boss (cutting off the retreat, gADR-0009).",
+          "$ref": "#/$defs/vec2"
+        },
+        "warp_tell_duration": {
+          "description": "Seconds of the charge-up tell before the blink — a Warp always telegraphs; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_recovery_duration": {
+          "description": "Seconds of the no-attack recovery window after landing (the fair-exchange window); non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "time_field_factor": {
+          "description": "The time scale applied to the Player's body sim and laser bolts inside the field, strictly inside (0, 1): 0 would freeze (a stun, rejected), 1 would be dead config, and the field never accelerates.",
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "exclusiveMaximum": 1.0
+        },
+        "time_field_duration": {
+          "description": "Seconds the field persists after the blink drops it; strictly positive. Must stay strictly below warp_cooldown — at most one field exists at a time (gADR-0009; enforced by build_config.validate_enemies_semantics, not expressible here).",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "time_field_color": {
+          "description": "Time Dilation Field zone color (RGBA; alpha is the translucency of the overlay block).",
+          "$ref": "#/$defs/rgba"
+        },
+        "time_field_asset": {
+          "description": "Optional view asset reference for this kind's Time Dilation Field block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000). Optional even for a Warp kind, so it stays OUT of the warp block's all-or-none dependentRequired lists.",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        },
+        "time_field_fade_duration": {
+          "description": "Seconds of the field's spawn fade-in / expiry fade-out tween; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        }
+      }
+    },
+    "spawn": {
+      "description": "One Spawn Roster entry: which Enemy Kind spawns, under what node name, at what center position.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "position"],
+      "properties": {
+        "kind": {
+          "description": "The Enemy Kind key in `kinds` this entry spawns (referential integrity enforced by build_config.validate_enemies_semantics).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "description": "The spawned node's name; unique across the whole Wave schedule for addressability (enforced by build_config.validate_enemies_semantics).",
+          "type": "string",
+          "minLength": 1
+        },
+        "position": { "$ref": "#/$defs/vec2" }
+      }
+    },
+    "wave": {
+      "description": "One Wave: a Spawn Roster spawned when the wave starts; waves advance in sequence as each is cleared (gADR-0005).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spawns"],
+      "properties": {
+        "spawns": {
+          "description": "This Wave's composition: at least one spawn entry.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/spawn" }
+        }
+      }
+    }
+  },
+  "properties": {
+    "tiers": {
+      "description": "The per-Tier Kill reward table, keyed by Tier name (the same enum as a kind's `tier` axis). A subset is schema-valid; that every Tier actually USED by a kind has an entry here is a cross-field rule owned by build_config.validate_enemies_semantics.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "minion": { "$ref": "#/$defs/tier_reward" },
+        "elite": { "$ref": "#/$defs/tier_reward" },
+        "boss": { "$ref": "#/$defs/tier_reward" }
+      }
+    },
+    "kinds": {
+      "description": "Enemy Kind definitions, keyed by kind name.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/$defs/enemy_kind" }
+    },
+    "spawn_squash": {
+      "description": "Visual scale a spawned enemy's block punches FROM at the moment it spawns (the spawn-telegraph tween, gADR-0005); each component strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "spawn_tween_duration": {
+      "description": "Seconds for the spawn squash to recover to normal scale; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "waves": {
+      "description": "The Wave schedule: the ordered Waves the level plays through. The wave count is this array's length — reconfiguring to 3 or 5 waves is a JSON-only change (gADR-0005).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/wave" }
+    }
+  }
+}

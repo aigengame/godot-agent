@@ -4,6 +4,12 @@ status: accepted
 
 # Kill reward: per-Tier budget resolved to per-kind fields, and a pull-based HUD
 
+> **Outcome (2026-08-05, gADR-0020).** The modular runtime refactor moved the
+> HUD to `ui/hud.tscn`, instanced it from `ui/game_shell.tscn`, and replaced
+> Player group discovery with an explicit Game Shell binding. The pull-based
+> snapshot contract is unchanged; the body below preserves S6a's original
+> placement and decision history.
+
 S6a delivers the reward half of the death/reward story plus the first UI
 surface: defeating an Enemy awards EXP and Gold scaled by its Tier, feeding
 the S2 StatsSystem, and a HUD surfaces the Player's live HP/MP/EXP/Gold and

@@ -6,7 +6,7 @@ crate texture rather than the flat block — end to end from the manifest id in 
 authority, through the builder's id -> path composition, to a live sprite on screen:
 
 - ``gda game tree`` shows a ``Sprite`` (TextureRect) child under
-  ``/root/Main/Obstacle/Visual`` — the ViewBuilder adds it ONLY when the resolved
+  ``/root/Main/Gameplay/Obstacle/Visual`` — the ViewBuilder adds it ONLY when the resolved
   texture loads (a null load takes the colored-block fallback and adds no child),
   so its presence is proof the texture path was taken;
 - ``gda screen capture`` writes a real PNG of the running viewport (decodable, the
@@ -15,7 +15,7 @@ authority, through the builder's id -> path composition, to a live sprite on scr
 Modeled on ``test_e2e_screenshot.py``: a throwaway project COPY (``daemon start``
 mutates ``project.godot``), display-gated (skips visibly, ``-rs``, where no window
 server is usable), posix-only (the live stack is ``AF_UNIX``). The copy carries the
-committed ``assets/`` tree (the texture + its ``.import`` + the manifest), so its
+committed ``content/assets/`` tree (the texture + its ``.import`` + the manifest), so its
 rebuilt ``gravity_config.tres`` resolves the obstacle path just like the shipped one.
 
 A second test extends the tracer to the P2-S3 Laser bolt (#442) as a HEADLESS

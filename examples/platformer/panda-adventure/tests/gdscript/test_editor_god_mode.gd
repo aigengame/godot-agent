@@ -3,7 +3,7 @@ extends SceneTree
 ## Regression for the #476 review's god-mode correctness finding: the debug
 ## palette's god-mode must PREVENT death, not paper over it after the fact.
 ##
-## Boots the real game (main.tscn), then drives the Player's set_debug_invulnerable
+## Boots the real Game Shell, then drives the Player's set_debug_invulnerable
 ## API — the exact seam the palette's _process drives — and proves a LETHAL hit is
 ## refused at the source (take_hit), so the death latch never fires:
 ##
@@ -17,8 +17,8 @@ extends SceneTree
 ## push_error + quit(1). Runs from source (not a template build), so the take_hit
 ## debug gate is active — exactly the dev-machine editor context god-mode targets.
 
-const MainScene := preload("res://scenes/main.tscn")
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
+const MainScene := preload("res://ui/game_shell.tscn")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
 
 
 func _fail(msg: String) -> void:
@@ -33,7 +33,8 @@ func _init() -> void:
 	await process_frame
 	await process_frame
 
-	var player := get_first_node_in_group("player")
+	var gameplay: Node = main.get_node_or_null("Gameplay")
+	var player: Node = gameplay.player_node() if gameplay != null else null
 	if player == null:
 		_fail("player not found in the running game")
 		return

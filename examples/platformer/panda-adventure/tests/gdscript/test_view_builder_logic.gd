@@ -16,7 +16,7 @@ extends SceneTree
 ## runtime has no editor-generated global_script_class_cache). Prints "LOGIC_SEAM:
 ## PASS" + quit(0) on success, else push_error + quit(1).
 
-const ViewBuilderScript := preload("res://src/view/view_builder.gd")
+const ViewBuilderScript := preload("res://content/presentation/view_builder.gd")
 
 const EPS := 0.0001
 
@@ -154,7 +154,7 @@ func _check_circle() -> bool:
 ## crate), which doubles as a headless load-and-import smoke of that asset.
 func _check_asset_resolution() -> bool:
 	var root := _make_root()
-	var asset := "res://assets/textures/obstacle_crate.png"
+	var asset := "res://content/assets/textures/obstacle_crate.png"
 	var size := Vector2(40, 40)
 	ViewBuilderScript.apply_box(root, Color.WHITE, size, false, asset)
 
@@ -193,7 +193,7 @@ func _check_asset_resolution() -> bool:
 ## load-and-import smoke of the committed player.tres + its sheets.
 func _check_sprite_frames_resolution() -> bool:
 	var root := _make_root()
-	var asset := "res://assets/sprites/player.tres"
+	var asset := "res://content/assets/sprites/player.tres"
 	var size := Vector2(48, 64)
 	ViewBuilderScript.apply_box(root, Color.WHITE, size, true, asset)
 

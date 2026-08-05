@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="WaveScheduleConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://content/config/wave_schedule_config.gd" id="1_waveschedule"]
+
+[resource]
+script = ExtResource("1_waveschedule")
+spawn_squash = Vector2(0.3, 0.3)
+spawn_tween_duration = 0.25
+waves = [{"spawns": [{"kind": "monster_minion_melee", "name": "Enemy", "position": Vector2(640, 452)}]}, {"spawns": [{"kind": "robot_elite_ranged", "name": "EliteRobot", "position": Vector2(760, 440)}]}, {"spawns": [{"kind": "xenomorph_minion_melee", "name": "SwarmMeleeA", "position": Vector2(680, 456)}, {"kind": "xenomorph_minion_melee", "name": "SwarmMeleeB", "position": Vector2(740, 456)}, {"kind": "xenomorph_minion_ranged", "name": "SwarmRanged", "position": Vector2(770, 452)}]}, {"spawns": [{"kind": "alien_boss_tank", "name": "Boss", "position": Vector2(700, 412)}]}]

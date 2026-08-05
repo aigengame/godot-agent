@@ -101,7 +101,7 @@ def test_default_wave_two_stays_dormant_at_the_legacy_kill_positions() -> None:
     """
     config = _config()
     # Composed: player_size is authored in scale_spec.json (gADR-0013).
-    player_cfg = build_config.load_composed("data/json/player_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
     rampart = _rampart()
     rest_y = (
         rampart["position"][1]
@@ -175,14 +175,16 @@ def test_reconfiguring_the_wave_count_is_json_only(tmp_path, count: int) -> None
     carrying exactly that many waves.
     """
     _stage_inputs(tmp_path)
-    enemies_path = tmp_path / "data/json/enemies_config.json"
+    enemies_path = tmp_path / "content/data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     config["waves"] = _reconfigured_waves(count)
     enemies_path.write_text(json.dumps(config), encoding="utf-8")
 
     build_config.build_all(root=tmp_path)
 
-    tres = (tmp_path / "data/generated/wave_schedule.tres").read_text(encoding="utf-8")
+    tres = (tmp_path / "content/data/generated/wave_schedule.tres").read_text(
+        encoding="utf-8"
+    )
     assert tres.count('{"spawns": [') == count
     for n in range(1, count + 1):
         assert f'"name": "Wave{n}Minion"' in tres
@@ -284,7 +286,9 @@ def test_wave_schedule_round_trips(gda) -> None:
     all matching the authoritative JSON.
     """
     config = _config()
-    result = gda("resource", "get", "res://data/generated/wave_schedule.tres", "--json")
+    result = gda(
+        "resource", "get", "res://content/data/generated/wave_schedule.tres", "--json"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     props = {p["name"]: p["value"] for p in json.loads(result.stdout)["properties"]}
     assert props["spawn_squash"] == pytest.approx(config["spawn_squash"])

@@ -26,9 +26,9 @@ import pytest
 
 import build_config
 
-SCALE_JSON_PATH = build_config.GAME_DIR / "data/json/scale_spec.json"
-SCALE_SCHEMA_PATH = build_config.GAME_DIR / "data/schema/scale_spec.schema.json"
-SCALE_TRES_REL = "data/generated/scale_spec.tres"
+SCALE_JSON_PATH = build_config.GAME_DIR / "content/data/json/scale_spec.json"
+SCALE_SCHEMA_PATH = build_config.GAME_DIR / "content/data/schema/scale_spec.schema.json"
+SCALE_TRES_REL = "content/data/generated/scale_spec.tres"
 
 
 def _valid_spec() -> dict:
@@ -177,7 +177,7 @@ def test_off_grid_segment_gates_the_build_with_no_partial_writes(tmp_path) -> No
     PR #457 review finding).
     """
     _stage_inputs(tmp_path)
-    level_path = tmp_path / "data/json/level_config.json"
+    level_path = tmp_path / "content/data/json/level_config.json"
     config = json.loads(level_path.read_text(encoding="utf-8"))
     config["platforms"][-1]["size"] = [140.0, 48.0]
     level_path.write_text(json.dumps(config), encoding="utf-8")
@@ -185,7 +185,7 @@ def test_off_grid_segment_gates_the_build_with_no_partial_writes(tmp_path) -> No
     with pytest.raises(jsonschema.ValidationError):
         build_config.build_all(root=tmp_path)
 
-    generated = tmp_path / "data" / "generated"
+    generated = tmp_path / "content" / "data" / "generated"
     written = (
         sorted(p.name for p in generated.glob("*.tres")) if generated.exists() else []
     )
@@ -197,7 +197,7 @@ def test_broken_tier_ordering_gates_the_build_with_no_partial_writes(tmp_path) -
     zero derived outputs — the semantic gate fires on the FIRST spec, not
     when the scale spec's own output is finally reached."""
     _stage_inputs(tmp_path)
-    scale_path = tmp_path / "data/json/scale_spec.json"
+    scale_path = tmp_path / "content/data/json/scale_spec.json"
     spec = json.loads(scale_path.read_text(encoding="utf-8"))
     spec["enemy_boxes"]["monster_minion_melee"]["size"] = [200.0, 200.0]
     scale_path.write_text(json.dumps(spec), encoding="utf-8")
@@ -205,7 +205,7 @@ def test_broken_tier_ordering_gates_the_build_with_no_partial_writes(tmp_path) -
     with pytest.raises(jsonschema.ValidationError):
         build_config.build_all(root=tmp_path)
 
-    generated = tmp_path / "data" / "generated"
+    generated = tmp_path / "content" / "data" / "generated"
     written = (
         sorted(p.name for p in generated.glob("*.tres")) if generated.exists() else []
     )
@@ -221,18 +221,18 @@ def test_composition_injects_every_migrated_dimension() -> None:
     """``load_composed`` returns each source with its dimensions injected."""
     scale = build_config.load_json(SCALE_JSON_PATH)
 
-    player = build_config.load_composed("data/json/player_config.json")
+    player = build_config.load_composed("content/data/json/player_config.json")
     assert player["player_size"] == scale["player_size"]
 
-    combat = build_config.load_composed("data/json/combat_config.json")
+    combat = build_config.load_composed("content/data/json/combat_config.json")
     assert combat["projectile_size"] == scale["player_projectile_size"]
     assert "enemy_size" not in combat  # the legacy block stays deleted
 
-    gravity = build_config.load_composed("data/json/gravity_config.json")
+    gravity = build_config.load_composed("content/data/json/gravity_config.json")
     assert gravity["field_radius"] == scale["gravity_field_radius"]
     assert gravity["obstacle_size"] == scale["obstacle_size"]
 
-    enemies = build_config.load_composed("data/json/enemies_config.json")
+    enemies = build_config.load_composed("content/data/json/enemies_config.json")
     for name, kind in enemies["kinds"].items():
         box = scale["enemy_boxes"][name]
         assert kind["size"] == box["size"], name
@@ -242,16 +242,18 @@ def test_composition_injects_every_migrated_dimension() -> None:
         if "warp_cooldown" in kind:
             assert kind["time_field_radius"] == box["time_field_radius"], name
 
-    hud = build_config.load_composed("data/json/hud_config.json")
+    hud = build_config.load_composed("content/data/json/hud_config.json")
     assert hud["margin"] == scale["hud_margin"]
     assert hud["font_size"] == scale["hud_font_size"]
 
-    progression = build_config.load_composed("data/json/progression_config.json")
+    progression = build_config.load_composed(
+        "content/data/json/progression_config.json"
+    )
     assert progression["pickup_spacing"] == scale["pickup_spacing"]
     for item, style in progression["drop_items"].items():
         assert style["size"] == scale["pickup_sizes"][item], item
 
-    level = build_config.load_composed("data/json/level_config.json")
+    level = build_config.load_composed("content/data/json/level_config.json")
     assert level["end_title_font_size"] == scale["end_title_font_size"]
     assert level["end_hint_font_size"] == scale["end_hint_font_size"]
 
@@ -263,7 +265,9 @@ def test_composition_rejects_a_kind_without_a_box() -> None:
     enemies = copy.deepcopy(build_config.load_json(build_config.ENEMIES_JSON_PATH))
     enemies["kinds"]["new_kind"] = dict(enemies["kinds"]["monster_minion_melee"])
     with pytest.raises(jsonschema.ValidationError):
-        build_config.compose_scale_spec(enemies, "data/json/enemies_config.json", scale)
+        build_config.compose_scale_spec(
+            enemies, "content/data/json/enemies_config.json", scale
+        )
 
 
 # ---------------------------------------------------------------------------

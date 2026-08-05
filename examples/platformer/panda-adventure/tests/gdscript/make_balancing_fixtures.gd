@@ -25,14 +25,12 @@ extends SceneTree
 ## BALANCING_FIXTURES_DIR environment variable, prints FIXTURES_DONE + quit(0);
 ## any environment/save failure prints FIXTURE_FAIL + quit(1).
 
-const CombatSystemScript := preload("res://src/systems/combat_system.gd")
-const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
-const WarpSystemScript := preload("res://src/systems/warp_system.gd")
-const ItemSystemScript := preload("res://src/systems/item_system.gd")
-const GrowthSystemScript := preload("res://src/systems/growth_system.gd")
-const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
-const StatsConfigScript := preload("res://src/resources/stats_config.gd")
-const CombatConfigScript := preload("res://src/resources/combat_config.gd")
+const CombatSystemScript := preload("res://systems/combat_system.gd")
+const EnemyAIScript := preload("res://systems/enemy_ai.gd")
+const WarpSystemScript := preload("res://systems/warp_system.gd")
+const ItemSystemScript := preload("res://systems/item_system.gd")
+const GrowthSystemScript := preload("res://systems/growth_system.gd")
+const StatsConfigScript := preload("res://systems/stats_config.gd")
 
 const LONG_AGO := -1.0e30
 
@@ -44,17 +42,15 @@ func _damage_case(
 	attacker.attack = attack
 	var defender := StatsConfigScript.new()
 	defender.defense = defense
-	var params := CombatConfigScript.new()
-	params.attack_scale = attack_scale
-	params.defense_scale = defense_scale
-	params.min_damage = min_damage
 	return {
 		"attacker_attack": attack,
 		"defender_defense": defense,
 		"attack_scale": attack_scale,
 		"defense_scale": defense_scale,
 		"min_damage": min_damage,
-		"expected": CombatSystemScript.compute_damage(attacker, defender, params),
+		"expected": CombatSystemScript.compute_damage(
+			attacker, defender, attack_scale, defense_scale, min_damage
+		),
 	}
 
 
@@ -71,22 +67,6 @@ func _dead_case(hp: float) -> Dictionary:
 	return {"hp": hp, "expected": CombatSystemScript.is_dead(hp)}
 
 
-func _make_kind(
-	aggro_range: float,
-	attack_range: float,
-	attack_cooldown: float,
-	keep_range_min: float,
-	keep_range_max: float,
-) -> EnemyConfigScript:
-	var kind := EnemyConfigScript.new()
-	kind.aggro_range = aggro_range
-	kind.attack_range = attack_range
-	kind.attack_cooldown = attack_cooldown
-	kind.keep_range_min = keep_range_min
-	kind.keep_range_max = keep_range_max
-	return kind
-
-
 func _move_case(
 	self_pos: Array,
 	player_pos: Array,
@@ -94,7 +74,6 @@ func _move_case(
 	keep_range_min: float,
 	keep_range_max: float,
 ) -> Dictionary:
-	var kind := _make_kind(aggro_range, 0.0, 0.0, keep_range_min, keep_range_max)
 	var sp := Vector2(self_pos[0], self_pos[1])
 	var pp := Vector2(player_pos[0], player_pos[1])
 	return {
@@ -103,7 +82,9 @@ func _move_case(
 		"aggro_range": aggro_range,
 		"keep_range_min": keep_range_min,
 		"keep_range_max": keep_range_max,
-		"expected": EnemyAIScript.compute_move_dir(sp, pp, kind),
+		"expected": EnemyAIScript.compute_move_dir(
+			sp, pp, aggro_range, keep_range_min, keep_range_max
+		),
 	}
 
 
@@ -125,7 +106,6 @@ func _can_attack_case(
 	last_attack_time: float,
 	now: float,
 ) -> Dictionary:
-	var kind := _make_kind(aggro_range, attack_range, attack_cooldown, 0.0, attack_range)
 	var sp := Vector2(self_pos[0], self_pos[1])
 	var pp := Vector2(player_pos[0], player_pos[1])
 	return {
@@ -136,19 +116,16 @@ func _can_attack_case(
 		"attack_cooldown": attack_cooldown,
 		"last_attack_time": last_attack_time,
 		"now": now,
-		"expected": EnemyAIScript.can_attack(sp, pp, kind, last_attack_time, now),
+		"expected": EnemyAIScript.can_attack(
+			sp,
+			pp,
+			aggro_range,
+			attack_range,
+			attack_cooldown,
+			last_attack_time,
+			now,
+		),
 	}
-
-
-func _make_warp_kind(
-	aggro_range: float, warp_trigger_range: float, warp_cooldown: float, warp_offset: Array
-) -> EnemyConfigScript:
-	var kind := EnemyConfigScript.new()
-	kind.aggro_range = aggro_range
-	kind.warp_trigger_range = warp_trigger_range
-	kind.warp_cooldown = warp_cooldown
-	kind.warp_offset = Vector2(warp_offset[0], warp_offset[1])
-	return kind
 
 
 func _should_warp_case(
@@ -160,7 +137,6 @@ func _should_warp_case(
 	last_warp_time: float,
 	now: float,
 ) -> Dictionary:
-	var kind := _make_warp_kind(aggro_range, warp_trigger_range, warp_cooldown, [0.0, 0.0])
 	var sp := Vector2(self_pos[0], self_pos[1])
 	var pp := Vector2(player_pos[0], player_pos[1])
 	return {
@@ -171,7 +147,15 @@ func _should_warp_case(
 		"warp_cooldown": warp_cooldown,
 		"last_warp_time": last_warp_time,
 		"now": now,
-		"expected": WarpSystemScript.should_warp(sp, pp, kind, last_warp_time, now),
+		"expected": WarpSystemScript.should_warp(
+			sp,
+			pp,
+			aggro_range,
+			warp_trigger_range,
+			warp_cooldown,
+			last_warp_time,
+			now,
+		),
 	}
 
 
@@ -182,10 +166,11 @@ func _warp_landing_case(
 	arena_min_x: float,
 	arena_max_x: float,
 ) -> Dictionary:
-	var kind := _make_warp_kind(0.0, 0.0, 1.0, warp_offset)
 	var sp := Vector2(self_pos[0], self_pos[1])
 	var pp := Vector2(player_pos[0], player_pos[1])
-	var landing := WarpSystemScript.warp_landing(sp, pp, kind, arena_min_x, arena_max_x)
+	var landing := WarpSystemScript.warp_landing(
+		sp, pp, Vector2(warp_offset[0], warp_offset[1]), arena_min_x, arena_max_x
+	)
 	return {
 		"self_pos": self_pos,
 		"player_pos": player_pos,

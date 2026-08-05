@@ -94,12 +94,12 @@ def _reconfigure(config: dict) -> dict:
 
 def _make_project_copy(dst: Path) -> Path:
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies_path = dst / "content" / "data" / "json" / "enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
     enemies_path.write_text(
         json.dumps(_reconfigure(config), indent=2) + "\n", encoding="utf-8"
     )
-    scale_path = dst / "data" / "json" / "scale_spec.json"
+    scale_path = dst / "content" / "data" / "json" / "scale_spec.json"
     scale = json.loads(scale_path.read_text(encoding="utf-8"))
     scale["enemy_boxes"][_BOSS_KIND]["time_field_radius"] = 400.0
     scale_path.write_text(json.dumps(scale, indent=2) + "\n", encoding="utf-8")
@@ -182,7 +182,7 @@ class _Session:
         release settles so the instantaneous-horizontal blockout yields an
         exact ticks * speed / 60 displacement.
         """
-        before = self.position("/root/Main/Player")[0]
+        before = self.position("/root/Main/Gameplay/Player")[0]
         seq = self.run(
             "input",
             "sequence",
@@ -202,7 +202,7 @@ class _Session:
         assert seq.returncode == 0, seq.stdout + seq.stderr
         # The sequence op returns when injected; wait for the hold to play out.
         moved = self.poll(
-            lambda: self.position("/root/Main/Player")[0],
+            lambda: self.position("/root/Main/Gameplay/Player")[0],
             timeout=5.0,
             interval=0.25,
         )
@@ -212,7 +212,7 @@ class _Session:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             time.sleep(0.25)
-            now_x = self.position("/root/Main/Player")[0]
+            now_x = self.position("/root/Main/Gameplay/Player")[0]
             if now_x == last:
                 break
             last = now_x
@@ -223,10 +223,12 @@ class _Session:
 def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runtime_dir):
     """One full Warp rotation, live: tell -> formula blink -> zone -> release."""
     project = _make_project_copy(tmp_path / "game")
-    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
+    enemies = build_config.load_composed(
+        "content/data/json/enemies_config.json", root=project
+    )
     boss = enemies["kinds"][_BOSS_KIND]
-    player_cfg = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    player_cfg = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     move_speed = player_cfg["move_speed"]
     factor = boss["time_field_factor"]
     s = _Session(project)
@@ -265,7 +267,9 @@ def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runti
         assert field["duration"] == pytest.approx(boss["time_field_duration"])
 
         # The Boss actually moved in the runtime tree, not just in the log.
-        assert s.position("/root/Main/Boss")[0] == pytest.approx(blink["to_x"], abs=2.0)
+        assert s.position("/root/Main/Gameplay/Boss")[0] == pytest.approx(
+            blink["to_x"], abs=2.0
+        )
 
         # The Player is inside the zone: the dilation EDGE record fires with
         # the config factor.

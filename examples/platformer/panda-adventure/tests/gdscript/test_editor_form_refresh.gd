@@ -13,8 +13,8 @@ extends SceneTree
 ##   gda script run res://tests/gdscript/test_editor_form_refresh.gd
 ## Prints "FORM_REFRESH: PASS" + quit(0) on success, else push_error + quit(1).
 
-const ModelScript := preload("res://src/editor/editor_level_model.gd")
-const FormsScript := preload("res://src/editor/editor_forms.gd")
+const ModelScript := preload("res://tools/editor/editor_level_model.gd")
+const FormsScript := preload("res://tools/editor/editor_forms.gd")
 
 
 func _fail(msg: String) -> void:
@@ -33,7 +33,7 @@ func _init() -> void:
 	forms.build(box, [
 		{
 			"authority": ModelScript.AUTHORITY_LEVEL,
-			"schema_path": "res://data/schema/level_config.schema.json",
+			"schema_path": "res://content/data/schema/level_config.schema.json",
 			"title": "Level",
 		},
 	])

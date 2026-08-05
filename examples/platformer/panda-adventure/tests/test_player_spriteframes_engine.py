@@ -4,7 +4,7 @@ The fast tier ``test_assets_lifecycle.py`` pins the multi-animation deriver's TE
 (``derive_spriteframes_set``: ext_resources, per-state regions, loop flags,
 determinism); it cannot prove the emitted ``.tres`` is a *valid Godot resource*.
 This engine-tier test closes that gap for the SHIPPED artifact
-(``assets/sprites/player.tres``, derived from the per-state sheets and committed): it
+(``content/assets/sprites/player.tres``, derived from the per-state sheets and committed): it
 loads the resource in a headless Godot ``SceneTree`` and asserts every animation
 state is present with a nonempty frame set of ``AtlasTexture`` frames, and that the
 locomotion states loop while the verb one-shots do not — the animation contract the
@@ -45,7 +45,7 @@ _ONESHOT = ("fire", "hurt", "consume", "level_up", "death")
 # frame 0 is an AtlasTexture — so the test can assert on stdout.
 _PROBE = """extends SceneTree
 func _initialize() -> void:
-	var sf = load("res://assets/sprites/player.tres")
+	var sf = load("res://content/assets/sprites/player.tres")
 	if sf == null:
 		print("RESULT=LOAD_FAILED")
 		quit()

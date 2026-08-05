@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="EnemyConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://content/config/enemy_config.gd" id="1_enemyconfig"]
+
+[resource]
+script = ExtResource("1_enemyconfig")
+faction = "xenomorph"
+tier = "minion"
+archetype = "melee"
+max_hp = 15
+max_mp = 0
+attack = 4
+defense = 0
+color = Color(0.2, 0.8, 0.6, 1)
+size = Vector2(40, 40)
+asset = ""
+move_speed = 160
+gravity = 1400
+max_fall_speed = 1200
+aggro_range = 240
+attack_range = 40
+attack_cooldown = 1
+keep_range_min = 0
+keep_range_max = 40
+attack_squash = Vector2(1.25, 0.75)
+attack_tween_duration = 0.15
+exp_reward = 10
+gold_reward = 5
+drop_table = [{"item": "gold", "amount": 3, "chance": 1}, {"item": "bun", "amount": 1, "chance": 0.25}]

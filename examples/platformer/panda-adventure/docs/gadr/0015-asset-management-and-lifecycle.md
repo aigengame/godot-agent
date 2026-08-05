@@ -14,7 +14,7 @@ building directly on gADR-0014 and gADR-0013 (the pixel-art regime).
 
 We decide five things:
 
-- **Storage and naming: `assets/<category>/<id>.<ext>`, flat within a category, keyed
+- **Storage and naming: `content/assets/<category>/<id>.<ext>`, flat within a category, keyed
   by a stable semantic id.** The manifest `id` is a stable semantic slug —
   `<entity>[_<variant>][_<state>]` (`obstacle_crate`, `player_run`,
   `enemy_monster_minion_walk`, `bun`, `wall_span`) — derived from the asset spec (what
@@ -37,9 +37,9 @@ We decide five things:
 - **Commit method is size-based and uniform across categories — never category-based.** A
   large binary can appear in any category (a BGM track, a 2K/4K background texture), so
   the plain-git-vs-Git-LFS boundary is a single **size threshold `T` (default 1 MB;
-  spec-data, revisable)** applied uniformly: an `assets/**` file `>= T` is tracked by Git
+  spec-data, revisable)** applied uniformly: a `content/assets/**` file `>= T` is tracked by Git
   LFS; below `T` it stays plain git. A config-gate **size check** enforces it mechanically
-  — it fails if any `assets/**` binary `>= T` is committed outside LFS — so the policy is
+  — it fails if any `content/assets/**` binary `>= T` is committed outside LFS — so the policy is
   a gate, not a note. Git LFS is set up **before wave-3's first large asset**, so a large
   file is born in LFS and is never committed to plain git and migrated later (which
   rewrites history — the failure mode this decision exists to avoid). Rationale: pixel-art
@@ -87,7 +87,7 @@ means the first over-`T` asset is born in LFS with no history rewrite.
 >   Godot). The runtime sprite-render seam stays wave-3's (#442/#443, gADR-0014).
 > - the **size-based Git-LFS gate** (`tools/assets/lifecycle.py` — the pure size/track
 >   core plus a `git check-attr` predicate), with `T` as spec-data in
->   `panda_adventure.style.json`, `.gitattributes` seeded with the BGM `assets/music/**`
+>   `panda_adventure.style.json`, `.gitattributes` seeded with the BGM `content/assets/music/**`
 >   convention (gate-driven: `git lfs track` a path when the gate flags it), and Git LFS
 >   materialized by CI (`lfs: true`) and the export path.
 >

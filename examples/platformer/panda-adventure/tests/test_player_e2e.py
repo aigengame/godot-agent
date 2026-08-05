@@ -82,8 +82,8 @@ def _prop(get_result: dict, name: str):
 def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Compare against the AUTHORITATIVE JSON, not hardcoded expectations.
-    config = build_config.load_composed("data/json/player_config.json")
-    level_cfg = build_config.load_composed("data/json/level_config.json")
+    config = build_config.load_composed("content/data/json/player_config.json")
+    level_cfg = build_config.load_composed("content/data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     # Where the Player comes to rest: platform top minus half the player height
     # (both bodies centered on their origin). Proof the fall was stopped by the
@@ -114,7 +114,7 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
         )
 
     def player_position() -> list[float]:
-        got = run("game", "get", "/root/Main/Player", "--property", "position")
+        got = run("game", "get", "/root/Main/Gameplay/Player", "--property", "position")
         assert got.returncode == 0, got.stdout + got.stderr
         return _prop(json.loads(got.stdout), "position")
 
@@ -212,7 +212,7 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
         cam_get = run(
             "game",
             "get",
-            "/root/Main/Player/Camera2D",
+            "/root/Main/Gameplay/Player/Camera2D",
             "--property",
             "position_smoothing_enabled",
         )

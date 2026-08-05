@@ -59,7 +59,7 @@ We decide four things:
   framework loads from a config key. *(b) no `no_write_roots` analogue* —
   balancing is a pure read whose one write (`--out`) must be guarded away from
   the config authority; the asset pipeline's PURPOSE is to write into the game
-  tree (`assets/**` + the manifest) at the configured root, so a declared
+  tree (`content/assets/**` + the manifest) at the configured root, so a declared
   protected-roots list has nothing to protect.
 
 - **The license-gate semantics are unchanged.** `validate_asset_licenses`

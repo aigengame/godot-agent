@@ -54,7 +54,7 @@ def _with(key: str, value: object) -> dict:
 
 
 # res:// path of the derived resource, resolved against the project (--project).
-_TRES_RES_PATH = "res://data/generated/player_config.tres"
+_TRES_RES_PATH = "res://content/data/generated/player_config.tres"
 
 
 def _properties_by_name(get_result: dict) -> dict:
@@ -72,7 +72,7 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     conversion preserves both value and Godot type (Color/Vector2/float) across
     every declared field.
     """
-    config = build_config.load_composed("data/json/player_config.json")
+    config = build_config.load_composed("content/data/json/player_config.json")
 
     build_config.GENERATED_TRES.unlink(missing_ok=True)
     out = build_config.build(out_path=build_config.GENERATED_TRES)
@@ -104,7 +104,7 @@ def test_build_produces_round_trippable_resource(gda) -> None:
 def test_generated_resource_is_fresh(tmp_path) -> None:
     """The COMMITTED .tres matches a fresh build — JSON stays authoritative.
 
-    ``data/generated/player_config.tres`` is a derived artifact that is committed
+    ``content/data/generated/player_config.tres`` is a derived artifact that is committed
     (tracked) so a clean checkout / exported ``.app`` boots with no build step.
     This gate runs in the pure-Python tier (every PR): it rebuilds from the
     authoritative JSON to a temp path and asserts byte-equality with the committed
@@ -112,7 +112,7 @@ def test_generated_resource_is_fresh(tmp_path) -> None:
     """
     committed = build_config.GENERATED_TRES
     assert committed.exists(), (
-        "committed data/generated/player_config.tres is missing — "
+        "committed content/data/generated/player_config.tres is missing — "
         "run scripts/build_config.py"
     )
     fresh = build_config.build(out_path=tmp_path / "player_config.tres")

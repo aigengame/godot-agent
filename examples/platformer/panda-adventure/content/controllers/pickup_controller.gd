@@ -1,0 +1,107 @@
+class_name PickupController
+extends Area2D
+
+## One dropped Pickup block (S6b, gADR-0006): carries one resolved drop
+## ({item, amount}) from a defeated Enemy's Drop table, sitting in the world
+## until the Player walks into it. On contact it hands the drop to the
+## Player's collect_drop (gold -> the Player's Gold, an item -> the S6b item
+## count hook), disarms itself, and shrinks away.
+##
+## The drop is INJECTED by the spawner via setup() before add_child (the
+## EnemyController pattern), so one scene serves every item. The blockout
+## (per-item color/size), the spawn squash, and the collect shrink are data
+## (gADR-0000): the derived ProgressionConfig Resource, never hardcoded. The
+## decision of WHAT dropped was the pure EconomySystem's (rolled by the
+## spawner); this controller only orchestrates — blockout, tweens, contact
+## delivery, and logs. Cross-script references use preload() (no editor
+## class cache in this never-imported project).
+##
+## Collision: ON the pickup layer (6), masking ONLY the player layer (2) —
+## enemies, bolts, and Gravity Fields never touch a Pickup, and the Pickup
+## blocks nothing (an Area2D overlap, not a body).
+
+const ProgressionConfigScript := preload("res://content/config/progression_config.gd")
+const GameLogScript := preload("res://addons/game_log/game_log.gd")
+const GeneratedConfigScript := preload("res://content/config/generated_config.gd")
+const ViewBuilderScript := preload("res://content/presentation/view_builder.gd")
+
+const PROGRESSION_CONFIG_PATH := "res://content/data/generated/progression_config.tres"
+
+var _item := ""
+var _amount := 0
+var _config: ProgressionConfigScript
+# Collected latch: contact delivers the drop exactly once (the tween-out
+# keeps the node in the tree for a moment after).
+var _collected := false
+
+
+## Hand this Pickup its resolved drop. Called by the spawner BEFORE
+## add_child, so _ready sees the drop (the EnemyController setup() pattern).
+func setup(item: String, amount: int) -> void:
+	_item = item
+	_amount = amount
+
+
+func _ready() -> void:
+	_config = GeneratedConfigScript.load_config(PROGRESSION_CONFIG_PATH)
+	if _config == null:
+		return
+	if _item.is_empty():
+		# The spawner must setup() before add_child; guard loudly rather than
+		# crash on a drop that was never injected (not a pipeline fault).
+		push_error("PickupController: missing drop — setup() must run before add_child.")
+		return
+	_apply_blockout()
+	body_entered.connect(_on_body_entered)
+	_play_spawn_tween()
+	GameLogScript.emit("info", "pickup_spawned", {
+		"item": _item,
+		"amount": _amount,
+		"x": position.x,
+		"y": position.y,
+	})
+
+
+## Apply the item's data-driven blockout through the shared view seam
+## (ViewBuilder, #436): the pickup block styled per drop_items[item], centered on
+## the area origin, with a center pivot so the spawn/collect scale tweens punch
+## about the middle. The item's asset reference feeds the seam's resolution —
+## authored empty today, so the block.
+func _apply_blockout() -> void:
+	var style: Dictionary = _config.drop_items[_item]
+	ViewBuilderScript.apply_box(self, style["color"], style["size"], true, style["asset"])
+
+
+## The Player walked into this Pickup (the mask admits nothing else): deliver
+## the drop exactly once, disarm, and shrink away. The Player owns the
+## accumulation and its log (gold_collected / item_collected); this node just
+## hands the drop over.
+func _on_body_entered(body: Node2D) -> void:
+	if _collected or not body.has_method("collect_drop"):
+		return
+	_collected = true
+	set_deferred("monitoring", false)
+	body.collect_drop(_item, _amount)
+	_play_collect_tween()
+
+
+## The spawn telegraph: punch the block's scale from the config squash and
+## tween back to normal (the gADR-0005 spawn idiom).
+func _play_spawn_tween() -> void:
+	var visual := $Visual as ColorRect
+	visual.scale = _config.pickup_spawn_squash
+	var tween := create_tween()
+	var recover := tween.tween_property(visual, "scale", Vector2.ONE, _config.pickup_spawn_tween_duration)
+	recover.set_trans(Tween.TRANS_SINE)
+
+
+## The collect "juice": shrink the block to nothing, then free the node (a
+## property-tween, per the GDD — no sprite frames).
+func _play_collect_tween() -> void:
+	var visual := $Visual as ColorRect
+	var tween := create_tween()
+	var shrink := tween.tween_property(
+		visual, "scale", Vector2.ZERO, _config.pickup_collect_tween_duration
+	)
+	shrink.set_trans(Tween.TRANS_SINE)
+	tween.tween_callback(queue_free)

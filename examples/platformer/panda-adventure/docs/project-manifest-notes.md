@@ -1,8 +1,8 @@
-# Manifest annotations — `project.godot` & `scenes/main.tscn`
+# Manifest annotations — `project.godot` and runtime composition scenes
 
-These two files were originally hand-authored with inline `;` comments. gda now
-authors both structurally (`gda project add-input-action` since #380 / PR #385,
-`gda node add`/`node set` for scenes), and the engine's canonical re-serialization
+These files were originally hand-authored with inline `;` comments. gda now
+authors the project and scenes structurally (`gda project add-input-action` since
+#380 / PR #385, `gda node add`/`node set` for scenes), and canonical re-serialization
 (`ProjectSettings.save()`, `PackedScene` save) does not preserve `;` comments — so
 the annotations were migrated here once, and the files stay comment-free. Update
 this doc when the rationale behind a setting or the scene structure changes.
@@ -11,7 +11,7 @@ this doc when the rationale behind a setting or the scene structure changes.
 
 **File role.** The canonical project root (gda has no `project create`, so it was
 bootstrapped by hand). Later slices extend it — now via gda structured ops, no
-longer by hand-editing. The `data/generated/*.tres` it loads are derived artifacts
+longer by hand-editing. The `content/data/generated/*.tres` it loads are derived artifacts
 that are COMMITTED (a freshness gate keeps them byte-identical to a fresh build),
 regenerated from JSON via `scripts/build_config.py` (gADR-0000).
 
@@ -31,13 +31,16 @@ since gda #380 landed, actions are authored with
 **`[layer_names]`.** S2+S3 collision topology — structural wiring, not balance
 data (gADR-0000 governs config NUMBERS; what-can-act-on-what lives here and in
 the scenes): 1 `terrain`, 2 `player`, 3 `enemy`, 4 `projectile`, 5
-`gravity_field`, 6 `pickup`. Layer 5 is IN USE since S3: the Gravity Field Area2D
+`gravity_field`, 6 `pickup`, 7 `time_field`. Layer 5 is IN USE since S3: the Gravity Field Area2D
 (`gravity_field.tscn`, runtime-instanced by PlayerController) sits ON layer 5
 and masks `terrain|enemy` (5) — the Player's layer is invisible to it, which is
 the never-on-the-Player guarantee (gADR-0002, the Projectile's mask pattern).
 Layer 6 is the S6b Pickup (`pickup.tscn`, an Area2D runtime-instanced by
 LevelController per resolved drop, gADR-0006): ON layer 6, masking `player` (2)
 ONLY — nothing but the Player can touch a drop, and a drop blocks nothing.
+Layer 7 is the Boss's Time Field (`time_field.tscn`): ON layer 7, masking
+`player|projectile` (10), so it slows the Player and opted-in Player bolts but
+never enemies.
 
 **`[debug]`.** Godot's default desktop file logging is disabled so no engine
 launch writes a shared `user://logs/godot.log` (the #180 RotatedFileLogger race
@@ -53,39 +56,39 @@ refuses universal/arm64 builds when this is off. Harmless for desktop running.
 **`[autoload]`.** `GdaHarness` is the committed gda daemon harness — intentional,
 see `AGENTS.md` ("The gda daemon harness is COMMITTED").
 
-## `scenes/main.tscn`
+## `ui/game_shell.tscn`
 
-Panda Adventure's main scene (S1 player traversal + S2 combat + S3 gravity +
-S6a HUD), hand-bootstrapped, now edited via gda scene ops. **Structure only**: every visual
-(color/size/position) and the collision-shape sizes are applied at RUNTIME from
-the derived config Resources by the controllers (gADR-0000 — no config baked into
-the scene). The `RectangleShape2D` sub-resources start at a placeholder size that
-`_ready` overwrites from config. Collision topology (S2–S4, see `[layer_names]`
-above): Platform=`terrain`(1); Player=`player`(2) masking terrain only; the S4
-Enemy (`enemy`(3), a CharacterBody2D) also masks terrain only — Player and Enemy
-bodies pass through each other by design: S4's melee damage is a range-gated
-`take_hit` (gADR-0003), not a physics contact, so neither body can shove the
-other; Obstacle=`terrain`(1) masking nothing. Enemies are runtime-instanced by
-LevelController from `enemy.tscn` per the Spawn Roster; Projectiles are
-runtime-instanced by PlayerController (`projectile.tscn`, masks terrain|enemy)
-and by Ranged enemies (`enemy_projectile.tscn`, masks terrain|player); Gravity
-Fields by PlayerController (`gravity_field.tscn`); Pickups by LevelController
-per resolved drop (`pickup.tscn`, `pickup`(6) masking `player`(2) only —
-gADR-0006).
+The project main scene is the UI-owned composition root (gADR-0020). It instances
+three siblings: `Gameplay`, `Hud`, and `EndScreen`. `GameShell` binds the HUD to
+Gameplay's explicit Player entry, observes Gameplay's `run_ended` signal, and
+submits the End screen's retry request to Gameplay. When Content accepts that
+intent, the shell reloads the composition scene. UI depends on Content;
+Gameplay does not load or locate UI.
 
-The S3 `Obstacle` (StaticBody2D + Visual + Collision, script
-`obstacle_controller.gd`) is the gravity-affectable environment prop: it floats
-clear of the Laser Gun's bolt line (placement is config —
-`GravityConfig.obstacle_position`, applied in `_ready`), the Player walks and
-jumps under it, and only a Gravity Field moves it (gADR-0002).
+`Gameplay`, `Hud`, and `EndScreen` are scene-instance nodes. Their
+`ext_resource` and `instance=` lines were hand-added because `gda node add`
+authors type nodes only and has no scene-instance operation. This remains the
+sanctioned hand-edit fallback cited by gADR-0004.
 
-The S6a `Hud` is an **instance node** of the gda-authored `scenes/hud.tscn` (a
-CanvasLayer — screen-space, unaffected by the Player's follow-camera — holding
-the Stats Label column; placement/pulse numbers come from `HudConfig` at
-runtime, gADR-0004). It is deliberately the LAST child so the Player's
-`_ready` (group join + stats init) precedes the HUD's first read; the HUD's
-per-frame group lookup would self-heal anyway. Its `[node ... instance=
-ExtResource(...)]` line (plus the PackedScene ext_resource) was hand-added:
-gda's `node add` authors type nodes only and has no scene-instance op (a gda
-gap surfaced by this slice) — this file remains the sanctioned hand-edit
-fallback. No collision/physics: the HUD is layer-less UI.
+## `content/scenes/gameplay.tscn`
+
+The concrete gameplay scene contains the LevelController, Player, and Obstacle;
+all runtime-spawned platforms, enemies, Projectiles, Gravity Fields, and Pickups
+remain Content. Visual dimensions and positions are applied at runtime from the
+derived configuration Resources (gADR-0000), not baked into the scene.
+
+Collision topology remains unchanged: Platform=`terrain`(1); Player=`player`(2)
+masking terrain only; Enemy=`enemy`(3) masking terrain only, so Player and Enemy
+bodies pass through one another and attacks use the range-gated combat rules;
+Obstacle=`terrain`(1) masking nothing. Enemies are runtime-instanced by
+LevelController. Player Projectiles mask terrain|enemy; Enemy Projectiles mask
+terrain|player; Gravity Fields sit on `gravity_field`(5) and mask terrain|enemy;
+Pickups sit on `pickup`(6) and mask player only; Time Fields sit on
+`time_field`(7) and mask player|projectile.
+
+The Obstacle is a gravity-affectable environment prop. Its position comes from
+`GravityConfig.obstacle_position`; it floats clear of the Player's bolt line,
+and only a Gravity Field moves it. The `gravity_affectable` and
+`time_dilatable` groups remain open capability contracts. The unique Player
+reference is injected or obtained from Gameplay's public entry instead of a
+global `player` group.

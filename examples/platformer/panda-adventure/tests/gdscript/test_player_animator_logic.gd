@@ -16,7 +16,7 @@ extends SceneTree
 ## has no global_script_class_cache). Prints "ANIMATOR_SEAM: PASS" + quit(0) on
 ## success, else push_error + quit(1).
 
-const PlayerAnimatorScript := preload("res://src/view/player_animator.gd")
+const PlayerAnimatorScript := preload("res://content/presentation/player_animator.gd")
 
 # The animation states the fixture SpriteFrames ships; loop the locomotion base,
 # one-shot the verbs (the PlayerAnimator contract).

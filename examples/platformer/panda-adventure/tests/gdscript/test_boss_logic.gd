@@ -16,8 +16,8 @@ extends SceneTree
 ## KNOWN values, and assert each rule. Prints "LOGIC_SEAM: PASS" + quit(0)
 ## on success, else push_error + quit(1).
 
-const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
-const WarpSystemScript := preload("res://src/systems/warp_system.gd")
+const EnemyConfigScript := preload("res://content/config/enemy_config.gd")
+const WarpSystemScript := preload("res://systems/warp_system.gd")
 
 # Fixed Warp params so every expectation is exact: the warp window is
 # (TRIGGER, AGGRO] = (200, 400], the cooldown boundary probes >= with
@@ -53,6 +53,40 @@ func _at(dx: float, dy: float = 0.0) -> Vector2:
 	return SELF_POS + Vector2(dx, dy)
 
 
+func _has_warp(kind: EnemyConfigScript) -> bool:
+	return WarpSystemScript.has_warp(kind.warp_cooldown)
+
+
+func _should_warp(
+	self_pos: Vector2,
+	player_pos: Vector2,
+	kind: EnemyConfigScript,
+	last_warp_time: float,
+	now: float,
+) -> bool:
+	return WarpSystemScript.should_warp(
+		self_pos,
+		player_pos,
+		kind.aggro_range,
+		kind.warp_trigger_range,
+		kind.warp_cooldown,
+		last_warp_time,
+		now,
+	)
+
+
+func _landing(
+	self_pos: Vector2,
+	player_pos: Vector2,
+	kind: EnemyConfigScript,
+	arena_min_x: float,
+	arena_max_x: float,
+) -> Vector2:
+	return WarpSystemScript.warp_landing(
+		self_pos, player_pos, kind.warp_offset, arena_min_x, arena_max_x
+	)
+
+
 func _init() -> void:
 	var warper := _make_warp_kind()
 	# A kind WITHOUT the block: type defaults (warp_cooldown 0.0).
@@ -62,13 +96,13 @@ func _init() -> void:
 
 	# Behavior 1 — the presence gate: only a kind carrying the block has Warp;
 	# a plain kind never warps, whatever the geometry or clock.
-	if not WarpSystemScript.has_warp(warper):
+	if not _has_warp(warper):
 		_fail("a kind carrying the warp block should have Warp")
 		return
-	if WarpSystemScript.has_warp(plain):
+	if _has_warp(plain):
 		_fail("a kind without the warp block should not have Warp")
 		return
-	if WarpSystemScript.should_warp(SELF_POS, _at(300.0), plain, -INF, 100.0):
+	if _should_warp(SELF_POS, _at(300.0), plain, -INF, 100.0):
 		_fail("a plain kind should never pass the warp gate")
 		return
 
@@ -76,28 +110,28 @@ func _init() -> void:
 	# never-warped sentinel, the gate opens; at or inside the trigger range it
 	# stays shut (the Blink never fires in a brawl); beyond the Aggro Range
 	# the enemy is dormant (gADR-0003's contract holds for abilities too).
-	if not WarpSystemScript.should_warp(SELF_POS, _at(300.0), warper, -INF, 100.0):
+	if not _should_warp(SELF_POS, _at(300.0), warper, -INF, 100.0):
 		_fail("warp should fire inside the (trigger, aggro] window")
 		return
-	if WarpSystemScript.should_warp(SELF_POS, _at(TRIGGER), warper, -INF, 100.0):
+	if _should_warp(SELF_POS, _at(TRIGGER), warper, -INF, 100.0):
 		_fail("warp should not fire exactly AT the trigger range (engage tool)")
 		return
-	if WarpSystemScript.should_warp(SELF_POS, _at(50.0), warper, -INF, 100.0):
+	if _should_warp(SELF_POS, _at(50.0), warper, -INF, 100.0):
 		_fail("warp should not fire point-blank")
 		return
-	if WarpSystemScript.should_warp(SELF_POS, _at(AGGRO + 1.0), warper, -INF, 100.0):
+	if _should_warp(SELF_POS, _at(AGGRO + 1.0), warper, -INF, 100.0):
 		_fail("warp should not fire beyond the Aggro Range (dormant)")
 		return
-	if not WarpSystemScript.should_warp(SELF_POS, _at(AGGRO), warper, -INF, 100.0):
+	if not _should_warp(SELF_POS, _at(AGGRO), warper, -INF, 100.0):
 		_fail("warp should fire exactly AT the Aggro Range edge")
 		return
 
 	# Behavior 3 — the cooldown gate: ready exactly AT expiry (>=), not ready
 	# strictly within (exactly-representable floats).
-	if not WarpSystemScript.should_warp(SELF_POS, _at(300.0), warper, 10.0, 18.0):
+	if not _should_warp(SELF_POS, _at(300.0), warper, 10.0, 18.0):
 		_fail("warp cooldown: exactly at expiry should be ready")
 		return
-	if WarpSystemScript.should_warp(SELF_POS, _at(300.0), warper, 10.0, 17.5):
+	if _should_warp(SELF_POS, _at(300.0), warper, 10.0, 17.5):
 		_fail("warp cooldown: strictly within should not be ready")
 		return
 
@@ -105,14 +139,14 @@ func _init() -> void:
 	# Player, on the side away from the caster (cutting off the retreat), from
 	# either side; y is the Player's y plus the offset y.
 	var player_right := _at(300.0, 20.0)
-	var landing := WarpSystemScript.warp_landing(
+	var landing := _landing(
 		SELF_POS, player_right, warper, ARENA_MIN_X, ARENA_MAX_X
 	)
 	if not landing.is_equal_approx(Vector2(player_right.x + OFFSET.x, player_right.y + OFFSET.y)):
 		_fail("landing should overshoot a rightward Player to its far side")
 		return
 	var player_left := _at(-300.0, 20.0)
-	landing = WarpSystemScript.warp_landing(
+	landing = _landing(
 		SELF_POS, player_left, warper, ARENA_MIN_X, ARENA_MAX_X
 	)
 	if not landing.is_equal_approx(Vector2(player_left.x - OFFSET.x, player_left.y + OFFSET.y)):
@@ -120,7 +154,7 @@ func _init() -> void:
 		return
 
 	# Behavior 5 — dx == 0 resolves to the +x side: deterministic, never random.
-	landing = WarpSystemScript.warp_landing(
+	landing = _landing(
 		SELF_POS, _at(0.0, -250.0), warper, ARENA_MIN_X, ARENA_MAX_X
 	)
 	if not is_equal_approx(landing.x, SELF_POS.x + OFFSET.x):
@@ -128,13 +162,13 @@ func _init() -> void:
 		return
 
 	# Behavior 6 — the arena clamp bounds the landing x on both edges.
-	landing = WarpSystemScript.warp_landing(
+	landing = _landing(
 		SELF_POS, Vector2(ARENA_MAX_X - 10.0, 100.0), warper, ARENA_MIN_X, ARENA_MAX_X
 	)
 	if not is_equal_approx(landing.x, ARENA_MAX_X):
 		_fail("landing should clamp at the arena's right edge")
 		return
-	landing = WarpSystemScript.warp_landing(
+	landing = _landing(
 		SELF_POS, Vector2(ARENA_MIN_X + 10.0, 100.0), warper, ARENA_MIN_X, ARENA_MAX_X
 	)
 	if not is_equal_approx(landing.x, ARENA_MIN_X):

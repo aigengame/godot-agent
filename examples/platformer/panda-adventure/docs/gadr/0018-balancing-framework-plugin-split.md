@@ -9,7 +9,7 @@ gADR-0011 positioned the Balancing pipeline as a first-class reusable asset —
 per-game half *inside* the framework package: `tools/balancing/` carried
 `game_config.py` (this game's JSON mapping), `panda_adventure.targets.json`
 (this game's design intent), a CLI whose defaults hardcoded this game's targets
-file and `data/` tree, and — deeper — the SD model's state vector named this
+file and `content/data/` tree, and — deeper — the SD model's state vector named this
 game's items (`BUN`/`WINE` stocks, `bun_hp_restore`, `boss_is_peak`). A 2026-07
 architecture review judged that coupling incompatible with the module's stated
 positioning: the package was game-agnostic in name, per-game in content.
@@ -37,7 +37,7 @@ We decide four things:
   required `--targets` file; that file names the game's `config_dir`, the
   `adapter` (a Python file exporting `load_inputs(config_dir) -> GameInputs`,
   resolved relative to the targets file), and the protected `no_write_roots`
-  (this game: the whole `data/` chain — the guard policy moves from code to
+  (this game: the whole `content/data/` chain — the guard policy moves from code to
   config). The old code's heuristic that auto-protected a `--config-dir`
   override's parent when it was *named* `data` is deliberately dropped:
   protection is declared config, never a path-name heuristic — the override
