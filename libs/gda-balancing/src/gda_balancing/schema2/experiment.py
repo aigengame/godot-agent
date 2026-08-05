@@ -377,6 +377,66 @@ def _operation_formula_slot(
     return cast(dict[str, Any], matches[0]) if len(matches) == 1 else None
 
 
+def _operation_formula_evaluation_record(
+    operation: dict[str, Any],
+    binding: dict[str, Any],
+    variables: dict[str, Any],
+    *,
+    evaluation_site_identity: str,
+    frame_identity: JsonValue,
+    call_path: tuple[str, ...],
+) -> dict[str, JsonValue] | None:
+    """Build the one canonical Formula-evaluation record shape."""
+    binding_site = cast(dict[str, Any], binding["site"])
+    slot = _operation_formula_slot(operation, cast(str, binding_site["slot"]))
+    if slot is None:
+        return None
+    formula_parameter_by_slot_parameter = {
+        cast(str, argument["operand"]["parameter"]): cast(str, argument["parameter"])
+        for argument in cast(list[dict[str, Any]], binding["arguments"])
+    }
+    evaluated_arguments: list[dict[str, JsonValue]] = []
+    for parameter in cast(list[dict[str, Any]], slot["parameters"]):
+        source = cast(dict[str, Any], parameter["source"])
+        source_name = source.get("name")
+        parameter_id = parameter.get("id")
+        if (
+            source.get("kind") not in {"port", "local"}
+            or not isinstance(source_name, str)
+            or source_name not in variables
+            or not isinstance(parameter_id, str)
+            or parameter_id not in formula_parameter_by_slot_parameter
+        ):
+            return None
+        evaluated_arguments.append(
+            {
+                "parameter": formula_parameter_by_slot_parameter[parameter_id],
+                "value": cast(JsonValue, variables[source_name]),
+            }
+        )
+    target = slot.get("target")
+    if not isinstance(target, str) or target not in variables:
+        return None
+    return {
+        "evaluation_site_identity": evaluation_site_identity,
+        "binding_identity": cast(JsonValue, binding["identity"]),
+        "formula": cast(JsonValue, binding["formula"]),
+        "operation": cast(JsonValue, binding_site["operation"]),
+        "slot": cast(JsonValue, binding_site["slot"]),
+        "context": cast(JsonValue, binding_site["context"]),
+        "arguments": cast(
+            JsonValue,
+            sorted(
+                evaluated_arguments,
+                key=lambda row: cast(str, row["parameter"]),
+            ),
+        ),
+        "result": cast(JsonValue, variables[target]),
+        "frame_identity": frame_identity,
+        "call_path": "/".join(call_path),
+    }
+
+
 _INVALID_FORMULA_EVIDENCE = object()
 
 
@@ -1334,11 +1394,15 @@ def _replayed_event_evidence(
             elif operator in {"state-integer-subtract", "state-write"}:
                 formal = cast(str, instruction["symbol"])
                 target = canonical_bytes(cast(JsonValue, state_references[formal]))
-                state[target] = _admit_numeric(
+                declaration = declarations.get(target)
+                if declaration is None:
+                    return "", None, None
+                state[target] = _admit_declared_numeric(
                     state[target] - cast(int, variables[instruction["value"]])
                     if operator == "state-integer-subtract"
                     else cast(int, variables[instruction["value"]]),
                     numeric,
+                    declaration,
                 )
                 for alias, alias_target in state_references.items():
                     if canonical_bytes(cast(JsonValue, alias_target)) == target:
@@ -1353,58 +1417,19 @@ def _replayed_event_evidence(
                 binding = formula_bindings_by_site.get(evaluation_site_identity)
                 if binding is None:
                     return "", None, None
-                binding_site = cast(dict[str, Any], binding["site"])
-                slot = _operation_formula_slot(
-                    operation, cast(str, binding_site["slot"])
+                evaluation = _operation_formula_evaluation_record(
+                    operation,
+                    binding,
+                    variables,
+                    evaluation_site_identity=evaluation_site_identity,
+                    frame_identity=cast(
+                        JsonValue, parent_event["snapshot_before_identity"]
+                    ),
+                    call_path=call_path,
                 )
-                if slot is None:
+                if evaluation is None:
                     return "", None, None
-                formula_parameter_by_slot_parameter = {
-                    cast(str, argument["operand"]["parameter"]): cast(
-                        str, argument["parameter"]
-                    )
-                    for argument in cast(list[dict[str, Any]], binding["arguments"])
-                }
-                evaluated_arguments: list[dict[str, JsonValue]] = []
-                for parameter in cast(list[dict[str, Any]], slot["parameters"]):
-                    source = cast(dict[str, Any], parameter["source"])
-                    if (
-                        source.get("kind") not in {"port", "local"}
-                        or source.get("name") not in variables
-                        or parameter.get("id")
-                        not in formula_parameter_by_slot_parameter
-                    ):
-                        return "", None, None
-                    evaluated_arguments.append(
-                        {
-                            "parameter": formula_parameter_by_slot_parameter[
-                                cast(str, parameter["id"])
-                            ],
-                            "value": cast(JsonValue, variables[source["name"]]),
-                        }
-                    )
-                if slot.get("target") not in variables:
-                    return "", None, None
-                formula_evaluations.append(
-                    cast(
-                        dict[str, JsonValue],
-                        {
-                            "evaluation_site_identity": evaluation_site_identity,
-                            "binding_identity": binding["identity"],
-                            "formula": binding["formula"],
-                            "operation": binding_site["operation"],
-                            "slot": binding_site["slot"],
-                            "context": binding_site["context"],
-                            "arguments": sorted(
-                                evaluated_arguments,
-                                key=lambda row: cast(str, row["parameter"]),
-                            ),
-                            "result": cast(JsonValue, variables[slot["target"]]),
-                            "frame_identity": parent_event["snapshot_before_identity"],
-                            "call_path": "/".join(call_path),
-                        },
-                    )
-                )
+                formula_evaluations.append(evaluation)
         outcome_definition = next(
             row for row in operation["outcomes"] if row["id"] == outcome
         )
@@ -2617,6 +2642,19 @@ def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
     if value < numeric["minimum"] or value > numeric["maximum"]:
         raise OverflowError("exact-int64 arithmetic overflow")
     return value
+
+
+def _admit_declared_numeric(
+    value: int,
+    numeric: dict[str, Any],
+    declaration: dict[str, Any],
+) -> int:
+    admitted = _admit_numeric(value, numeric)
+    if declaration["domain_kind"] == "closed-interval":
+        domain = cast(dict[str, int], declaration["domain"])
+        if not domain["minimum"] <= admitted <= domain["maximum"]:
+            raise OverflowError("value is outside its declared numeric domain")
+    return admitted
 
 
 def _integer_compare(comparison: str, left: int, right: int) -> bool:
@@ -4257,7 +4295,11 @@ def evaluate_experiment(
                         else variables[instruction["value"]]
                     )
                     try:
-                        state[actual] = _admit_numeric(value, numeric)
+                        state[actual] = _admit_declared_numeric(
+                            value,
+                            numeric,
+                            declarations[actual],
+                        )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
                             signal="numeric-overflow",
@@ -4280,53 +4322,19 @@ def evaluate_experiment(
                     != evaluation_site_identity
                 ):
                     binding = formula_bindings_by_site[evaluation_site_identity]
-                    binding_site = cast(dict[str, Any], binding["site"])
-                    slot = _operation_formula_slot(
-                        selected_operation, cast(str, binding_site["slot"])
+                    evaluation = _operation_formula_evaluation_record(
+                        selected_operation,
+                        binding,
+                        variables,
+                        evaluation_site_identity=evaluation_site_identity,
+                        frame_identity=current_snapshot_identity,
+                        call_path=call_path,
                     )
-                    if slot is None:
-                        raise ValueError("admitted Formula slot is absent")
-                    formula_parameter_by_slot_parameter = {
-                        cast(str, argument["operand"]["parameter"]): cast(
-                            str, argument["parameter"]
+                    if evaluation is None:
+                        raise ValueError(
+                            "admitted Formula evaluation record is incomplete"
                         )
-                        for argument in cast(list[dict[str, Any]], binding["arguments"])
-                    }
-                    evaluated_arguments: list[dict[str, JsonValue]] = []
-                    for parameter in cast(list[dict[str, Any]], slot["parameters"]):
-                        source = cast(dict[str, Any], parameter["source"])
-                        if source["kind"] not in {"port", "local"}:
-                            raise ValueError(
-                                "admitted Formula slot parameter source is unavailable"
-                            )
-                        evaluated_arguments.append(
-                            {
-                                "parameter": formula_parameter_by_slot_parameter[
-                                    parameter["id"]
-                                ],
-                                "value": variables[source["name"]],
-                            }
-                        )
-                    formula_evaluations.append(
-                        cast(
-                            dict[str, JsonValue],
-                            {
-                                "evaluation_site_identity": (evaluation_site_identity),
-                                "binding_identity": binding["identity"],
-                                "formula": binding["formula"],
-                                "operation": binding_site["operation"],
-                                "slot": binding_site["slot"],
-                                "context": binding_site["context"],
-                                "arguments": sorted(
-                                    evaluated_arguments,
-                                    key=lambda row: cast(str, row["parameter"]),
-                                ),
-                                "result": variables[slot["target"]],
-                                "frame_identity": current_snapshot_identity,
-                                "call_path": "/".join(call_path),
-                            },
-                        )
-                    )
+                    formula_evaluations.append(evaluation)
             outcome_definition = next(
                 row for row in selected_operation["outcomes"] if row["id"] == outcome
             )
@@ -5655,7 +5663,13 @@ def _attempted_operation_charge(
             cast(str, entrypoint["operation"]["id"]) if entrypoint is not None else None
         )
     elif refusing_event_spec["kind"] == "scheduled-transition":
-        root_operation_id = cast(str, refusing_event_spec["operation"])
+        operation_reference = refusing_event_spec.get("operation")
+        root_operation_id = (
+            cast(str, operation_reference["id"])
+            if isinstance(operation_reference, dict)
+            and isinstance(operation_reference.get("id"), str)
+            else None
+        )
     else:
         return None
     root_operation = operations.get(root_operation_id) if root_operation_id else None

@@ -1069,7 +1069,9 @@ _Avoid_: Effect loop, fixed tick loop, repeated Experiment scenarios
 One package-defined occurrence of a Periodic Effect, identified at apply by the package's declared
 bounded Named-stream draw and carried through every scheduled tick and expiry Event. The instance
 value correlates one lifecycle; Runtime still owns each Event identity and does not infer stacking,
-dispel, contributor or defeat policy from the value (bADR-0014/0016).
+dispel, contributor or defeat policy from the value. This periodic slice creates one directly at
+apply; buildup-based Effects create one at threshold activation under the broader Effect
+specification (bADR-0014/0016).
 _Avoid_: Effect Event identity, ambient effect object, host timer handle
 
 **Magnitude timing policy**:
@@ -1077,7 +1079,8 @@ The Domain-package contract that determines when one exact bound Formula is eval
 result is read. `snapshot` evaluates once against apply's pre-Event committed Snapshot and carries
 the captured result into scheduled ticks; `live` evaluates at each tick against that tick Event's
 pre-Event committed Snapshot. Both use ordinary Formula bindings/evaluation sites and never read
-another Event's buffered writes (bADR-0014/0016/0022).
+another Event's buffered writes. This policy specializes the Effect specification's capture-timing
+axis by binding it to a Formula evaluation context (bADR-0014/0016/0022).
 _Avoid_: evaluator callback timing, host-side magnitude mode, second Effect expression
 
 **Root Event reference**:

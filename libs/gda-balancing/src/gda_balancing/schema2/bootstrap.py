@@ -1323,6 +1323,9 @@ def _package_evidence_vectors_are_closed(
     policy_members = (
         relation_kind.get("policy_members") if isinstance(relation_kind, dict) else None
     )
+    relation_probe_members = (
+        relation_kind.get("probe_members") if isinstance(relation_kind, dict) else None
+    )
     declared_roles_by_operation: dict[str, list[str]] = {}
     if (
         not isinstance(declaration_extension, str)
@@ -1331,6 +1334,7 @@ def _package_evidence_vectors_are_closed(
         or not isinstance(policy_contract_members, list)
         or not isinstance(policy_extension, str)
         or not isinstance(policy_members, list)
+        or not isinstance(relation_probe_members, list)
     ):
         return False
     for operation_id, operation in operations.items():
@@ -1407,7 +1411,7 @@ def _package_evidence_vectors_are_closed(
                     and isinstance(relation.get("id"), str)
                     and bool(relation["id"])
                     and isinstance(relation.get("probe"), dict)
-                    and set(relation["probe"]) == set(kind["probe_members"])
+                    and set(relation["probe"]) == set(relation_probe_members)
                     for relation in relations
                 )
             ):

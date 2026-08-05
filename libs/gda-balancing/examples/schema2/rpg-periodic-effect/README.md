@@ -126,34 +126,13 @@ The RIR exposes `game.effect.periodic` beside ordinary Runtime instructions. Sna
 contains three schedule nodes; live apply schedules tick Events whose own Operation carries the
 Formula evaluation site. No host-only Effect descriptor or arithmetic table exists.
 
-## 4. Bind and run the snapshot lifecycle
+## 4. Run the snapshot lifecycle
 
-The checked-in Experiment files use zero identities deliberately: a runnable Experiment must bind
-the exact build produced in the current artifact store. Define one binding helper:
+The checked-in Experiment files bind the exact identities produced by the checked-in Model Source.
+Use the snapshot Experiment directly:
 
 ```bash
-bind_experiment() {
-  build_record="$1"
-  source_experiment="$2"
-  destination="$3"
-  jq --slurpfile build "$build_record" '
-    .kernel_identity = $build[0].kernel_identity
-    | .language_bundle_identity = $build[0].language_bundle_identity
-    | .model = {
-        source_identity: $build[0].source_identity,
-        build_receipt_identity: $build[0].content_identity,
-        resolved_model_identity: $build[0].resolved_model_identity,
-        package_lock_identity: $build[0].package_lock_identity,
-        rir_identity: $build[0].rir_identity
-      }
-  ' "$source_experiment" > "$destination"
-}
-
-export SNAPSHOT_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/snapshot-experiment.json"
-bind_experiment \
-  "$BUILD_RECORD_PATH" \
-  examples/schema2/rpg-periodic-effect/experiment.json \
-  "$SNAPSHOT_EXPERIMENT"
+export SNAPSHOT_EXPERIMENT=examples/schema2/rpg-periodic-effect/experiment.json
 ```
 
 Check, run and retain the result receipt:
@@ -227,14 +206,10 @@ Events carry that captured magnitude. Health changes `100 -> 85 -> 70`, expiry c
 
 ## 5. Compare live and snapshot timing at the same logical time
 
-Bind the companion Experiment and run its default live/combat-first order:
+Run the companion Experiment in its default live/combat-first order:
 
 ```bash
-export SAME_TIME_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/same-time-live.json"
-bind_experiment \
-  "$BUILD_RECORD_PATH" \
-  examples/schema2/rpg-periodic-effect/same-time-experiment.json \
-  "$SAME_TIME_EXPERIMENT"
+export SAME_TIME_EXPERIMENT=examples/schema2/rpg-periodic-effect/same-time-experiment.json
 
 export SAME_TIME_INVOCATION_KEY="$(openssl rand -hex 32)"
 uv run gda-balancing experiment run \
@@ -246,7 +221,8 @@ uv run gda-balancing experiment run \
 
 At logical time `1`, the ordinary combat root was admitted before the scheduled live tick and both
 have priority `0`, so combat commits first. The live tick reads health `90`, computes magnitude
-`5`, and the second tick computes `0`; terminal health is `85`.
+`5`, and the second tick computes `0`; terminal health and the
+`target_health_remaining` Metric sample are both `85`.
 
 Make only the combat priority lower:
 
@@ -266,7 +242,8 @@ uv run gda-balancing experiment run \
 ```
 
 With tick priority `0` and combat priority `-1`, the tick runs first against health `100`, computes
-`15`, then combat commits `10`; terminal health is `75`. Changing the apply entrypoint to
+`15`, then combat commits `10`; terminal health and the `target_health_remaining` Metric sample
+are both `75`. Changing the apply entrypoint to
 `effect.apply-snapshot-periodic` evaluates `15` once at logical time `0`, so either priority order
 ends at health `60`. Run that policy explicitly:
 
@@ -315,6 +292,23 @@ Resolve its build record and bind a new Experiment. Widen only the tutorial targ
 are accepted:
 
 ```bash
+bind_experiment() {
+  build_record="$1"
+  source_experiment="$2"
+  destination="$3"
+  jq --slurpfile build "$build_record" '
+    .kernel_identity = $build[0].kernel_identity
+    | .language_bundle_identity = $build[0].language_bundle_identity
+    | .model = {
+        source_identity: $build[0].source_identity,
+        build_receipt_identity: $build[0].content_identity,
+        resolved_model_identity: $build[0].resolved_model_identity,
+        package_lock_identity: $build[0].package_lock_identity,
+        rir_identity: $build[0].rir_identity
+      }
+  ' "$source_experiment" > "$destination"
+}
+
 export TUNED_BUILD_RECORD="$(
   jq -r '.member_locators[] | select(.logical_name == "build-receipt") | .locator' \
     "$TUNED_MODEL_RECEIPT"
@@ -379,7 +373,8 @@ Do not close broader Effect, Replay, Evidence, RPG or Genre coverage from this t
 - Keys must contain exactly 64 lowercase hexadecimal digits.
 - Keep the same store and anchor key for build and run so exact Model artifacts remain resolvable.
 - `invocation_key_conflict` means that key already names different canonical input.
-- A zero-identity checked-in Experiment must be rebound to the current Build receipt before use.
+- Checked-in Experiments bind the checked-in Model Source exactly. After editing that source,
+  author a newly bound Experiment from the new Build receipt before running it.
 - `language.formula_notation_mismatch` means the Formula body and expression were not edited as one
   canonical pair.
 - Inspect receipt `member_locators`; `--out` is only a convenience copy, not the complete set.

@@ -346,6 +346,54 @@ def test_periodic_effect_relation_policy_rejects_coherent_inventory_removal(scop
     ) in first["diagnostics"]
 
 
+def test_operation_relation_policy_is_independent_of_vector_order():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    moved = vector_set["vector_definitions"].pop(0)
+    vector_set["vector_definitions"].append(moved)
+    vector_set["vectors"] = [
+        vector["id"] for vector in vector_set["vector_definitions"]
+    ]
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+
+
+def test_operation_relation_policy_refuses_empty_vectors_without_host_error():
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    package = next(
+        row for row in ldb["language"]["packages"] if row["id"] == "game.effect"
+    )
+    vector_set = _package_vector_set(ldb, package)
+    vector_set["vector_definitions"] = []
+    vector_set["vectors"] = []
+    package_operations = set(package["exports"]["operations"])
+    for operation in ldb["language"]["operations"]:
+        if operation["id"] in package_operations:
+            operation["vectors"] = []
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language-bundle.language.packages.3.vectors",
+    ) in first["diagnostics"]
+
+
 def test_periodic_relation_ownership_is_package_local():
     authority = _authority_candidate()
     kernel_kind = next(

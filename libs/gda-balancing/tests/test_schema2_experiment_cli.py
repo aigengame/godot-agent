@@ -559,6 +559,16 @@ def _reference_execute_event(
         display_names = {name: name for name in legacy_variables}
     cells = {name: {"value": value} for name, value in variables.items()}
     state_cells = {name: cells[name] for name in state_targets if name in cells}
+    declared_domains_by_cell = (
+        {
+            id(cells[coordinate]): declaration["domain"]
+            for coordinate, declaration in declarations.items()
+            if coordinate in state_cells
+            and declaration["domain_kind"] == "closed-interval"
+        }
+        if resolved_entrypoint is not None
+        else {}
+    )
     before = {name: cell["value"] for name, cell in state_cells.items()}
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
@@ -569,8 +579,13 @@ def _reference_execute_event(
         for row in (resolved_call_sites or [])
     }
 
-    def exact(value: int) -> int:
+    def exact(value: int, target: dict[str, Any] | None = None) -> int:
         if not numeric["minimum"] <= value <= numeric["maximum"]:
+            raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
+        domain = (
+            declared_domains_by_cell.get(id(target)) if target is not None else None
+        )
+        if domain is not None and not domain["minimum"] <= value <= domain["maximum"]:
             raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
         return value
 
@@ -729,11 +744,14 @@ def _reference_execute_event(
                 elif operator == "state-integer-subtract":
                     target = arguments[instruction["symbol"]]
                     target["value"] = exact(
-                        target["value"] - cell(instruction["value"])["value"]
+                        target["value"] - cell(instruction["value"])["value"],
+                        target,
                     )
                 elif operator == "state-write":
-                    arguments[instruction["symbol"]]["value"] = exact(
-                        cell(instruction["value"])["value"]
+                    target = arguments[instruction["symbol"]]
+                    target["value"] = exact(
+                        cell(instruction["value"])["value"],
+                        target,
                     )
                 else:
                     raise AssertionError(
@@ -6286,14 +6304,20 @@ def test_metric_dataset_canonicalizer_orders_multiple_replications():
     ]
 
 
-def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
+def _assert_numeric_overflow_rolls_back_the_entire_current_event(
+    tmp_path,
+    run_cli,
+    base_damage_value,
+    extend_base_damage_domain,
+):
     source_value = _rpg_model_source()
     base_damage = next(
         symbol
         for symbol in source_value["modules"][0]["symbols"]
         if symbol["symbol"] == "base_damage"
     )
-    base_damage["domain"]["maximum"] = (1 << 63) - 1
+    if extend_base_damage_domain:
+        base_damage["domain"]["maximum"] = (1 << 63) - 1
     source = tmp_path / "rpg-overflow-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     build_exit, build_stdout, build_stderr = run_cli(
@@ -6315,7 +6339,7 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         language_bundle_identity=build_record["language_bundle_identity"],
         source_identity=content_identity("model-source-package-v2", source_value),
         build_receipt=build_receipt,
-        base_damage=1 << 62,
+        base_damage=base_damage_value,
     )
     threshold = next(
         row
@@ -6385,6 +6409,27 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
         "state_before": audit["rollback"]["state_before"],
         "state_after": audit["rollback"]["state_after"],
     }
+
+
+def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
+    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+        tmp_path,
+        run_cli,
+        1 << 62,
+        True,
+    )
+
+
+def test_receiving_resource_domain_overflow_rolls_back_the_entire_current_event(
+    tmp_path,
+    run_cli,
+):
+    _assert_numeric_overflow_rolls_back_the_entire_current_event(
+        tmp_path,
+        run_cli,
+        101,
+        False,
+    )
 
 
 def test_formula_overflow_terminal_audit_names_the_exact_evaluation_site(
