@@ -20,6 +20,7 @@ import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.model.semantics as model_module
+import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -5343,7 +5344,7 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
     manifest_path.write_bytes(canonical_bytes(replacement_manifest))
     context = authority_module.packaged_authority_context()
     assert (
-        model_module.find_published_artifact(
+        publication_module.find_published_artifact(
             build_record["content_identity"],
             "build-receipt",
             context.language_bundle,

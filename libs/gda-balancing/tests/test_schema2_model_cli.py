@@ -24,6 +24,7 @@ import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
 import gda_balancing.domain.model.semantics as model_module
+import gda_balancing.domain.publication as publication_module
 import jsonschema
 import pytest
 from gda_balancing.domain.artifact_semantics import artifact_semantic_projection
@@ -639,7 +640,7 @@ def test_model_inspect_retrieves_the_stored_explanation_without_regenerating_it(
     def fail_if_regenerated(*_args, **_kwargs):
         raise AssertionError("model inspect must not regenerate an explanation")
 
-    monkeypatch.setattr(model_module, "_model_explanation", fail_if_regenerated)
+    monkeypatch.setattr(publication_module, "_model_explanation", fail_if_regenerated)
     inspect_exit, inspect_stdout, inspect_stderr = run_cli(
         [
             "model",
@@ -677,7 +678,7 @@ def test_model_inspect_rejects_explanation_formula_pair_admission_failure(
         _artifact_directory(json.loads(build_stdout)) / "artifact-set-receipt.json"
     )
     monkeypatch.setattr(
-        model_module,
+        publication_module,
         "_model_explanation_pairs_are_admitted",
         lambda *_args, **_kwargs: False,
     )
@@ -2780,7 +2781,7 @@ def test_model_publisher_materializes_the_descriptor_declared_primary_member(
     )
     out = tmp_path / "primary.json"
 
-    model_module.publish_model_artifacts(
+    publication_module.publish_model_artifacts(
         checked,
         str(source),
         str(out),
@@ -3147,8 +3148,8 @@ def test_model_publisher_rejects_a_known_source_alias_after_the_source_disappear
     store = tmp_path / "store"
     monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
 
-    with pytest.raises(model_module.UsageError) as caught:
-        model_module.publish_model_artifacts(
+    with pytest.raises(publication_module.UsageError) as caught:
+        publication_module.publish_model_artifacts(
             checked,
             str(source),
             str(source),
@@ -3470,7 +3471,7 @@ def test_publication_anchor_fsync_covers_read_only_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "fchmod", record_fchmod)
     monkeypatch.setattr(os, "fsync", record_fsync)
 
-    model_module._write_anchor_exclusive(
+    publication_module._write_anchor_exclusive(
         path,
         cast(
             dict[str, JsonValue],
@@ -3492,7 +3493,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     entered_anchor = threading.Event()
     release_anchor = threading.Event()
     second_started = threading.Event()
-    real_write_anchor = model_module._write_anchor_exclusive
+    real_write_anchor = publication_module._write_anchor_exclusive
     calls = 0
     calls_guard = threading.Lock()
 
@@ -3506,14 +3507,16 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
             assert release_anchor.wait(timeout=10)
         return real_write_anchor(path, artifact, authentication_key, **kwargs)
 
-    monkeypatch.setattr(model_module, "_write_anchor_exclusive", pause_first_anchor)
+    monkeypatch.setattr(
+        publication_module, "_write_anchor_exclusive", pause_first_anchor
+    )
     key = "6" * 64
     descriptor = descriptor_identity(model_build_command_module.MODEL_BUILD)
 
     def publish(out: Path, *, announce: bool = False):
         if announce:
             second_started.set()
-        return model_module.publish_model_artifacts(
+        return publication_module.publish_model_artifacts(
             checked,
             str(source),
             str(out),

@@ -29,7 +29,7 @@ def find_published_artifact(
     language_bundle: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Find one exact artifact through authenticated committed publications."""
-    from gda_balancing.domain.model.semantics import find_published_artifact as find
+    from gda_balancing.domain.publication import find_published_artifact as find
 
     return find(content_identity, artifact_kind, language_bundle)
 

@@ -12,6 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 import gda_balancing.domain.model.semantics as schema2_model
+import gda_balancing.domain.publication as publication_module
 from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
     template_instantiate_handler,
@@ -2786,7 +2787,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
     tmp_path, run_cli, monkeypatch
 ):
     store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
-    real_fsync_directory = schema2_model._fsync_directory
+    real_fsync_directory = publication_module._fsync_directory
     injected = False
 
     def fail_after_anchor_link(path):
@@ -2800,7 +2801,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
             raise OSError("injected anchor directory fsync failure")
         real_fsync_directory(path)
 
-    monkeypatch.setattr(schema2_model, "_fsync_directory", fail_after_anchor_link)
+    monkeypatch.setattr(publication_module, "_fsync_directory", fail_after_anchor_link)
     invocation_key = "b" * 64
     argv = [
         "template",
