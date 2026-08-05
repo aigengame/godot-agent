@@ -12,6 +12,7 @@ from gda_balancing.descriptors import (
     ConformanceFixtures,
     RefusalDetailSpec,
 )
+from gda_balancing.interfaces.cli.model_fixtures import VALID_MODEL_SOURCE
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.schema2.authority import packaged_authority_context
 from gda_balancing.schema2.canonical import JsonValue
@@ -32,12 +33,10 @@ from gda_balancing.schema2.model import (
     CheckedModel,
     ModelInspectAdmissionError,
     PublicationMember,
-    admit_resolved_model,
     artifact_wire_schema,
     check_model_source,
     check_model_source_value,
     identified_artifact,
-    lower_checked_model,
     publication_authentication_key,
     publish_artifact_set,
     publish_model_artifacts,
@@ -47,48 +46,6 @@ from gda_balancing.schema2.model import (
     wire_schema_identity,
 )
 from gda_balancing.schema2.surface import descriptor_identity
-
-
-class ModelCheckInput(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source: str
-
-
-class ModelCheckResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    checked: bool
-    kernel_identity: str
-    language_bundle_identity: str
-
-
-def run_model_check(
-    inp: ModelCheckInput,
-) -> ModelCheckResult | Schema2RefusalReport:
-    checked = check_model_source(inp.source)
-    if isinstance(checked, Schema2RefusalReport):
-        return checked
-    assert isinstance(checked, CheckedModel)
-    artifacts = lower_checked_model(checked)
-    semantic_admission = admit_resolved_model(
-        {
-            name: artifacts[name]
-            for name in (
-                "package-lock",
-                "rir-semantic-payload",
-                "resolved-model",
-            )
-        },
-        authority_context=checked.authority_context,
-    )
-    if not semantic_admission.admitted:
-        raise RuntimeError("checked Resolved Model failed exact-authority admission")
-    return ModelCheckResult(
-        checked=True,
-        kernel_identity=checked.kernel["content_identity"],
-        language_bundle_identity=checked.language_bundle["content_identity"],
-    )
 
 
 class ModelBuildInput(BaseModel):
@@ -213,7 +170,7 @@ run_model_build = model_build_handler()
 
 def _prepare_model_inspect(root: Path, token: int) -> str:
     source = root / f"inspect-model-{token}.json"
-    source.write_text(_VALID_SOURCE, encoding="utf-8")
+    source.write_text(VALID_MODEL_SOURCE, encoding="utf-8")
     result = run_model_build(
         ModelBuildInput(
             source=str(source),
@@ -384,48 +341,6 @@ def run_model_migrate(
     return ModelMigrateResult.model_validate(receipt)
 
 
-_VALID_SOURCE = """{
-  "schema_version": "2.0.0",
-  "manifest": {"id": "example.quantity-model", "version": "1.0.0", "entry_module": "main"},
-  "package_requirements": [{"id": "core.quantity", "version": "2.1.0"}],
-  "modules": [{
-    "id": "main",
-    "imports": [{"alias": "quantity", "package": "core.quantity", "version": "2.1.0", "symbol": "Quantity"}],
-    "symbols": [
-      {"symbol":"constant_value","type":"quantity","role":"constant","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"model-fixed","value":1}},
-      {"symbol":"parameter_value","type":"quantity","role":"parameter","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
-      {"symbol":"input_value","type":"quantity","role":"input","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
-      {"symbol":"state_value","type":"quantity","role":"state","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"experiment-required"}},
-      {"symbol":"derived_value","type":"quantity","role":"derived","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"none"}},
-      {"symbol":"output_value","type":"quantity","role":"output","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"none"}},
-      {"symbol":"random_value","type":"quantity","role":"random","representation":"Int","kind":"scalar","unit":"1","domain_kind":"closed-interval","domain":{"minimum":0,"maximum":100},"numeric_policy":"exact-int64","value_policy":{"mode":"named-stream"}}
-    ]
-  }],
-  "entrypoints": []
-}"""
-
-
-MODEL_CHECK = CommandDescriptor(
-    group="model",
-    command="check",
-    description="Check a Standard Schema 2.0 Model Source Package.",
-    input_model=ModelCheckInput,
-    output_model=ModelCheckResult,
-    handler=run_model_check,
-    fixtures=ConformanceFixtures(valid_document=_VALID_SOURCE),
-    positional_field="source",
-    schema_major=2,
-    structured_params=True,
-    refusal_catalog=MODEL_REFUSAL_CATALOG,
-    usage_codes=(
-        "argument_conflict",
-        "invalid_argument",
-        "unknown_argument",
-        "unreadable_input",
-    ),
-)
-
-
 MODEL_BUILD = CommandDescriptor(
     group="model",
     command="build",
@@ -433,7 +348,7 @@ MODEL_BUILD = CommandDescriptor(
     input_model=ModelBuildInput,
     output_model=ModelBuildResult,
     handler=run_model_build,
-    fixtures=ConformanceFixtures(valid_document=_VALID_SOURCE),
+    fixtures=ConformanceFixtures(valid_document=VALID_MODEL_SOURCE),
     positional_field="source",
     artifact_set=(
         ArtifactSetMemberSpec("build-receipt", "build-receipt"),

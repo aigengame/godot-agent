@@ -11,7 +11,7 @@ import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import schema2_bootstrap_conformance_support as consumer_support
 from gda_balancing.commands import REGISTRY
-from gda_balancing.commands.model import (
+from gda_balancing.interfaces.cli.model_check import (
     ModelCheckInput,
     ModelCheckResult,
     run_model_check,

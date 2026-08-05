@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.domain.model.checking as model_checking_module
 import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.schema2.experiment as experiment_module
@@ -2271,7 +2272,7 @@ def test_model_check_runs_the_same_lowering_and_admission_front_end(
         calls += 1
         return real_lowerer(checked)
 
-    monkeypatch.setattr(model_command_module, "lower_checked_model", observed_lowerer)
+    monkeypatch.setattr(model_checking_module, "lower_checked_model", observed_lowerer)
 
     assert run_cli(["model", "check", str(source)])[0] == 0
     assert calls == 1

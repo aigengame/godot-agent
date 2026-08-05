@@ -26,9 +26,9 @@ import gda_balancing.interfaces.cli.schema as schema_command_module
 from gda_balancing.commands import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
+from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
 from gda_balancing.commands.model import (
     MODEL_BUILD,
-    MODEL_CHECK,
     MODEL_INSPECT,
     MODEL_MIGRATE,
 )
