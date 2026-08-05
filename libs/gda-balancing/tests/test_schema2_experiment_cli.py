@@ -24,7 +24,10 @@ import gda_balancing.domain.model.resolution as model_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
-from gda_balancing.infrastructure.input_bytes import InputTooLargeError
+from gda_balancing.infrastructure.input_bytes import (
+    InputTooLargeError,
+    read_bounded_input_with_sha256,
+)
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
@@ -6056,14 +6059,15 @@ def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
     context = authority_module.packaged_authority_context()
     max_bytes = cast(int, context.language_bundle["resources"]["max_source_bytes"])
     calls: list[tuple[str, int]] = []
+    oversized_sha256 = "a" * 64
 
-    def reject_oversized(path: str, limit: int) -> bytes:
+    def reject_oversized(path: str, limit: int) -> tuple[bytes, str]:
         calls.append((path, limit))
-        raise InputTooLargeError
+        raise InputTooLargeError(sha256=oversized_sha256)
 
     monkeypatch.setattr(
         experiment_admission_module,
-        "read_bounded_input",
+        "read_bounded_input_with_sha256",
         reject_oversized,
         raising=False,
     )
@@ -6078,7 +6082,20 @@ def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
     assert result.stage == "ingress"
     assert result.diagnostics[0].code == "language.source_too_large"
     assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
-    assert result.diagnostics[0].primary.content_identity == "unidentified"
+    assert result.diagnostics[0].primary.content_identity == (
+        f"sha256:{oversized_sha256}"
+    )
+
+
+def test_hashed_bounded_input_preserves_oversized_content_identity(tmp_path):
+    data = b"oversized" * 10
+    source = tmp_path / "oversized.bin"
+    source.write_bytes(data)
+
+    with pytest.raises(InputTooLargeError) as caught:
+        read_bounded_input_with_sha256(str(source), max_bytes=8)
+
+    assert caught.value.sha256 == hashlib.sha256(data).hexdigest()
 
 
 def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):

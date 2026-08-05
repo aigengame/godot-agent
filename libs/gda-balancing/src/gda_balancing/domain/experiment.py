@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,7 +28,7 @@ from gda_balancing.domain.diagnostics import (
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
 from gda_balancing.infrastructure.input_bytes import (
     InputTooLargeError,
-    read_bounded_input,
+    read_bounded_input_with_sha256,
 )
 from gda_balancing.domain.model.resolution import (
     admit_resolved_model,
@@ -60,10 +59,6 @@ class CheckedExperiment:
     resolved_model: dict[str, Any]
     rir: dict[str, Any]
     authority_context: AdmittedAuthorityContext | None = None
-
-
-def _raw_identity(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _refusal(
@@ -335,16 +330,20 @@ def check_experiment(
     language_bundle = context.language_bundle
     max_source_bytes = cast(int, language_bundle["resources"]["max_source_bytes"])
     try:
-        data = read_bounded_input(path, max_source_bytes)
-    except InputTooLargeError:
+        data, raw_sha256 = read_bounded_input_with_sha256(path, max_source_bytes)
+    except InputTooLargeError as err:
+        if err.sha256 is None:
+            raise RuntimeError(
+                "hashed bounded input omitted its SHA-256 identity"
+            ) from err
         return _refusal(
             stage="ingress",
             code="language.source_too_large",
-            identity="unidentified",
+            identity=f"sha256:{err.sha256}",
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
         )
-    observed_identity = _raw_identity(data)
+    observed_identity = f"sha256:{raw_sha256}"
     try:
         value = parse_canonical_object(
             data,
