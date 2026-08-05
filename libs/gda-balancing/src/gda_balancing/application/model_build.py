@@ -6,11 +6,11 @@ from typing import Any
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.model import compilation
 from gda_balancing.domain.model.checking import check_source
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_model_artifacts,
 )
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 
 @dataclass(frozen=True)

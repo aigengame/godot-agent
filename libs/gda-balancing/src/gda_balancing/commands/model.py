@@ -33,16 +33,18 @@ from gda_balancing.schema2.migration import (
     load_design_source_observation,
     migrate_design_source,
 )
+from gda_balancing.domain.publication import (
+    PublicationMember,
+    publication_authentication_key,
+    publish_artifact_set,
+)
 from gda_balancing.schema2.model import (
     MODEL_INSPECT_REFUSAL_CATALOG,
     CheckedModel,
     ModelInspectAdmissionError,
-    PublicationMember,
     artifact_wire_schema,
     check_model_source_value,
     identified_artifact,
-    publication_authentication_key,
-    publish_artifact_set,
     read_model_explanation,
     refusal_catalog_for_stages,
     verify_artifact,

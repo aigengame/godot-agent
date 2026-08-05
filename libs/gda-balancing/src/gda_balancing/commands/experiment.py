@@ -38,10 +38,12 @@ from gda_balancing.schema2.experiment import (
     validate_experiment_artifact_set,
     validate_experiment_member,
 )
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_artifact_set,
     recover_committed_artifact_set,
+)
+from gda_balancing.schema2.model import (
     refusal_catalog_for_reasons,
 )
 from gda_balancing.schema2.surface import descriptor_identity

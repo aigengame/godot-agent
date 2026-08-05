@@ -29,16 +29,18 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
     ingress_refusal,
 )
+from gda_balancing.domain.publication import (
+    PublicationMember,
+    publication_authentication_key,
+    publish_artifact_set,
+)
 from gda_balancing.schema2.model import (
     MODEL_REFUSAL_CATALOG,
     CheckedModel,
-    PublicationMember,
     check_model_source_value,
     checked_model_template_facts,
     identified_artifact,
     model_source_identity_domain,
-    publication_authentication_key,
-    publish_artifact_set,
     verify_artifact,
 )
 from gda_balancing.schema2.surface import descriptor_identity

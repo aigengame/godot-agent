@@ -31,8 +31,8 @@ from gda_balancing.schema2.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
+from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.schema2.model import (
-    PublicationMember,
     PublishedArtifactIntegrityError,
     admit_resolved_model,
     find_published_artifact,

@@ -1,6 +1,5 @@
 """Authority-driven Model Source checking and lowering for Schema 2.0."""
 
-import fcntl
 import hashlib
 import hmac
 import json
@@ -10,16 +9,21 @@ import stat
 import tempfile
 from collections.abc import Callable, Iterable
 from copy import deepcopy
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, TypeAlias, cast
+from typing import Any, TypeAlias, cast
 
 import jsonschema
 
 from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.publication import PublicationMember, RecoveredArtifactSet
+from gda_balancing.infrastructure.atomic_files import (
+    exclusive_file_lock as _invocation_lock,
+    fsync_directory as _fsync_directory,
+    write_exclusive_bytes,
+)
 from gda_balancing.schema2.authority import (
     AdmittedAuthorityContext,
     admit_authority_context,
@@ -218,25 +222,6 @@ class CheckedModel:
 class ResolvedModelAdmission:
     admitted: bool
     diagnostics: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class PublicationMember:
-    """One pre-admitted value and its descriptor-visible artifact metadata."""
-
-    value: dict[str, Any]
-    artifact_kind: str
-    wire_schema_identity: str
-    content_identity: str
-
-
-@dataclass(frozen=True)
-class RecoveredArtifactSet:
-    """One authenticated committed outcome recovered without recomputation."""
-
-    receipt: dict[str, JsonValue]
-    artifact_set: tuple[ArtifactSetMemberSpec, ...]
-    artifacts: dict[str, dict[str, Any]]
 
 
 class _ResolutionResourceExhausted(Exception):
@@ -8184,25 +8169,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
 
 def _write_json(path: Path, value: dict[str, JsonValue]) -> None:
     data = canonical_bytes(cast(JsonValue, value))
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    fd = os.open(path, flags, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-
-
-def _fsync_directory(path: Path) -> None:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    fd = os.open(path, flags)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    write_exclusive_bytes(path, data)
 
 
 def _read_canonical_artifact(path: Path) -> dict[str, Any]:
@@ -8705,20 +8672,6 @@ def _write_anchor_exclusive(
     finally:
         if temporary.exists():
             temporary.unlink()
-
-
-@contextmanager
-def _invocation_lock(path: Path) -> Iterator[None]:
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags, 0o600)
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            raise RuntimeError("invocation-key lock is not a regular file")
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        os.close(descriptor)
 
 
 def _primary_artifact_name(
