@@ -150,10 +150,11 @@ median. Three successful six-shard runs produced these results:
 | [Attempt 4](https://github.com/aigengame/godot-agent/actions/runs/30927209932/attempts/4) | 229 s |
 
 The median was 268 s, a 44.5% improvement, with a 277 s maximum. These runs
-establish the accepted six-shard partition. The final review-fix head still
-needs ordinary CI before merge; no four-shard remeasurement is required. #597
-uses this fixed three-run comparison; the rolling 20-run p95 protocol from the
-superseded implementation is not a standing gate for this refactor.
+establish the accepted six-shard partition. Review-fix heads require ordinary
+CI before merge, but unchanged shard membership does not require another
+three-run performance sample. #597 uses this fixed comparison; the rolling
+20-run p95 protocol from the superseded implementation is not a standing gate
+for this refactor.
 
 Nightly and release flows are not restructured by this member change. Any
 future workflow change must be justified independently by measured CI evidence
