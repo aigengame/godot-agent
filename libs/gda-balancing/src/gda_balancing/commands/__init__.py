@@ -15,7 +15,6 @@ from gda_balancing.commands.model import (
     MODEL_INSPECT,
     MODEL_MIGRATE,
 )
-from gda_balancing.commands.package import PACKAGE_GET
 from gda_balancing.commands.schema import SCHEMA_GET
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
@@ -25,6 +24,7 @@ from gda_balancing.commands.template import (
 from gda_balancing.commands.version import VERSION
 from gda_balancing.descriptors import CommandDescriptor, build_registry
 from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST
+from gda_balancing.interfaces.cli.package import PACKAGE_GET
 
 REGISTRY: tuple[CommandDescriptor, ...] = build_registry(
     VERSION,

@@ -32,7 +32,7 @@ from gda_balancing.commands.model import (
     MODEL_INSPECT,
     MODEL_MIGRATE,
 )
-from gda_balancing.commands.package import (
+from gda_balancing.interfaces.cli.package import (
     package_get_success_schema,
     package_list_success_schema,
     package_vector_set_success_schema,

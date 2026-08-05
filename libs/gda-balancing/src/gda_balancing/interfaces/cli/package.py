@@ -1,4 +1,4 @@
-"""Standard Schema 2.0 package inventory commands (bADR-0021/0023)."""
+"""Standard Schema 2.0 Package Release CLI contracts (bADR-0021/0023)."""
 
 import re
 from collections.abc import Callable
@@ -19,6 +19,7 @@ from pydantic.json_schema import (
     JsonSchemaMode,
 )
 
+from gda_balancing.application.package_get import get_package
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.interfaces.cli.package_contracts import (
     _closed_contract_schema,
@@ -30,17 +31,9 @@ from gda_balancing.schema2.authority import (
     AuthorityContextProvider,
     AuthorityLoadError,
     packaged_authority_context,
-    resolve_authority_context,
 )
-from gda_balancing.schema2.bootstrap import (
-    BOOTSTRAP_REFUSAL_CATALOG,
-    BootstrapAdmission,
-)
-from gda_balancing.schema2.diagnostics import (
-    Schema2RefusalReport,
-    bootstrap_refusal,
-    ingress_refusal,
-)
+from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 
 def _package_coordinate_contracts() -> dict[str, dict[str, Any]]:
@@ -120,54 +113,14 @@ class PackageArtifact(RootModel[dict[str, Any]]):
     """One admitted package inventory or exact Package Release."""
 
 
-def _admitted_package_graph(
-    provider: AuthorityContextProvider,
-) -> (
-    tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]
-    | Schema2RefusalReport
-):
-    try:
-        context = resolve_authority_context(provider)
-    except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
-    if isinstance(context, BootstrapAdmission):
-        return bootstrap_refusal(context)
-    # Package results cross the Pydantic serialization boundary, so operate on
-    # an independently owned builtin-container snapshot.
-    _kernel, ldb = context.mutable_pair()
-    root = getattr(ldb, "root", None)
-    releases = getattr(ldb, "package_releases", None)
-    vector_sets = getattr(ldb, "package_conformance_vector_sets", None)
-    if (
-        not isinstance(root, dict)
-        or not isinstance(releases, list)
-        or not isinstance(vector_sets, list)
-    ):
-        return ingress_refusal(
-            "kernel.member_set_mismatch",
-            "language-bundle",
-            "the admitted LDB has no sealed package graph",
-        )
-    return root, releases, vector_sets
-
-
 def package_get_handler(
     provider: AuthorityContextProvider,
 ) -> Callable[[PackageGetInput], PackageArtifact | Schema2RefusalReport]:
     def _run(inp: PackageGetInput) -> PackageArtifact | Schema2RefusalReport:
-        graph = _admitted_package_graph(provider)
-        if isinstance(graph, Schema2RefusalReport):
-            return graph
-        _root, releases, vector_sets = graph
-        for release, vector_set in zip(releases, vector_sets, strict=True):
-            if release.get("id") == inp.id and release.get("version") == inp.version:
-                selected = release if inp.member == "release" else vector_set
-                return PackageArtifact(root=deepcopy(cast(dict[str, Any], selected)))
-        return ingress_refusal(
-            "kernel.binding_mismatch",
-            f"{inp.id}@{inp.version}",
-            "the exact package coordinate is absent from the admitted LDB",
-        )
+        result = get_package(provider, inp.id, inp.version, inp.member)
+        if isinstance(result, Schema2RefusalReport):
+            return result
+        return PackageArtifact(root=result.root)
 
     return _run
 

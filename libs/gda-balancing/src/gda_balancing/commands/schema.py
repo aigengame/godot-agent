@@ -12,7 +12,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from gda_balancing.commands.package import (
+from gda_balancing.interfaces.cli.package import (
     package_release_success_schema,
     package_vector_set_success_schema,
 )
