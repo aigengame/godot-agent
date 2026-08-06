@@ -17,7 +17,6 @@ from pydantic import ValidationError
 from gda_balancing.schema.refusal import RefusalReport
 from gda_balancing.schema.funnel import report, semantic
 from gda_balancing.schema.funnel.preflight import (
-    MAX_DOCUMENT_BYTES,
     PREFLIGHT_CODES,
     preflight,
 )
@@ -29,28 +28,7 @@ if TYPE_CHECKING:
 
     from gda_balancing.schema.bundle import VersionBundle
 
-__all__ = ["SchemaInputReadError", "load", "validate", "refusal_code_namespace"]
-
-
-class SchemaInputReadError(OSError):
-    """A Standard Schema 1.x input could not be read."""
-
-
-def load(path: str) -> bytes:
-    """Read the input document's bytes, or raise :class:`SchemaInputReadError`.
-
-    Any ``OSError`` — the path missing (``FileNotFoundError``), being a
-    directory (``IsADirectoryError``), or permission-denied
-    (``PermissionError``) — becomes a :class:`SchemaInputReadError` naming the
-    path, which dispatch maps to the usage boundary (bADR-0008). At most
-    ``MAX_DOCUMENT_BYTES + 1`` bytes are read: one past the cap is enough for
-    preflight to refuse an oversized document without slurping a huge file.
-    """
-    try:
-        with open(path, "rb") as handle:
-            return handle.read(MAX_DOCUMENT_BYTES + 1)
-    except OSError as err:
-        raise SchemaInputReadError(f"cannot read input document: {path}") from err
+__all__ = ["validate", "refusal_code_namespace"]
 
 
 def validate(

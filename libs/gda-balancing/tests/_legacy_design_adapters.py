@@ -12,7 +12,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from gda_balancing.schema.funnel import SchemaInputReadError
 from gda_balancing.infrastructure.atomic_files import materialize_bytes
 from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
@@ -23,6 +22,7 @@ from gda_balancing.interfaces.cli.errors import UsageError
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
 from gda_balancing.interfaces.cli.rendering import canonical_json, model_payload
 from gda_balancing.schema import funnel
+from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.refusal import (
     JSON_POINTER_PATTERN,
     REFUSAL_BOUND,
@@ -94,6 +94,17 @@ def _usage(code: str, message: str) -> RunResult:
     return 3, "", canonical_json(usage_envelope(code, message))
 
 
+def _read_legacy_source(path: str) -> bytes:
+    """Read the bounded source needed by the retired test-only CLI driver."""
+    try:
+        with Path(path).open("rb") as stream:
+            return stream.read(MAX_DOCUMENT_BYTES + 1)
+    except OSError as error:
+        raise UsageError(
+            "unreadable_input", f"cannot read input document: {path}"
+        ) from error
+
+
 def run_legacy_cli(argv: list[str]) -> RunResult:
     """Drive only the two retired commands needed by 1.x funnel regressions."""
     try:
@@ -113,7 +124,7 @@ def run_legacy_cli(argv: list[str]) -> RunResult:
             out = tail[1]
             reject_input_aliasing(out, source, input_is_known_path=True)
 
-        outcome = funnel.validate(funnel.load(source))
+        outcome = funnel.validate(_read_legacy_source(source))
         if isinstance(outcome, RefusalReport):
             return 2, canonical_json(refusal_envelope(outcome)), ""
         if argv[1] == "validate":
@@ -133,8 +144,6 @@ def run_legacy_cli(argv: list[str]) -> RunResult:
             }
         }
         return 0, canonical_json(receipt), ""
-    except SchemaInputReadError as error:
-        return _usage("unreadable_input", str(error))
     except UsageError as error:
         return _usage(error.code, error.message)
     except Exception as error:
