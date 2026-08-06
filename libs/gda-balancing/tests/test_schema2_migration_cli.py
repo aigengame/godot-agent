@@ -12,7 +12,7 @@ from typing import Any, cast
 import jsonschema
 import pytest
 
-import gda_balancing.domain.migration as migration_module
+import gda_balancing.application.migration as migration_module
 from gda_balancing.interfaces.cli.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
@@ -21,7 +21,7 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
-from gda_balancing.domain.migration import MAX_SOURCE_OBSERVATION_BYTES
+from gda_balancing.application.migration import MAX_SOURCE_OBSERVATION_BYTES
 from gda_balancing.domain.artifacts import verify_artifact
 
 

@@ -13,6 +13,18 @@ from gda_balancing.domain.publication import (
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
+MODEL_BUILD_ARTIFACT_SET = (
+    ArtifactSetMemberSpec("build-receipt", "build-receipt"),
+    ArtifactSetMemberSpec("capability-manifest", "capability-manifest"),
+    ArtifactSetMemberSpec("debug-map", "debug-map"),
+    ArtifactSetMemberSpec("model-explanation", "model-explanation"),
+    ArtifactSetMemberSpec("package-lock", "package-lock"),
+    ArtifactSetMemberSpec("resolution-receipt", "resolution-receipt"),
+    ArtifactSetMemberSpec("resolved-model", "resolved-model", role="primary"),
+    ArtifactSetMemberSpec("rir-semantic-payload", "rir-semantic-payload"),
+)
+
+
 @dataclass(frozen=True)
 class ModelBuildReceipt:
     """The published artifact-set receipt for one Model build."""

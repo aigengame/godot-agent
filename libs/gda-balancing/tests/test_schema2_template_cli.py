@@ -34,10 +34,8 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.authority.graph import derive_language_index
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.resolution import (
-    CheckedModel,
-    checked_model_template_facts,
-)
+from gda_balancing.domain.model.resolution import CheckedModel
+from gda_balancing.domain.model.lowering import checked_model_template_facts
 from gda_balancing.domain.model.checking import check_model_source_value
 from gda_balancing.domain.authority.projections import wire_schema_projection
 from gda_balancing.domain.authority.package_semantics import (

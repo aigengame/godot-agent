@@ -25,6 +25,9 @@ import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
 import gda_balancing.domain.model.resolution as model_module
+import gda_balancing.domain.model.lowering as model_lowering_module
+import gda_balancing.domain.model.admission as model_admission_module
+import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.publication as publication_module
 import jsonschema
 import pytest
@@ -1002,7 +1005,7 @@ def test_resolved_admission_includes_symbol_only_formula_modules(tmp_path, run_c
     assert (exit_code, stderr) == (0, "")
     published = _artifact_directory(json.loads(stdout))
     context = authority_module.packaged_authority_context()
-    admission = model_module.admit_resolved_model(
+    admission = model_admission_module.admit_resolved_model(
         {
             name: json.loads((published / f"{name}.json").read_text())
             for name in ("package-lock", "rir-semantic-payload", "resolved-model")
@@ -3342,7 +3345,7 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
 
     def generate_invalid_explanation(authority_context, lock, rir, debug_map):
         valid = explanation(authority_context, lock, rir, debug_map)
-        return model_module._identified_artifact(
+        return artifacts_module._identified_artifact(
             authority_context.language_bundle,
             "model-explanation",
             {
@@ -3682,7 +3685,7 @@ def test_receipt_content_identity_excludes_transport_locators():
         "invocation_key": "2" * 64,
         "manifest_identity": "sha256:" + "3" * 64,
     }
-    first = model_module._identified_artifact(
+    first = artifacts_module._identified_artifact(
         language_bundle,
         "artifact-set-receipt",
         {
@@ -3693,7 +3696,7 @@ def test_receipt_content_identity_excludes_transport_locators():
             ],
         },
     )
-    second = model_module._identified_artifact(
+    second = artifacts_module._identified_artifact(
         language_bundle,
         "artifact-set-receipt",
         {
@@ -4064,7 +4067,7 @@ def test_resolved_model_admission_rejects_coherently_reidentified_authority_drif
     )
     assert built[0] == 0
     original = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
-    assert model_module.admit_resolved_model(original).admitted is True
+    assert model_admission_module.admit_resolved_model(original).admitted is True
 
     def mutate_operation(artifacts):
         artifacts["package-lock"]["operations"][0]["definition"]["id"] = (
@@ -4099,7 +4102,7 @@ def test_resolved_model_admission_rejects_coherently_reidentified_authority_drif
         ]
         _reidentify(artifacts["resolved-model"], "resolved-model-v2")
 
-        admission = model_module.admit_resolved_model(artifacts)
+        admission = model_admission_module.admit_resolved_model(artifacts)
 
         assert admission.admitted is False
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
@@ -4142,7 +4145,7 @@ def test_resolved_model_admission_rejects_coherently_reidentified_invalid_declar
         ]
         _reidentify(artifacts["resolved-model"], "resolved-model-v2")
 
-        admission = model_module.admit_resolved_model(artifacts)
+        admission = model_admission_module.admit_resolved_model(artifacts)
 
         assert admission.admitted is False
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
@@ -4226,7 +4229,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     )
     assert built[0] == 0, built
     artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
-    assert model_module.admit_resolved_model(artifacts).admitted is True
+    assert model_admission_module.admit_resolved_model(artifacts).admitted is True
 
     kernel, language_bundle = mutable_authorities()
     policy = model_module._formula_policy(language_bundle)
@@ -4301,15 +4304,17 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
             policy["identity_domains"]["binding"],
             {key: value for key, value in binding.items() if key != "identity"},
         )
-    rir["initialization_programs"] = model_module._compile_initialization_programs(
-        rir["selected_semantics"],
-        rir["formulas"],
-        rir["formula_bindings"],
-        policy,
+    rir["initialization_programs"] = (
+        model_lowering_module._compile_initialization_programs(
+            rir["selected_semantics"],
+            rir["formulas"],
+            rir["formula_bindings"],
+            policy,
+        )
     )
 
     assert (
-        model_module._formula_program_graph_is_admitted(
+        model_admission_module._formula_program_graph_is_admitted(
             kernel,
             language_bundle,
             rir["declarations"],
@@ -4325,7 +4330,7 @@ def test_resolved_model_admission_requires_the_kernel_boolean_conditional_contra
     artifacts["resolved-model"]["rir_identity"] = rir["content_identity"]
     _reidentify(artifacts["resolved-model"], "resolved-model-v2")
 
-    admission = model_module.admit_resolved_model(artifacts)
+    admission = model_admission_module.admit_resolved_model(artifacts)
 
     assert admission.admitted is False
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
@@ -4375,7 +4380,7 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
     )
     assert built[0] == 0, built
     artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
-    assert model_module.admit_resolved_model(artifacts).admitted is True
+    assert model_admission_module.admit_resolved_model(artifacts).admitted is True
 
     operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
         "operand"
@@ -4387,7 +4392,7 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
     ]
     _reidentify(artifacts["resolved-model"], "resolved-model-v2")
 
-    admission = model_module.admit_resolved_model(artifacts)
+    admission = model_admission_module.admit_resolved_model(artifacts)
 
     assert admission.admitted is False
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
@@ -4579,7 +4584,7 @@ def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
     accuracy[member] = incompatible
 
     with pytest.raises(ValueError, match="incompatible"):
-        model_module._resolved_entrypoints(
+        model_lowering_module._resolved_entrypoints(
             checked,
             cast(list[dict[str, Any]], rir["declarations"]),
             selected,
@@ -4683,7 +4688,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
     resolved_model["rir_identity"] = rir["content_identity"]
     _reidentify(resolved_model, "resolved-model-v2")
 
-    admission = model_module.admit_resolved_model(artifacts)
+    admission = model_admission_module.admit_resolved_model(artifacts)
 
     assert admission.admitted is False
     assert admission.diagnostics == ("language.resolved_authority_mismatch",)
@@ -5002,7 +5007,7 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
 
     call_sites = cast(
         list[dict[str, Any]],
-        model_module._resolved_call_sites(
+        model_lowering_module._resolved_call_sites(
             checked.kernel,
             selected,
             checked.language_bundle["language"]["model_lowerings"][0][
@@ -5128,7 +5133,7 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
     child[member].append(hidden_value)
 
     with pytest.raises(ValueError, match="closure exceeds caller declaration"):
-        model_module._resolved_call_sites(
+        model_lowering_module._resolved_call_sites(
             checked.kernel,
             selected,
             checked.language_bundle["language"]["model_lowerings"][0][
@@ -5208,7 +5213,7 @@ def test_assignment_policy_refuses_a_readable_role_mode_without_a_value_producer
         for diagnostic in admission.diagnostics
     )
     with pytest.raises(ValueError, match="total Symbol assignment policy"):
-        model_module._assignment_policy(
+        model_lowering_module._assignment_policy(
             lowering,
             expected_roles=set(candidate_ldb["language"]["quantity"]["symbol_roles"]),
         )
@@ -5851,7 +5856,7 @@ def test_rir_semantic_identity_consumes_the_sealed_artifact_projection():
         original["rir-semantic-payload"]["semantic_identity"]
         != mutated["rir-semantic-payload"]["semantic_identity"]
     )
-    projection = model_module._rir_semantic_projection(
+    projection = model_lowering_module._rir_semantic_projection(
         candidate_ldb,
         cast(dict[str, JsonValue], mutated["rir-semantic-payload"]),
     )

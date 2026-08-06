@@ -27,12 +27,9 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
 from gda_balancing.infrastructure.input_bytes import (
-    InputTooLargeError,
     read_bounded_input_with_sha256,
 )
-from gda_balancing.domain.model.resolution import (
-    admit_resolved_model,
-)
+from gda_balancing.domain.model.admission import admit_resolved_model
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 
@@ -329,21 +326,17 @@ def check_experiment(
     kernel = context.kernel
     language_bundle = context.language_bundle
     max_source_bytes = cast(int, language_bundle["resources"]["max_source_bytes"])
-    try:
-        data, raw_sha256 = read_bounded_input_with_sha256(path, max_source_bytes)
-    except InputTooLargeError as err:
-        if err.sha256 is None:
-            raise RuntimeError(
-                "hashed bounded input omitted its SHA-256 identity"
-            ) from err
+    observation = read_bounded_input_with_sha256(path, max_source_bytes)
+    if observation.data is None:
         return _refusal(
             stage="ingress",
             code="language.source_too_large",
-            identity=f"sha256:{err.sha256}",
+            identity=f"sha256:{observation.sha256}",
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
         )
-    observed_identity = f"sha256:{raw_sha256}"
+    data = observation.data
+    observed_identity = f"sha256:{observation.sha256}"
     try:
         value = parse_canonical_object(
             data,

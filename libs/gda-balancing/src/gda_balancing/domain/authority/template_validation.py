@@ -11,7 +11,7 @@ from gda_balancing.domain.template_contract import (
     TEMPLATE_RESOURCE_ACCOUNTING,
     TEMPLATE_SELECTOR_CONTRACT,
 )
-from gda_balancing.domain.authority.validation_support import _exact_path_value
+from gda_balancing.domain.authority.contract_validation import _exact_path_value
 
 
 def _template_selector_is_closed(

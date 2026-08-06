@@ -1142,7 +1142,8 @@ def _conformance_vector_schema(
     }
 
 
-def package_release_success_schema() -> dict[str, object]:
+def package_release_schema() -> dict[str, object]:
+    """Project the authority-owned Package Release member contract."""
     (
         _identity,
         _descriptor,
@@ -1154,7 +1155,8 @@ def package_release_success_schema() -> dict[str, object]:
     return _closed_contract_schema(release)
 
 
-def package_vector_set_success_schema() -> dict[str, object]:
+def package_vector_set_schema() -> dict[str, object]:
+    """Project the authority-owned conformance-vector member contract."""
     (
         _identity,
         _descriptor,

@@ -1,4 +1,4 @@
-"""Resolution and lowering of an already checked Model Source Package."""
+"""Compile an already checked Model Source into resolved artifacts."""
 
 from typing import Any, cast
 
@@ -11,24 +11,28 @@ from gda_balancing.domain.authority.context import (
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.model.resolution import (
     CheckedModel,
-    _LOWERER_IMPLEMENTATION_IDENTITY,
     _RESOLVER_IMPLEMENTATION_IDENTITY,
-    _compile_initialization_programs,
-    _composition_policy,
-    _formula_operation_identity,
     _formula_policy,
-    _identified_rir_artifact,
-    lowering_inputs,
-    _model_explanation_pairs_are_admitted,
     _model_lowering,
     _pointer,
     _resolution_profile,
+)
+from gda_balancing.domain.model.lowering import (
+    _LOWERER_IMPLEMENTATION_IDENTITY,
+    _compile_initialization_programs,
+    _composition_policy,
+    _formula_operation_identity,
+    _identified_rir_artifact,
+    lowering_inputs,
     _resolved_call_sites,
     _resolved_entrypoints,
     _resolved_formulas_and_bindings,
     _runtime_projection,
     _runtime_projection_budget,
     _specialize_operation_formula_slots,
+)
+from gda_balancing.domain.model.admission import (
+    _model_explanation_pairs_are_admitted,
     admit_resolved_model,
 )
 

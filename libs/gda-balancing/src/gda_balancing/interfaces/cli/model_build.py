@@ -4,9 +4,8 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from gda_balancing.application.model_build import build_model
+from gda_balancing.application.model_build import MODEL_BUILD_ARTIFACT_SET, build_model
 from gda_balancing.interfaces.cli.descriptors import (
-    ArtifactSetMemberSpec,
     CommandDescriptor,
     ConformanceFixtures,
 )
@@ -82,16 +81,7 @@ MODEL_BUILD = CommandDescriptor(
     handler=run_model_build,
     fixtures=ConformanceFixtures(valid_document=VALID_MODEL_SOURCE),
     positional_field="source",
-    artifact_set=(
-        ArtifactSetMemberSpec("build-receipt", "build-receipt"),
-        ArtifactSetMemberSpec("capability-manifest", "capability-manifest"),
-        ArtifactSetMemberSpec("debug-map", "debug-map"),
-        ArtifactSetMemberSpec("model-explanation", "model-explanation"),
-        ArtifactSetMemberSpec("package-lock", "package-lock"),
-        ArtifactSetMemberSpec("resolution-receipt", "resolution-receipt"),
-        ArtifactSetMemberSpec("resolved-model", "resolved-model", role="primary"),
-        ArtifactSetMemberSpec("rir-semantic-payload", "rir-semantic-payload"),
-    ),
+    artifact_set=MODEL_BUILD_ARTIFACT_SET,
     schema_major=2,
     structured_params=True,
     refusal_catalog=MODEL_REFUSAL_CATALOG,

@@ -2,21 +2,13 @@
 
 from typing import Literal
 
+from gda_balancing.application.authority import admit_command_authority
 from gda_balancing.domain.authority.schema_catalog import (
     SchemaArtifactContent,
     get_schema_artifact,
 )
-from gda_balancing.domain.authority.context import (
-    AuthorityContextProvider,
-    AuthorityLoadError,
-    resolve_authority_context,
-)
-from gda_balancing.domain.authority.admission import BootstrapAdmission
-from gda_balancing.domain.diagnostics import (
-    Schema2RefusalReport,
-    bootstrap_refusal,
-    ingress_refusal,
-)
+from gda_balancing.domain.authority.context import AuthorityContextProvider
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 def get_schema(
@@ -24,10 +16,7 @@ def get_schema(
     artifact: Literal["language-bundle", "wire-schema", "diagnostic-catalog"],
 ) -> SchemaArtifactContent | Schema2RefusalReport:
     """Resolve one authority context and return the requested public artifact."""
-    try:
-        context = resolve_authority_context(provider)
-    except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
-    if isinstance(context, BootstrapAdmission):
-        return bootstrap_refusal(context)
+    context = admit_command_authority(provider)
+    if isinstance(context, Schema2RefusalReport):
+        return context
     return get_schema_artifact(context, artifact)

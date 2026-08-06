@@ -18,8 +18,8 @@ from gda_balancing.interfaces.cli.descriptors import (
     ConformanceFixtures,
 )
 from gda_balancing.interfaces.cli.package import (
-    package_release_success_schema,
-    package_vector_set_success_schema,
+    package_release_schema,
+    package_vector_set_schema,
 )
 from gda_balancing.domain.authority.context import (
     AuthorityContextProvider,
@@ -98,11 +98,11 @@ def schema_get_success_schema() -> dict[str, object]:
             "language_bundle": {},
             "package_releases": {
                 "type": "array",
-                "items": package_release_success_schema(),
+                "items": package_release_schema(),
             },
             "package_conformance_vector_sets": {
                 "type": "array",
-                "items": package_vector_set_success_schema(),
+                "items": package_vector_set_schema(),
             },
             "admission": admission,
         },

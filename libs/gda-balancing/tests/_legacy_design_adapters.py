@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.schema.funnel import SchemaInputReadError
 from gda_balancing.infrastructure.atomic_files import materialize_bytes
 from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
@@ -133,7 +133,7 @@ def run_legacy_cli(argv: list[str]) -> RunResult:
             }
         }
         return 0, canonical_json(receipt), ""
-    except UnreadableInputError as error:
+    except SchemaInputReadError as error:
         return _usage("unreadable_input", str(error))
     except UsageError as error:
         return _usage(error.code, error.message)

@@ -2,21 +2,13 @@
 
 from typing import Literal
 
+from gda_balancing.application.authority import admit_command_authority
 from gda_balancing.domain.authority.package_catalog import (
     PackageArtifactContent,
     get_package_release,
 )
-from gda_balancing.domain.authority.context import (
-    AuthorityContextProvider,
-    AuthorityLoadError,
-    resolve_authority_context,
-)
-from gda_balancing.domain.authority.admission import BootstrapAdmission
-from gda_balancing.domain.diagnostics import (
-    Schema2RefusalReport,
-    bootstrap_refusal,
-    ingress_refusal,
-)
+from gda_balancing.domain.authority.context import AuthorityContextProvider
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 
 def get_package(
@@ -26,10 +18,7 @@ def get_package(
     member: Literal["release", "conformance-vectors"],
 ) -> PackageArtifactContent | Schema2RefusalReport:
     """Resolve one authority context and select an exact Package Release member."""
-    try:
-        context = resolve_authority_context(provider)
-    except AuthorityLoadError as err:
-        return ingress_refusal(err.code, err.subject, err.message)
-    if isinstance(context, BootstrapAdmission):
-        return bootstrap_refusal(context)
+    context = admit_command_authority(provider)
+    if isinstance(context, Schema2RefusalReport):
+        return context
     return get_package_release(context, package_id, version, member)

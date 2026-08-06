@@ -27,9 +27,9 @@ from gda_balancing.domain.diagnostics import (
 )
 from gda_balancing.domain.model.resolution import (
     CheckedModel,
-    checked_model_template_facts,
     model_source_identity_domain,
 )
+from gda_balancing.domain.model.lowering import checked_model_template_facts
 from gda_balancing.domain.model.checking import check_model_source_value
 from gda_balancing.domain.template_contract import (
     TEMPLATE_PRIMITIVE_CHARGES,

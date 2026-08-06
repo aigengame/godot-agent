@@ -34,7 +34,7 @@ from gda_balancing.domain.authority.runtime_validation import (
 from gda_balancing.domain.authority.template_validation import (
     _template_admission_profiles_are_closed,
 )
-from gda_balancing.domain.authority.validation_support import (
+from gda_balancing.domain.authority.contract_validation import (
     _meta_validate_json_schema,
     _path_is_declared,
     _path_values,

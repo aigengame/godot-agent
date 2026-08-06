@@ -3,7 +3,7 @@
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes
-from gda_balancing.domain.authority.validation_support import (
+from gda_balancing.domain.authority.contract_validation import (
     _exact_path_value,
     _value_matches_contract,
 )

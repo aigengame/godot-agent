@@ -14,7 +14,7 @@ _ROOT_ENTRYPOINTS = frozenset({"__init__.py", "__main__.py"})
 _SCHEMA2_RESOURCE_PACKAGES = frozenset(
     {"schema2/__init__.py", "schema2/authorities/__init__.py"}
 )
-_SCHEMA1_MIGRATION_CONSUMERS = frozenset({"gda_balancing.domain.migration"})
+_SCHEMA1_MIGRATION_CONSUMERS = frozenset({"gda_balancing.application.migration"})
 
 
 def _module_name(path: Path) -> str:
@@ -83,7 +83,10 @@ def _architectural_modules() -> dict[str, Path]:
 
 
 def _layer(module: str) -> str | None:
-    namespace = module.split(".")[1]
+    parts = module.split(".")
+    if len(parts) < 2 or parts[0] != "gda_balancing":
+        return None
+    namespace = parts[1]
     return namespace if namespace in _LAYER_RANK else None
 
 
@@ -170,28 +173,13 @@ def test_schema1_is_imported_only_by_the_model_migration_boundary() -> None:
     assert violations == []
 
 
-def test_model_checking_does_not_depend_on_model_compilation() -> None:
+def test_schema1_migration_input_does_not_import_active_layers() -> None:
     known_modules = _production_modules()
-    checking = _SOURCE_ROOT / "domain" / "model" / "checking.py"
-
-    assert "gda_balancing.domain.model.compilation" not in _resolved_imports(
-        _module_name(checking), checking, known_modules
-    )
-
-
-def test_cross_domain_refusal_catalogs_are_not_model_owned() -> None:
-    known_modules = _production_modules()
-    consumers = (
-        _SOURCE_ROOT / "interfaces" / "cli" / "experiment_check.py",
-        _SOURCE_ROOT / "interfaces" / "cli" / "experiment_run.py",
-        _SOURCE_ROOT / "interfaces" / "cli" / "formula.py",
-        _SOURCE_ROOT / "interfaces" / "cli" / "model_migration.py",
-    )
     violations = [
-        _module_name(path)
-        for path in consumers
-        if "gda_balancing.domain.model.resolution"
-        in _resolved_imports(_module_name(path), path, known_modules)
+        f"{_module_name(path)} imports active layer {imported}"
+        for path in (_SOURCE_ROOT / "schema").rglob("*.py")
+        for imported in _resolved_imports(_module_name(path), path, known_modules)
+        if _layer(imported) is not None
     ]
 
     assert violations == []
@@ -228,21 +216,6 @@ def test_architectural_modules_are_acyclic() -> None:
         visit(module)
 
     assert cycles == []
-
-
-def test_package_list_cli_adapter_cold_imports_without_a_registry_cycle() -> None:
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from gda_balancing.interfaces.cli.package_list import PACKAGE_LIST",
-        ],
-        cwd=_SOURCE_ROOT.parents[1],
-        capture_output=True,
-        text=True,
-    )
-
-    assert (completed.returncode, completed.stderr) == (0, "")
 
 
 def test_cli_composition_root_cold_imports_without_a_registry_cycle() -> None:

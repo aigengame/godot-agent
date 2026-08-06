@@ -9,7 +9,7 @@ from gda_balancing.domain.artifacts import (
     verify_artifact,
     wire_schema_identity,
 )
-from gda_balancing.domain.migration import (
+from gda_balancing.application.migration import (
     MigrationFailure,
     MigrationSuccess,
     converter_specification,

@@ -25,8 +25,8 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.domain.authority.package_projection import (
     package_coordinate_contracts,
-    package_release_success_schema as package_release_success_schema,
-    package_vector_set_success_schema as package_vector_set_success_schema,
+    package_release_schema,
+    package_vector_set_schema,
 )
 from gda_balancing.interfaces.cli.package_list import (
     package_list_success_schema as package_list_success_schema,
@@ -97,8 +97,8 @@ def package_get_success_schema() -> dict[str, object]:
     """Project the two authority-owned Package member shapes into CLI output."""
     return {
         "oneOf": [
-            package_release_success_schema(),
-            package_vector_set_success_schema(),
+            package_release_schema(),
+            package_vector_set_schema(),
         ]
     }
 

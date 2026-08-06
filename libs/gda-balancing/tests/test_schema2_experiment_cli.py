@@ -20,12 +20,12 @@ import gda_balancing.interfaces.cli.experiment_check as experiment_check_command
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
-import gda_balancing.domain.model.resolution as model_module
+import gda_balancing.domain.model.lowering as model_lowering_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.infrastructure.input_bytes import (
-    InputTooLargeError,
+    BoundedInputObservation,
     read_bounded_input_with_sha256,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
@@ -6061,9 +6061,9 @@ def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
     calls: list[tuple[str, int]] = []
     oversized_sha256 = "a" * 64
 
-    def reject_oversized(path: str, limit: int) -> tuple[bytes, str]:
+    def reject_oversized(path: str, limit: int) -> BoundedInputObservation:
         calls.append((path, limit))
-        raise InputTooLargeError(sha256=oversized_sha256)
+        return BoundedInputObservation(data=None, sha256=oversized_sha256)
 
     monkeypatch.setattr(
         experiment_admission_module,
@@ -6092,10 +6092,10 @@ def test_hashed_bounded_input_preserves_oversized_content_identity(tmp_path):
     source = tmp_path / "oversized.bin"
     source.write_bytes(data)
 
-    with pytest.raises(InputTooLargeError) as caught:
-        read_bounded_input_with_sha256(str(source), max_bytes=8)
+    observation = read_bounded_input_with_sha256(str(source), max_bytes=8)
 
-    assert caught.value.sha256 == hashlib.sha256(data).hexdigest()
+    assert observation.data is None
+    assert observation.sha256 == hashlib.sha256(data).hexdigest()
 
 
 def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):
@@ -6604,7 +6604,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     )
     mitigation["operand"]["port"] = "target_health"
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
@@ -6694,7 +6694,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     )
     cost["operand"] = {"kind": "literal", "literal": 8}
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
@@ -6759,7 +6759,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         "site": "apply-damage",
     }
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],

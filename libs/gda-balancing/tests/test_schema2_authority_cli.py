@@ -21,6 +21,7 @@ import jsonschema
 import pytest
 
 import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.infrastructure.package_resources as package_resources_module
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.schema2.authorities as authority_resources
 import gda_balancing.interfaces.cli.schema as schema_command_module
@@ -35,7 +36,7 @@ from gda_balancing.interfaces.cli.model_migration import MODEL_MIGRATE
 from gda_balancing.interfaces.cli.package import (
     package_get_success_schema,
     package_list_success_schema,
-    package_vector_set_success_schema,
+    package_vector_set_schema,
 )
 from gda_balancing.interfaces.cli.schema import (
     SCHEMA_GET,
@@ -221,7 +222,7 @@ def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, ru
             return b'{"schema_major":999,"schema_major":2}'
 
     monkeypatch.setattr(
-        authority_module, "files", lambda _package: DuplicateKeyResource()
+        package_resources_module, "files", lambda _package: DuplicateKeyResource()
     )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
@@ -273,7 +274,9 @@ def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
         def read_bytes(self):
             return logical_members[self.logical_name]
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: MutatedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: MutatedResource()
+    )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
         authority_module.load_authorities()
@@ -316,7 +319,7 @@ def test_rebuild_tool_reproduces_every_committed_authority_byte():
 
 def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
     kernel, language_bundle = authority_module.load_authorities()
-    schema = package_vector_set_success_schema()
+    schema = package_vector_set_schema()
     pointer_schema = kernel["meta_format"]["json_pointer"]["schema"]
     projected_pointer_schemas = []
 
@@ -389,7 +392,9 @@ def test_authority_raw_resource_bounds_precede_json_decode(monkeypatch, data):
         def read_bytes(self):
             return data
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: BoundedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: BoundedResource()
+    )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
         authority_module.load_authorities()
@@ -448,7 +453,9 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
         def read_bytes(self):
             return relocated[self.logical_name].read_bytes()
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: RelocatedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: RelocatedResource()
+    )
 
     kernel, ldb = authority_module.load_authorities()
 
@@ -490,7 +497,7 @@ def test_authority_loader_refuses_an_unreadable_declared_child(
             return logical_members[self.logical_name]
 
     monkeypatch.setattr(
-        authority_module, "files", lambda _package: UnreadableResource()
+        package_resources_module, "files", lambda _package: UnreadableResource()
     )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:

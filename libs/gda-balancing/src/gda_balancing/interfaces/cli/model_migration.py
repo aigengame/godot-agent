@@ -10,7 +10,7 @@ from gda_balancing.interfaces.cli.descriptors import (
 )
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.artifacts import artifact_wire_schema
-from gda_balancing.domain.migration import MigrationInputError
+from gda_balancing.application.migration import MigrationInputError
 from gda_balancing.domain.errors import UnreadableInputError
 from gda_balancing.interfaces.cli.artifact_set import ArtifactSetMemberLocator
 from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing

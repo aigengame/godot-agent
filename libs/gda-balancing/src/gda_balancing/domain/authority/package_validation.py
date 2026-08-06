@@ -6,7 +6,7 @@ from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_i
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
-from gda_balancing.domain.authority.validation_support import (
+from gda_balancing.domain.authority.contract_validation import (
     _exact_path_value,
     _path_is_declared,
     _path_values,

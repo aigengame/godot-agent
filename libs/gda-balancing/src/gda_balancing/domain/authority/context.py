@@ -13,7 +13,6 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from importlib.resources import files
 from types import MappingProxyType
 from typing import Any, Never, cast
 
@@ -357,7 +356,7 @@ def _load(
     require_canonical_bytes: bool = True,
 ) -> tuple[dict[str, Any], int]:
     try:
-        data = read_package_resource(files, _AUTHORITY_PACKAGE, name)
+        data = read_package_resource(_AUTHORITY_PACKAGE, name)
     except OSError as err:
         raise AuthorityLoadError(
             code="kernel.member_set_mismatch",

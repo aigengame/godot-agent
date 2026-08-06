@@ -25,31 +25,33 @@ from gda_balancing.infrastructure.input_bytes import (
 )
 from gda_balancing.domain.model.resolution import (
     CheckedModel,
-    _EntrypointBindingError,
-    _FormulaResolutionError,
-    _RuntimeProjectionResourceExhausted,
     _bounded_refusal,
-    _composition_policy,
-    _formula_failure_pointer,
     _formula_pair_diagnostics,
-    _invalid_source_value_policy_pointer,
     _language,
-    lowering_inputs,
     _model_check_diagnostics,
     _model_lowering,
     _path_value,
     _refusal,
     _resolution_diagnostics,
     _resolution_profile,
+    _schema_error_diagnostics,
+    _strict_object,
+    _unique_reason,
+)
+from gda_balancing.domain.model.lowering import (
+    _EntrypointBindingError,
+    _FormulaResolutionError,
+    _RuntimeProjectionResourceExhausted,
+    _composition_policy,
+    _formula_failure_pointer,
+    _invalid_source_value_policy_pointer,
+    lowering_inputs,
     _resolved_call_sites,
     _resolved_entrypoints,
     _resolved_formulas_and_bindings,
     _resolved_source_symbols,
     _runtime_projection,
     _runtime_projection_budget,
-    _schema_error_diagnostics,
-    _strict_object,
-    _unique_reason,
 )
 
 
