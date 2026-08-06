@@ -244,7 +244,7 @@ inputs, published artifacts, and governance decisions remain outside the layer f
 
 ```mermaid
 flowchart TB
-    H["Authored and execution inputs<br/>Model Source Package · Experiment Specification<br/>Runtime profile definition · evaluator · platform<br/>external inputs · effective seed"]
+    H["Authored and execution inputs<br/>Model Source Package · Experiment Specification<br/>Evaluator Capability Manifest · platform<br/>external inputs · effective seed"]
     M["Machine authority<br/>exact Kernel Specification · whole LDB"]
 
     subgraph HOST["Conforming host implementation"]
@@ -287,12 +287,12 @@ policy from domain-neutral storage mechanisms.
 
 | Host layer | Subsystem | Responsibility | Stable output or boundary |
 | --- | --- | --- | --- |
-| UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, surface manifest, CLI envelopes, and exit codes |
+| UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, Surface manifest, CLI envelopes, and exit codes |
 | Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals; publication receipts when the use case publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select a deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
 | Domain | Model compiler | Parse and check source, lower it to RIR, and assemble exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
-| Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, snapshots, outputs, refusals, and terminal audits |
+| Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, Snapshots, gameplay outcomes, Refusals, and terminal-audit artifact sets |
 | Domain | Experiment semantics | Apply scenarios, inputs, metrics, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
 | Domain | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
 | Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery rules | Artifact envelopes, Locators, and Receipts |
