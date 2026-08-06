@@ -1,12 +1,11 @@
 """Descriptor-derived Schema 2.0 command schemas and Surface manifest."""
 
+from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
-from copy import deepcopy
-
-from gda_balancing.interfaces.cli.envelope import USAGE_ERROR_SCHEMA
 from gda_balancing.domain.canonical import JsonValue, content_identity
+from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
+from gda_balancing.interfaces.cli.envelope import USAGE_ERROR_SCHEMA
 
 _DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
 _ADMITTED_KEYWORDS = (
