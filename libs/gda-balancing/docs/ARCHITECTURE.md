@@ -114,138 +114,39 @@ Standard Schema 2.0 does not:
 8. **Clean 2.0 baseline.** With no released Standard Schema artifacts to preserve, safe conversion is
    preferred over compatibility machinery; unsupported 1.x concepts are deprecated and refused.
 
-## 3. System context and authority boundaries
+## 3. System context, authority boundaries, and host ownership
 
-Three authored domains feed the system and remain independently owned:
+### 3.1 External authorities and inputs
+
+Three authored artifacts have independent owners:
 
 - **Model Source Package** is the sole editable authority for a game's model definitions and package
   requirements.
 - **Experiment Specification** owns scenarios, inputs, selectors, metric definitions, statistical
   policy, calibration intent, and acceptance intent.
-- **Approval Record** owns the governance decision to accept or reject a named Evidence assertion.
+- **Approval Record** owns the governance decision for a named Evidence assertion.
 
-The language used to interpret model and experiment content has a layered machine-authority chain:
+The Model Source Package and Experiment Specification enter the host as authored inputs. The
+Approval Record does not enter execution. A person or governance system creates an Approval Record
+for a named Evidence assertion.
 
-```mermaid
-flowchart LR
-    K["Schema-major Kernel Specification<br/>irreducible laws and bootstrap"]
-    L["Language Definition Bundle<br/>language content and package releases"]
-    M["Model Source Package<br/>game model authority"]
-    X["Experiment Specification<br/>evaluation intent"]
-    C["Compiler and resolver<br/>conforming implementation"]
-    R["Resolved Model<br/>exact semantic build"]
-    E["Evaluator<br/>conforming implementation"]
-    O["Evaluation artifacts<br/>facts and comparisons"]
-    V["Evidence assertion<br/>validated claim"]
-    A["Approval Record<br/>governance decision"]
+Machine authority is separate from authored input. It consists of one exact Schema-major Kernel
+Specification and one whole Language Definition Bundle (LDB). An execution also binds an Evaluator
+Capability Manifest, a platform, external inputs, and an effective seed.
 
-    K -->|"admits and interprets"| L
-    K --> C
-    L --> C
-    M --> C
-    C --> R
-    R --> E
-    X --> E
-    K --> E
-    L --> E
-    E --> O
-    O --> V
-    V --> A
-```
+### 3.2 Host placement and artifact flow
 
-The **Schema-major Kernel Specification** is intentionally small and non-self-hosted. It defines
-the canonical wire identity rules, the bootstrap meta-format, bundle admission, irreducible type and
-evaluation judgments, primitive numeric and transition laws, resource limits, and closed
-meta-diagnostics needed to accept or reject an LDB. A list of node names or prose descriptions is
-not a Kernel Specification.
-
-An exact, immutable **Language Definition Bundle** is the only language-content authority admitted
-under that Kernel. Per bADR-0023 it is one sealed artifact graph: a canonical root manifest owns the
-closed Package Release inventory, and each descriptor binds one Package Release manifest. Each
-release is a sealed one-level aggregate: the manifest owns its runtime language semantics and binds
-exactly one package-owned conformance-vector child. The two authority JSON members live in one
-package-specific directory, including an empty vector child when necessary. Together the releases
-own grammar, language types, structured rules, operations, post-admission diagnostics, runtime
-profile definitions, and normative vectors. Admission may derive read-only flat indexes, but no
-serialized registry or directory listing is a second authority. The LDB cannot redefine Kernel
-laws, and the Kernel does not absorb ordinary language or game-domain evolution. The Kernel owns
-package-coordinate patterns and the identity domains for the root, release, and evidence
-collections; loaders, admission, public schemas, and rebuild tooling project those contracts.
-
-Within one host process, those projections share one deeply immutable
-`AdmittedAuthorityContext`. The authority lifecycle atomically loads, admits, indexes, and freezes
-the exact packaged Kernel/LDB graph before publishing it; every compiler, Runtime, Experiment,
-Template, and CLI consumer borrows that same context. This is a performance and ownership boundary,
-not another authority. Explicitly injected Kernel/LDB candidates are admitted into separate,
-independently owned contexts and cannot mutate or populate the packaged baseline. Canonical
-Wire-Schema meta-validation is cached only by actual schema bytes plus the actual Kernel
-schema-profile bytes. The test and CI verification contract for this lifecycle is documented in
-[`docs/agents/testing.md`](agents/testing.md).
-
-Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
-never semantic authorities. Generated JSON Schema, help text, and SDK types are projections of the
-same authoritative artifacts. They may make the system easier to use but cannot add meaning.
-
-## 4. End-to-end architecture
-
-This section first describes the host implementation layers. It then shows how inputs pass through
-those layers and become published outputs.
-
-### 4.1 Host implementation layers
-
-The Python host follows four dependency-directed implementation layers. This organization is not a
-second Standard Schema authority. Kernel/LDB artifacts still own machine semantics. The layers
-state where the conforming implementation owns behavior and how code may depend on it.
-
-```mermaid
-flowchart TD
-    I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
-    A["Application<br/>end-to-end use cases"]
-    D["Domain<br/>Standard Schema rules and artifact policy"]
-    N["Infrastructure<br/>domain-neutral I/O and atomic mechanisms"]
-
-    I -->|imports| A
-    A -->|imports| D
-    D -->|imports| N
-```
-
-The diagram shows the allowed cross-layer import direction. It does not define Standard Schema
-authority or processing order.
-
-- `interfaces/cli` owns Command descriptors, the one immutable registry, schema/manifest
-  projection, binding, help, rendering, envelopes, exit codes, and the executable composition
-  root. CLI adapters translate values but contain no language or evaluation rules.
-- `application` coordinates one public use case at a time and returns typed results or refusals. It
-  does not know argv syntax, stdout/stderr, exit codes, or CLI envelopes.
-- `domain` owns authority admission and lifecycle, the Kernel-defined canonical JSON profile,
-  Formula, Model, Runtime, Experiment, Evidence, Template, artifact identity, and
-  publication/recovery rules. Publication policy depends directly on atomic filesystem mechanisms.
-  No speculative Repository layer is present.
-- `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
-  locking, and atomic filesystem primitives. It does not select authority members or define
-  identity and refusal policy.
-
-Imports may point only to the same layer or a lower layer, and same-layer dependencies remain
-acyclic. An AST gate checks both rules and rejects the removed top-level command, descriptor,
-dispatch, rendering, envelope, and active Schema 2.x implementation modules. The historical
-`schema2/` package now contains only packaged machine-authority resources; `schema/` is isolated to
-the accepted Standard Schema 1.x source-migration input protocol and is not an active 2.x semantic
-path. This is the durable macro structure; detailed module ownership remains in code and bADR-0025
-rather than a second file-by-file map.
-
-### 4.2 End-to-end processing flow
-
-The host accepts human-authored source. It creates a Resolved Model under one exact Kernel and whole
-LDB. It executes the Model under an admitted Runtime contract and Experiment Specification. It
-publishes immutable facts for Evidence validation.
-
-The following diagram groups implementation behavior by host layer. Machine authority, authored
-inputs, published artifacts, and governance decisions remain outside the layer frames.
+The following diagram places each host subsystem in one implementation layer. External authorities,
+inputs, published facts, and governance decisions remain outside the host. The arrows show input,
+processing, and publication relationships. They do not show Python imports.
 
 ```mermaid
 flowchart TB
+    K["Schema-major Kernel Specification<br/>irreducible laws and bootstrap"]
+    L["Language Definition Bundle<br/>language content and Package Releases"]
     H["Authored and execution inputs<br/>Model Source Package · Experiment Specification<br/>Evaluator Capability Manifest · platform<br/>external inputs · effective seed"]
-    M["Machine authority<br/>exact Kernel Specification · whole LDB"]
+
+    K -->|"defines admission rules for"| L
 
     subgraph HOST["Conforming host implementation"]
         direction TB
@@ -256,46 +157,158 @@ flowchart TB
             A["Public use cases<br/>one operation at a time"]
         end
         subgraph DOM["Domain"]
-            D["Standard Schema behavior<br/>authority · Model · Runtime · Experiment<br/>Evidence · Template · artifact policy"]
+            direction TB
+            B["Kernel/LDB bootstrap"]
+            P["Package resolver"]
+            C["Model compiler"]
+            X["Experiment semantics"]
+            R["Runtime and evaluator"]
+            V["Evidence validator"]
+            Q["Artifact policy"]
+
+            B -->|"provides admitted authority"| P
+            P -->|"provides Package Lock"| C
+            C -->|"provides Resolved Model"| R
+            X -->|"provides evaluation intent"| R
+            R -->|"provides evaluation facts"| V
+            C -->|uses| Q
+            R -->|uses| Q
+            V -->|uses| Q
         end
         subgraph INF["Infrastructure"]
-            N["Technical mechanisms<br/>bounded input · packaged resources · atomic filesystem"]
+            I["Input and resource access"]
+            F["Atomic filesystem mechanisms"]
         end
 
-        U -->|invokes| A
-        A -->|calls| D
-        D -->|uses| N
+        U -->|submits| A
+        A -->|invokes| B
+        A -->|invokes| X
+        A -->|"coordinates publication through"| Q
+        B -->|uses| I
+        Q -->|uses| F
     end
 
-    P["Immutable artifact sets<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
-    O["Structured CLI outcome<br/>envelope · stdout/stderr · exit code"]
+    O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
+    S["Structured CLI outcome<br/>envelope · stdout/stderr · exit code"]
     G["Approval Record<br/>independent governance decision"]
 
-    H --> U
-    M --> D
-    A -->|coordinates publication| P
-    U -->|renders| O
-    P -. "Evidence assertion informs" .-> G
+    K -->|"supplies machine authority"| B
+    L -->|"supplies language content"| B
+    H -->|supplies| U
+    Q -->|publishes| O
+    U -->|renders| S
+    O -. "Evidence assertion informs" .-> G
 ```
 
-The diagram omits internal representation and execution-stage nodes. Sections 5 through 10 define
-the Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Evidence, and publication
+The diagram omits internal representations and execution stages. Sections 5 through 10 define the
+Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Evidence, and publication
 paths.
 
-The following table assigns each major subsystem to one host layer. It separates semantic artifact
+### 3.3 Authority lifecycle and host boundaries
+
+The **Schema-major Kernel Specification** is small and non-self-hosted. It defines wire identity,
+the bootstrap meta-format, and LDB admission. It also defines irreducible type, evaluation, numeric,
+transition, resource, and meta-diagnostic laws. A list of node names or prose descriptions is not a
+Kernel Specification.
+
+An exact **Language Definition Bundle** is the only authority for language content. The Kernel
+admits the LDB. bADR-0023 defines the LDB as one sealed artifact graph. A canonical root manifest
+owns the closed Package Release inventory. Each descriptor binds one Package Release manifest.
+Each release contains one manifest and one package-owned conformance-vector child. The Package
+Release manifest and its vector child use one package-specific directory. The vector child is
+present even when it is empty.
+
+Package Releases own grammar, language types, structured rules, operations, post-admission
+diagnostics, runtime profile definitions, and normative vectors. Admission can derive read-only
+indexes. A serialized registry or directory listing is not another authority. The LDB cannot
+redefine Kernel laws. The Kernel does not contain ordinary language or game-domain evolution.
+
+The Kernel owns package-coordinate patterns. It also owns the identity domains for the root,
+release, and evidence collections. Loaders, admission, public schemas, and rebuild tooling project
+these contracts.
+
+The host loads and admits the packaged Kernel/LDB graph. It then indexes and freezes the graph. The
+host publishes the context only after these operations succeed. It stores the result in one deeply
+immutable `AdmittedAuthorityContext`. The compiler, Runtime, Experiment, Template, and CLI
+subsystems use this context. The context is a performance and ownership boundary. It is not a
+semantic authority.
+
+Explicitly injected Kernel/LDB candidates use separate contexts. They cannot change or populate the
+packaged baseline. The host caches canonical Wire-Schema meta-validation only for the actual schema
+bytes and the actual Kernel schema-profile bytes. The test and CI contract for this lifecycle is in
+[`docs/agents/testing.md`](agents/testing.md).
+
+Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
+not semantic authorities. Generated JSON Schema, help text, and SDK types project authoritative
+artifacts. These projections cannot add meaning.
+
+## 4. Host implementation architecture
+
+Section 4.1 defines the layer dependency rules. Section 4.2 assigns each subsystem to one layer.
+
+### 4.1 Layer dependency rules
+
+The Python host has four implementation layers. The layers organize host code. They do not define
+Standard Schema semantics. The Kernel and LDB remain the machine authorities.
+
+```mermaid
+flowchart TB
+    I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
+    A["Application<br/>end-to-end use cases"]
+    D["Domain<br/>Standard Schema rules and artifact policy"]
+    N["Infrastructure<br/>domain-neutral I/O and atomic mechanisms"]
+
+    I -->|imports| A
+    A -->|imports| D
+    D -->|imports| N
+```
+
+The diagram shows allowed cross-layer imports. It does not show processing or Standard Schema
+authority.
+
+- `interfaces/cli` owns Command descriptors, the immutable registry, schema and manifest
+  projection, argv binding, help, rendering, envelopes, and exit codes. It also contains the
+  executable composition root. CLI adapters translate values. They do not implement language or
+  evaluation rules.
+- `application` coordinates one public use case at a time. It returns typed results or refusals. It
+  does not parse argv, write stdout or stderr, select exit codes, or build CLI envelopes.
+- `domain` owns authority admission and lifecycle. It also owns the Kernel-defined canonical JSON
+  profile and the Formula, Model, Runtime, Experiment, Evidence, and Template rules. It owns
+  artifact identity and publication policy. Publication policy uses atomic filesystem mechanisms
+  directly. The host has no speculative Repository layer.
+- `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
+  locking, and atomic filesystem primitives. It does not select authority members. It does not
+  define identity or refusal policy.
+
+A module can import its own layer or a lower layer. It must not import a higher layer. Same-layer
+imports must not form a cycle. An AST test enforces these rules. The test also requires one declared
+owner for every production module. Removed top-level modules and active Schema 2.x implementation
+modules in old locations therefore fail the test.
+
+The historical `schema2/` package contains only packaged machine-authority resources. The `schema/`
+package contains the accepted Standard Schema 1.x source-migration input protocol. Active Standard
+Schema 2.x Domain code does not use that protocol.
+
+These layers are the durable macro structure. Code and bADR-0025 own the detailed module placement.
+This document does not maintain a second file-level module map.
+
+### 4.2 Host subsystem responsibilities
+
+Section 3 shows how external authorities, inputs, and artifacts connect to the host. The following
+table assigns each major subsystem to one implementation layer. It separates semantic artifact
 policy from domain-neutral storage mechanisms.
 
-| Host layer | Subsystem | Responsibility | Stable output or boundary |
+| Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
 | UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, Surface manifest, CLI envelopes, and exit codes |
-| Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals; publication receipts when the use case publishes artifacts |
+| Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
-| Domain | Package resolver | Select a deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
-| Domain | Model compiler | Parse and check source, lower it to RIR, and assemble exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
+| Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
+| Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
 | Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, Snapshots, gameplay outcomes, Refusals, and terminal-audit artifact sets |
 | Domain | Experiment semantics | Apply scenarios, inputs, metrics, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
 | Domain | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
-| Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery rules | Artifact envelopes, Locators, and Receipts |
+| Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery | Artifact envelopes, Locators, and Receipts |
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
 | Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
 
