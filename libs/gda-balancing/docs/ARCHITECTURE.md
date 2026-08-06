@@ -622,7 +622,7 @@ state ownership, transition policy, and observation concerns separable. The RPG 
 complete operation contract are specified by [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md)
 and the [genre coverage matrix](standard-schema-2.0/genre-coverage.md).
 
-One dogfooding correction is especially important:
+One architecture correction is especially important:
 
 - `entity` owns defeat/revival **state storage**;
 - `resource` owns health/shield `Quantity` **storage**; and
