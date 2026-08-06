@@ -1,15 +1,15 @@
 # Reciprocal RPG combat through ordered Runtime Events
 
-This tutorial drives one permanent Standard Schema 2.x example through the public CLI:
+This tutorial runs one Standard Schema 2.x combat example through the public CLI:
 
 ```text
-Formula body <-> human-readable expression
+Formula body <-> canonical human-readable expression
     |
     v
-Model Source -> Package Lock + RIR + Model explanation
+Model Source Package -> model build -> complete Model artifact set
     |
     v
-Experiment with two same-time root Events
+Experiment with two same-logical-time root Events
     |
     v
 ordered Event trace + committed Snapshots + Metrics
@@ -20,11 +20,12 @@ The Model exposes two directional entrypoints:
 - `combat.player-attacks-enemy`
 - `combat.enemy-attacks-player`
 
-Both bind the same reusable `game.combat.cast-v1` Operation. The Model reverses the actor and
-target operands explicitly; neither Runtime nor host code swaps role names. The Experiment admits
-both roots at logical time `0`. Runtime derives `transition` phase, assigns an enqueue sequence and a
-stable `event_id` to each root, then dispatches them in total order. The second attack reads the
-Snapshot committed by the first.
+Both entrypoints bind the reusable `game.combat.cast-v1` Operation. The Model explicitly reverses
+the actor and target operands. Runtime and host code do not swap role names.
+
+The Experiment admits both root Events at logical time `0`. Runtime derives the `transition` phase.
+It assigns an enqueue sequence and an `event_id` to each Event. Runtime then dispatches the Events
+in total order. The second Event reads the Snapshot that the first Event committed.
 
 This is logical simultaneity with deterministic serialization. It is not thread parallelism,
 batch-state evaluation, a bidirectional damage primitive, or a combat-specific scheduler.
@@ -33,13 +34,13 @@ The files are:
 
 - `model-source.json` — distinct player/enemy Symbols, two pure Formulas, two directional cast
   entrypoints, one explicit cancellation wrapper, and one scheduler-companion entrypoint;
-- `experiment.json` — the focused reciprocal scenario with two same-time roots, exact Model
-  bindings, seed, six dimensioned Metrics, and acceptance policy;
-- `multi-time-experiment.json` — the retained external-input, scheduled-child, cancellation, and
-  multi-logical-time companion from the generic Runtime tutorial.
+- `experiment.json` — the focused reciprocal scenario with two same-logical-time roots, an exact
+  Resolved Model binding, seed, six dimensioned Metrics, and acceptance policy;
+- `multi-time-experiment.json` — an external-input root, scheduled and canceled child Events, and
+  multiple logical times.
 
-The example is a bounded product-feedback slice. It proves no complete RPG, Action, turn,
-interruption, defeat, Replay, Evidence, or general same-time-combat contract.
+This example demonstrates one bounded reciprocal exchange. It does not define a complete RPG,
+Action, turn, interruption, defeat, Replay, Evidence, or general same-logical-time combat contract.
 
 ## 1. Prepare an isolated run
 
@@ -67,9 +68,9 @@ export MODEL_BUILD_INVOCATION_KEY="$(openssl rand -hex 32)"
 export EXPERIMENT_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
 ```
 
-Keep `GDA_BALANCING_ANCHOR_KEY` stable for this store. A repeated command with the same Invocation
-key and exact input recovers the committed result byte-for-byte. Use a new Invocation key after
-editing the input.
+Keep `GDA_BALANCING_ANCHOR_KEY` stable for this store. Repeat a command with the same Invocation key
+and exact input to recover the committed result byte-for-byte. After you edit the input, generate a
+new Invocation key.
 
 ## 2. Read the directional Model
 
@@ -90,22 +91,21 @@ The important Symbols are:
 | player | `player_mana`, `player_health` | `player_action_cost`, `player_accuracy`, `player_base_damage`, `player_critical_threshold`, `player_defense` | `player_effective_accuracy` | `player_damage_dealt` |
 | enemy | `enemy_mana`, `enemy_health` | `enemy_action_cost`, `enemy_accuracy`, `enemy_base_damage`, `enemy_critical_threshold`, `enemy_defense` | `enemy_effective_accuracy` | `enemy_damage_dealt` |
 
-The player entrypoint binds player resource and attack values to actor ports, and enemy defense
-and health to target ports. The enemy entrypoint performs the exact reverse binding. Matching
-names are never inferred.
+The player entrypoint binds player resource and attack values to actor ports. It binds enemy defense
+and health to target ports. The enemy entrypoint uses the reverse binding. The compiler does not
+infer bindings from matching names.
 
-The same `effective-accuracy` Formula declaration is bound independently to the player and enemy
-derived Symbols. The `mitigated-damage` Formula fills the `game.combat.damage-v1` `damage-policy` slot,
-so both directional casts consume the same authored damage policy.
+The same `effective-accuracy` Formula declaration binds to the player and enemy derived Symbols.
+The `mitigated-damage` Formula fills the `game.combat.damage-v1` `damage-policy` slot. Thus, both
+directional casts use the same authored damage policy.
 
-The cancellation wrapper remains directional. It invokes the ordinary player cast and then
-consumes an explicit `EventReference` port. It does not discover "the next enemy attack" from the
-queue.
+The cancellation wrapper remains directional. It invokes the player cast and then reads an explicit
+`EventReference` port. It does not discover "the next enemy attack" from the queue.
 
 ## 3. Round-trip Formula notation
 
-Every Formula stores an authoritative structured body beside its exact canonical human-readable
-expression. The expression is a reversible projection, not a second execution authority.
+Every Formula stores an authoritative structured body and its canonical human-readable expression.
+The expression is a reversible projection. It is not a second execution authority.
 
 Render `mitigated-damage` from its body:
 
@@ -164,7 +164,7 @@ test "$(jq -r '.expression' "$PARSED_FORMULA")" = \
 Directly changing only expression whitespace is invalid canonical data. Model admission returns
 `language.formula_notation_mismatch` rather than choosing or repairing one side.
 
-## 4. Build and inspect the exact Model
+## 4. Build and inspect the Model artifact set
 
 Build once and save the artifact-set receipt:
 
@@ -178,8 +178,16 @@ uv run gda-balancing model build \
   | tee "$MODEL_SET_RECEIPT"
 ```
 
-The set contains Package Lock, RIR, Resolved Model, capability manifest, Debug Map, Model
-explanation, resolution receipt, and build receipt.
+The Model artifact set contains these members:
+
+- Package Lock;
+- RIR semantic payload;
+- Resolved Model;
+- Evaluator Capability Manifest;
+- Debug Map;
+- Model explanation;
+- Resolution receipt; and
+- Build receipt.
 
 Inspect the stored explanation:
 
@@ -194,11 +202,11 @@ jq '.formula_explanations[]
   "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
 ```
 
-For `effective-accuracy`, the evaluation sites expose both `player_accuracy` and `enemy_accuracy`.
-That is the public proof that both directions consume the authored Formula without a host-side
-role swap.
+For `effective-accuracy`, the evaluation sites contain both `player_accuracy` and
+`enemy_accuracy`. This evidence shows that both entrypoints use the authored Formula. Host code
+does not swap the roles.
 
-Resolve and inspect the RIR:
+Resolve and inspect the RIR semantic payload:
 
 ```bash
 export RIR_PATH="$(
@@ -216,7 +224,7 @@ jq '.entrypoints[] | {
 ```
 
 The cancellation entrypoint's `event_local_payload_contract` names `counterattack` as a required
-Event reference. It is separate from numeric payload targets.
+Event reference. This reference is separate from the numeric payload targets.
 
 ## 5. Understand the reciprocal Experiment
 
@@ -227,20 +235,20 @@ The committed Experiment authors exactly two roots:
 | `player-attacks-enemy` | `combat.player-attacks-enemy` | 0 | 0 | none |
 | `enemy-attacks-player` | `combat.enemy-attacks-player` | 0 | 0 | none |
 
-Phase is absent because Runtime derives `transition` for `transition-invocation`. Authored phase is
-rejected.
+The phase is absent because Runtime derives `transition` for `transition-invocation`. Experiment
+admission rejects an authored phase.
 
-Both Events are admitted before dispatch. With equal time, phase and priority, enqueue sequence
-breaks the tie. The array's canonical root-member order therefore makes the player attack
-sequence 0 and the enemy attack sequence 1. Changing priority is a different semantic edit from
-changing root-member admission order.
+Runtime admits both Events before it dispatches either Event. Both Events have the same logical
+time, phase, and priority. The enqueue sequence breaks the tie. The canonical root-member order
+gives the player attack sequence `0` and the enemy attack sequence `1`. A priority change and a
+root-member order change are different semantic edits.
 
-The later Event does not read Snapshot 0. It reads the Snapshot committed by the earlier Event.
-Runtime does not infer defeat, interruption, or cancellation from health-like values. Those are
-package-owned policies and must produce explicit operations and outcomes.
+The later Event does not read Snapshot 0. It reads the Snapshot that the earlier Event committed.
+Runtime does not infer defeat, interruption, or cancellation from health-like values. A package
+must define these policies with explicit Operations and outcomes.
 
-Two independent scenarios would each receive their own Snapshot 0, queue, and replication. They
-would not form a reciprocal exchange and could not observe each other's committed state.
+Each independent scenario receives its own Snapshot 0, Event queue, and replication. Two scenarios
+cannot form a reciprocal exchange or observe each other's committed state.
 
 Check without publishing:
 
@@ -250,8 +258,9 @@ uv run gda-balancing experiment check \
   | jq .
 ```
 
-Admission closes exact authority/Model bindings, unique root references, entrypoints, Scenario
-inputs, Event-local payloads, Event references, named streams, Runtime requirements, and Metrics.
+Experiment admission validates the exact authority and Resolved Model bindings. It validates root
+references, entrypoints, and Scenario inputs. It also validates Event-local payloads, Event
+references, named streams, Runtime requirements, and Metrics.
 
 ## 6. Run and inspect ordering, Snapshots and Metrics
 
@@ -331,16 +340,64 @@ The committed seed and values produce:
 | `player_resource_remaining` | 26 |
 | `enemy_resource_remaining` | 23 |
 
-Each Metric has an explicit scenario window plus entity and role dimensions. State continuity is
-visible directly: the enemy Event's `state_before` equals the player Event's `state_after`, and its
-`snapshot_before_identity` is that committed Snapshot.
+Each Metric has an explicit Scenario window and entity and role dimensions. The Event trace shows
+state continuity. The enemy Event's `state_before` equals the player Event's `state_after`. Its
+`snapshot_before_identity` identifies that committed Snapshot.
 
 Repeat the exact command with the same Invocation key. Recovery returns the same receipt and
-canonical artifact bytes without dispatching again.
+canonical artifact bytes. Runtime does not dispatch the Events again.
 
-## 7. Compare ordinary, miss and insufficient-resource outcomes
+## 7. Edit one combatant's bound value
 
-`game.combat.cast-v1` owns three typed outcomes:
+Experiment assignments tune one run without changing Model or language semantics. Increase only
+`player_base_damage` from `45` to `55`:
+
+```bash
+export TUNED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-player-tuned.json"
+
+jq '
+  .id = "example.rpg-combat-cast.player-damage-tuned"
+  | (.scenarios[0].assignments[]
+      | select(.target.name == "player_base_damage")
+      | .value) = 55
+' examples/schema2/rpg-combat-cast/experiment.json \
+  > "$TUNED_EXPERIMENT"
+
+export TUNED_INVOCATION_KEY="$(openssl rand -hex 32)"
+
+uv run gda-balancing experiment run \
+  "$TUNED_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-run.json" \
+  --invocation-key "$TUNED_INVOCATION_KEY"
+```
+
+Only `player_damage_dealt` and `enemy_health_remaining` change. Player damage changes from `37` to
+`47`. Enemy health changes from `63` to `53`. Enemy damage, player health, and both resource results
+remain unchanged.
+
+The edit changes the Experiment, Event trace, and Metric identities. It does not change the Kernel,
+LDB, Package Lock, RIR semantic payload, evaluator dispatch, or exact Resolved Model binding.
+
+If you change a Formula body or binding, edit the Model Source Package and rebuild it. The edit
+changes the Formula, RIR semantic payload, and Resolved Model identities. The old Experiment still
+binds the old Resolved Model. Create a new Experiment from the new Build receipt before you run the
+new Model. The edit does not require a new Kernel primitive or evaluator branch when it uses the
+admitted Formula and pure-Operation vocabulary.
+
+The `game.combat.damage-v1` Operation has one `damage-policy` Formula slot. Both directional
+entrypoints intentionally share its current Formula binding. This example uses actor-specific bound
+values for actor-specific tuning. A different actor-specific Formula policy requires a separate
+authored policy-selection seam. Host dispatch and duplicate package Operations must not simulate
+that policy.
+
+## 8. Run optional behavior probes
+
+The core designer loop ends with the edit and rerun in section 7. The following probes demonstrate
+additional Runtime and package boundaries.
+
+### 8.1 Compare ordinary, miss, and insufficient-resource outcomes
+
+`game.combat.cast-v1` defines three typed outcomes:
 
 | Setup | Typed outcome | State policy |
 | --- | --- | --- |
@@ -348,18 +405,95 @@ canonical artifact bytes without dispatching again.
 | hit check fails | `miss` / `gameplay-alternative` | `rollback` |
 | actor resource below action cost | `insufficient-resource` / `gameplay-alternative` | `rollback` |
 
-A one-way scenario contains only `player-attacks-enemy` and only that entrypoint's Scenario Input
-Contract. It is useful for an ordinary cast comparison, but it is not reciprocal combat.
+A one-way scenario contains only `player-attacks-enemy`. It also contains only that entrypoint's
+Scenario Input Contract. It is useful for outcome comparison, but it is not reciprocal combat.
 
-For a deterministic miss with the committed seed, copy the Experiment, retain only the player
-root, set `player_accuracy` to `0` and `enemy_defense` to `1000`, and retain snapshot-sourced Metrics.
-For insufficient resource, instead set `player_mana` to `0`. The Event trace distinguishes the typed
-outcomes; neither branch is a Runtime refusal, and both roll back the Event's state writes.
+Create the one-way base Experiment. Keep only the player root, its assignments, and its Metrics:
 
-## 8. Explicitly cancel the admitted counterattack
+```bash
+export ONE_WAY_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-one-way.json"
 
-Cancellation resolves a declared Event-reference role to an authored root reference, then to the
-Runtime `event_id` admitted for that root. Create a cancellation variant:
+jq '
+  .id = "example.rpg-combat-cast.one-way"
+  | .scenarios[0].event_plan = [.scenarios[0].event_plan[0]]
+  | .scenarios[0].assignments |= map(
+      select(.target.name as $name
+        | [
+            "enemy_defense",
+            "enemy_health",
+            "player_accuracy",
+            "player_action_cost",
+            "player_base_damage",
+            "player_critical_threshold",
+            "player_mana"
+          ]
+        | index($name))
+    )
+  | .metrics |= map(
+      select(.id as $id
+        | [
+            "enemy_health_remaining",
+            "player_damage_dealt",
+            "player_resource_remaining"
+          ]
+        | index($id))
+    )
+' examples/schema2/rpg-combat-cast/experiment.json \
+  > "$ONE_WAY_EXPERIMENT"
+```
+
+Create the miss and insufficient-resource variants:
+
+```bash
+export MISS_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-miss.json"
+jq '
+  .id = "example.rpg-combat-cast.miss"
+  | (.scenarios[0].assignments[]
+      | select(.target.name == "player_accuracy")
+      | .value) = 0
+  | (.scenarios[0].assignments[]
+      | select(.target.name == "enemy_defense")
+      | .value) = 1000
+  | .metrics |= map(select(.observation.source == "snapshot"))
+' "$ONE_WAY_EXPERIMENT" > "$MISS_EXPERIMENT"
+
+export RESOURCE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-insufficient-resource.json"
+jq '
+  .id = "example.rpg-combat-cast.insufficient-resource"
+  | (.scenarios[0].assignments[]
+      | select(.target.name == "player_mana")
+      | .value) = 0
+  | .metrics |= map(select(.observation.source == "snapshot"))
+' "$ONE_WAY_EXPERIMENT" > "$RESOURCE_EXPERIMENT"
+```
+
+Run both variants with new Invocation keys:
+
+```bash
+export MISS_INVOCATION_KEY="$(openssl rand -hex 32)"
+uv run gda-balancing experiment run \
+  "$MISS_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/miss-run.json" \
+  --invocation-key "$MISS_INVOCATION_KEY" \
+  | tee "$GDA_BALANCING_TUTORIAL_ROOT/miss-receipt.json"
+
+export RESOURCE_INVOCATION_KEY="$(openssl rand -hex 32)"
+uv run gda-balancing experiment run \
+  "$RESOURCE_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/insufficient-resource-run.json" \
+  --invocation-key "$RESOURCE_INVOCATION_KEY" \
+  | tee "$GDA_BALANCING_TUTORIAL_ROOT/insufficient-resource-receipt.json"
+```
+
+Inspect each `event-trace` member as shown in section 6. The miss Event has the `miss` outcome. The
+resource Event has the `insufficient-resource` outcome. Both are gameplay alternatives, not Runtime
+refusals. Both Events roll back their state writes. These variants keep only Snapshot-sourced
+Metrics because a rolled-back alternative produces no damage fact.
+
+### 8.2 Explicitly cancel the admitted counterattack
+
+Cancellation resolves an Event-reference role to an authored Root Event reference. Runtime then
+resolves that reference to the admitted `event_id`. Create a cancellation variant:
 
 ```bash
 export CANCELLATION_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-cancel.json"
@@ -388,18 +522,18 @@ uv run gda-balancing experiment run \
   | tee "$CANCELLATION_RECEIPT"
 ```
 
-The root map still contains both admitted event ids. Only the player attack dispatches. Its
-cancellations row names the enemy root's exact `event_id` and outcome `canceled`, and the committed
-continuation has no pending Event. Cancellation is prospective; it does not rewind the player's
-already committed cast.
+The `root_event_map` still contains both admitted `event_id` values. Runtime dispatches only the
+player attack. Its `cancellations` row identifies the enemy Event and the `canceled` outcome. The
+committed continuation contains no pending Event. Cancellation is prospective. It does not reverse
+the player cast that Runtime already committed.
 
-Binding `counterattack` to `player-attacks-enemy` instead targets the currently active root. That
-run refuses with `runtime.cancel_active`; Runtime never reclassifies the active Event as pending.
+If you bind `counterattack` to `player-attacks-enemy`, it targets the active root Event. The run
+refuses with `runtime.cancel_active`. Runtime does not reclassify the active Event as pending.
 
-## 9. Prove Runtime does not infer defeat or eligibility
+### 8.3 Verify that Runtime does not infer defeat or eligibility
 
-Create a separate no-cancellation variant by setting `enemy_health` to `37`. The first attack deals
-37 damage and commits `enemy_health = 0`:
+Create a no-cancellation variant. Set `enemy_health` to `37`. The first attack deals `37` damage and
+commits `enemy_health = 0`:
 
 ```bash
 export ELIGIBILITY_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-no-inference.json"
@@ -420,58 +554,18 @@ uv run gda-balancing experiment run \
   --invocation-key "$ELIGIBILITY_INVOCATION_KEY"
 ```
 
-The enemy attack still dispatches, reads `enemy_health = 0` from the latest Snapshot, and returns
-ordinary `cast-resolved`. This is not a claim that a defeated actor should attack. It proves only
-that Runtime owns ordering, not an undeclared defeat or eligibility policy.
+Runtime still dispatches the enemy attack. The Event reads `enemy_health = 0` from the latest
+Snapshot and returns `cast-resolved`. This result does not mean that a defeated actor should attack.
+It shows that Runtime does not own an undeclared defeat or eligibility policy.
 
-## 10. Edit one combatant's bound value
+### 8.4 Run the multi-time scheduler companion
 
-Experiment assignments tune one run without changing Model or language semantics. Increase only
-`player_base_damage` from `45` to `55`:
+The reciprocal baseline contains two attacks at the same logical time and six reciprocal Metrics.
+`multi-time-experiment.json` demonstrates additional Runtime behavior. It contains an external-input
+root and the `combat.player-plans-attacks` entrypoint. It also contains a scheduled child at logical
+time `1`, a canceled child at logical time `2`, and a retry root at logical time `2`.
 
-```bash
-export TUNED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-player-tuned.json"
-
-jq '
-  .id = "example.rpg-combat-cast.player-damage-tuned"
-  | (.scenarios[0].assignments[]
-      | select(.target.name == "player_base_damage")
-      | .value) = 55
-' examples/schema2/rpg-combat-cast/experiment.json \
-  > "$TUNED_EXPERIMENT"
-
-export TUNED_INVOCATION_KEY="$(openssl rand -hex 32)"
-
-uv run gda-balancing experiment run \
-  "$TUNED_EXPERIMENT" \
-  --out "$GDA_BALANCING_TUTORIAL_ROOT/tuned-run.json" \
-  --invocation-key "$TUNED_INVOCATION_KEY"
-```
-
-Only `player_damage_dealt` and `enemy_health_remaining` change: 37 becomes 47, and 63 becomes 53.
-Enemy damage, player health, and both resource results remain unchanged. Kernel, LDB, Package
-Lock, RIR, evaluator dispatch, and exact Model bindings are unchanged; the Experiment, trace and
-Metric identities change.
-
-Edit Model Source and rebuild when changing a Formula body or binding. Such an edit changes the
-Formula/RIR/Resolved-Model identities, and the old exact Experiment must refuse until rebound to
-the new build. It still does not require a new Kernel primitive or host evaluator branch when the
-edit stays within the admitted Formula and pure-Operation vocabulary.
-
-The `game.combat.damage-v1` `damage-policy` is one package Operation slot, so its current Formula
-binding is intentionally shared by both directional entrypoints. Actor-specific tuning in this
-example therefore uses actor-specific bound values. A genuinely actor-specific Formula policy
-would require a distinct authored policy-selection seam; it must not be simulated by host dispatch
-or by duplicating the package Operation.
-
-## 11. Retain the multi-time scheduler companion
-
-The reciprocal baseline stays focused on two same-time attacks and six reciprocal Metrics.
-`multi-time-experiment.json` independently retains the earlier generic Runtime tutorial surface:
-an external-input root, `combat.player-plans-attacks`, its scheduled child at logical time `1`, its
-explicitly canceled child at logical time `2`, and a separate retry root at logical time `2`.
-
-Run it against the same exact Model build:
+Run it against the same Resolved Model binding:
 
 ```bash
 export MULTI_TIME_INVOCATION_KEY="$(openssl rand -hex 32)"
@@ -482,41 +576,31 @@ uv run gda-balancing experiment run \
   --invocation-key "$MULTI_TIME_INVOCATION_KEY"
 ```
 
-This companion preserves #609's external-input, scheduling, cancellation, and multi-logical-time
-dogfooding without adding unrelated Events to the reciprocal baseline or changing its Metrics.
+This companion keeps the baseline focused. It does not add unrelated Events or Metrics to the
+reciprocal scenario.
 
-## 12. Product and architecture review
+## 9. Validation scope
 
-The human owner should run the baseline, cancellation, eligibility, tuning, and multi-time variants, then
-record one of accept, accept with explicit conditions, or reopen on issue #595.
-
-Review:
-
-- whether player/enemy configuration and reversed operands are clear;
-- whether same-logical-time admission versus serialized dispatch is understandable;
-- whether the second Event's Snapshot dependency is visible;
-- whether Formula explanation sites show both directions;
-- whether cancellation provenance identifies the authored reference and Runtime id;
-- whether trace, Snapshot and Metric fields make the edit feedback obvious;
-- whether any new behavior belongs in Kernel, a sealed package, Model Source, Experiment, or only
-  this authored example.
-
-Do not close broader Tracer, RPG, turn, defeat, Replay, Evidence, or Action/Combat claims from this
-tutorial.
+Automated end-to-end tests validate the baseline, tuning path, typed alternatives, cancellation,
+eligibility boundary, and multi-time companion.
+[Reciprocal same-time Event dogfooding](../../../docs/ARCHITECTURE.md#128-reciprocal-same-time-event-dogfooding)
+records the accepted architecture observations and limits.
+This README explains how to run and inspect those behaviors. It does not define their architecture.
 
 ## Artifact-store and troubleshooting notes
 
-The receipt, not the convenience `--out` copy, locates the complete committed artifact set.
-Committed store members use canonical one-line JSON and authenticated anchors. Format them with
-`jq` for display; do not rewrite files inside the store.
+Use the artifact-set receipt to locate the complete committed artifact set. The `--out` file is
+only a convenience copy. Store members use canonical one-line JSON and authenticated anchors. Use
+`jq` to format them for display. Do not rewrite files inside the store.
 
 Common failures:
 
 - `invalid_argument` for a key — use exactly 64 lowercase hexadecimal digits;
 - `invocation_key_conflict` — the key already names different canonical input; restore that input
   or generate a new key;
-- Experiment cannot resolve Model artifacts — reuse the build's store and anchor key, build first,
-  and bind the exact Build receipt, Resolved Model, Package Lock and RIR identities;
+- Experiment cannot resolve Model artifacts — reuse the build's store and anchor key. Build the
+  Model first. Then bind the exact Build receipt, Resolved Model, Package Lock, and RIR semantic
+  payload identities;
 - `language.formula_notation_mismatch` — regenerate the adjacent `body`/`expression` pair through
   `formula parse` or `formula render`;
 - `language.source_contract_mismatch` on a one-way variant — remove assignments and Metrics that
