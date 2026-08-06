@@ -104,11 +104,6 @@ uv run gda-balancing model inspect \
   --format indented \
   | tee "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
 
-export BUILD_RECORD_PATH="$(
-  jq -r '.member_locators[]
-    | select(.logical_name == "build-receipt")
-    | .locator' "$MODEL_SET_RECEIPT"
-)"
 export RIR_PATH="$(
   jq -r '.member_locators[]
     | select(.logical_name == "rir-semantic-payload")

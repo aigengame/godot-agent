@@ -183,7 +183,7 @@ The Model artifact set contains these members:
 - Package Lock;
 - RIR semantic payload;
 - Resolved Model;
-- Evaluator Capability Manifest;
+- Capability manifest;
 - Debug Map;
 - Model explanation;
 - Resolution receipt; and
