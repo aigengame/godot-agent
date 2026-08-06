@@ -26,6 +26,9 @@ stylistic preferences.
 
 Scale the review to the artifact's size, risk, and purpose.
 
+Treat terminology and prose as a required review pass. Do not conclude **Pass**
+until this pass is complete and its result is reported.
+
 ## Workflow
 
 ### 1. Inspect Relevant Materials
@@ -102,7 +105,14 @@ artifact.
 - Do not fragment content that must be read together merely to remove surface-level
   repetition.
 
-#### Terminology and Prose
+#### Terminology and Prose — Required Pass
+
+- Review terminology and prose independently of content findings. Do not limit this
+  pass to passages already selected for correctness findings.
+- Search the complete artifact for established terms, alternate names, undefined
+  terms, and changes in meaning. For short artifacts, inspect all prose. For long
+  artifacts, inspect every changed passage and every passage that states a
+  requirement, decision, or procedure; sample each remaining major section.
 
 - Prefer established project and domain terms. Do not introduce a second name for
   an existing concept.
@@ -111,8 +121,12 @@ artifact.
 - When a local convention broadens an established term, state the convention and its
   practical effects.
 - Use ASD-STE100 Simplified Technical English as the default reference for technical
-  prose unless the project specifies otherwise. Preserve established project and
-  domain terms as technical nouns or technical verbs.
+  prose unless the project specifies another writing standard. Preserve established
+  project and domain terms as technical nouns or technical verbs.
+- Unless the project specifies another writing standard, check word choice and
+  meaning, technical nouns and verbs, and sentence structure against ASD-STE100.
+  Apply its procedural or descriptive writing rules according to the artifact.
+  Record the checks performed.
 - Prefer plain, concrete prose. Remove formulaic wording, abstract noun chains,
   slogans, empty bullets, and legal or procurement language.
 - Check that sentences express causal, dependency, scope, and ordering relationships
@@ -136,6 +150,9 @@ Choose the smallest sufficient validation for the artifact's actual claims:
   actual scope of the change.
 - When the artifact cites CI, validation results, or runtime evidence, verify that the
   evidence supports the stated conclusion.
+- Record the terminology sources, writing reference, inspected scope, and prose
+  checks used in the review. For technical prose, the reference must be ASD-STE100 or
+  the project-specified alternative.
 
 A passing format check or green CI proves only that its checks passed; it does not by
 itself establish that the content, terminology, or prose is correct.
@@ -147,14 +164,28 @@ Disclose important validation that was not performed and could affect the conclu
 Start with one conclusion:
 
 - **Pass**: no substantive content, terminology, or prose issue prevents the artifact
-  from fulfilling its purpose.
+  from fulfilling its purpose, and the required terminology and prose pass is
+  complete and reported.
 - **Changes required**: one or more substantive content, terminology, or prose issues
   must be resolved.
 
-Group findings under **Required changes**, **Terminology and prose**, or **Minor** as
-appropriate. Classify by impact, not by issue type. A terminology or prose problem
-that affects accuracy, understanding, decisions, or use belongs under **Required
-changes** rather than being downgraded as wording feedback.
+Always include a **Terminology and prose assessment**, even when it produces no
+finding. State:
+
+- The project or domain terminology sources used.
+- The writing reference used. For technical prose, name ASD-STE100 or the
+  project-specified alternative.
+- The scope inspected and prose checks performed.
+- The result and the location of any related findings.
+- Important checks that were not performed.
+
+If no substantive terminology or prose issue was found, say so explicitly. The
+assessment documents review coverage; it does not require a finding.
+
+Group actionable findings under **Required changes** or **Minor** as appropriate.
+Classify by impact, not by issue type. A terminology or prose problem that affects
+accuracy, understanding, decisions, or use belongs under **Required changes** rather
+than being downgraded as wording feedback.
 
 For each finding, give:
 
@@ -170,8 +201,9 @@ If new context invalidates a proposed fix but not the underlying problem, revise
 fix rather than dropping the finding.
 
 If there are no substantive findings, report **Pass**, identify the reviewed target,
-and summarize the main content, terminology, and prose checks in one or two
-sentences. Mention important validation that was not performed, then stop.
+include the required **Terminology and prose assessment**, and summarize the main
+content checks in one or two sentences. Mention important validation that was not
+performed, then stop.
 
 Return the review in the medium the user requested. Edit files, post comments, or
 perform other remote writes only when the user explicitly authorizes them.
@@ -181,6 +213,8 @@ perform other remote writes only when the user explicitly authorizes them.
 - Pin the previous and current versions.
 - Verify every claimed fix in the artifact and relevant evidence; a reply is not
   evidence by itself.
+- Repeat the terminology and prose pass for changed text and report its assessment,
+  even when prior findings concerned only content.
 - Review scope added or changed since the previous review.
 - For an item declined by design, verify that the accepted constraint, rationale, and
   necessary mitigations appear in the appropriate authoritative material.
