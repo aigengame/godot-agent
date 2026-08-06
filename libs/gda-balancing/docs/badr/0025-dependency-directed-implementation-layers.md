@@ -22,11 +22,10 @@ dependency direction, not Standard Schema semantics.
 
 - **The implementation has four layers, ordered from lowest to highest:**
   1. **Infrastructure** owns domain-neutral technical mechanisms such as bounded byte input,
-     package-resource access, stable JSON byte encoding, file locking, and atomic filesystem
-     operations.
-  2. **Domain** owns Standard Schema authority admission and the Formula, Model, Runtime,
-     Experiment, Evidence, Template, artifact-identity, and publication rules that implement the
-     accepted language and artifact contracts.
+     package-resource access, file locking, and atomic filesystem operations.
+  2. **Domain** owns Standard Schema authority admission, the Kernel-defined canonical JSON
+     profile, and the Formula, Model, Runtime, Experiment, Evidence, Template, artifact-identity,
+     and publication rules that implement the accepted language and artifact contracts.
   3. **Application** owns end-to-end use-case orchestration. It resolves required inputs, invokes
      Domain behavior, coordinates Infrastructure operations, and returns typed results or
      refusals without knowing CLI syntax or rendering.
@@ -61,10 +60,11 @@ dependency direction, not Standard Schema semantics.
   composition root. Standard Schema Runtime `Event` values remain domain data, not layer
   notifications.
 
-- **Technical mechanisms do not own Standard Schema policy.** Infrastructure may encode stable
-  JSON bytes and read an explicitly named resource. Domain code retains the authority-owned member
-  selection, canonical ordering, identity preimage, semantic projection, and refusal policy.
-  Authority JSON remains Domain-owned content even though Infrastructure reads its packaged bytes.
+- **Technical mechanisms do not own Standard Schema policy.** Infrastructure may read an explicitly
+  named resource and provide domain-neutral byte operations. Domain code retains the Kernel-defined
+  canonical JSON profile, authority-owned member selection, canonical ordering, identity preimage,
+  semantic projection, and refusal policy. Authority JSON remains Domain-owned content even though
+  Infrastructure reads its packaged bytes.
 
 - **Storage indirection remains evidence-driven.** Domain/Application code separates artifact-set
   completeness, identity, and publication rules from atomic filesystem operations. It does not add
