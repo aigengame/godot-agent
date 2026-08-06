@@ -953,7 +953,7 @@ automatically an accepted model.
 ### 9.3 Immutable evidence chain
 
 ```mermaid
-flowchart LR
+flowchart TB
     X["Experiment execution"] -->|"records facts"| R["Evaluation run"]
     X -->|"records observations"| D["Metric dataset"]
     R -->|"binds"| P["Replay comparison<br/>same complete reproduction identity"]
