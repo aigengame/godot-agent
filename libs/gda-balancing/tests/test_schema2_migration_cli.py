@@ -13,6 +13,7 @@ import jsonschema
 import pytest
 
 import gda_balancing.application.migration as migration_module
+import gda_balancing.infrastructure.input_bytes as input_bytes_module
 from gda_balancing.interfaces.cli.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
@@ -1035,7 +1036,7 @@ def test_source_observation_never_reads_a_non_regular_file(
         reads += 1
         raise AssertionError("non-regular input reached os.read")
 
-    monkeypatch.setattr(migration_module.os, "read", forbidden_read)
+    monkeypatch.setattr(input_bytes_module.os, "read", forbidden_read)
 
     with pytest.raises(migration_module.MigrationInputError):
         migration_module.load_design_source_observation(str(source))

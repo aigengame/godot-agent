@@ -1,10 +1,7 @@
 """Limited, auditable Standard Schema 1.x source conversion."""
 
-import hashlib
 import json
 import math
-import os
-import stat
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -19,6 +16,13 @@ from gda_balancing.domain.diagnostics import (
     Schema2RefusalReport,
     bound_diagnostics,
     reason_by_id,
+)
+from gda_balancing.infrastructure.input_bytes import (
+    InputGrewTooLargeError,
+    InputNotRegularError,
+    InputReadError,
+    InputTooLargeError,
+    read_bounded_regular_input_with_sha256,
 )
 
 _INT64_MIN = -(2**63)
@@ -197,44 +201,30 @@ class MigrationFailure:
 
 def load_design_source_observation(path: str) -> tuple[bytes, str]:
     """Read one bounded parse observation while hashing the complete source."""
-    digest = hashlib.sha256()
-    digest.update(_SOURCE_IDENTITY_PREFIX)
-    bounded = bytearray()
-    descriptor: int | None = None
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise MigrationInputError(f"input document is not a regular file: {path}")
-        if metadata.st_size > MAX_SOURCE_OBSERVATION_BYTES:
-            raise MigrationInputError(
-                "input document exceeds the "
-                f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
-            )
-        observed = 0
-        while observed <= MAX_SOURCE_OBSERVATION_BYTES:
-            chunk = os.read(
-                descriptor,
-                min(64 * 1024, MAX_SOURCE_OBSERVATION_BYTES + 1 - observed),
-            )
-            if not chunk:
-                break
-            observed += len(chunk)
-            if observed > MAX_SOURCE_OBSERVATION_BYTES:
-                raise MigrationInputError(
-                    "input document grew beyond the "
-                    f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
-                )
-            digest.update(chunk)
-            remaining = MAX_DOCUMENT_BYTES + 1 - len(bounded)
-            if remaining > 0:
-                bounded.extend(chunk[:remaining])
-    except OSError as err:
+        observation = read_bounded_regular_input_with_sha256(
+            path,
+            max_bytes=MAX_SOURCE_OBSERVATION_BYTES,
+            prefix_bytes=MAX_DOCUMENT_BYTES + 1,
+            digest_prefix=_SOURCE_IDENTITY_PREFIX,
+        )
+    except InputNotRegularError as err:
+        raise MigrationInputError(
+            f"input document is not a regular file: {path}"
+        ) from err
+    except InputGrewTooLargeError as err:
+        raise MigrationInputError(
+            "input document grew beyond the "
+            f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
+        ) from err
+    except InputTooLargeError as err:
+        raise MigrationInputError(
+            "input document exceeds the "
+            f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
+        ) from err
+    except InputReadError as err:
         raise MigrationInputError(f"cannot read input document: {path}") from err
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-    return bytes(bounded), "sha256:" + digest.hexdigest()
+    return observation.prefix, "sha256:" + observation.sha256
 
 
 def migrate_design_source(

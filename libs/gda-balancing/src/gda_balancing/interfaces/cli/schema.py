@@ -17,7 +17,7 @@ from gda_balancing.interfaces.cli.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.interfaces.cli.package import (
+from gda_balancing.domain.authority.package_projection import (
     package_release_schema,
     package_vector_set_schema,
 )
