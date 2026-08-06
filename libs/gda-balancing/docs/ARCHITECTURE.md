@@ -188,70 +188,17 @@ same authoritative artifacts. They may make the system easier to use but cannot 
 
 ## 4. End-to-end architecture
 
-The system converts human-authored source into a resolved semantic build, executes it under an exact
-runtime contract, and publishes facts that can later support evidence:
-
-```mermaid
-flowchart TD
-    S["Model Source Package"] --> W["Wire representation"]
-    W --> A["Authoring AST"]
-    A --> H["Typed HIR"]
-    H --> P["RIR semantic payload"]
-    S --> R["Package resolver"]
-    L["Exact Kernel + whole LDB"] --> R
-    R --> K["Selected Package Lock"]
-    K --> H
-    K --> P
-    P --> B["Build assembler"]
-    K --> B
-    L --> B
-    B --> M["Resolved Model wrapper"]
-    M --> N["Runtime admission"]
-    Z["Runtime definition + evaluator + platform"] --> N
-    N --> Y["Resolved Runtime profile"]
-    M --> I["Evaluator-private EIR"]
-    Y --> I
-    X["Exact Experiment Specification"] --> J["Execution instantiation"]
-    D["External inputs + effective seed"] --> J
-    Y --> J
-    J --> T["Atomic Event runtime"]
-    I --> T
-    T --> Q["Metrics dataset"]
-    T --> U["Evaluation run"]
-    Q --> C["Replay or Cross-evaluator comparison"]
-    U --> C
-    C --> E["Evidence assertion"]
-    E --> G["Approval Record"]
-
-    L --> H
-    L --> P
-    L --> N
-```
-
-The major subsystems are:
-
-| Subsystem | Responsibility | Stable output or boundary |
-| --- | --- | --- |
-| Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, admission outcome |
-| Package resolver | Select a deterministic, compatible package closure | Canonical Package Lock and resolution receipt |
-| Front end | Parse source, resolve names, type-check, and validate effects | Authoring AST and Typed HIR |
-| Semantic lowering | Normalize all language meaning into canonical public semantics | RIR semantic payload and separate Debug Map |
-| Build assembler | Bind all exact semantic dependencies | Resolved Model wrapper and build receipt |
-| Runtime admission | Bind evaluator, platform, budgets, numeric policy, RNG, and scheduler | Resolved Runtime profile |
-| Evaluator | Lower RIR privately and execute atomic events | Snapshots, outputs, refusals, and terminal audits |
-| Experiment runner | Apply scenarios, inputs, metrics, statistics, and acceptance intent | Metrics datasets and Evaluation runs |
-| Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
-| Artifact publisher | Publish complete immutable artifact sets and retrieval metadata | Artifact envelopes, Locators, and Receipts |
-| Structured CLI | Expose authority artifacts and operations without inventing a second model | Descriptor-derived commands and surface manifest |
+This section first describes the host implementation layers. It then shows how inputs pass through
+those layers and become published outputs.
 
 ### 4.1 Host implementation layers
 
 The Python host follows four dependency-directed implementation layers. This organization is not a
-second Standard Schema authority: Kernel/LDB artifacts still own machine semantics, while the
-layers state where the conforming implementation owns behavior and how code may depend on it.
+second Standard Schema authority. Kernel/LDB artifacts still own machine semantics. The layers
+state where the conforming implementation owns behavior and how code may depend on it.
 
 ```mermaid
-flowchart RL
+flowchart TD
     I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
     A["Application<br/>end-to-end use cases"]
     D["Domain<br/>Standard Schema rules and artifact policy"]
@@ -262,18 +209,21 @@ flowchart RL
     D -->|imports| N
 ```
 
-- `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
-  locking, and atomic filesystem primitives. It does not select authority members or define
-  identity and refusal policy.
-- `domain` owns authority admission and lifecycle, the Kernel-defined canonical JSON profile,
-  Formula, Model, Runtime, Experiment, Evidence, Template, artifact identity, and
-  publication/recovery rules. Publication policy depends directly on atomic filesystem mechanisms;
-  no speculative Repository layer is present.
-- `application` coordinates one public use case at a time and returns typed results or refusals. It
-  does not know argv syntax, stdout/stderr, exit codes, or CLI envelopes.
+The diagram shows the allowed cross-layer import direction. It does not define Standard Schema
+authority or processing order.
+
 - `interfaces/cli` owns Command descriptors, the one immutable registry, schema/manifest
   projection, binding, help, rendering, envelopes, exit codes, and the executable composition
   root. CLI adapters translate values but contain no language or evaluation rules.
+- `application` coordinates one public use case at a time and returns typed results or refusals. It
+  does not know argv syntax, stdout/stderr, exit codes, or CLI envelopes.
+- `domain` owns authority admission and lifecycle, the Kernel-defined canonical JSON profile,
+  Formula, Model, Runtime, Experiment, Evidence, Template, artifact identity, and
+  publication/recovery rules. Publication policy depends directly on atomic filesystem mechanisms.
+  No speculative Repository layer is present.
+- `infrastructure` owns bounded byte input, package-resource access, distribution metadata, file
+  locking, and atomic filesystem primitives. It does not select authority members or define
+  identity and refusal policy.
 
 Imports may point only to the same layer or a lower layer, and same-layer dependencies remain
 acyclic. An AST gate checks both rules and rejects the removed top-level command, descriptor,
@@ -282,6 +232,72 @@ dispatch, rendering, envelope, and active Schema 2.x implementation modules. The
 the accepted Standard Schema 1.x source-migration input protocol and is not an active 2.x semantic
 path. This is the durable macro structure; detailed module ownership remains in code and bADR-0025
 rather than a second file-by-file map.
+
+### 4.2 End-to-end processing flow
+
+The host accepts human-authored source. It creates a Resolved Model under one exact Kernel and whole
+LDB. It executes the Model under an admitted Runtime contract and Experiment Specification. It
+publishes immutable facts for Evidence validation.
+
+The following diagram groups implementation behavior by host layer. Machine authority, authored
+inputs, published artifacts, and governance decisions remain outside the layer frames.
+
+```mermaid
+flowchart TB
+    H["Authored and execution inputs<br/>Model Source Package · Experiment Specification<br/>Runtime profile definition · evaluator · platform<br/>external inputs · effective seed"]
+    M["Machine authority<br/>exact Kernel Specification · whole LDB"]
+
+    subgraph HOST["Conforming host implementation"]
+        direction TB
+        subgraph UI["UI / Interfaces"]
+            U["Structured CLI<br/>binding · descriptors · rendering"]
+        end
+        subgraph APP["Application"]
+            A["Public use cases<br/>one operation at a time"]
+        end
+        subgraph DOM["Domain"]
+            D["Standard Schema behavior<br/>authority · Model · Runtime · Experiment<br/>Evidence · Template · artifact policy"]
+        end
+        subgraph INF["Infrastructure"]
+            N["Technical mechanisms<br/>bounded input · packaged resources · atomic filesystem"]
+        end
+
+        U -->|invokes| A
+        A -->|calls| D
+        D -->|uses| N
+    end
+
+    P["Immutable artifact sets<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
+    O["Structured CLI outcome<br/>envelope · stdout/stderr · exit code"]
+    G["Approval Record<br/>independent governance decision"]
+
+    H --> U
+    M --> D
+    A -->|coordinates publication| P
+    U -->|renders| O
+    P -. "Evidence assertion informs" .-> G
+```
+
+The diagram omits internal representation and execution-stage nodes. Sections 5 through 10 define
+the Authoring AST, Typed HIR, RIR semantic payload, Runtime, Experiment, Evidence, and publication
+paths.
+
+The following table assigns each major subsystem to one host layer. It separates semantic artifact
+policy from domain-neutral storage mechanisms.
+
+| Host layer | Subsystem | Responsibility | Stable output or boundary |
+| --- | --- | --- | --- |
+| UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, surface manifest, CLI envelopes, and exit codes |
+| Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals; publication receipts when the use case publishes artifacts |
+| Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
+| Domain | Package resolver | Select a deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
+| Domain | Model compiler | Parse and check source, lower it to RIR, and assemble exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
+| Domain | Runtime and evaluator | Admit exact runtime capabilities and execute atomic Events | Resolved Runtime profile, snapshots, outputs, refusals, and terminal audits |
+| Domain | Experiment semantics | Apply scenarios, inputs, metrics, statistical policy, and acceptance intent | Metric datasets and Evaluation runs |
+| Domain | Evidence validator | Validate comparisons and prerequisite graphs | Evidence assertions |
+| Domain | Artifact policy | Define artifact identity, set completeness, publication, retrieval, and recovery rules | Artifact envelopes, Locators, and Receipts |
+| Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
+| Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
 
 ## 5. Language and semantic model
 
