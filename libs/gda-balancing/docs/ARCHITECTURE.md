@@ -136,9 +136,9 @@ Capability Manifest, a platform, external inputs, and an effective seed.
 
 ### 3.2 Host placement and artifact flow
 
-The following diagram places each host subsystem in one implementation layer. External authorities,
-inputs, published facts, and governance decisions remain outside the host. The arrows show input,
-processing, and publication relationships. They do not show Python imports.
+The following diagram places each major host subsystem in one implementation layer. External
+authorities, inputs, published facts, and governance decisions remain outside the host. The arrows
+show input, processing, and publication relationships. They do not show Python imports.
 
 ```mermaid
 flowchart TB
@@ -181,11 +181,13 @@ flowchart TB
         end
 
         U -->|submits| A
-        A -->|invokes| B
-        A -->|invokes| X
-        A -->|"coordinates publication through"| Q
-        B -->|uses| I
-        Q -->|uses| F
+        A -->|"invokes Kernel/LDB bootstrap"| B
+        A -->|"invokes Model compiler"| C
+        A -->|"invokes Experiment semantics"| X
+        A -->|"invokes Runtime and evaluator"| R
+        A -->|"coordinates publication through Artifact policy"| Q
+        B -->|"uses Input and resource access"| I
+        Q -->|"uses Atomic filesystem mechanisms"| F
     end
 
     O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
@@ -244,7 +246,8 @@ artifacts. These projections cannot add meaning.
 
 ## 4. Host implementation architecture
 
-Section 4.1 defines the layer dependency rules. Section 4.2 assigns each subsystem to one layer.
+Section 4.1 defines the layer dependency rules. Section 4.2 assigns each major subsystem to one
+layer.
 
 ### 4.1 Layer dependency rules
 
