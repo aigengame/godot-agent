@@ -75,8 +75,9 @@ Standard Schema 2.0 must:
 - compile source into a public semantic representation whose identity and meaning are independent of
   implementation-private execution plans;
 - execute deterministic, atomic event transactions under an explicit, reproducible runtime profile;
-- use one metrics model for simulated and observed data, then preserve an immutable chain from runs
-  through comparisons, Evidence, and Approval;
+- use one Metrics schema for simulated and observed Metric samples and datasets;
+- preserve an immutable chain from Evaluation runs through comparisons and Evidence assertions to
+  Approval Records;
 - expose the same artifact and outcome model through a structured CLI surface;
 - refuse unsupported or ambiguous behavior explicitly instead of accepting an open-ended escape
   hatch; and
@@ -127,7 +128,7 @@ Three authored artifacts have independent owners:
 
 - **Model Source Package** is the sole editable authority for a game's model definitions and package
   requirements.
-- **Experiment Specification** owns scenarios, inputs, selectors, metric definitions, statistical
+- **Experiment Specification** owns scenarios, inputs, selectors, Metric definitions, statistical
   policy, calibration intent, and acceptance intent.
 - **Approval Record** owns the governance decision for a named Evidence assertion.
 
@@ -667,7 +668,7 @@ Two cross-contract protocols close previously implicit ordering:
 A Genre template is a versioned distribution containing:
 
 - an instantiable starter Model Source Package;
-- companion pre-build Experiment templates with scenarios, metrics, and targets;
+- companion pre-build Experiment templates with scenarios, Metric definitions, and targets;
 - a requirements-to-operations coverage matrix with its Golden scenarios and negative vectors; and
 - a manifest binding template version, compatible LDB/package ranges, and every member's content
   identity.
@@ -931,16 +932,16 @@ An Experiment Specification owns everything that turns a model into a testable q
 - exact per-Event Model-entrypoint selection and separately derived Event-local payload admission;
 - derived observation Events from exact Observation contracts and Metric definitions;
 - exact model/runtime compatibility binding;
-- metric definitions and observation points;
+- Metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;
 - calibration objective, observation model, and identifiability/replication policy;
 - acceptance intent and comparison policy; and
 - holdout and drift policy where observed data is involved.
 
-Model Source must not hide experiment-specific acceptance thresholds, and evaluator code must not
-silently choose metrics or statistical policy.
+Model Source must not hide experiment-specific acceptance thresholds. Evaluator code must not
+silently choose Metric definitions or statistical policy.
 
-### 9.2 One metrics schema
+### 9.2 One Metrics schema
 
 Simulated and observed measurements use the same Metrics schema. Provenance distinguishes their
 origin; parallel metric languages do not. Calibration requires an explicit observation model,
@@ -1053,7 +1054,7 @@ The current evidence supports these status statements:
 
 ## 12. Dogfooding and architecture changes
 
-Dogfooding challenged the architecture through disposable probes and maintained product examples.
+Disposable probes and dogfooding with maintained product examples challenged the architecture.
 This section records only the resulting macro architecture changes and the limits of each result.
 The [Standard Schema 2.0 evidence record](standard-schema-2.0/README.md) indexes acceptance artifacts
 and prototype evidence. [PRD #534](https://github.com/aigengame/godot-agent/issues/534) and the linked
