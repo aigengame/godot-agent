@@ -11,7 +11,8 @@ it is not a larger JSON template format.
 This document is the human-readable authority for the **macro architecture**: system topology,
 subsystem boundaries, cross-cutting invariants, and the order in which the design becomes an
 implemented and proven Standard Schema 2.0. It synthesizes the accepted design decisions, PRD,
-domain language, genre-coverage contract, and four disposable-prototype dogfooding rounds.
+domain language, genre-coverage contract, four disposable architecture-probe rounds, and
+maintained-product dogfooding.
 
 It describes the intended architecture, not a claim that Standard Schema 2.0 has shipped or passed
 conformance. Every implementation and coverage gate called out in this document is open unless its
@@ -98,7 +99,8 @@ Standard Schema 2.0 does not:
 - provide host plugins that can silently add syntax, operations, or runtime behavior;
 - claim format or runtime compatibility with UCUM, MLIR, SBML, FMI, Modelica, or ONNX;
 - preserve arbitrary Standard Schema 1.x saves, replays, runtime behavior, or unsupported source;
-- equate one successful run with Evidence, or independent-evaluator agreement with exact Replay; or
+- equate one successful Evaluation run with Evidence, or independent-evaluator agreement with exact
+  Replay; or
 - use disposable prototypes as release or coverage evidence.
 
 ### 2.3 Design principles
@@ -965,7 +967,8 @@ flowchart LR
 
 An Evaluation run records what happened; it does not issue Evidence by itself. Comparisons bind
 exact inputs, policies, datasets, and identities. Evidence is an immutable assertion whose complete
-prerequisite graph has been independently validated. Approval is a separate governance artifact.
+prerequisite graph has been independently validated. An Approval Record is a separate governance
+artifact.
 
 **Replay** requires identical complete reproduction identities, including one identical Resolved
 Runtime profile. Independent evaluator builds necessarily have distinct evaluator-bound profiles;
