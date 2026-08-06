@@ -110,9 +110,9 @@ artifact.
   accurately, and define it at first use.
 - When a local convention broadens an established term, state the convention and its
   practical effects.
-- Technical prose should conform to ASD-STE100 Simplified Technical English unless
-  the project specifies otherwise. Preserve established project and domain terms as
-  technical nouns or technical verbs.
+- Use ASD-STE100 Simplified Technical English as the default reference for technical
+  prose unless the project specifies otherwise. Preserve established project and
+  domain terms as technical nouns or technical verbs.
 - Prefer plain, concrete prose. Remove formulaic wording, abstract noun chains,
   slogans, empty bullets, and legal or procurement language.
 - Check that sentences express causal, dependency, scope, and ordering relationships
