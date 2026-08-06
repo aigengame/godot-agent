@@ -157,9 +157,9 @@ The probe reversed one design assumption: an exact Replay requires one identical
 Resolved Runtime profile, while honest independent evaluators necessarily have different profiles.
 Their agreement is now a separately typed Cross-evaluator comparison that may support
 `cross_evaluator_conformant`; it cannot issue `reproducible`. The probe issued neither Replay nor
-Evidence. It also exposed root gaps in executable Kernel-node laws, the LDB-owned Model Source
-Package → Authoring AST → Typed HIR → RIR semantic payload path, Kernel-owned admission and
-LDB-owned post-admission Diagnostic semantics, static variant
+Evidence. It also exposed root gaps in executable Kernel-node laws, LDB judgments that derive the
+Model Source Package → Authoring AST → Typed HIR → RIR semantic payload path, Kernel-owned
+admission and LDB-owned post-admission Diagnostic semantics, static variant
 exhaustiveness, general package solving, complete terminal-audit schemas, store-adapter trust
 boundaries, and independent Evidence validation.
 
@@ -201,10 +201,11 @@ Its immutable source commit is
 with the path-bound evidence index refreshed in
 [`c34d2bb`](https://github.com/aigengame/godot-agent/commit/c34d2bb8bf6681a8ff5028026dd0e07f02c9b6bb).
 
-Two independent Python/JavaScript stacks executed machine-readable Kernel laws and LDB-owned
-Source → Typed HIR → RIR judgments, consumed each other's sealed artifacts, and passed the bounded
-Replay/Cross-evaluator, mutation, Diagnostic, Numeric/RNG, scheduler/effect, and refusal slice. The
-dogfooding tightened five permanent contracts: law parameters/results/transitive effects/refusals/
+Two independent Python/JavaScript stacks executed machine-readable Kernel laws and LDB judgments
+that derive the Model Source Package → Authoring AST → Typed HIR → RIR semantic payload path,
+consumed each other's sealed artifacts, and passed the bounded Replay/Cross-evaluator, mutation,
+Diagnostic, Numeric/RNG, scheduler/effect, and refusal slice. The dogfooding tightened five
+permanent contracts: law parameters/results/transitive effects/refusals/
 resources are enforced; authority mutation needs tamper/deletion/behavior witnesses; Diagnostic
 authority needs exact reverse closure and behavior coverage; Comparison is not Evidence; and
 artifact-set manifests bind typed member names and identities.
