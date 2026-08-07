@@ -21,17 +21,18 @@ transitions; event sourcing informs audit boundaries but is not imported wholesa
 
 The team studies a pinned workflow specification, a component-extension system, and an audit-log
 model. For each it records the adopted mechanism, local owner, rejected format/runtime surfaces,
-and vectors. None becomes a peer authority merely because its terminology is reused.
+and evidence. Machine-checkable observable claims get executable conformance cases. None becomes a
+peer authority merely because its terminology is reused.
 
 ### 3. Iterative probes
 
-1. A vertical tracer compiles one policy, runs it, and publishes an audit. It confirms connectivity
+1. An end-to-end slice compiles one policy, runs it, and publishes an audit. It confirms connectivity
    but exposes ambiguous refusal staging and identity.
 2. Two independent runtimes consume each other's canonical artifacts. A mutation test reveals one
    rule was still host-coded, so the rule moves into the versioned language bundle.
 3. An extension probe adds a billing policy and a scheduling policy without rebuilding either
    runtime. Cross-product tests expose an unspecified precedence rule; the extension contract gains
-   canonical ordering and a negative vector.
+   canonical ordering and a negative conformance case.
 4. A structurally different access-control domain reuses the same extension and audit path. If it
    needs a runtime switch, the extensibility gate fails and the architecture reopens.
 
@@ -39,12 +40,12 @@ and vectors. None becomes a peer authority merely because its terminology is reu
 
 | Observation | Disposition | Owner update | Non-claim |
 | --- | --- | --- | --- |
-| one end-to-end run succeeds | confirmed-no-change | architecture topology and tracer scenario | not framework completeness |
-| runtimes disagree on a host-coded rule | refined-adopted | language decision and conformance vector | not fixed by documenting one runtime |
-| extension interaction order is absent | gap-opened | open specification owner and boundary-vector work | packages are not yet orthogonal |
+| one end-to-end run succeeds | confirmed-no-change | architecture topology and end-to-end scenario | not framework completeness |
+| runtimes disagree on a host-coded rule | refined-adopted | language decision and executable conformance case | not fixed by documenting one runtime |
+| extension interaction order is absent | gap-opened | open specification owner and boundary conformance case | packages are not yet orthogonal |
 
-Prototype code stays on fixed evidence commits. Only the corrected decisions, terms, scenarios, and
-vectors enter the authority branch.
+Prototype code stays at immutable evidence revisions. Only the corrected decisions, terms,
+scenarios, and executable conformance cases enter their owning authoritative artifacts and authority map.
 
 ### 5. Design-axis conclusion
 
@@ -69,19 +70,19 @@ decision gate.
 The author does not create theory or external-system matrices, a prototype portfolio, or the full
 delivery plan. If the crash check exposes ambiguous commit state, the owner either opens one focused
 idempotency decision or rejects the design; that evidence need does not silently promote the entire
-engagement to full mode.
+engagement to `full-design` mode.
 
 ## Example: audit an existing event-delivery architecture
 
 The team claims that a fixed document set completely specifies retry order, deduplication, and
-failure recovery. The auditor selects `audit-only`, pins the artifact commit and claimed scope, and
+failure recovery. The auditor selects `audit-only`, pins the artifact revision and claimed scope, and
 makes no edits.
 
 - The authority audit finds retry precedence restated differently in the standard and deployment guide.
-- Two independent readers derive different behavior for equal-time retries, so the finding is
-  `gap-opened`; passing integration tests do not turn it into conformance proof.
+- Two independent readers derive different behavior for equal-time retries, so the affected
+  conformance claim is `open`; passing integration tests do not turn it into conformance proof.
 - Orthogonality and reliability remain open, while unrelated extensibility claims are not re-evaluated.
 
-The report proposes one normative owner and a discriminating boundary vector, then stops. The human
+The report proposes one normative owner and a discriminating boundary conformance case, then stops. The human
 decision owner conditionally accepts the audit, authorizes specification repair, and leaves the
 conformance claim open.

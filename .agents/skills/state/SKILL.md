@@ -26,11 +26,11 @@ This skill is **self-sufficient and orthogonal** to whatever else a project happ
 control, an issue/task tracker, design docs). It assumes such tools *may* exist but depends on no
 particular one — read whatever sources the project has, skip the rest.
 
-**Write sparingly — omit rather than mislead.** Every field in the template is **optional**. Only
-write a line when you have something **accurate** and **useful to the next session**. If a value is
-missing, stale, unverified, or you can't judge whether it helps, **leave it out** — a wrong or
-filler line is worse than a missing one. STATE.md must orient the next worker, never misdirect
-them. (The Backlog inverts this default for *removal* — see the workflow.)
+**Write sparingly — omit rather than mislead.** Every content bullet in the template is optional.
+The updated date is required whenever the file is rewritten. Only write a content line when it is
+accurate and useful to the next session. If a value is missing, stale, unverified, or not clearly
+useful, leave it out. A wrong or filler line is worse than a missing one. The Backlog uses a
+different removal rule; follow step 4.
 
 ## When to run
 
@@ -38,8 +38,8 @@ them. (The Backlog inverts this default for *removal* — see the workflow.)
   session-end hook, or you run it yourself.
 - On demand, invoked as `/state`.
 
-Update STATE.md **once per session, by the primary worker** — not once per parallel sub-task or subagent — so
-the file is written a single time and never double-written.
+The primary worker updates STATE.md once per session. Parallel sub-tasks and subagents do not update
+it. This rule prevents concurrent or duplicate writes.
 
 **No-op guard:** if the session did no material work (e.g. a trivial Q&A turn), leave `STATE.md`
 unchanged — at most refresh the date. Don't churn the file with non-progress.
@@ -55,35 +55,32 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
    as if current is misdirection.) Use the project's own terms.
 3. **Pick the recommended next work** — the open items a fresh session should start with, in
    execution order. Promote Backlog items here when they are the right next start.
-4. **Reconcile the Backlog** — the unfinished cross-session items that must survive the rewrite:
-   - **Inherit by filtering**: start from the previous STATE.md's Backlog (and any Next up items
-     that never ran). Drop an item **only with evidence** — it is done, obsolete, promoted into
-     "Next up", or newly homed in the project's tracker (its reference is the evidence) — check
-     the conversation, corroborate with the tracker when one exists. When unsure, **keep it**:
-     this is the one section where uncertainty preserves a line instead of deleting it.
-   - **Demote**: unfinished work — typically displaced by inserted tasks — moves here **only when
-     it is not selected for "Next up"**. Interrupted work that should simply resume next session
-     belongs in "Next up" (step 3), not here.
-   - **Park**: a newly discovered or accepted item deliberately deferred to a later session —
-     never started, not selected for "Next up" — also enters here, so it cannot fall between the
-     two lists.
-   - **One home per item**: an item appears in "Next up" *or* the Backlog, never both.
-   - **Stamp, and promote oldest-first**: each item carries the date it entered
-     (`since YYYY-MM-DD`) — the snapshot's only observable age. When the Backlog exceeds its
-     budget, or an item is clearly substantive, move items into the project's tracker
-     **oldest-first**; the filed reference is what lets the entry leave. With no tracker, or no
-     authorization to write it, the budget yields: keep every item (staying visibly over budget
-     is the signal to get them homed) — silent truncation is never allowed.
+4. **Reconcile the Backlog.** Apply this algorithm to unfinished cross-session items:
+   - **Inherit by filtering.** Start with the previous Backlog and any "Next up" items that did not
+     run. Drop an item only when evidence shows that it is done, obsolete, selected for "Next up",
+     or recorded in the project's tracker. A tracker reference is evidence that the item has a new
+     home. Check the conversation and corroborate with the tracker when one exists. Keep the item
+     when its status is uncertain.
+   - **Demote unfinished work.** Move displaced work to the Backlog only when it is not selected for
+     "Next up". Work that should resume next session belongs in "Next up".
+   - **Park deferred work.** Add a newly accepted item when it is deferred beyond the next session
+     and has no other home.
+   - **Give each item one home.** Put it in "Next up" or the Backlog, never both.
+   - **Stamp each Backlog item.** Record its entry date as `since YYYY-MM-DD`.
+   - **Apply the five-item budget.** When the Backlog exceeds five items, or an item is clearly
+     substantive, move items to the project's tracker oldest-first. Remove an item only after the
+     tracker provides a reference. If no tracker exists, keep every item. Also keep every item when
+     no authorized writer can create the tracker record. The visible overflow is the signal that
+     the items still need a durable home.
 5. **Add pitfalls/experience only if it serves "Next up".** Include a note **only when this
    session's work is continuous with or related to the recommended next work**, so the note will
    actually get reused. If the next work is unrelated, **omit it** — experience that doesn't help
    the next task is noise, not a war-story archive.
-6. **Rewrite `STATE.md`** from the template — **overwrite, never append**; ≤15 lines, except
-   when step 4's no-loss fallback leaves the Backlog over its own budget: then the file grows by
-   exactly those Backlog lines — the line budget yields with the item budget, it is never
-   rebalanced by dropping an item. Terse; drop any field you have nothing accurate and useful
-   for (the Backlog re-emits its *filtered inheritance* — a fresh rewrite, not an append).
-   Stamp the date.
+6. **Rewrite `STATE.md` from the template.** Overwrite the file; never append. Keep it to 15 lines
+   or fewer. If the no-loss rule in step 4 leaves more than five Backlog items, allow one extra line
+   for each extra item. Do not drop an item to meet the line limit. Omit content bullets that are
+   not accurate and useful. Re-emit the filtered Backlog as part of the new snapshot. Stamp the
+   updated date.
 7. **Do not auto-commit.** Just leave the rewritten `STATE.md` in the working tree. Whether it is
    tracked or kept as a local-only working aid is the project's choice — this skill never commits it.
 
@@ -105,32 +102,14 @@ _Cross-session daily report (~15 lines, rewritten each session via `/state`). Du
 _Updated: <YYYY-MM-DD>_
 ```
 
-(Every bullet is optional — omit any you have nothing accurate and useful for.)
+(Every content bullet is optional. `_Updated` is required whenever the file is rewritten.)
 
 ## Guardrails
 
-- **≤15 lines** of content; keep it scannable. One exception: when the Backlog's no-loss
-  fallback keeps items past its own budget, the file grows by exactly those lines — a
-  line-budget breach is never resolved by dropping a Backlog item.
-- **Omit rather than mislead** — every field is optional; drop any line that is stale, unverified,
-  or not useful to the next session. Never carry a phase forward just because it was there before.
-- **Backlog drops need evidence** — the inverse of the rule above, so unfinished work cannot
-  silently vanish in a rewrite: carry an item forward unless you can point at its completion,
-  obsolescence, promotion into "Next up", or its new tracker home.
-- **Backlog budget: 5 items, one line each, each stamped `since YYYY-MM-DD`** — overflow is
-  resolved by promoting the OLDEST items into the project's tracker, never by truncation; with
-  no tracker or no authorization to write it, keep the items and stay visibly over budget —
-  losing work is worse than breaking the budget. The Backlog is execution carry-over anchored
-  by reference, never a second plan.
-- **One home per item** — "Next up" (ordered, what to start) or Backlog (parked, must not be
-  lost), never both.
-- **Pitfalls only when they serve "Next up"** — record experience only when this session's work is
-  continuous with / related to the recommended next work; otherwise leave it out.
-- **Overwrite, never append** — STATE.md is a current handoff snapshot, not a session-history log;
-  keep only the latest state. The Backlog is no exception: it is re-emitted each rewrite from its
-  filtered inheritance, not accreted.
-- Record only **this session's delta** — not a running journal. The Backlog is the one field that
-  carries filtered state forward.
-- Keep it **self-contained**: don't duplicate the project's durable decision/architecture docs, and
-  don't hard-depend on any particular tracker or tool.
-- Use the **project's own vocabulary** consistently.
+- Follow step 4 for every Backlog change. Never delete unfinished work to meet a budget.
+- Follow step 6 for rewriting and line limits. STATE.md is a current snapshot, not a history log.
+- Record only this session's delta. The Backlog is the only field that carries filtered state
+  forward.
+- Keep the file self-contained. Do not duplicate durable decisions or depend on a specific tracker
+  or tool.
+- Use the project's established vocabulary.

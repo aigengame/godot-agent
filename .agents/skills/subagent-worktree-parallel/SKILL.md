@@ -1,6 +1,6 @@
 ---
 name: subagent-worktree-parallel
-description: Orchestrates parallel development by fanning out independent feature slices to subagents in isolated git worktrees, then merging them serially under an orchestrating agent — covers dependency decomposition, wave sizing, dispatch prompts, merge-conflict hazards, and the integration-test gate. Use when planning to parallelize implementation across multiple subagents/worktrees, split a task for concurrent agents, fan out feature slices, or merge several feature branches back together; or invoked as /subagent-worktree-parallel.
+description: Plans and, when authorized, orchestrates parallel development by fanning out independent feature slices to subagents in isolated git worktrees, then integrating them serially under an orchestrating agent. Covers permission boundaries, dependency decomposition, wave sizing, dispatch prompts, merge hazards, and validation gates. Use when planning concurrent work, running parallel implementation across worktrees, or integrating dependent feature branches; or invoked as /subagent-worktree-parallel.
 ---
 
 # Subagent + Worktree Parallel Development
@@ -22,42 +22,44 @@ the cost/benefit table).
   the same component, or both append to the same shared file, will collide at merge.
   Coupled work is sequenced, not parallelized.
 
+## Choose the operating mode and permissions
+
+- **Planning-only:** produce the dependency map, slice briefs, wave plan, merge order,
+  validation plan, and permission requests. Do not create worktrees or branches, edit files,
+  commit, push, open change requests, merge, or write to a remote tracker.
+- **Execution:** perform only the local mutations that the user authorized. Worktree creation,
+  file edits, and commits do not imply permission to push, open or update a change request,
+  merge, reply to reviews, or change remote tracker state. Record remote-write permissions
+  separately and stop at a local handoff when they are absent.
+
 ## Core principles (non-negotiable)
 
 - **Group-external parallel, group-internal serial.** Only independent modules run in
-  parallel. Within one module, land the foundational "tracer" first and merge it, then
-  fan out its round-outs — parallel siblings duplicate-scaffold and collide.
+  parallel. Within one module, land the **foundation slice** first, then fan out its
+  **dependent follow-up slices**. A foundation slice establishes the smallest shared
+  contract or scaffold that its follow-ups require; parallel follow-ups before it lands
+  duplicate that foundation and collide.
 - **Small batches (≤ ~5), merge before the next wave.** Each rebase then lands on a
   stable base; large waves create a merge *treadmill* (every merge re-conflicts the
   rest) and raise the odds a subagent is truncated at a run limit.
-- **The integration-tier test is the Definition of Done — and so is the rest of the
-  PR-CI gate list.** A fast tier that stubs the integration boundary passes even on a
-  broken merge: DoD must run the tier that really exercises the boundary (integration /
-  e2e / compile or a parse `--check-only`). Beyond the test tiers, DoD must also mirror
-  the repo's non-test PR-CI gates — read the gate list off the CI workflow itself, not
-  from memory: typically the formatter *check*, linter, typecheck, and build/packaging —
-  invoked exactly as CI invokes them. A green test run with a red format check still
-  bounces the PR (every slice of one real wave tripped this). (REFERENCE §3, §6)
+- **The real integration boundary is part of Definition of Done.** A fast tier that stubs
+  that boundary can pass on a broken merge. Run every locally reproducible gate that covers
+  the change, including the real integration/e2e/compile/parse path and relevant non-test
+  checks. Classify gates that require protected infrastructure, secrets, policy evaluation,
+  or unavailable hardware as **CI-only**. If a gate cannot run, record why, the substitute
+  evidence, and the remaining risk; never report it as passed. (REFERENCE §3, §6)
 - **The orchestrator (the "lead") independently re-verifies before merging.** Subagent implements and
-  **commits** (its own branch, in its worktree); the lead re-runs tests and spot-checks the
-  diff. "Done but no artifact" = needs takeover.
-- **PR creation and its body are the orchestrator's, not the subagent's.** A PR is a
-  *merging* artifact, not a *doing* one: the subagent commits **and pushes** its branch but
-  does **not** open the PR — the lead opens every PR and owns its body, base, labels, and the
-  close-vs-reference keyword. That applies PR conventions in one place and lets the lead
-  re-verify a slice against its spec *before* the PR exists. Subagent-authored PRs reliably
-  omit or misplace the close keyword even when the brief demands it, so owning PR creation
-  closes that gap by construction rather than by a fragile after-the-fact check.
-- **`Closes #N` is a per-PR decision the lead makes after verifying — not a default.** Tag a
-  PR `Closes #N` only when it *fully* satisfies the linked issue (all acceptance criteria,
-  verified). A tracer, a round-out, or a stacked/multi-wave slice that only *advances* an
-  issue must use a non-closing `Refs #N`, or the first partial merge closes the issue
-  prematurely. The subagent reports whether its slice fully satisfies the issue; the lead
-  decides the keyword.
-- **Stacked PRs are live dependencies until merged.** When a base PR receives review fixes
-  or is squash-merged, every dependent PR must be re-evaluated: rebase/retarget it, update
-  stale PR body text and close-vs-reference keywords, then rerun the real gates on the new
-  head. Old green CI on the stacked base is not merge evidence.
+  produces the authorized local artifact in its worktree; the lead re-runs locally
+  reproducible gates and spot-checks the diff. "Done but no artifact" = needs takeover.
+- **Remote writes need explicit authority.** Pushes, change-request creation or edits,
+  merges, review replies, and tracker updates are separate permissions. When authorized,
+  the orchestrator owns the integration record and its completion semantics. Mark a work
+  item complete only when the slice satisfies all of it; a foundation slice, dependent
+  follow-up slice, or other partial slice remains non-closing.
+- **Stacked change requests are live dependencies until merged.** When a base change receives
+  review fixes or is squash-merged, every dependent change must be re-evaluated: rebase or
+  retarget it, update stale descriptions and completion semantics, then rerun the applicable
+  gates on the new head. Old validation on the stacked base is not merge evidence.
 - **Public docs and agent-facing docs are integration surfaces.** If a slice changes a
   user/agent-visible behavior or public shape, verify the whole surface chain for that
   slice and its dependents — CLI/help, schemas, user docs, generated or translated docs,
@@ -74,44 +76,49 @@ the cost/benefit table).
 ## Workflow
 
 ```
-decompose + dependency analysis → plan waves → fan out (implement) → verify + open PRs (per slice) → merge serially (dependency order)
+choose mode/permissions → decompose + dependency analysis → plan waves
+  planning-only → return the plan
+  execution → fan out → verify locally → publish/merge only when separately authorized
 ```
 
-1. **Decompose + analyze dependencies.** Split the work into vertical slices. Mark which
+1. **Choose mode and permissions.** Record planning-only or execution, the allowed local
+   mutations, and each allowed remote write. Do not infer execution from a planning request
+   or remote authority from local implementation authority. (REFERENCE §3)
+2. **Decompose + analyze dependencies.** Split the work into end-to-end slices. Mark which
    are independent (parallel-safe) vs. coupled (must serialize). Up front, identify the
    **append hotspots** — central registries, enums, dispatch tables, render/plugin maps,
    shared test files that *every* slice edits — that is where merge cost concentrates —
    and give each hotspot exactly **one owner slice** for the wave; the others flag needed
    changes instead of editing. (REFERENCE §1)
-2. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence coupled slices
-   tracer-first. Decide the merge order now. (REFERENCE §2)
-3. **Fan out to implement.** Launch one subagent per slice in its own git worktree, each
-   with a dispatch prompt that pins it to its worktree, tells it to commit early and push its
-   branch but not open the PR (the orchestrator does), and bakes the integration-tier test
-   into its DoD. (REFERENCE §3)
-4. **Verify, open PRs, take over.** As each implementer finishes — and before anything
-   merges — re-run the integration tier yourself; run shared-global-resource tests
-   serially; audit any public docs/agent docs surface; treat any "completed but no
-   commit/push" report as needs-takeover, not success. **You** (not the subagent) open
-   each PR, choosing `Closes #N` only when the slice fully satisfies its issue (else
-   `Refs #N`). (REFERENCE §6, §7)
-5. **Merge serially in dependency order.** Tracer first → rebase followers onto the new
+3. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence each foundation
+   slice before its dependent follow-up slices. Decide the integration order now. In
+   planning-only mode, return the plan here. (REFERENCE §2)
+4. **Fan out to implement.** In execution mode, launch one subagent per slice in its own
+   git worktree. Its dispatch prompt pins the worktree, states local and remote permissions,
+   requires early durable local artifacts when authorized, and includes the applicable
+   validation gates. (REFERENCE §3)
+5. **Verify, hand off, or publish.** As each implementer finishes, run locally reproducible
+   gates, serialize shared-global-resource tests, audit affected public surfaces, and record
+   every CI-only or unavailable gate with substitute evidence and remaining risk. If remote
+   writes are not authorized, return the local artifact and stop. If they are authorized,
+   the orchestrator performs only the listed remote actions. (REFERENCE §6, §7)
+6. **Merge serially in dependency order when authorized.** Foundation slice first → rebase followers onto the new
    base → independent groups can merge in any order; a *clean* rebase still gets the
-   integration gate. Re-poll mergeability after each merge. For stacked PRs, retarget
-   followers after the base lands and update any stale `Refs`/`Closes` or recorded
-   verification text before merging. Watch for the two marker-free conflict traps.
+   applicable integration gate. Re-poll mergeability after each merge. For stacked changes,
+   retarget followers after the base lands and update stale descriptions, completion
+   semantics, or verification text before merging. Watch for the two marker-free conflict traps.
    (REFERENCE §4, §5)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
 remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
 original implementer with its context where possible, restate the full dispatch
-discipline (worktree pinning, commit-early, the full DoD gates — integration tier plus
-the PR-CI gate list), and require **one commit
-per finding** so a mid-round kill is cheap to take over. The lead then re-verifies and
-closes the loop on the review channel — e.g. a reply mapping each finding → resolution —
-keeping the PR/change description current where the host supports it.
+discipline (worktree pinning, permissions, and the applicable local and CI-only gate
+inventory), and require one commit per finding when commits are authorized. The lead then re-verifies and
+closes the loop on the review channel only when that remote write is authorized — e.g. a
+reply mapping each finding → resolution — keeping the change description current where
+the host supports it.
 Re-derive the overlap map and merge order as fixes land, verify each slice against its
-*originating spec* (not just its own green tests), and fix a finding at the altitude of
+source requirement (not just its own green tests), and fix a finding at the altitude of
 its true cause, not where it surfaced. (REFERENCE §1, §6, §7)
 
 When append hotspots keep dominating merge cost, the durable fix is architectural —
