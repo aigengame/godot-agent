@@ -1,0 +1,23 @@
+{
+  "description": "Session wrap-up reminders for this workspace.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Session wrap-up: if this session did material work, run $state to refresh STATE.md with the session results, next work, and unfinished carry-over.\"}'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Reminder: if a requirement, decision, scope boundary, or established term changed this session, run $reconcile to check affected project artifacts for drift.\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
