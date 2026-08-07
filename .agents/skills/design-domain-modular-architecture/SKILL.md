@@ -1,6 +1,6 @@
 ---
 name: design-domain-modular-architecture
-description: Design and review practical modular software architectures with domain models as the basis for boundaries, ownership, dependencies, and evolution. Use when structuring a new system, modularizing an existing codebase, separating domain rules from use-case coordination and external integration, identifying context or module boundaries, reviewing coupling, or planning an incremental architecture change.
+description: Design and review technology-neutral, domain-centered modular software architectures with domain models as the basis for boundaries, ownership, dependencies, and evolution. Use for technology-neutral or explicitly domain-centered work when structuring a new system, modularizing an existing codebase, separating domain rules from use-case coordination and external integration, identifying context or module boundaries, reviewing coupling, or planning an incremental architecture change.
 ---
 
 # Design Domain Modular Architecture
@@ -11,10 +11,10 @@ Design the smallest usable architecture that gives the current system complete a
 distinct responsibilities, one authority for each rule, one-way dependencies, and
 clear extension paths.
 
-Use Domain-Driven Design (DDD) as the theory for judging boundaries and evolution. Do
-not treat it as a set of patterns that every project must implement. Introduce a bounded
-context, aggregate, repository, domain service, or other DDD building block only when
-it solves an observed problem.
+Use Domain-Driven Design (DDD) as the theoretical basis for judging module boundaries
+and evolution. Do not treat it as a set of patterns that every project must implement.
+Introduce a Bounded Context, Aggregate, Repository, Domain Service, or other DDD
+building block only when it solves an observed problem.
 
 Unless the user asks only for analysis or review, recommend one concrete architecture.
 Include a module tree, responsibility placement, dependency and communication rules,
@@ -39,7 +39,7 @@ owners. Do not introduce a second name for an existing concept or silently chang
 term's meaning.
 
 Do not infer a DDD meaning from a filename alone. For example, a file named
-`CONTEXT.md` does not necessarily define a bounded context.
+`CONTEXT.md` does not necessarily define a Bounded Context.
 
 Report conflicts between authoritative artifacts and explain their architecture
 impact. Do not hide a conflict by selecting one source without explanation.
@@ -87,7 +87,7 @@ that match the project language and system form.
 | Domain-neutral technical capabilities | `foundation`, `libs`, `platform`, `infrastructure` |
 | Domain model and rules | `domain`, `model`, `business`, a domain capability name |
 | Use cases and application flow | `application`, `use-cases`, `workflows`, `services` |
-| External interaction boundary | `adapters`, `interfaces`, `ports`, `delivery` |
+| External interaction boundary | `adapters`, `interfaces`, `delivery` |
 | Input adaptation | `inbound`, `ui`, `presentation`, `api`, `cli`, `consumers` |
 | Output adaptation | `outbound`, `infrastructure`, `integrations`, `persistence`, `gateways` |
 | Composition and startup | `bootstrap`, `composition-root`, `startup`, `app` |
@@ -175,7 +175,7 @@ Place construction and startup work here. Examples include:
 Allow Bootstrap to know the concrete types that it composes. Keep domain rules and
 use-case flow out of it.
 
-## Split Multiple Domain Contexts When Evidence Requires It
+## Split Bounded Contexts When Evidence Requires It
 
 Use a context-first shape when the system contains different languages, models, rule
 owners, or independent evolution boundaries:
@@ -192,37 +192,30 @@ foundation/
 bootstrap/
 ```
 
-Allow each context to contain its own Domain, Application, and Adapters. Do not add a
-bounded-context layer above an existing layer structure.
+Allow each Bounded Context to contain its applicable Domain, Application, and Adapters.
+Do not treat a Bounded Context as another dependency layer. When several models exist,
+organize the applicable layers inside each context.
 
 Integrate contexts through explicit public contracts. Translate models at the boundary
-when their meanings differ. Add an anti-corruption layer when one model would otherwise
+when their meanings differ. Add an Anti-Corruption Layer when one model would otherwise
 leak into another. Do not share an internal domain model merely to remove translation.
 
 Allow similar words to have different precise meanings in different contexts. Do not
 force a system-wide model when the language does not support one.
 
-Do not assume that a bounded context is a module, service, directory, deployment unit,
+Do not assume that a Bounded Context is a module, service, directory, deployment unit,
 or team. Introduce multiple contexts only when a real model boundary exists.
 
-## Form a Minimal Orthogonal Basis
+## Define Functional Pillars
 
-Treat the selected responsibility areas and core modules as the architecture's
-functional pillars. Together, they must form a minimal orthogonal basis for the current
-problem space:
+Use **functional pillar** to mean a module or stable module group that owns one required
+system capability. Do not use the term for a layer, Bounded Context, or directory unless
+that element also owns such a capability.
 
-- Give each pillar one indispensable responsibility.
-- Give each pillar a distinct concept and reason to change.
-- Do not let two pillars own the same rule, state, or decision.
-- Compose complete behavior through small public contracts.
-- Hide each pillar's internal state and implementation.
-- Remove a pillar when its removal leaves no required capability without an owner.
-- Merge or redraw pillars that remain interchangeable or always implement the same
-  decision together.
-
-Name modules, types, interfaces, events, use cases, tests, and documents with the
-project's ubiquitous language. Divide modules by conceptual cohesion and reason to
-change, not by file type, framework component, or organization chart.
+Use the Ubiquitous Language of the applicable Bounded Context to name modules, types,
+interfaces, events, use cases, tests, and documents. When no Bounded Context is defined,
+use the established project and domain terms. Divide modules by conceptual cohesion and
+reason to change, not by file type, framework component, or organization chart.
 
 Give every rule, state, invariant, and public contract one authoritative owner. Let
 other modules consume that authority instead of reproducing it.
@@ -299,14 +292,16 @@ hub to bypass the dependency rules.
 
 ### Always Apply the Core Ideas
 
-At every project size, keep the ubiquitous language, model-to-code alignment, rule and
-state ownership, model scope, and conceptual module boundaries visible.
+At every project size, keep the Ubiquitous Language, alignment between the domain model
+and implementation, rule and state ownership, model scope, and conceptual module
+boundaries visible.
 
 ### Apply Strategic Design by Complexity
 
-Consider subdomains, core and supporting capabilities, bounded contexts, context maps,
-upstream and downstream relationships, anti-corruption layers, or a shared kernel only
-when several models, languages, or ownership boundaries make them useful.
+Consider a Core Domain, Supporting Subdomains, Generic Subdomains, Bounded Contexts, a
+Context Map, upstream and downstream relationships, an Anti-Corruption Layer, or a
+Shared Kernel only when several models, languages, or ownership boundaries make them
+useful.
 
 Map only the contexts needed for the current decision. Do not model the complete system
 in advance.
@@ -321,15 +316,15 @@ Use a building block only when its semantics fit:
 | Value Object | A concept is defined by values, constraints, and value equality. |
 | Domain Event | An occurred fact has domain meaning. |
 | Domain Service | Domain behavior has no natural Entity or Value Object owner. |
-| Aggregate | Several objects must enforce one consistency boundary. |
+| Aggregate | Related Entities and Value Objects need one consistency and transaction boundary, with external access controlled by an Aggregate Root. |
 | Factory | Complex construction must always produce a valid result. |
-| Repository | The Domain needs collection-like access to persisted objects. |
+| Repository | An Aggregate Root needs collection-like access expressed in the Ubiquitous Language. |
 | Module | A set of concepts shares meaning and a reason to change. |
 
 Do not create `entities/`, `services/`, `repositories/`, or similar directories merely
 to display these patterns.
 
-### Keep the Design Supple
+### Apply Supple Design
 
 Prefer a design that reveals intent and remains easy to change:
 
@@ -340,7 +335,7 @@ Prefer a design that reveals intent and remains easy to change:
 - Make composition predictable.
 - Keep a common change from crossing unrelated modules.
 
-### Let Order Evolve
+### Apply Evolving Order
 
 Establish only the large-scale rules needed now. Change module boundaries when new
 domain knowledge or implementation evidence shows that the current structure no longer
@@ -358,28 +353,25 @@ responsibility, move or reimplement it under the correct owner, and add its test
 
 ## Workflow
 
-1. Define the current goal, evidence, constraints, success conditions, and excluded
-   scope.
+1. Define the current goal, evidence, constraints, success conditions, and excluded scope.
 2. Read the existing context, language, architecture, and decision artifacts.
-3. Confirm the smallest domain language and model needed for the decision.
-4. Identify the owners of rules, state, invariants, use cases, and external effects.
-5. Select indispensable, non-overlapping functional pillars.
-6. Choose a single-context or context-first topology and select project-appropriate
-   names.
-7. Recommend one concrete module tree and give representative contents for each area.
-8. Trace source dependencies and downward, upward, and horizontal communication.
-9. Add only the DDD building blocks and communication mechanisms that solve observed
+3. Confirm the needed domain model and identify the owners of rules, state, invariants,
+   use cases, and external effects.
+4. Define the functional pillars, topology, and project-appropriate names.
+5. Recommend one concrete module tree and give representative contents for each area.
+6. Trace source dependencies and downward, upward, and horizontal communication.
+7. Add only the DDD building blocks and communication mechanisms that solve observed
    problems.
-10. Check completeness, orthogonality, DRY, and extensibility.
-11. Plan the smallest reversible migration slices and their validation.
-12. Identify the glossary, context, ADR, architecture, test, and configuration artifacts
-    that the change must reconcile.
+8. Review completeness, orthogonality, DRY, and extensibility.
+9. Plan reversible migration slices, validation, and reconciliation of affected
+   project artifacts.
 
 ## Review the Architecture
 
 ### Completeness
 
-Treat the selected pillars as the span of the current problem space. Confirm that:
+Confirm that the selected responsibilities, modules, and contexts cover the current
+problem space:
 
 - Every required behavior, state, rule, invariant, and use case has an owner.
 - Every input, output, and external effect has a responsible module.
@@ -387,13 +379,13 @@ Treat the selected pillars as the span of the current problem space. Confirm tha
 - Relevant lifecycle, failure, transaction, concurrency, and persistence boundaries are
   covered.
 - No unnamed `misc`, `common`, or hidden module is required to explain the system.
-- The pillars can compose every required current capability.
+- The design can compose every required current capability.
 
-An essential capability with no owner proves that the selected basis is incomplete.
+An essential capability with no owner proves that the design is incomplete.
 
 ### Orthogonality
 
-Treat the selected pillars as a minimal independent basis. Confirm that:
+Treat the defined functional pillars as a minimal orthogonal basis. Confirm that:
 
 - Each pillar owns an indispensable responsibility.
 - Removing any pillar leaves a required capability without an owner.
@@ -459,23 +451,15 @@ Scale the number of mechanisms, not the meaning of the boundaries.
 
 ## Output
 
-Return only the sections needed for the request, but keep the result concrete. A full
-design should include:
+Return only the sections needed for the request, but keep the result concrete. Include:
 
-1. Current constraints and explicit assumptions.
-2. Existing context, terminology, and architecture sources consulted.
-3. One recommended architecture profile and module tree.
-4. The selected names and their exact local meanings.
-5. The responsibility, necessity, and non-overlap boundary of each functional pillar.
-6. The authority for each important rule, state, and contract.
-7. Source dependencies and downward, upward, and horizontal communication.
-8. Important domain terms, models, and context boundaries.
-9. DDD building blocks selected or rejected, with reasons.
-10. Missing responsibilities, overlaps, duplicate knowledge, or cycles found.
-11. Supported extension paths and their change surface.
-12. Incremental implementation steps and proportional validation.
-13. Existing glossaries, context documents, ADRs, architecture documents, tests, or
-    configuration that must change with the design.
+1. Current constraints, assumptions, and the authority sources consulted.
+2. One recommended architecture profile, module tree, and exact local names.
+3. Responsibility placement, functional pillars, and knowledge owners.
+4. Source dependencies and downward, upward, and horizontal communication.
+5. Important domain terms, model boundaries, and DDD choices.
+6. Findings from the completeness, orthogonality, DRY, and extensibility checks.
+7. Incremental implementation, validation, and affected project artifacts.
 
 If several solutions remain valid, recommend one first. State the conditions under
 which another solution would become better.
@@ -490,7 +474,3 @@ Do not introduce these mechanisms by default:
 - A mixed-responsibility `common` module or directories named only after DDD patterns.
 - A complete context map or extension points before evidence requires them.
 - A target architecture that requires a complete rewrite before validation.
-
-Use the least structure that gives the current system a complete, orthogonal, and
-extensible set of functional pillars, one authority for each rule, and one-way
-references to that authority.
