@@ -47,6 +47,10 @@ domain context. Preserve established terms, definitions, context boundaries, and
 owners. Do not introduce a second name for an existing concept or silently change a
 term's meaning.
 
+Use the Ubiquitous Language of the applicable Bounded Context to name modules, types,
+interfaces, events, use cases, tests, and documents. When no Bounded Context is defined,
+use the established project and domain terms.
+
 Do not infer a DDD meaning from a filename alone. For example, a file named
 `CONTEXT.md` does not necessarily define a Bounded Context.
 
@@ -109,6 +113,9 @@ Do not use one name for several responsibilities without explicit subdivisions.
 Keep an existing physical layout when it already expresses the required boundaries.
 Create only the areas whose responsibilities exist. Do not create empty directories
 for symmetry.
+
+Divide modules by conceptual cohesion and reason to change, not by file type, framework
+component, or organization chart.
 
 ### Foundation
 
@@ -214,22 +221,6 @@ force a system-wide model when the language does not support one.
 
 Do not assume that a Bounded Context is a module, service, directory, deployment unit,
 or team. Introduce multiple contexts only when a real model boundary exists.
-
-## Define Functional Pillars
-
-Use **functional pillar** to mean a module or stable module group that owns one required
-system capability. Do not use the term for a layer, Bounded Context, or directory unless
-that element also owns such a capability.
-
-Use the Ubiquitous Language of the applicable Bounded Context. This is the shared,
-precise vocabulary built around the domain model and used in collaboration and in the
-software. Use it to name modules, types, interfaces, events, use cases, tests, and
-documents. When no Bounded Context is defined, use the established project and domain
-terms. Divide modules by conceptual cohesion and reason to change, not by file type,
-framework component, or organization chart.
-
-Give every rule, state, invariant, and public contract one authoritative owner. Let
-other modules consume that authority instead of reproducing it.
 
 ## Keep Dependencies and Communication Directed
 
@@ -373,7 +364,7 @@ responsibility, move or reimplement it under the correct owner, and add its test
 2. Read the existing context, language, architecture, and decision artifacts.
 3. Confirm the needed domain model and identify the owners of rules, state, invariants,
    use cases, and external effects.
-4. Define the functional pillars, topology, and project-appropriate names.
+4. Choose module boundaries, topology, and project-appropriate names.
 5. For design work, recommend one concrete module tree and give representative contents
    for each area. For review-only work, record the observed tree and verified findings.
 6. Trace source dependencies and downward, upward, and horizontal communication.
@@ -403,19 +394,21 @@ An essential capability with no owner proves that the design is incomplete.
 
 ### Orthogonality
 
-Treat the defined functional pillars as a minimal orthogonal basis. Confirm that:
+Use **orthogonal basis** as a system metaphor for the modules or cohesive module groups
+that own the required capabilities. Together, they must cover the current capability
+set, while each owner remains necessary and non-overlapping. Confirm that:
 
-- Each pillar owns an indispensable responsibility.
-- Removing any pillar leaves a required capability without an owner.
-- Each pillar has a distinct concept and reason to change.
-- No pair of pillars overlaps in rule, state, or decision ownership.
-- One change does not require several pillars to repeat the same decision.
-- Pillars compose through contracts rather than shared internals.
-- No pillar exists only to preserve symmetry.
+- Each capability owner has an indispensable responsibility.
+- Removing any owner leaves a required capability without an owner.
+- Each owner has a distinct concept and reason to change.
+- No pair of owners overlaps in rule, state, or decision ownership.
+- One change does not require several owners to repeat the same decision.
+- Owners compose through contracts rather than shared internals.
+- No owner exists only to preserve symmetry.
 
-Merge or redraw pillars that are interchangeable, always change together for the same
-reason, or cannot state distinct responsibilities. Remove a pillar whose absence does
-not affect a required capability.
+Merge or redraw modules or groups that are interchangeable, always change together for
+the same reason, or cannot state distinct responsibilities. Remove one whose absence
+does not affect a required capability.
 
 ### DRY
 
@@ -472,7 +465,8 @@ Return only the sections needed for the request, but keep the result concrete. I
 1. Current constraints, assumptions, and the authority sources consulted.
 2. A recommended architecture profile, module tree, and exact local names for design
    work, or the observed architecture and verified findings for review-only work.
-3. Responsibility placement, functional pillars, and knowledge owners.
+3. Responsibility placement, capability ownership, and authoritative sources for shared
+   rules and knowledge.
 4. Source dependencies and downward, upward, and horizontal communication.
 5. Important domain terms, model boundaries, and DDD choices.
 6. Findings from the completeness, orthogonality, DRY, and extensibility checks.
