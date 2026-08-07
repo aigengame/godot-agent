@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Domain Modular Architecture"
+  short_description: "Design practical domain-centered module boundaries"
+  default_prompt: "Use $design-domain-modular-architecture to design or review practical domain-centered module boundaries and dependencies."
