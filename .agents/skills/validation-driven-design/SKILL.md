@@ -1,6 +1,6 @@
 ---
 name: validation-driven-design
-description: Designs, audits, and iteratively validates framework, platform, language, protocol, or runtime architectures by combining explicit requirements, mature theory, external-system research, executable prototypes, dogfooding, and cross-artifact reconciliation. Use when creating or redesigning an architecture, writing architecture specifications or ADRs, auditing an existing architecture against abstraction/completeness/orthogonality/extensibility, or planning a design for production implementation.
+description: Designs, audits, and iteratively validates framework, platform, language, protocol, or runtime architectures by combining explicit requirements, mature theory, external-system research, executable prototypes, dogfooding, and cross-artifact reconciliation. Use when creating or redesigning an architecture, writing architecture specifications or decision records, auditing an existing architecture against abstraction/completeness/orthogonality/extensibility, or planning a design for production implementation.
 ---
 
 # Validation-Driven Design
@@ -23,20 +23,23 @@ Scale validation work to the importance of the design decision and a concrete ri
 question. If more validation is not justified, simplify or postpone that part of the design instead
 of weakening its checks. Follow the selected mode's limits in [REFERENCE.md](REFERENCE.md).
 
+[REFERENCE.md §1](REFERENCE.md#1-engagement-modes-and-authority-map) defines an executable
+conformance case and its minimum fields.
+
 ## Quick start
 
-1. Choose lightweight, full, or audit-only mode; name the artifact owners and human decision owner.
+1. Choose `lightweight`, `full-design`, or `audit-only` mode; name the artifact owners and human decision owner.
 2. Write goals, non-goals, invariants, quality attributes, production constraints, and claim status.
 3. Map load-bearing mechanisms to mature theory and external systems; record adoption and proof gaps.
 4. Rank architecture uncertainties and run only the smallest discriminating validation.
-5. Feed dogfooding back into requirements, decisions, terms, specifications, vectors, and gates.
+5. Feed dogfooding back into requirements, decisions, terms, specifications, executable conformance cases, and gates.
 6. Audit the four design axes and cross-cutting qualities; keep non-claims explicit.
 
 See [REFERENCE.md](REFERENCE.md) for templates and proof obligations, and [EXAMPLES.md](EXAMPLES.md).
 
 ## Workflow
 
-The sections below define the full-design route. In `lightweight` mode, execute only the mode minimum
+The sections below define the `full-design` route. In `lightweight` mode, execute only the mode minimum
 and add a step when its falsifier or risk requires it; do not generate full matrices or portfolios by
 default. In `audit-only` mode, pin the baseline, evaluate the claimed scope, report gaps, and stop
 without redesign or edits unless the user requests them.
@@ -45,7 +48,8 @@ without redesign or edits unless the user requests them.
 
 - Read repository guidance and current authoritative artifacts before proposing structure.
 - Turn outcomes into traceable requirements, scope, non-goals, invariants, failures, and qualities.
-- Build an authority map. Give every normative fact one owner; derived documents reference it.
+- Build one authority map, which can include a one-way reference graph. Give every normative fact
+  one owner; derived artifacts reference it.
 - Start a claim ledger: `proposed`, `theory-supported`, `confirmed-narrowly`, `conformance-proven`,
   `production-proven`, `open`, and `non-claim`.
 
@@ -75,8 +79,8 @@ without redesign or edits unless the user requests them.
 ### 5. Validate the highest-risk uncertainty
 
 - Charter one question, falsifier, smallest slice, discriminating cases, time box, and deletion plan.
-- Choose the evidence form from the uncertainty: prototype, permanent vector, or independent review.
-  Architecture semantics usually need executable or independently interpreted artifacts.
+- Choose the evidence form from the uncertainty: prototype, permanent executable conformance case,
+  or independent review. Architecture semantics usually need executable or independently interpreted artifacts.
 - Treat prototype/review results as design evidence, never conformance, production authority, or human acceptance.
 
 ### 6. Synthesize dogfooding and iterate
@@ -86,9 +90,9 @@ without redesign or edits unless the user requests them.
 - Attribute defects to the narrowest honest layer: instance/configuration → template/profile →
   extension module/package → framework/schema → irreducible kernel.
 - Update each owning artifact once; remove duplicated normative restatements. Preserve research at a
-  fixed reference and promote only durable scenarios, vectors, or decisions into authority.
+  fixed reference and promote only durable scenarios, executable conformance cases, or decisions into authority.
 - Stop disposable prototyping when the risk class is resolved. Move remaining proof into permanent
-  conformance assets and production vertical slices.
+  conformance assets and end-to-end production slices.
 
 ### 7. Run design-axis and cross-cutting-quality gates
 
@@ -108,7 +112,7 @@ Do not declare the architecture complete from prose quality, a green build, fram
 passing disposable prototypes. Complete the audit in [REFERENCE.md](REFERENCE.md): trace every
 requirement and decision, verify each quality axis with appropriately scoped evidence, reconcile
 live artifacts, preserve explicit non-claims, and leave production gates executable.
-Apply the full completion checklist only in full-design mode. For other modes, satisfy the selected
+Apply the full completion checklist only in `full-design` mode. For other modes, satisfy the selected
 mode's minimum and record excluded checks as out of scope or non-claims, not as missing deliverables.
-The designated human decision owner must accept, reject, or condition the architecture and authorize
-the next gate; evidence and agents cannot self-approve.
+The designated human decision owner must accept, reject, or condition the architecture and explicitly
+authorize or withhold the next gate; evidence and agents cannot self-approve.

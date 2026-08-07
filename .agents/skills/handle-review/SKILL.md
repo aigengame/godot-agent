@@ -220,7 +220,10 @@ Provide:
 5. **Reviewer reply draft, when requested**: A concise response ready to send.
 
 Report only findings that can change a decision or implementation approach. If no feedback warrants
-a change, say so and stop; do not manufacture modifications.
+a change, still provide the review baseline and a decision for every claim. For each **Do Not
+Adopt** decision, state the evidence, retained behavior, and residual risk. Report that the change
+plan is empty, record the validation and unverified items, and then stop. Do not manufacture
+modifications.
 
 ## Boundaries
 

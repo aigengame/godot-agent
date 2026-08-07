@@ -1,84 +1,116 @@
 ---
 name: git-conventional-commits
-description: Formulate precise, standard-compliant Git commit messages based on the conventional commits specification. Use when you are ready to execute `git commit`.
+description: Formulate precise Git commit messages that conform to Conventional Commits 1.0.0 and the target repository's documented conventions. Use when changes are staged and you are ready to execute `git commit`.
 ---
 
-This skill enables the code agent to formulate precise, standard-compliant Git commit messages and branch names based on the Conventional Commits 1.0.0 specification. Adhering to this standard allows automated tools to parse commit histories, bump semantic versions (Major/Minor/Patch) accurately, and generate clean changelogs.
+# Git Conventional Commits
 
-## Requirements & Triggers
-- **Trigger**: Whenever the agent completes a task, implements a feature, fixes an issue, or refactors code and is ready to execute `git commit`.
-- **Pre-requisite**: Understand the scope of changes and know the associated GitHub Issue number (if any).
+## Goal
 
-## Guidelines & Rules
+Formulate a commit message that describes the staged change accurately. Follow
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/) and any applicable
+conventions in the target repository. Keep repository-specific rules separate from requirements
+of the standard.
 
-### 1. Commit Message Structure
-Every commit message must strictly follow this structural pattern:
+## Workflow
+
+### 1. Inspect the Staged Change
+
+- Run `git status --short` and inspect `git diff --cached`.
+- Stop if no change is staged.
+- Confirm that the staged change represents one atomic intent.
+- If the staged change contains unrelated intents, stop and split it before formulating the
+  message.
+
+### 2. Find Repository Conventions
+
+Check the target repository for commit-message rules, validator configuration, and release or
+merge policy. These sources can define:
+
+- An allowed or preferred type set.
+- Scope conventions.
+- Description style, capitalization, punctuation, or line length.
+- Required issue references or footer syntax.
+- How commit messages affect releases and version numbers.
+
+Apply these rules when they exist. Do not present them as requirements of Conventional Commits.
+
+### 3. Formulate the Message
+
+Use this Conventional Commits grammar:
+
 ```text
-<type>(<scope>): <subject>
+<type>[optional scope][optional !]: <description>
 
-<body>
+[optional body]
 
-<footer>
+[optional footer(s)]
 ```
 
--	<type> (Required): Must be one of the structural keywords defining the change intent.
--	<scope> (Optional): A noun describing the affected section of the codebase enclosed in parentheses (e.g., auth, api, parser).
--	<subject> (Required): A succinct description of the change. Use imperative mood ("add" not "added"). No period . at the end.
--	<body> (Optional): Detailed explanatory text, providing the motivation for the change and contrasting it with previous behavior.
--	<footer> (Optional): Used to reference tracking issues (e.g., Fixes: #123) or denote breaking changes.
+- **type** is a noun that identifies the kind of change. `feat` introduces a feature, and `fix`
+  corrects a bug. The standard permits other types. Use the repository's type vocabulary when it
+  defines one.
+- **scope** is an optional noun in parentheses that identifies a section of the codebase. Use the
+  repository's scope vocabulary when it defines one.
+- **description** is a short summary of the staged change.
+- **body** provides optional context about the change.
+- **footer** records optional metadata. Format footer tokens as specified by Conventional Commits
+  and any applicable repository or hosting policy.
 
+Indicate a breaking change in either of these ways:
 
-### 2. Allowed Commit Types ( <type> )
-| Type | Definition | SemVer Impact |
-| :--- | :--- | :--- |
-| `feat` | A new feature implemented in the codebase | **Minor** |
-| `fix` | A bug fix implemented in the codebase | **Patch** |
-| `docs` | Documentation only changes (e.g., markdown files) | None |
-| `style` | Changes that do not affect the meaning of the code (white-space, formatting, etc.) | None |
-| `refactor` | A code change that neither fixes a bug nor adds a feature | None |
-| `perf` | A code change that improves performance | None |
-| `test` | Adding missing tests or correcting existing tests | None |
-| `build` | Changes that affect the build system or external dependencies | None |
-| `ci` | Changes to CI configuration files and scripts | None |
-| `chore` | Other changes that don't modify src or test files (e.g., .gitignore) | None |
+- Add `!` immediately before the colon.
+- Add a `BREAKING CHANGE: <description>` footer.
 
-### 3. Handling Breaking Changes
-A breaking change must be indicated by an exclamation mark ! immediately after the type/scope, or by including BREAKING CHANGE: at the beginning of the footer. This triggers a Major version bump.
+In Conventional Commits, `fix` corresponds to a patch change, `feat` corresponds to a minor
+change, and a breaking change corresponds to a major change under Semantic Versioning. Before
+predicting an actual release or version number, check the target repository's release policy.
+Other types have no implicit effect on Semantic Versioning unless they indicate a breaking
+change.
 
-### 4. Issue Correlation Rule
-When resolving a **tracked** issue, the agent MUST reference the issue number in the footer using specific keywords (Fixes: #<id>, Closes: #<id>) to trigger GitHub's automated issue-closure workflows.
+Add issue-closing or issue-reference footers only when the repository and hosting platform define
+their meaning. Check the merge policy before assuming that a footer in an individual commit will
+reach the default branch or close an issue.
 
+### 4. Validate the Message
+
+Before committing, confirm that:
+
+- The message matches the staged change and does not describe unstaged work.
+- The message follows the Conventional Commits grammar.
+- The type, scope, description, and footers follow applicable repository conventions.
+- A breaking marker is present when the staged change breaks a public contract.
+- Any claimed issue or release effect is supported by the target repository's policy.
+
+If authorized to commit, use the validated message without changing its meaning.
 
 ## Examples
-### Example 1: Standard Feature with Scope
-```text
-feat(auth): add JWT token expiration validation
 
-Introduce an automated expiry verification check on the middleware layer 
-to automatically reject tokens older than 15 minutes.
+### Feature with a Scope
+
+```text
+feat(auth): reject expired access tokens
+
+Check the expiration time before accepting an access token.
 ```
-### Example 2: Bug Fix Correlated with Issue
-```text
-fix(api): prevent null pointer exception during report export
 
-Ensure that user profile data is properly validated before serialization
-to prevent catastrophic crashes on empty profiles.
+### Fix with an Issue Reference Defined by the Repository
+
+```text
+fix(export): handle profiles without a display name
+
+Use an empty label when the profile has no display name.
 
 Fixes: #142
 ```
 
-### Example 3: Breaking Change (API Refactoring)
+Use the footer in this example only when the repository and hosting platform assign the intended
+meaning to `Fixes: #142`.
+
+### Breaking Change
+
 ```text
-refactor(core)!: drop support for legacy v1 endpoint routes
+refactor(router)!: remove v1 route support
 
-The old v1 gateway endpoints have been deprecated for 6 months and are 
-now completely stripped out of the routing framework.
-
-BREAKING CHANGE: Requests sent to `/api/v1/*` will now return a 404 error.
-```
-
-### Example 4: Branch Naming Pattern
-When creating a branch to work on an issue, use the type and issue number format:
-```bash
-git checkout -b fix/142-null-pointer-export
+BREAKING CHANGE: Requests to `/api/v1/*` now return a 404 response.
 ```

@@ -1,86 +1,106 @@
 ---
 name: reconcile
-description: Check and repair consistency between GitHub issues and domain docs (CONTEXT.md, docs/adr/) after a requirement or technical decision changes — mechanical cross-reference integrity plus conversation-driven semantic staleness. Use when a decision or requirement was changed or discussed in the current session, when issues/docs may have drifted out of sync, when the user says "reconcile" / "sync issues and docs" / "check cross-references", or when invoked as /reconcile.
+description: Check and repair consistency among tracked work, requirements, design records, glossaries, and other authoritative project artifacts after a requirement, decision, scope, or term changes. Use when artifacts may have drifted out of sync, when the user asks to reconcile or check cross-references, or after the current session changes an authoritative fact.
 ---
 
 # Reconcile
 
-Keep the cross-referenced web of **issues + domain docs** (`CONTEXT.md`, `docs/adr/`) correct
-and consistent so the development feedback loop stays trustworthy. A decision discussed in a
-session must not silently drift out of sync with the issues and docs that record it.
+Keep related project artifacts consistent after an authoritative fact changes. Reconcile both
+structural references and statements whose meaning became stale.
 
-**Read first:** `docs/agents/domain.md` (glossary + ADR-conflict rules), `docs/agents/issue-tracker.md`
-(`gh` conventions), `docs/agents/triage-labels.md`. See [REFERENCE.md](REFERENCE.md) for the
-reference-graph edge taxonomy and the full check catalog.
+Do not assume a fixed tracker, document name, directory layout, identifier format, or decision-record
+schema. Read the target repository's guidance first. Use its context routing, artifact ownership,
+terminology sources, and editing rules as the authority. See [REFERENCE.md](REFERENCE.md) for the
+reference-graph taxonomy and check catalog.
 
 ## Triggers
 
-- **Manual**: invoked as `/reconcile`, or when the user asks to sync issues and docs.
-- **Automatic**: a Claude Code Stop hook (and optionally a `git` pre-commit hook) may auto-invoke
-  this skill — see "Hook setup" below. Hook wiring is HITL; never add it without user approval.
+- **Manual invocation:** run when the user asks to reconcile artifacts or check cross-references.
+- **Optional reminder:** a session-end or version-control hook may remind the user to run this skill.
+  A reminder does not run reconciliation. Call a hook automatic only when the host has a documented,
+  verified mechanism that invokes the skill. Do not add or change hook configuration without the
+  user's approval.
 
-## Safety posture (non-negotiable)
+## Safety posture
 
-**Report first, mutate only after confirmation.** Always present findings and proposed patches,
-then wait for the user to confirm before editing any doc file or GitHub issue. Never run a
-mutating `gh issue edit` / `gh issue comment` or write to a doc without explicit approval.
+Report first. Mutate only after confirmation. Present findings and proposed changes before editing
+local artifacts or remote tracker records. Apply only the changes that the user confirms.
 
 ## Workflow
 
+```text
+discover authorities -> gather change set -> build reference graph -> check -> report -> confirm -> apply and propagate
 ```
-gather change set → build reference graph → check (mechanical + semantic) → report → confirm → apply + propagate
-```
 
-### 1. Gather the change set
+### 1. Discover authorities and scope
 
-The semantic layer is driven by the **current conversation context**. Identify the decision /
-requirement changes discussed in-session: which terms were renamed, which decisions reversed or
-refined, which scope/Phase boundaries moved. Write them down as an explicit change list. If the
-session contains no such change, run the mechanical layer only and say so.
+Read the repository guidance that defines artifact locations, context boundaries, terminology,
+tracker conventions, and decision-record rules. Follow nested guidance for the target area.
 
-If the user states a change explicitly, use that verbatim as the change set.
+Determine whether the repository has one context or several. For a scoped change, use the owning
+context and every routed context that consumes the changed fact. For a repository-wide check,
+enumerate all declared contexts. If no routing authority exists, discover the relevant artifacts
+from repository guidance and the artifact links themselves.
 
-### 2. Build the reference graph
+Record which artifact owns each affected fact. Treat other occurrences as references or derived
+statements unless the repository declares shared ownership.
 
-Load the artifacts and extract their cross-references (see [REFERENCE.md](REFERENCE.md) for edge
-types and how to read each source):
+### 2. Gather the change set
 
-- Issues + PRDs — `gh issue list`/`view` (Parent, Blocked by, `ADR-NNNN`, `#NN`, domain terms)
-- ADRs — `docs/adr/*.md` (`ADR-NNNN` cross-refs, `status:` front-matter, domain terms)
-- `CONTEXT.md` glossary — canonical terms and their `_Avoid_` synonyms; `ADR-NNNN` refs
+Use the current conversation and authoritative artifacts to list the requirements, decisions,
+terms, or boundaries that changed. Preserve an explicit user statement exactly when it defines the
+change. If there is no semantic change set, run only the mechanical checks and report that limit.
 
-### 3. Check — two layers
+### 3. Build the reference graph
 
-**Mechanical (always runs):** dangling references (`ADR-9999`, `#999`, missing file paths),
-orphans, and glossary term drift (use of an `_Avoid_` synonym instead of the canonical term).
+Load the artifacts in scope and extract their declared references. Typical nodes include tracked
+work, requirements, decision records, specifications, glossaries, tests, and implementation docs.
+Use repository-native identifiers and relationships. Do not infer an edge from a shared keyword
+alone.
 
-**Semantic (runs when a change set exists):** for each change, find the issues / ADRs /
-`CONTEXT.md` entries it makes stale — a change that contradicts an ADR's `Decision`, a renamed
-term, a moved Phase boundary, an issue describing superseded behavior. Report each with the
-reasoning that links the change to the affected artifact.
+### 4. Check two layers
 
-### 4. Report
+**Mechanical checks always run.** Check facts that can be decided without interpreting intent:
 
-Present a single consolidated report: every finding with its evidence (file/issue + line/quote)
-and a **concrete proposed patch** (a diff for docs, the exact `gh` command for issues). Group by
-artifact. Flag any finding that contradicts an accepted ADR per `domain.md`'s flag rule.
+- a declared reference target exists;
+- an artifact does not use a synonym that the terminology authority explicitly prohibits;
+- a reciprocal pointer exists when the repository schema explicitly requires one.
 
-### 5. Confirm (HITL)
+**Semantic checks run when interpretation is required.** For each change, find statements that may
+now be stale. Check changed decisions, renamed or newly introduced terms, moved scope boundaries,
+partly or fully superseded behavior, tracker state, and unreferenced artifacts. Use evidence to
+explain why each candidate is or is not stale. Do not classify tracker state or glossary coverage
+as a defect without applying the repository's meaning and rules.
 
-Ask the user which proposed patches to apply. Do not proceed on un-confirmed items.
+### 5. Report
 
-### 6. Apply + propagate
+Present one report grouped by artifact. For every finding, provide the location, evidence, impact,
+and a concrete proposed change. Use a patch for local text. For a remote record, describe the exact
+edit using the target repository's tracker and tool conventions. Flag any proposal that conflicts
+with an accepted authority; do not silently override it.
 
-For confirmed fixes, apply them, then propagate consistency across the graph:
+### 6. Confirm
 
-- Edit doc files; for issues use `gh issue edit` / `gh issue comment` per `issue-tracker.md`.
-- When an ADR is superseded, add a `superseded-by` link both ways and update its `status:`.
-- Sync the `CONTEXT.md` glossary when a term changes (definition, `_Avoid_` list, ADR refs).
-- Comment affected issues so the change is traceable in the tracker.
-- Re-run the mechanical check on touched artifacts to confirm no new dangling references.
+Ask which proposed changes to apply. Do not proceed with unconfirmed items.
 
-## Hook setup (optional, HITL)
+### 7. Apply and propagate
 
-To auto-invoke on a trigger, propose (do not silently add) a hook in `settings.json` — a Stop
-hook for session-end reconciliation, or a `git` pre-commit hook. Review timing and behavior with
-the user before writing to `settings.json`. See [REFERENCE.md](REFERENCE.md) for a sample.
+Apply confirmed changes, then update every affected reference or derived statement:
+
+- Use the repository-native tool and editing rules for each artifact.
+- For complete supersession, update the old and new decision records as the repository schema
+  requires.
+- For partial supersession or refinement, keep the still-valid decision active. State the affected
+  scope in both records when the repository requires bidirectional traceability.
+- Do not invent frontmatter fields, statuses, or link directions. If the repository has no
+  supersession convention, propose one separately instead of adding an implicit schema.
+- Update the terminology authority and affected uses when an established term changes.
+- Add tracker traceability only when repository guidance requires it.
+- Re-run the applicable mechanical checks on every touched artifact.
+
+## Reminder setup (optional)
+
+Propose a reminder only when it helps the repository workflow. Review its timing, visibility, and
+host-specific behavior with the user before changing configuration. The reminder must remain
+non-blocking because reconciliation can require confirmation. See [REFERENCE.md](REFERENCE.md) for
+the reminder contract.
