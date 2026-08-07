@@ -470,8 +470,8 @@ Return only the sections needed for the request, but keep the result concrete. I
 4. Source dependencies and downward, upward, and horizontal communication.
 5. Important domain terms, model boundaries, and DDD choices.
 6. Findings from the completeness, orthogonality, DRY, and extensibility checks.
-7. Incremental implementation, validation, and affected project artifacts when changes
-   are proposed; otherwise, validation and the retained architecture.
+7. For design work or accepted changes, incremental implementation, validation, and
+   affected project artifacts; otherwise, validation and the retained architecture.
 
 For design work, if several solutions remain valid, recommend one first. State the
 conditions under which another solution would become better.
