@@ -1,6 +1,6 @@
 ---
 name: state
-description: Update STATE.md — the lightweight cross-session "daily report" of project progress. Rewrite (never append) the current milestone/phase, what this session completed or changed, pitfalls worth reusing, the recommended next issues/tasks, and the filtered-and-inherited backlog of unfinished cross-session items. Use at the end of a working session, when wrapping up, or when invoked as /state.
+description: Update STATE.md — the lightweight cross-session "daily report" of project progress. Rewrite (never append) the current milestone/phase, what this session completed or changed, pitfalls worth reusing, the recommended next issues/tasks, and the filtered-and-inherited backlog of unfinished cross-session items. Use at the end of a working session, when wrapping up, or when explicitly invoked.
 ---
 
 # State
@@ -36,7 +36,7 @@ different removal rule; follow step 4.
 
 - At the **end of a working session** / wrap-up — your agent runtime may nudge this via a
   session-end hook, or you run it yourself.
-- On demand, invoked as `/state`.
+- On demand, invoke the `state` skill using the host's explicit skill syntax.
 
 The primary worker updates STATE.md once per session. Parallel sub-tasks and subagents do not update
 it. This rule prevents concurrent or duplicate writes.
@@ -89,7 +89,7 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
 ```markdown
 # STATE — <project>
 
-_Cross-session daily report (~15 lines, rewritten each session via `/state`). Durable decisions live elsewhere, not here._
+_Cross-session daily report (~15 lines, rewritten each session via the `state` skill). Durable decisions live elsewhere, not here._
 
 - **Phase/milestone:** <current stage, in the project's own terms — omit if you can't confirm the *current* one>
 - **Last session:** <what was completed/changed; one line, e.g. issue #N>
