@@ -193,17 +193,19 @@ preflight in B's worktree:
 git -C <B-worktree> rev-parse --show-toplevel             # must be <B-worktree>
 git -C <B-worktree> branch --show-current                 # must be <B-branch>
 git -C <B-worktree> status --porcelain=v1                 # must be empty: index + worktree
+git -C <B-worktree> fetch <remote>
+git -C <B-worktree> rev-parse --verify <remote>/<base-branch>
 original_tip=$(git -C <B-worktree> rev-parse <B-branch>)
 test -n "$original_tip"
 ```
 
-Stop if the root, branch, clean-state, or local-tip check fails. Keep `original_tip` as the
-recovery reference. A local-only rebase does not require B to have a remote branch.
+Stop if the root, branch, clean-state, base-refresh, or local-tip check fails. Keep `original_tip`
+as the recovery reference. The fetch makes `<remote>/<base-branch>` current for both local-only and
+published-branch rebases. A local-only rebase does not require B to have a remote branch.
 
 When a push is authorized and planned, inspect B's remote state before rewriting history:
 
 ```bash
-git -C <B-worktree> fetch <remote>
 remote_result=$(git -C <B-worktree> ls-remote <remote> refs/heads/<B-branch>) || exit 1
 expected_remote_sha=$(printf '%s\n' "$remote_result" | awk '{print $1}')
 if test -n "$expected_remote_sha"; then
