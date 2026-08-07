@@ -792,11 +792,11 @@ to the reciprocal scenario.
 
 ## 9. Validation scope
 
-This README provides the runnable walkthrough. Automated end-to-end tests execute the Formula
-parse/render round-trip, inspect the paired Formula surfaces in Model Source, RIR, and Model
-explanation, and verify drift refusal, semantic Formula editing, exact Experiment rebinding, and
-the resulting run. They also verify the baseline, tuning path, typed alternatives, cancellation,
-eligibility boundary, and multi-time companion.
+Section 7.2 provides runnable commands for the semantic Formula edit, stale Experiment refusal,
+exact rebinding, and edited run. Automated end-to-end tests execute the Formula parse/render
+round-trip, inspect the paired Formula surfaces in Model Source, RIR, and Model explanation, and
+verify drift refusal, the baseline run, tuning path, typed alternatives, cancellation, eligibility
+boundary, and multi-time companion.
 [Maintained product examples](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)
 summarizes this example's macro-architecture consequences and open boundaries.
 
