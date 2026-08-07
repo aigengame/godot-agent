@@ -113,7 +113,9 @@ This path is **not one-shot**: independent review sends merged-ready slices back
 remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
 original implementer with its context where possible, restate the full dispatch
 discipline (worktree pinning, permissions, and the applicable local and CI-only gate
-inventory), and require one commit per finding when commits are authorized. The lead then re-verifies and
+inventory). Follow the repository's commit-history policy. Require one commit per finding
+only when the repository or user explicitly requires it; otherwise map each finding to its
+resolution in the handoff. The lead then re-verifies and
 closes the loop on the review channel only when that remote write is authorized — e.g. a
 reply mapping each finding → resolution — keeping the change description current where
 the host supports it.

@@ -114,8 +114,10 @@ You are implementing <slice> in an ISOLATED git worktree.
 - To name your branch, RENAME the pre-created branch in place: `git branch -m <name>`.
   Do NOT use `git switch -c <name>` (your shell cwd can reset to the shared checkout
   between calls, so `switch -c` may create a stray branch there).
-- If local commits are authorized, commit early and often, even as work in progress. Without
-  commit authority, keep the diff reviewable and report its state at each handoff.
+- If local commits are authorized, follow the repository's commit-history and checkpoint policy.
+  Create reviewable durable checkpoints at safe boundaries; do not introduce work-in-progress or
+  per-finding commits unless the repository or user requires them. Without commit authority, keep
+  the diff reviewable and report its state at each handoff.
 - Definition of Done: run every locally reproducible gate that covers the slice. Include
   the tier that exercises the real integration boundary — integration / e2e / compile /
   a parse `--check-only` — rather than only a fast tier that stubs it. Also run applicable
@@ -184,25 +186,35 @@ squash-merged into the base branch, do **NOT** merge the base branch into B. B c
 A's individual commits via the branch point while the base now has one squash commit, so git sees divergence
 and conflicts on **every file A touched** (even files B never edited).
 
-Before any command that mutates B's index, worktree, history, or remote branch, complete
-this preflight in B's worktree:
+Before any command that mutates B's index, worktree, or history, complete this local
+preflight in B's worktree:
 
 ```bash
 git -C <B-worktree> rev-parse --show-toplevel             # must be <B-worktree>
 git -C <B-worktree> branch --show-current                 # must be <B-branch>
 git -C <B-worktree> status --porcelain=v1                 # must be empty: index + worktree
-git -C <B-worktree> fetch <remote>
 original_tip=$(git -C <B-worktree> rev-parse <B-branch>)
-expected_remote_sha=$(git -C <B-worktree> ls-remote --exit-code <remote> refs/heads/<B-branch> | awk '{print $1}')
 test -n "$original_tip"
-test -n "$expected_remote_sha"
-git -C <B-worktree> merge-base --is-ancestor "$expected_remote_sha" "$original_tip"
 ```
 
-Stop if the root, branch, clean-state, remote lookup, or ancestry check fails. Keep
-`original_tip` as the recovery reference. If another process can touch the worktree or
-remote branch, repeat the branch, clean-state, and remote-SHA checks immediately before
-the rewrite. Never replace the recorded expected SHA with the post-rewrite local SHA.
+Stop if the root, branch, clean-state, or local-tip check fails. Keep `original_tip` as the
+recovery reference. A local-only rebase does not require B to have a remote branch.
+
+When a push is authorized and planned, inspect B's remote state before rewriting history:
+
+```bash
+git -C <B-worktree> fetch <remote>
+remote_result=$(git -C <B-worktree> ls-remote <remote> refs/heads/<B-branch>) || exit 1
+expected_remote_sha=$(printf '%s\n' "$remote_result" | awk '{print $1}')
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> merge-base --is-ancestor "$expected_remote_sha" "$original_tip" || exit 1
+fi
+```
+
+An empty `expected_remote_sha` means that B is unpublished; it does not block the local rewrite.
+If another process can touch the worktree, repeat the branch and clean-state checks immediately
+before the rewrite. For a published branch, keep the recorded expected SHA until the push. Never
+replace it with the post-rewrite local SHA.
 
 Replay only B's own commits onto the base branch. If B contains only its own commits after
 A, preserve its commit structure:
@@ -212,10 +224,14 @@ git -C <B-worktree> rebase --onto <remote>/<base-branch> <old-A-tip> <B-branch>
 # resolve only genuine A/B overlap; run applicable locally reproducible gates; then verify:
 git -C <B-worktree> branch --show-current                 # must still be <B-branch>
 git -C <B-worktree> status --porcelain=v1                 # must be empty
-# only with explicit push authority:
-git -C <B-worktree> push \
-  --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
-  <remote> HEAD:refs/heads/<B-branch>
+# only with explicit push authority; force only when the branch was already published:
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> push \
+    --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
+    <remote> HEAD:refs/heads/<B-branch>
+else
+  git -C <B-worktree> push <remote> HEAD:refs/heads/<B-branch>
+fi
 ```
 
 If B has messy local history and you want a single merge commit's worth of B content,
@@ -231,10 +247,14 @@ git -C <B-worktree> rebase --onto <remote>/<base-branch> "$base" <B-branch>
 # resolve only genuine A/B overlap; run applicable locally reproducible gates; then verify:
 git -C <B-worktree> branch --show-current                 # must still be <B-branch>
 git -C <B-worktree> status --porcelain=v1                 # must be empty
-# only with explicit push authority:
-git -C <B-worktree> push \
-  --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
-  <remote> HEAD:refs/heads/<B-branch>
+# only with explicit push authority; force only when the branch was already published:
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> push \
+    --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
+    <remote> HEAD:refs/heads/<B-branch>
+else
+  git -C <B-worktree> push <remote> HEAD:refs/heads/<B-branch>
+fi
 ```
 
 > The portable rule is: **replay only B's own commits with `git rebase --onto`; never
@@ -353,14 +373,15 @@ the documented environment can be reproduced safely. If it cannot, record the li
 
 ## 7. Resilience & takeover
 
-- **Create durable local artifacts early when authorized.** When commits are allowed,
-  commit early because truncation loses uncommitted work. Without commit authority, keep
-  the diff reviewable and report its state at each handoff.
+- **Create durable local artifacts at safe boundaries when authorized.** Follow the repository's
+  commit-history and checkpoint policy. Without commit authority, keep the diff reviewable and
+  report its state at each handoff.
 - **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
   resuming the ORIGINAL implementer (its context is intact), but do not assume it
-  remembers the rules it followed last round: restate worktree pinning, commit-early,
-  permissions, and the §3 DoD gates in the round's dispatch brief. When commits are authorized,
-  require **one commit per finding**. Kills
+  remembers the rules it followed last round: restate worktree pinning, checkpoint policy,
+  permissions, and the §3 DoD gates in the round's dispatch brief. Require one commit per finding
+  only when the repository or user explicitly requires that granularity. Otherwise map findings to
+  their resolutions in the handoff. Kills
   strike mid-round too (session/usage limits, not just truncation) — one real agent
   finished an entire review/fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
@@ -385,9 +406,10 @@ the documented environment can be reproduced safely. If it cannot, record the li
   still on its branch and clean (`git -C <shared-checkout> branch --show-current`, `git status
   --short`, no stray branches) before relying on it — worktree agents have leaked git
   ops to it (§3).
-- **A history-rewrite push after a rebase requires explicit authority and an explicit lease.**
-  Use the exact expected remote SHA recorded by §4; bare `--force-with-lease` is not enough
-  for this recipe. Never rewrite a shared or protected branch.
+- **A history-rewrite push of a published branch requires explicit authority and an explicit
+  lease.** Use the exact expected remote SHA recorded by §4; bare `--force-with-lease` is not
+  enough for this recipe. An unpublished branch uses a normal initial push. Never rewrite a shared
+  or protected branch.
 
 ## 8. Architectural fix: kill the hotspots
 
@@ -412,7 +434,8 @@ design decision record.
 - [ ] Agents are pinned to their worktrees; local artifacts follow the granted commit authority; "done but no artifact" = takeover.
 - [ ] Merge order decided (foundation slice before dependent follow-up slices); after each resolution, audit for the marker-free traps.
 - [ ] Stacked followers have an explicit retarget/rebase plan for after the base change lands
-      or receives review fixes; original local tip and expected remote SHA are recorded before mutation.
+      or receives review fixes; the original local tip is recorded before mutation, and the expected
+      remote SHA is recorded when a published branch will be rewritten and pushed.
 - [ ] Shared-global-resource tests will run serially across worktrees.
 - [ ] Orchestrator will independently re-verify before each merge.
 - [ ] Any public-surface change has the applicable documentation/schema/help/generated-artifact consistency gates in the orchestrator's verification plan.

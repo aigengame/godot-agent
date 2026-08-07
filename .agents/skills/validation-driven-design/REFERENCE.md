@@ -16,7 +16,7 @@ Choose mode before building the authority map:
 
 | Mode | Use when | Required minimum |
 | --- | --- | --- |
-| `lightweight` | a bounded, reversible decision does not change normative public semantics, add an authoritative source, or introduce or alter an extension contract | owner, requirement/decision, falsifier, affected axes, one discriminating check, non-claims, and human gate |
+| `lightweight` | a bounded, reversible decision can be owned by one compact decision record and does not change a public contract, extension contract, or production boundary | owner, requirement/decision, falsifier, affected axes, one discriminating check, non-claims, and human gate |
 | `full-design` | a framework/language/runtime or broad, hard-to-reverse claim changes authority, semantics, extension, or production boundaries | the complete workflow, matrices, proof obligations, and delivery gates |
 | `audit-only` | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis and cross-cutting-quality findings, completion gaps, and human disposition; no edits unless requested |
 
@@ -163,7 +163,7 @@ make it visible.
 
 ### Dogfooding ledger
 
-| Observation | Disposition | Root layer | Design effect | Owning artifact updated | Permanent evidence promoted | Remaining gate |
+| Observation | Disposition | Attributed layer | Design effect | Owning artifact updated | Permanent evidence promoted | Remaining gate |
 | --- | --- | --- | --- | --- | --- | --- |
 
 Keep chronological experiment details in the evidence record. Put only synthesized implications in

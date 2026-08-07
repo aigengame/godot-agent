@@ -47,10 +47,11 @@ Use this Conventional Commits grammar:
 [optional footer(s)]
 ```
 
-- **type** identifies the kind of change. `feat` introduces a feature, and `fix` corrects a bug.
-  The standard permits other types. Use the repository's type vocabulary when it defines one.
-- **scope** is an optional phrase that identifies a section of the codebase. Use the repository's
-  scope vocabulary when it defines one.
+- **type** is a noun that identifies the kind of change. `feat` introduces a feature, and `fix`
+  corrects a bug. The standard permits other types. Use the repository's type vocabulary when it
+  defines one.
+- **scope** is an optional noun in parentheses that identifies a section of the codebase. Use the
+  repository's scope vocabulary when it defines one.
 - **description** is a short summary of the staged change.
 - **body** provides optional context about the change.
 - **footer** records optional metadata. Format footer tokens as specified by Conventional Commits
