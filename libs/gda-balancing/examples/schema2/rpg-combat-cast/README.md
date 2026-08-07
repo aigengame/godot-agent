@@ -12,7 +12,7 @@ Model Source Package -> model build -> complete Model artifact set
 Experiment with two same-logical-time root Events
     |
     v
-ordered Event trace + committed Snapshots + Metrics
+ordered Event trace + committed Snapshots + Metric dataset
 ```
 
 The Model exposes two directional entrypoints:
@@ -35,7 +35,7 @@ The files are:
 - `model-source.json` — distinct player/enemy Symbols, two pure Formulas, two directional cast
   entrypoints, one explicit cancellation wrapper, and one scheduler-companion entrypoint;
 - `experiment.json` — the focused reciprocal scenario with two same-logical-time roots, an exact
-  Resolved Model binding, seed, six dimensioned Metrics, and acceptance policy;
+  Resolved Model binding, seed, six dimensioned Metric definitions, and acceptance policy;
 - `multi-time-experiment.json` — an external-input root, scheduled and canceled child Events, and
   multiple logical times.
 
@@ -161,8 +161,30 @@ test "$(jq -r '.expression' "$PARSED_FORMULA")" = \
   "$(jq -r '.expression' "$RENDERED_FORMULA")"
 ```
 
-Directly changing only expression whitespace is invalid canonical data. Model admission returns
-`language.formula_notation_mismatch` rather than choosing or repairing one side.
+Directly changing only expression whitespace is invalid canonical data. Verify the refusal:
+
+```bash
+export DRIFTED_MODEL_SOURCE="$GDA_BALANCING_TUTORIAL_ROOT/model-source-drifted.json"
+export DRIFT_REFUSAL="$GDA_BALANCING_TUTORIAL_ROOT/model-source-drift-refusal.json"
+
+jq '(.modules[0].formulas[]
+      | select(.id == "mitigated-damage")
+      | .expression) += " "' \
+  examples/schema2/rpg-combat-cast/model-source.json \
+  > "$DRIFTED_MODEL_SOURCE"
+
+set +e
+uv run gda-balancing model check "$DRIFTED_MODEL_SOURCE" > "$DRIFT_REFUSAL"
+export DRIFT_EXIT="$?"
+set -e
+
+test "$DRIFT_EXIT" -eq 2
+test "$(jq -r '.error.diagnostics[0].code' "$DRIFT_REFUSAL")" = \
+  "language.formula_notation_mismatch"
+jq '.error.diagnostics[0] | {code, primary}' "$DRIFT_REFUSAL"
+```
+
+Model admission refuses the mismatch. It does not choose or repair one side.
 
 ## 4. Build and inspect the Model artifact set
 
@@ -189,6 +211,13 @@ The Model artifact set contains these members:
 - Resolution receipt; and
 - Build receipt.
 
+Inspect the Formula pair in Model Source before inspecting generated artifacts:
+
+```bash
+jq '.modules[0].formulas[] | {id, body, expression}' \
+  examples/schema2/rpg-combat-cast/model-source.json
+```
+
 Inspect the stored explanation:
 
 ```bash
@@ -198,7 +227,7 @@ uv run gda-balancing model inspect \
   | tee "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
 
 jq '.formula_explanations[]
-  | {id, expression, evaluation_sites, closure}' \
+  | {id, body, expression, evaluation_sites, closure}' \
   "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
 ```
 
@@ -215,6 +244,12 @@ export RIR_PATH="$(
     | .locator' "$MODEL_SET_RECEIPT"
 )"
 
+jq '{
+  content_identity,
+  semantic_identity,
+  formulas: [.formulas[] | {id, body, expression}]
+}' "$RIR_PATH"
+
 jq '.entrypoints[] | {
   id,
   operation,
@@ -222,6 +257,10 @@ jq '.entrypoints[] | {
   event_local_payload_contract
 }' "$RIR_PATH"
 ```
+
+Model Source, the RIR semantic payload, and the Model explanation expose the same structured
+`body` and canonical `expression` pair. The RIR and explanation are generated artifacts. Edit the
+Model Source pair, then rebuild; do not edit generated members in the artifact store.
 
 The cancellation entrypoint's `event_local_payload_contract` names `counterattack` as a required
 Event reference. This reference is separate from the numeric payload targets.
@@ -260,9 +299,9 @@ uv run gda-balancing experiment check \
 
 Experiment admission validates the exact authority and Resolved Model bindings. It validates root
 references, entrypoints, and Scenario inputs. It also validates Event-local payloads, Event
-references, named streams, Runtime requirements, and Metrics.
+references, named streams, Runtime requirements, and Metric definitions.
 
-## 6. Run and inspect ordering, Snapshots and Metrics
+## 6. Run and inspect ordering, Snapshots and Metric samples
 
 Run and save the receipt:
 
@@ -315,7 +354,7 @@ jq '.root_event_map, (.events[] | select(.operation != null) | {
 })' "$EVENT_TRACE_PATH"
 ```
 
-Inspect committed Snapshots and Metrics:
+Inspect committed Snapshots and Metric samples:
 
 ```bash
 jq '.snapshots' "$SNAPSHOT_PATH"
@@ -331,7 +370,7 @@ jq '.samples[] | {
 
 The committed seed and values produce:
 
-| Metric | Value |
+| Metric sample | Value |
 | --- | ---: |
 | `player_damage_dealt` | 37 |
 | `enemy_damage_dealt` | 14 |
@@ -340,14 +379,17 @@ The committed seed and values produce:
 | `player_resource_remaining` | 26 |
 | `enemy_resource_remaining` | 23 |
 
-Each Metric has an explicit Scenario window and entity and role dimensions. The Event trace shows
-state continuity. The enemy Event's `state_before` equals the player Event's `state_after`. Its
-`snapshot_before_identity` identifies that committed Snapshot.
+Each Metric definition declares an explicit Scenario window and entity and role dimensions. Each
+Metric sample carries those fields. The Event trace shows state continuity. The enemy Event's
+`state_before` equals the player Event's `state_after`. Its `snapshot_before_identity` identifies
+that committed Snapshot.
 
 Repeat the exact command with the same Invocation key. Recovery returns the same receipt and
 canonical artifact bytes. Runtime does not dispatch the Events again.
 
-## 7. Edit one combatant's bound value
+## 7. Edit and rerun
+
+### 7.1 Edit one combatant's bound value
 
 Experiment assignments tune one run without changing Model or language semantics. Increase only
 `player_base_damage` from `45` to `55`:
@@ -371,24 +413,191 @@ uv run gda-balancing experiment run \
   --invocation-key "$TUNED_INVOCATION_KEY"
 ```
 
-Only `player_damage_dealt` and `enemy_health_remaining` change. Player damage changes from `37` to
-`47`. Enemy health changes from `63` to `53`. Enemy damage, player health, and both resource results
-remain unchanged.
+Only the `player_damage_dealt` and `enemy_health_remaining` Metric sample values change. Player
+damage changes from `37` to `47`. Enemy health changes from `63` to `53`. Enemy damage, player
+health, and both resource sample values remain unchanged.
 
-The edit changes the Experiment, Event trace, and Metric identities. It does not change the Kernel,
-LDB, Package Lock, RIR semantic payload, evaluator dispatch, or exact Resolved Model binding.
-
-If you change a Formula body or binding, edit the Model Source Package and rebuild it. The edit
-changes the Formula, RIR semantic payload, and Resolved Model identities. The old Experiment still
-binds the old Resolved Model. Create a new Experiment from the new Build receipt before you run the
-new Model. The edit does not require a new Kernel primitive or evaluator branch when it uses the
-admitted Formula and pure-Operation vocabulary.
+The edit changes the Experiment, Event trace, and Metric dataset identities. It does not change the
+Kernel, LDB, Package Lock, RIR semantic payload, evaluator dispatch, or exact Resolved Model
+binding.
 
 The `game.combat.damage-v1` Operation has one `damage-policy` Formula slot. Both directional
 entrypoints intentionally share its current Formula binding. This example uses actor-specific bound
-values for actor-specific tuning. A different actor-specific Formula policy requires a separate
-authored policy-selection seam. Host dispatch and duplicate package Operations must not simulate
-that policy.
+values for actor-specific tuning. To select different actor policies, the Model or the owning Domain
+package must define an explicit selection contract. Host dispatch must not invent that contract,
+and duplicate package Operations must not simulate it.
+
+### 7.2 Edit the shared damage Formula
+
+Now make a semantic Model edit. Replace mitigation and floor-zero with the admitted
+`quantity.identity` Operation. Update `body` and `expression` together:
+
+```bash
+export EDITED_MODEL_SOURCE="$GDA_BALANCING_TUTORIAL_ROOT/model-source-unmitigated.json"
+
+jq '
+  .manifest.version = "1.1.0"
+  | (.modules[0].formulas[]
+      | select(.id == "mitigated-damage")) |=
+    (.body = {
+      "nodes": [{
+        "id": "unmitigated-damage",
+        "node": "operation-call",
+        "operation": {
+          "package": "core.quantity",
+          "version": "2.1.0",
+          "id": "quantity.identity"
+        },
+        "arguments": [{
+          "port": "value",
+          "operand": {
+            "kind": "parameter",
+            "parameter": "damage_before_defense"
+          }
+        }],
+        "result": .result
+      }],
+      "result": {
+        "kind": "local",
+        "local": "unmitigated-damage"
+      }
+    }
+    | .expression = "let `unmitigated-damage` = identity(damage_before_defense);\n`unmitigated-damage`")
+' examples/schema2/rpg-combat-cast/model-source.json \
+  > "$EDITED_MODEL_SOURCE"
+
+jq '.modules[0].formulas[]
+  | select(.id == "mitigated-damage")
+  | {body, expression}' "$EDITED_MODEL_SOURCE"
+```
+
+Build a new immutable Model artifact set:
+
+```bash
+export EDITED_MODEL_BUILD_KEY="$(openssl rand -hex 32)"
+export EDITED_MODEL_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/edited-model-set-receipt.json"
+
+uv run gda-balancing model build \
+  "$EDITED_MODEL_SOURCE" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/edited-resolved-model.json" \
+  --invocation-key "$EDITED_MODEL_BUILD_KEY" \
+  | tee "$EDITED_MODEL_SET_RECEIPT"
+
+export BASELINE_BUILD_RECORD_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "build-receipt")
+    | .locator' "$MODEL_SET_RECEIPT"
+)"
+export EDITED_BUILD_RECORD_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "build-receipt")
+    | .locator' "$EDITED_MODEL_SET_RECEIPT"
+)"
+export EDITED_RIR_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "rir-semantic-payload")
+    | .locator' "$EDITED_MODEL_SET_RECEIPT"
+)"
+
+jq -s 'map({
+  content_identity,
+  source_identity,
+  package_lock_identity,
+  rir_identity,
+  resolved_model_identity
+})' "$BASELINE_BUILD_RECORD_PATH" "$EDITED_BUILD_RECORD_PATH"
+
+jq -s 'map({content_identity, semantic_identity})' \
+  "$RIR_PATH" "$EDITED_RIR_PATH"
+```
+
+The Formula edit changes the Model Source identity, both RIR identities, the Resolved Model
+identity, and the Build receipt identity. The Package Lock identity stays the same because the
+selected Package Releases did not change. No new Kernel primitive or evaluator branch is needed.
+
+An exact Experiment must not follow a new Model Source while retaining the old Build receipt and
+artifact identities. Verify that a partial rebind refuses:
+
+```bash
+export STALE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-stale-model-binding.json"
+export STALE_REFUSAL="$GDA_BALANCING_TUTORIAL_ROOT/experiment-stale-refusal.json"
+
+jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
+  .id = "example.rpg-combat-cast.stale-model-binding"
+  | .model.source_identity = $build[0].source_identity
+' examples/schema2/rpg-combat-cast/experiment.json \
+  > "$STALE_EXPERIMENT"
+
+set +e
+uv run gda-balancing experiment check "$STALE_EXPERIMENT" > "$STALE_REFUSAL"
+export STALE_EXIT="$?"
+set -e
+
+test "$STALE_EXIT" -eq 2
+test "$(jq -r '.error.diagnostics[0].code' "$STALE_REFUSAL")" = \
+  "language.resolved_authority_mismatch"
+jq '.error.diagnostics[0] | {code, message, primary}' "$STALE_REFUSAL"
+```
+
+The unchanged old Experiment remains valid for the old Model. It does not silently select the new
+Formula. Create a new Experiment by copying every exact binding from the new Build receipt. The
+edited selected-program closure no longer requires `maximum` or `subtract`, so remove both from the
+exact evaluator requirement:
+
+```bash
+export EDITED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-unmitigated.json"
+
+jq --slurpfile build "$EDITED_BUILD_RECORD_PATH" '
+  .id = "example.rpg-combat-cast.reciprocal-unmitigated"
+  | .version = "1.1.0"
+  | .model = {
+      "source_identity": $build[0].source_identity,
+      "build_receipt_identity": $build[0].content_identity,
+      "resolved_model_identity": $build[0].resolved_model_identity,
+      "package_lock_identity": $build[0].package_lock_identity,
+      "rir_identity": $build[0].rir_identity
+    }
+  | .runtime.required_evaluator.instruction_nodes -= ["maximum", "subtract"]
+' examples/schema2/rpg-combat-cast/experiment.json \
+  > "$EDITED_EXPERIMENT"
+
+uv run gda-balancing experiment check "$EDITED_EXPERIMENT" | jq .
+```
+
+Run the rebound Experiment and inspect its Metric samples:
+
+```bash
+export EDITED_EXPERIMENT_RUN_KEY="$(openssl rand -hex 32)"
+export EDITED_EXPERIMENT_SET_RECEIPT="$GDA_BALANCING_TUTORIAL_ROOT/edited-experiment-set-receipt.json"
+
+uv run gda-balancing experiment run \
+  "$EDITED_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/edited-evaluation-run.json" \
+  --invocation-key "$EDITED_EXPERIMENT_RUN_KEY" \
+  | tee "$EDITED_EXPERIMENT_SET_RECEIPT"
+
+export EDITED_METRIC_PATH="$(
+  jq -r '.member_locators[]
+    | select(.logical_name == "metric-dataset")
+    | .locator' "$EDITED_EXPERIMENT_SET_RECEIPT"
+)"
+
+jq '.samples[] | {metric, value}' "$EDITED_METRIC_PATH"
+```
+
+The reciprocal run produces these Metric samples:
+
+| Metric sample | Value |
+| --- | ---: |
+| `player_damage_dealt` | 45 |
+| `enemy_damage_dealt` | 20 |
+| `player_health_remaining` | 80 |
+| `enemy_health_remaining` | 55 |
+| `player_resource_remaining` | 26 |
+| `enemy_resource_remaining` | 23 |
+
+Both directional entrypoints use the edited shared Formula. The two resource sample values remain
+unchanged because the Formula edit changes damage policy, not cast cost.
 
 ## 8. Run optional behavior probes
 
@@ -408,7 +617,8 @@ additional Runtime and package boundaries.
 A one-way scenario contains only `player-attacks-enemy`. It also contains only that entrypoint's
 Scenario Input Contract. It is useful for outcome comparison, but it is not reciprocal combat.
 
-Create the one-way base Experiment. Keep only the player root, its assignments, and its Metrics:
+Create the one-way base Experiment. Keep only the player root, its assignments, and its Metric
+definitions:
 
 ```bash
 export ONE_WAY_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/experiment-one-way.json"
@@ -488,7 +698,7 @@ uv run gda-balancing experiment run \
 Inspect each `event-trace` member as shown in section 6. The miss Event has the `miss` outcome. The
 resource Event has the `insufficient-resource` outcome. Both are gameplay alternatives, not Runtime
 refusals. Both Events roll back their state writes. These variants keep only Snapshot-sourced
-Metrics because a rolled-back alternative produces no damage fact.
+Metric definitions because a rolled-back alternative produces no damage fact.
 
 ### 8.2 Explicitly cancel the admitted counterattack
 
@@ -560,10 +770,11 @@ It shows that Runtime does not own an undeclared defeat or eligibility policy.
 
 ### 8.4 Run the multi-time scheduler companion
 
-The reciprocal baseline contains two attacks at the same logical time and six reciprocal Metrics.
-`multi-time-experiment.json` demonstrates additional Runtime behavior. It contains an external-input
-root and the `combat.player-plans-attacks` entrypoint. It also contains a scheduled child at logical
-time `1`, a canceled child at logical time `2`, and a retry root at logical time `2`.
+The reciprocal baseline contains two attacks at the same logical time and six reciprocal Metric
+definitions. `multi-time-experiment.json` demonstrates additional Runtime behavior. It contains an
+external-input root and the `combat.player-plans-attacks` entrypoint. It also contains a scheduled
+child at logical time `1`, a canceled child at logical time `2`, and a retry root at logical time
+`2`.
 
 Run it against the same Resolved Model binding:
 
@@ -576,16 +787,18 @@ uv run gda-balancing experiment run \
   --invocation-key "$MULTI_TIME_INVOCATION_KEY"
 ```
 
-This companion keeps the baseline focused. It does not add unrelated Events or Metrics to the
-reciprocal scenario.
+This companion keeps the baseline focused. It does not add unrelated Events or Metric definitions
+to the reciprocal scenario.
 
 ## 9. Validation scope
 
-Automated end-to-end tests validate the baseline, tuning path, typed alternatives, cancellation,
+This README provides the runnable walkthrough. Automated end-to-end tests execute the Formula
+parse/render round-trip, inspect the paired Formula surfaces in Model Source, RIR, and Model
+explanation, and verify drift refusal, semantic Formula editing, exact Experiment rebinding, and
+the resulting run. They also verify the baseline, tuning path, typed alternatives, cancellation,
 eligibility boundary, and multi-time companion.
-[Reciprocal same-time Event dogfooding](../../../docs/ARCHITECTURE.md#128-reciprocal-same-time-event-dogfooding)
-records the accepted architecture observations and limits.
-This README explains how to run and inspect those behaviors. It does not define their architecture.
+[Maintained product examples](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)
+summarizes this example's macro-architecture consequences and open boundaries.
 
 ## Artifact-store and troubleshooting notes
 
@@ -603,5 +816,5 @@ Common failures:
   payload identities;
 - `language.formula_notation_mismatch` — regenerate the adjacent `body`/`expression` pair through
   `formula parse` or `formula render`;
-- `language.source_contract_mismatch` on a one-way variant — remove assignments and Metrics that
-  belong only to the unselected directional entrypoint.
+- `language.source_contract_mismatch` on a one-way variant — remove assignments and Metric
+  definitions that belong only to the unselected directional entrypoint.

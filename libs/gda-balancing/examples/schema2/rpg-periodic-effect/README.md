@@ -12,7 +12,7 @@ model build -> complete Model artifact set
 Experiment apply Event -> scheduled tick/tick/expire Events
     |
     v
-Event trace + committed Snapshots + Metrics
+Event trace + committed Snapshots + Metric dataset
 ```
 
 The example demonstrates two magnitude-timing policies over the same authored Formula:
@@ -224,7 +224,7 @@ Runtime admits the combat root before the apply Event schedules the live tick. B
 priority `0` at logical time `1`. Runtime therefore dispatches and commits the combat Event first.
 
 The live tick reads health `90` and calculates a magnitude of `5`. The second tick calculates `0`.
-The terminal health and the `target_health_remaining` Metric value are both `85`.
+The terminal health and the `target_health_remaining` Metric sample value are both `85`.
 
 Make only the combat priority lower:
 
@@ -245,7 +245,7 @@ uv run gda-balancing experiment run \
 
 The tick has priority `0`, and the combat Event has priority `-1`. Runtime therefore dispatches the
 tick first. The tick reads health `100` and calculates `15`. The combat Event then commits `10`
-damage. The terminal health and the `target_health_remaining` Metric value are both `75`.
+damage. The terminal health and the `target_health_remaining` Metric sample value are both `75`.
 
 The `effect.apply-snapshot-periodic` entrypoint evaluates `15` once at logical time `0`. Both
 priority orders then produce terminal health `60`. Run that policy explicitly:
@@ -339,8 +339,9 @@ uv run gda-balancing experiment run \
 The tuned Formula returns `0`. Thus, terminal health remains `100`.
 
 The edit changes the Model Source Package, Formula, RIR semantic payload, and Resolved Model
-identities. It also changes the exact Experiment, Event trace, and Metric identities. It does not
-change the Kernel, LDB, Package Lock, package Operations, compiler dispatch, or evaluator dispatch.
+identities. It also changes the exact Experiment, Event trace, and Metric dataset identities. It
+does not change the Kernel, LDB, Package Lock, package Operations, compiler dispatch, or evaluator
+dispatch.
 
 The old Experiment still binds the old Resolved Model. It remains valid only for that exact build.
 Create a new Experiment from the new Build receipt before you run the tuned Model. Experiment
@@ -365,8 +366,8 @@ time-advancement mechanism.
 
 Automated end-to-end tests validate the snapshot lifecycle, live timing, same-logical-time order,
 Formula edit, exact Experiment binding, refusal paths, recovery, and independent evaluation.
-[Periodic Effect dogfooding](../../../docs/ARCHITECTURE.md#129-periodic-effect-dogfooding) records the
-accepted architecture observations and limits.
+The [Periodic Effect entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples) summarizes
+its architecture consequence and open boundary.
 This README explains how to run and inspect those behaviors. It does not define their architecture.
 
 ## Troubleshooting
