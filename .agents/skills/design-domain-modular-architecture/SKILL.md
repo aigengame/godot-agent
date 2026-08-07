@@ -1,6 +1,6 @@
 ---
 name: design-domain-modular-architecture
-description: Design and review technology-neutral, domain-centered modular software architectures with domain models as the basis for boundaries, ownership, dependencies, and evolution. Use for technology-neutral or explicitly domain-centered work when structuring a new system, modularizing an existing codebase, separating domain rules from use-case coordination and external integration, identifying context or module boundaries, reviewing coupling, or planning an incremental architecture change.
+description: Design and review framework-independent, domain-centered modular software architectures with domain models as the basis for boundaries, ownership, dependencies, and evolution. Use when no project- or framework-specific modular topology governs the primary structure, or to reason about domain boundaries within an existing topology while structuring a new system, modularizing a codebase, reviewing coupling, or planning an incremental architecture change.
 ---
 
 # Design Domain Modular Architecture
@@ -16,10 +16,19 @@ and evolution. Do not treat it as a set of patterns that every project must impl
 Introduce a Bounded Context, Aggregate, Repository, Domain Service, or other DDD
 building block only when it solves an observed problem.
 
-Unless the user asks only for analysis or review, recommend one concrete architecture.
-Include a module tree, responsibility placement, dependency and communication rules,
-and incremental implementation steps. Present alternatives only after the
-recommendation, with the conditions that would make an alternative preferable.
+For design work, recommend one concrete architecture. Include a module tree,
+responsibility placement, dependency and communication rules, and incremental
+implementation steps. Present alternatives only after the recommendation, with the
+conditions that would make an alternative preferable.
+
+For analysis or review-only work, describe the observed architecture and report
+verified findings. Recommend a change only when evidence shows that the current design
+does not meet the applicable criteria.
+
+Use the default topology in this skill only when no project- or framework-specific
+modular topology already governs the system. When one exists, preserve its module names
+and dependency rules. Use the DDD guidance here to judge language, ownership, and
+evolution within those boundaries.
 
 ## Respect Existing Project Authority
 
@@ -212,10 +221,12 @@ Use **functional pillar** to mean a module or stable module group that owns one 
 system capability. Do not use the term for a layer, Bounded Context, or directory unless
 that element also owns such a capability.
 
-Use the Ubiquitous Language of the applicable Bounded Context to name modules, types,
-interfaces, events, use cases, tests, and documents. When no Bounded Context is defined,
-use the established project and domain terms. Divide modules by conceptual cohesion and
-reason to change, not by file type, framework component, or organization chart.
+Use the Ubiquitous Language of the applicable Bounded Context. This is the shared,
+precise vocabulary built around the domain model and used in collaboration and in the
+software. Use it to name modules, types, interfaces, events, use cases, tests, and
+documents. When no Bounded Context is defined, use the established project and domain
+terms. Divide modules by conceptual cohesion and reason to change, not by file type,
+framework component, or organization chart.
 
 Give every rule, state, invariant, and public contract one authoritative owner. Let
 other modules consume that authority instead of reproducing it.
@@ -296,12 +307,17 @@ At every project size, keep the Ubiquitous Language, alignment between the domai
 and implementation, rule and state ownership, model scope, and conceptual module
 boundaries visible.
 
-### Apply Strategic Design by Complexity
+### Apply Strategic Design to Current Decisions
 
-Consider a Core Domain, Supporting Subdomains, Generic Subdomains, Bounded Contexts, a
-Context Map, upstream and downstream relationships, an Anti-Corruption Layer, or a
-Shared Kernel only when several models, languages, or ownership boundaries make them
-useful.
+Identify the Core Domain as the cohesive part of the model that expresses the system's
+main domain-specific value. Classify a necessary custom capability that is not the main
+differentiator as a Supporting Subdomain. Classify a common capability that gives no
+domain-specific advantage as a Generic Subdomain. Apply these distinctions when they
+change modeling effort, ownership, or sourcing, even within one Bounded Context.
+
+Consider Bounded Contexts, a Context Map, upstream and downstream relationships, an
+Anti-Corruption Layer, or a Shared Kernel only when several models, languages, or
+ownership boundaries make them useful.
 
 Map only the contexts needed for the current decision. Do not model the complete system
 in advance.
@@ -312,7 +328,7 @@ Use a building block only when its semantics fit:
 
 | Building block | Use it when |
 | --- | --- |
-| Entity | An object has persistent identity and a lifecycle. |
+| Entity | An object is distinguished by identity rather than attributes, and its identity continues through its lifecycle; storage persistence is not required. |
 | Value Object | A concept is defined by values, constraints, and value equality. |
 | Domain Event | An occurred fact has domain meaning. |
 | Domain Service | Domain behavior has no natural Entity or Value Object owner. |
@@ -358,13 +374,15 @@ responsibility, move or reimplement it under the correct owner, and add its test
 3. Confirm the needed domain model and identify the owners of rules, state, invariants,
    use cases, and external effects.
 4. Define the functional pillars, topology, and project-appropriate names.
-5. Recommend one concrete module tree and give representative contents for each area.
+5. For design work, recommend one concrete module tree and give representative contents
+   for each area. For review-only work, record the observed tree and verified findings.
 6. Trace source dependencies and downward, upward, and horizontal communication.
 7. Add only the DDD building blocks and communication mechanisms that solve observed
    problems.
 8. Review completeness, orthogonality, DRY, and extensibility.
-9. Plan reversible migration slices, validation, and reconciliation of affected
-   project artifacts.
+9. For design work or accepted changes, plan reversible migration slices, validation,
+   and reconciliation of affected project artifacts. Otherwise, report validation and
+   stop.
 
 ## Review the Architecture
 
@@ -447,22 +465,22 @@ extension seams only for changes the current evidence supports.
 - For a system with several models, prefer a context-first structure. Translate models
   at context boundaries and assign ownership for each integration contract.
 
-Scale the number of mechanisms, not the meaning of the boundaries.
-
 ## Output
 
 Return only the sections needed for the request, but keep the result concrete. Include:
 
 1. Current constraints, assumptions, and the authority sources consulted.
-2. One recommended architecture profile, module tree, and exact local names.
+2. A recommended architecture profile, module tree, and exact local names for design
+   work, or the observed architecture and verified findings for review-only work.
 3. Responsibility placement, functional pillars, and knowledge owners.
 4. Source dependencies and downward, upward, and horizontal communication.
 5. Important domain terms, model boundaries, and DDD choices.
 6. Findings from the completeness, orthogonality, DRY, and extensibility checks.
-7. Incremental implementation, validation, and affected project artifacts.
+7. Incremental implementation, validation, and affected project artifacts when changes
+   are proposed; otherwise, validation and the retained architecture.
 
-If several solutions remain valid, recommend one first. State the conditions under
-which another solution would become better.
+For design work, if several solutions remain valid, recommend one first. State the
+conditions under which another solution would become better.
 
 ## Avoid Overdesign
 
