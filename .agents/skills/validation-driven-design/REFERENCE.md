@@ -4,7 +4,7 @@ Use this file for detailed templates, proof obligations, and delivery gates. `SK
 owns the design workflow; this file does not restate it.
 
 Contents: [modes and authority](#1-engagement-modes-and-authority-map) ·
-[claims](#2-claim-and-evidence-ladder) · [theory](#3-theory-support-matrix) ·
+[claims](#2-claim-evidence-ladder) · [theory](#3-theory-support-matrix) ·
 [external research](#4-external-system-research-matrix) · [validation](#5-validation-portfolio) ·
 [quality gates](#6-four-design-axes-and-cross-cutting-qualities) ·
 [defect attribution](#7-defect-attribution-ladder) · [delivery](#8-delivery-gates-and-production-planning) ·
