@@ -23,8 +23,8 @@ Choose mode before building the authority map:
 Every mode keeps explicit authority, falsifier, non-claims, and human decision ownership. Scale the
 remaining evidence work to claim breadth, reversibility, novelty, and operational risk.
 
-`lightweight` is a ceiling as well as a minimum: start with one compact decision record and
-one discriminating check. Do not create theory/research matrices, a prototype portfolio, the full
+`lightweight` sets the minimum and maximum initial scope: start with one compact decision record
+and one discriminating check. Do not create theory/research matrices, a prototype portfolio, the full
 delivery sequence, or a full completion audit unless the falsifier exposes a specific need; state
 why before expanding. `audit-only` similarly reports only findings inside the pinned claimed scope.
 
@@ -39,7 +39,7 @@ Choose repository-native names, but preserve these ownership roles:
 | Requirements | user outcomes, scope, acceptance criteria, live completion | detailed architecture or evidence by assertion |
 | Architecture narrative | macro topology, responsibilities, cross-cutting invariants, delivery order | duplicate detailed decisions or machine semantics |
 | Decision records | one binding decision, alternatives, consequences, validation | status dashboard or broad narrative |
-| Glossary/context | canonical terms and distinctions | a second architecture specification |
+| Glossary/context | canonical domain terms, distinctions, and model scope | a second architecture specification |
 | Specification/standard | normative semantics, public contracts, conformance requirements, versioning, and designation of normative machine-readable artifacts | architecture rationale, implementation details, evidence, or acceptance state |
 | Executable conformance assets | machine-checkable schemas, executable conformance cases, validators, and observable oracles that realize or test the specification | an independent semantic authority or proof merely because tests pass |
 | Evidence record | prototype/research inputs, outputs, provenance, bounded conclusions | semantic authority or acceptance state |
@@ -126,6 +126,7 @@ Rules:
    otherwise record the evidence form that can discriminate the claim.
 5. Treat an external version change as a deliberate local design decision, never ambient drift.
 6. Compare with non-adoption: importing a standard can cost more authority and surface than it saves.
+7. Treat external systems as architecture evidence, not as authority for local domain meaning.
 
 ## 5. Validation portfolio
 
@@ -196,6 +197,9 @@ axis; they are not additional peers in the design-axis taxonomy.
 | Orthogonality | Does each concern have one owner and independent representation? Are cross-products and precedence closed? | mutation tests; pairwise/cross-product scenarios; canonical ordering/reducers | independent axes share hidden state or leave interaction order to the host |
 | Extensibility | What is configuration, extension, framework evolution, or irreducible core? Can an out-of-family case use unchanged core and dispatch? | explicit extension invariance; fixed-build witness; negative capability/refusal cases | each new domain adds core fields, phases, switches, callbacks, or parallel semantics |
 
+When a candidate architecture defines specialized structural criteria, bind evidence to those
+criteria. Use this table as the default coverage check, not as a parallel structural standard.
+
 Also audit consistency, reliability, and operability:
 
 - **Consistency:** one owner per fact; terminology, requirement, decision, specification, and live state agree.
@@ -228,7 +232,7 @@ This section exclusively owns the detailed default delivery sequence:
 2. **Permanent conformance foundation:** replace prototype-local authority with versioned rules,
    schemas, fixtures, negative/mutation conformance cases, and reusable harnesses.
 3. **Production end-to-end slice:** exercise the public API/artifact path end to end.
-4. **Known-domain breadth:** close the full requirements coverage matrix without parallel semantics.
+4. **Known-scenario breadth:** close the full requirements coverage matrix without parallel semantics.
 5. **Out-of-family witness:** prove the extension promise against a structurally different consumer.
 6. **Production rollout:** validate security, performance, capacity, observability, recovery,
    compatibility/migration, deployment, rollback, and operational ownership.

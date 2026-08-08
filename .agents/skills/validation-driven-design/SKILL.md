@@ -1,6 +1,12 @@
 ---
 name: validation-driven-design
-description: Designs, audits, and iteratively validates framework, platform, language, protocol, or runtime architectures by combining explicit requirements, mature theory, external-system research, executable prototypes, dogfooding, and cross-artifact reconciliation. Use when creating or redesigning an architecture, writing architecture specifications or decision records, auditing an existing architecture against abstraction/completeness/orthogonality/extensibility, or planning a design for production implementation.
+description: >-
+  Design, audit, and iteratively validate architecture direction under material
+  uncertainty. Use explicit requirements, mature theory, external-system research,
+  executable prototypes, dogfooding, and cross-artifact reconciliation. Use when a
+  decision is novel, disputed, broad, hard to reverse, or insufficiently supported.
+  Also use this skill to write an architecture specification or decision record, or to audit a
+  fixed architecture and its evidence.
 ---
 
 # Validation-Driven Design
@@ -10,6 +16,15 @@ description: Designs, audits, and iteratively validates framework, platform, lan
 Design an architecture under explicit requirements and specifications, then strengthen it through
 evidence-bearing iterations. This skill is for architecture creation, redesign, or architecture
 audit, not routine codebase refactoring, interface styling, generic review, or UI prototyping.
+
+Produce an evidence-bounded architecture direction. Include drivers, constraints, load-bearing
+mechanisms, semantic boundaries, claims, and validation gates. Do not expand into detailed module
+decomposition unless a claim under test requires it.
+
+Treat applicable context, glossary, requirements, and other domain artifacts as current inputs.
+Preserve their sources and established meanings. When they are absent or contradictory, record an
+explicit assumption or open question and coordinate with the user. Do not infer domain knowledge
+from technical theory, external systems, or a prototype.
 
 Preserve the stated product vision as a falsifiable requirement. If evidence contradicts it, reopen
 the architecture or requirement explicitly; never make the work “pass” by silently narrowing the
@@ -29,7 +44,7 @@ conformance case and its minimum fields.
 ## Quick start
 
 1. Choose `lightweight`, `full-design`, or `audit-only` mode; name the artifact owners and human decision owner.
-2. Write goals, non-goals, invariants, quality attributes, production constraints, and claim status.
+2. Write goals, non-goals, invariants, quality attributes, and production constraints. Record the status of inputs and claims.
 3. Map load-bearing mechanisms to mature theory and external systems; record adoption and proof gaps.
 4. Rank architecture uncertainties and run only the smallest discriminating validation.
 5. Feed dogfooding back into requirements, decisions, terms, specifications, executable conformance cases, and gates.
@@ -50,6 +65,8 @@ without redesign or edits unless the user requests them.
 - Turn outcomes into traceable requirements, scope, non-goals, invariants, failures, and qualities.
 - Build one authority map, which can include a one-way reference graph. Give every normative fact
   one owner; derived artifacts reference it.
+- Preserve the source, identifier, and maturity of each supplied claim. Classify unsupported input
+  as an explicit assumption or open question; do not create a parallel status system.
 - Start a claim ledger: `proposed`, `theory-supported`, `confirmed-narrowly`, `conformance-proven`,
   `production-proven`, `open`, and `non-claim`.
 
@@ -70,6 +87,8 @@ without redesign or edits unless the user requests them.
 ### 4. Design seams and alternatives
 
 - Compare at least the selected design, a credible alternative, and the simplest non-adoption path.
+- Design only enough structure to discriminate the load-bearing claim. Treat detailed
+  responsibility and module placement as separate structural decisions unless they are under test.
 - Define ownership, lifecycle, identity, extension, failure, and observability boundaries.
 - Ask whether two independent implementations could both satisfy the prose yet produce different
   observable behavior. If yes, the contract is incomplete.
@@ -91,10 +110,16 @@ without redesign or edits unless the user requests them.
   extension module/package → framework/schema → irreducible kernel.
 - Update each owning artifact once; remove duplicated normative restatements. Preserve research at a
   fixed reference and promote only durable scenarios, executable conformance cases, or decisions into authority.
+- For each adopted refinement or open gap, report the effect on architecture drivers, constraints,
+  and structural decisions. This lets later work revisit only the affected scope.
 - Stop disposable prototyping when the risk class is resolved. Move remaining proof into permanent
   conformance assets and end-to-end production slices.
 
 ### 7. Run design-axis and cross-cutting-quality gates
+
+When the candidate architecture supplies specialized structural criteria, use them as the acceptance
+criteria for the applicable claims. Use the generic axes below to assess evidence coverage and
+unresolved interactions, not to replace those criteria.
 
 - **Abstraction:** theory-grounded boundaries hide implementation choices without hiding semantics.
 - **Completeness:** every known requirement, refusal, interaction, and operational concern maps to a
@@ -105,6 +130,18 @@ without redesign or edits unless the user requests them.
   must not require core or host-dispatch changes.
 - Use REFERENCE.md's detailed delivery gates, including migration, security, observability, recovery,
   rollout, and rollback proportional to the real installed base.
+
+## Output
+
+Return only the sections needed for the request, but preserve traceability. Include:
+
+1. Authority sources, assumptions, and open input conflicts.
+2. Goals, non-goals, architecture drivers, invariants, and quality constraints.
+3. The selected architecture direction and the alternatives considered.
+4. Load-bearing mechanisms, semantic boundaries, claims, status, evidence, and non-claims.
+5. Decisions that require concrete structural placement.
+6. Validation results, adopted refinements, open gaps, and affected authoritative artifacts.
+7. Remaining gates and the required human decision.
 
 ## Completion
 

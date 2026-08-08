@@ -1,15 +1,20 @@
 ---
 name: design-domain-modular-architecture
-description: Design and review framework-independent, domain-centered modular software architectures with domain models as the basis for boundaries, ownership, dependencies, and evolution. Use when no project- or framework-specific modular topology governs the primary structure, or to reason about domain boundaries within an existing topology while structuring a new system, modularizing a codebase, reviewing coupling, or planning an incremental architecture change.
+description: >-
+  Design and review framework-independent, domain-centered modular architectures.
+  Turn available domain context and architecture constraints into module boundaries, ownership, dependencies, communication, and evolution paths. Use when
+  structuring or modularizing a system, assigning responsibilities, reviewing coupling,
+  or planning an incremental structural change. Prefer this skill when no project- or framework-specific modular topology governs the primary structure.
 ---
 
 # Design Domain Modular Architecture
 
 ## Goal
 
-Design the smallest usable architecture that gives the current system complete and
-distinct responsibilities, one authority for each rule, one-way dependencies, and
-clear extension paths.
+Translate the current architecture direction and applicable domain model into the
+smallest usable modular structure. Give the current system complete and distinct
+responsibilities, one authority for each rule, one-way dependencies, and clear
+extension paths.
 
 Use Domain-Driven Design (DDD) as the theoretical basis for judging module boundaries
 and evolution. Do not treat it as a set of patterns that every project must implement.
@@ -32,7 +37,7 @@ evolution within those boundaries.
 
 ## Respect Existing Project Authority
 
-Before defining a domain model or naming modules, inspect the project artifacts that
+Before assigning module or context boundaries, inspect the project artifacts that
 already govern language and architecture. These can include:
 
 - Repository and directory instructions.
@@ -57,10 +62,10 @@ Do not infer a DDD meaning from a filename alone. For example, a file named
 Report conflicts between authoritative artifacts and explain their architecture
 impact. Do not hide a conflict by selecting one source without explanation.
 
-When the project has no relevant artifacts, derive the smallest useful language and
-model from the request, code, tests, and examples. Mark facts that cannot be verified
-as assumptions. Do not require a new glossary, context map, or ADR unless the user asks
-for one or the change needs a durable decision record.
+When the applicable domain artifacts are absent or materially inconsistent, report the
+gap and continue only with explicit assumptions agreed with the user. Do not invent
+domain knowledge from directory or code structure. Require a new glossary, context map,
+or ADR only when the user asks for one or the change needs a durable decision record.
 
 ## Frame the System
 
@@ -71,11 +76,13 @@ Establish only the facts that can change the design:
 - The databases, frameworks, operating systems, and external services involved.
 - The rules, state, and invariants that carry domain complexity.
 - The scope in which each model and language applies.
+- The architecture drivers, load-bearing mechanisms, and semantic boundaries.
+- The supplied claims, claim status, evidence, assumptions, and open questions.
 - The capabilities that need independent reuse, testing, deployment, or evolution.
 - The observed variation points, team size, change rate, and maintenance budget.
 
-Ask only questions whose answers would materially change the architecture. Continue
-with explicit, reasonable assumptions for the rest.
+Ask only questions whose answers would materially change the architecture. Continue with explicit,
+reasonable assumptions for the rest. Preserve any supplied source, identifier, claim status, and evidence for each structure-sensitive input.
 
 ## Start with a Usable Default
 
@@ -348,6 +355,9 @@ Establish only the large-scale rules needed now. Change module boundaries when n
 domain knowledge or implementation evidence shows that the current structure no longer
 expresses the model, duplicates ownership, or obstructs common changes.
 
+When new evidence changes an architecture driver, domain meaning, invariant, or claim status,
+revisit only the affected module boundaries and their dependents. Preserve unaffected owners and contracts.
+
 Do not preserve an obsolete plan only because it was defined early. Do not add a
 speculative extension point to prepare for an unverified future.
 
@@ -358,24 +368,27 @@ need looser internal rules. Allow experiments to depend on production modules; n
 let production depend on experiments. Before promotion, classify each accepted
 responsibility, move or reimplement it under the correct owner, and add its tests.
 
+This section governs only placement, dependency direction, and promotion into the modular
+structure. It does not define the experiment charter, claim status, or acceptance decision.
+
 ## Workflow
 
 1. Define the current goal, evidence, constraints, success conditions, and excluded scope.
-2. Read the existing context, language, architecture, and decision artifacts.
-3. Confirm the needed domain model and identify the owners of rules, state, invariants,
-   use cases, and external effects.
-4. Choose module boundaries, topology, and project-appropriate names.
-5. For design work, recommend one concrete module tree and give representative contents
-   for each area. For review-only work, record the observed tree and verified findings.
-6. Trace source dependencies and downward, upward, and horizontal communication.
-7. Add only the DDD building blocks and communication mechanisms that solve observed
-   problems.
-8. Review completeness, orthogonality, DRY, and extensibility.
-9. For design work or accepted changes, plan reversible migration slices, validation,
-   and reconciliation of affected project artifacts. Otherwise, report validation and
-   stop.
+2. Read the existing domain, language, architecture, and decision artifacts.
+3. Identify the applicable domain model, architecture drivers, invariants, selected mechanisms, assumptions, and open claims.
+4. Map each required capability, rule, state, use case, and external effect to an owner.
+5. Choose module and context boundaries, topology, and project-appropriate names.
+6. For design work, recommend one concrete module tree and give representative contents for each area. For review-only work, record the observed tree and verified findings.
+7. Trace source dependencies and downward, upward, and horizontal communication.
+8. Add only the DDD building blocks and communication mechanisms that solve observed problems.
+9. Review structural completeness, orthogonality, DRY, and extensibility.
+10. Report load-bearing structural claims, disconfirming conditions, and unresolved validation needs.
+    For design work or accepted changes, also plan reversible migration slices and reconcile affected artifacts; otherwise stop.
 
 ## Review the Architecture
+
+These checks evaluate structural fitness. Preserve the claim status and evidence supplied by authoritative
+inputs. Treat an unsupported conclusion as a structural claim that still requires validation; do not increase its claim status.
 
 ### Completeness
 
@@ -462,19 +475,16 @@ extension seams only for changes the current evidence supports.
 
 Return only the sections needed for the request, but keep the result concrete. Include:
 
-1. Current constraints, assumptions, and the authority sources consulted.
-2. A recommended architecture profile, module tree, and exact local names for design
-   work, or the observed architecture and verified findings for review-only work.
-3. Responsibility placement, capability ownership, and authoritative sources for shared
-   rules and knowledge.
+1. Domain and architecture authority sources, constraints, assumptions, and preserved claim status.
+2. A recommended architecture profile, module tree, and exact local names for design work, or the observed architecture and verified findings for review-only work.
+3. The mapping from architecture drivers, invariants, and capabilities to responsibility and knowledge owners.
 4. Source dependencies and downward, upward, and horizontal communication.
 5. Important domain terms, model boundaries, and DDD choices.
-6. Findings from the completeness, orthogonality, DRY, and extensibility checks.
-7. For design work or accepted changes, incremental implementation, validation, and
-   affected project artifacts; otherwise, validation and the retained architecture.
+6. Findings from the structural completeness, orthogonality, DRY, and extensibility checks.
+7. Load-bearing structural claims, disconfirming conditions, and unresolved validation questions.
+8. For design work or accepted changes, incremental implementation, validation needs, and affected project artifacts; otherwise, validation needs and the retained architecture.
 
-For design work, if several solutions remain valid, recommend one first. State the
-conditions under which another solution would become better.
+For design work, if several solutions remain valid, recommend one first. State the conditions under which another solution would become better.
 
 ## Avoid Overdesign
 
