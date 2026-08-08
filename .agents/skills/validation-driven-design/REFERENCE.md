@@ -60,11 +60,12 @@ For each fact, mark exactly one authoritative source and every derived copy. Pre
 reference over restating a list, algorithm, count, precedence rule, or state machine. Reconcile the
 pinned current artifact revision and any live coordination state after each design iteration.
 
-## 2. Claim and evidence ladder
+## 2. Claim evidence ladder
 
-Use exact, bounded language:
+A claim evidence state records evidence strength or an explicit scope boundary. It is separate from
+an artifact or decision lifecycle status. Use exact, bounded language:
 
-| State | Meaning | Sufficient evidence |
+| Claim evidence state | Meaning | Sufficient evidence |
 | --- | --- | --- |
 | `proposed` | a candidate mechanism | rationale only |
 | `theory-supported` | established theory explains why the mechanism should work | explicit theory-to-invariant mapping and proof boundary |
@@ -86,8 +87,8 @@ Dogfooding uses a separate disposition namespace:
 | `gap-opened` | the observation exposed an unresolved defect, ambiguity, or evidence gate |
 | `no-design-effect` | the observation was instance-local, out of claim scope, or required no normative change |
 
-After recording the disposition, set the affected claim to the applicable maturity state above.
-Never reuse a claim-state label as a dogfooding disposition.
+After recording the disposition, set the affected claim to the applicable claim evidence state above.
+Never reuse a claim evidence state as a dogfooding disposition.
 
 ## 3. Theory-support matrix
 

@@ -44,7 +44,7 @@ conformance case and its minimum fields.
 ## Quick start
 
 1. Choose `lightweight`, `full-design`, or `audit-only` mode; name the artifact owners and human decision owner.
-2. Write goals, non-goals, invariants, quality attributes, and production constraints. Record the status of inputs and claims.
+2. Write goals, non-goals, invariants, quality attributes, and production constraints. Keep artifact and decision lifecycle status separate from claim evidence state.
 3. Map load-bearing mechanisms to mature theory and external systems; record adoption and proof gaps.
 4. Rank architecture uncertainties and run only the smallest discriminating validation.
 5. Feed dogfooding back into requirements, decisions, terms, specifications, executable conformance cases, and gates.
@@ -65,10 +65,13 @@ without redesign or edits unless the user requests them.
 - Turn outcomes into traceable requirements, scope, non-goals, invariants, failures, and qualities.
 - Build one authority map, which can include a one-way reference graph. Give every normative fact
   one owner; derived artifacts reference it.
-- Preserve the source, identifier, and maturity of each supplied claim. Classify unsupported input
-  as an explicit assumption or open question; do not create a parallel status system.
-- Start a claim ledger: `proposed`, `theory-supported`, `confirmed-narrowly`, `conformance-proven`,
-  `production-proven`, `open`, and `non-claim`.
+- Preserve each supplied claim's source and identifier. Keep artifact or decision lifecycle status
+  separate from claim evidence state. Reuse the repository's claim evidence field when its meaning
+  matches the distinctions below; do not write a second evidence-state field. Record an explicit mapping when the names differ.
+- If no claim evidence field exists, start a claim evidence ledger: `proposed`, `theory-supported`,
+  `confirmed-narrowly`, `conformance-proven`, `production-proven`, `open`, and `non-claim`.
+- For iterative work or handoff, give each new driver, claim, and decision a stable identifier that
+  follows repository conventions. Report added, changed, and retired identifiers.
 
 ### 2. Ground the abstractions
 
@@ -105,7 +108,7 @@ without redesign or edits unless the user requests them.
 ### 6. Synthesize dogfooding and iterate
 
 - Classify design effect as `confirmed-no-change`, `refined-adopted`, `gap-opened`, or
-  `no-design-effect`; then update claim maturity separately.
+  `no-design-effect`; then update claim evidence state separately.
 - Attribute defects to the narrowest honest layer: instance/configuration → template/profile →
   extension module/package → framework/schema → irreducible kernel.
 - Update each owning artifact once; remove duplicated normative restatements. Preserve research at a
@@ -138,8 +141,8 @@ Return only the sections needed for the request, but preserve traceability. Incl
 1. Authority sources, assumptions, and open input conflicts.
 2. Goals, non-goals, architecture drivers, invariants, and quality constraints.
 3. The selected architecture direction and the alternatives considered.
-4. Load-bearing mechanisms, semantic boundaries, claims, status, evidence, and non-claims.
-5. Decisions that require concrete structural placement.
+4. Load-bearing mechanisms, semantic boundaries, claims, claim evidence states, evidence, and non-claims.
+5. Decisions that require concrete structural placement, with stable identifiers for iterative work or handoff.
 6. Validation results, adopted refinements, open gaps, and affected authoritative artifacts.
 7. Remaining gates and the required human decision.
 
