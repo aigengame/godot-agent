@@ -1,10 +1,10 @@
 ---
 name: design-domain-modular-architecture
 description: >-
-  Design and review framework-independent, domain-centered modular architectures.
-  Turn available domain context and architecture constraints into module boundaries, ownership, dependencies, communication, and evolution paths. Use when
-  structuring or modularizing a system, assigning responsibilities, reviewing coupling,
-  or planning an incremental structural change. Prefer this skill when no project- or framework-specific modular topology governs the primary structure.
+  Design and review domain-centered modular architectures for software systems.
+  Turn available domain context, architecture direction, and project constraints into module boundaries, ownership, dependencies, communication, and evolution paths.
+  Use when structuring or modularizing a system, assigning responsibilities, reviewing coupling,
+  adapting an existing topology, or planning an incremental structural change.
 ---
 
 # Design Domain Modular Architecture
@@ -30,10 +30,10 @@ For analysis or review-only work, describe the observed architecture and report
 verified findings. Recommend a change only when evidence shows that the current design
 does not meet the applicable criteria.
 
-Use the default topology in this skill only when no project- or framework-specific
-modular topology already governs the system. When one exists, preserve its module names
-and dependency rules. Use the DDD guidance here to judge language, ownership, and
-evolution within those boundaries.
+Apply this method to any modular structure. When the project already defines a topology,
+treat its module names, dependency rules, and composition mechanisms as current constraints.
+Review them against the current goal and structural criteria. Recommend evidence-supported changes when they no longer fit.
+Use the default topology only when no governing topology exists; do not silently replace an existing topology with it.
 
 ## Respect Existing Project Authority
 
@@ -42,7 +42,7 @@ already govern language and architecture. These can include:
 
 - Repository and directory instructions.
 - Context maps and context documents.
-- Glossaries and ubiquitous-language documents.
+- Glossaries and documents that define the Ubiquitous Language.
 - Architecture documents and ADRs.
 - Requirements, specifications, and design documents.
 - Module manifests, public interfaces, tests, and code conventions.
