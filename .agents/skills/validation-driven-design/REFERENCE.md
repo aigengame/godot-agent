@@ -138,7 +138,7 @@ Choose validation form by uncertainty:
 | layer connectivity/integration | smallest end-to-end slice |
 | semantic authority/portability | two independent interpreters or compilers consuming each other's artifacts |
 | state/lifecycle/order | executable state-machine or scheduler harness with boundary permutations |
-| orthogonality | add one independent axis, then exercise cross-products and mutation cases |
+| orthogonality | vary one concern while holding the others fixed, then test pairwise and cross-product compositions and ordering cases |
 | extensibility | add an out-of-family capability through public contracts with unchanged core/builds |
 | requirement breadth | research corpus mapped to the coverage matrix, explicitly non-conforming |
 | human interaction/usability | visual or interactive prototype |
@@ -195,7 +195,7 @@ axis; they are not additional peers in the design-axis taxonomy.
 | --- | --- | --- | --- |
 | Abstraction | What theory supports the model? Which semantics are public? Which implementation details may vary? | explicit semantic boundaries; preservation/refusal contracts; independent implementations | host behavior, serialization, framework, or optimizer becomes hidden authority |
 | Completeness | Do all known stories, failures, variants, interactions, operations, and production concerns map to observable contracts? | requirements-to-mechanism-to-scenario-to-conformance-case-to-observable matrix | vocabulary/package inventory presented as coverage; important paths only appear in prose |
-| Orthogonality | Does each concern have one owner and independent representation? Are cross-products and precedence closed? | mutation tests; pairwise/cross-product scenarios; canonical ordering/reducers | independent axes share hidden state or leave interaction order to the host |
+| Orthogonality | Does each concern in the selected orthogonal basis have a distinct meaning and reason to change? Is it necessary, non-overlapping, and independently variable? Does composition preserve this independence? | vary one concern while other observations stay fixed; pairwise and cross-product cases; explicit precedence where order matters | a concern can be removed without loss; changing one concern changes unrelated concerns; composition shares hidden state or leaves precedence to the host |
 | Extensibility | What is configuration, extension, framework evolution, or irreducible core? Can an out-of-family case use unchanged core and dispatch? | explicit extension invariance; fixed-build witness; negative capability/refusal cases | each new domain adds core fields, phases, switches, callbacks, or parallel semantics |
 
 When a candidate architecture defines specialized structural criteria, bind evidence to those

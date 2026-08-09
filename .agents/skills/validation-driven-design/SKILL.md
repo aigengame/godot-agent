@@ -127,8 +127,11 @@ unresolved interactions, not to replace those criteria.
 - **Abstraction:** theory-grounded boundaries hide implementation choices without hiding semantics.
 - **Completeness:** every known requirement, refusal, interaction, and operational concern maps to a
   mechanism plus an observable verification path.
-- **Orthogonality:** independent concerns have separate owners; their intersections and ordering are
-  explicitly closed and tested.
+- **Orthogonality:** use an **orthogonal basis** as a system metaphor for the load-bearing concerns.
+  Completeness checks whether these concerns cover the current claim scope. Orthogonality checks
+  whether each concern is necessary and non-overlapping. Each concern must have a distinct meaning
+  and reason to change, and it must vary independently. Test their composition for hidden shared
+  state, cross-product effects, and unspecified precedence.
 - **Extensibility:** declared variation enters through extension contracts; an out-of-family witness
   must not require core or host-dispatch changes.
 - Use REFERENCE.md's detailed delivery gates, including migration, security, observability, recovery,
