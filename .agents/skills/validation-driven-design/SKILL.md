@@ -67,7 +67,7 @@ without redesign or edits unless the user requests them.
   one owner; derived artifacts reference it.
 - Preserve each supplied claim's source and identifier. Keep artifact or decision lifecycle status
   separate from claim evidence state. Reuse the repository's claim evidence field when its meaning
-  matches the distinctions below; do not write a second evidence-state field. Record an explicit mapping when the names differ.
+  matches the distinctions below; do not add a second field for claim evidence state. Record an explicit mapping when the names differ.
 - If no claim evidence field exists, start a claim evidence ledger: `proposed`, `theory-supported`,
   `confirmed-narrowly`, `conformance-proven`, `production-proven`, `open`, and `non-claim`.
 - For iterative work or handoff, give each new driver, claim, and decision a stable identifier that

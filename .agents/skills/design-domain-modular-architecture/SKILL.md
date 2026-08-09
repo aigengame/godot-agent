@@ -2,7 +2,7 @@
 name: design-domain-modular-architecture
 description: >-
   Design and review domain-centered modular architectures for software systems.
-  Turn available domain context, architecture direction, and project constraints into module boundaries, ownership, dependencies, communication, and evolution paths.
+  Turn the applicable domain model, architecture direction, and project constraints into module boundaries, ownership, dependencies, communication, and evolution paths.
   Use when structuring or modularizing a system, assigning responsibilities, reviewing coupling,
   adapting an existing topology, or planning an incremental structural change.
 ---
@@ -30,8 +30,7 @@ For analysis or review-only work, describe the observed architecture and report
 verified findings. Recommend a change only when evidence shows that the current design
 does not meet the applicable criteria.
 
-Apply this method to any modular structure. When the project already defines a topology,
-treat its module names, dependency rules, and composition mechanisms as current constraints.
+Apply this method to any modular structure. Treat an existing topology, its module names, dependency rules, and composition mechanisms as current constraints.
 Review them against the current goal and structural criteria. Recommend evidence-supported changes when they no longer fit.
 Use the default topology only when no governing topology exists; do not silently replace an existing topology with it.
 
@@ -77,7 +76,8 @@ Establish only the facts that can change the design:
 - The rules, state, and invariants that carry domain complexity.
 - The scope in which each model and language applies.
 - The architecture drivers, load-bearing mechanisms, and semantic boundaries.
-- The supplied claims, claim evidence states, evidence, assumptions, and open questions.
+- The supplied claims, evidence, assumptions, open questions, and claim evidence states. A claim evidence state classifies evidence strength or an explicit scope boundary.
+  Use project values and ordering when supplied; otherwise, use `open` for a claim that needs evidence and do not define a broader ladder here.
 - The capabilities that need independent reuse, testing, deployment, or evolution.
 - The observed variation points, team size, change rate, and maintenance budget.
 
@@ -374,21 +374,21 @@ structure. It does not define the experiment charter, claim evidence state, or a
 
 1. Define the current goal, evidence, constraints, success conditions, and excluded scope.
 2. Read the existing domain, language, architecture, and decision artifacts.
-3. Identify the applicable domain model, architecture drivers, invariants, selected mechanisms, assumptions, and open claims.
+3. Identify the applicable domain model, architecture drivers, invariants, load-bearing mechanisms, assumptions, and open claims.
 4. Map each required capability, rule, state, use case, and external effect to an owner.
 5. Choose module and context boundaries, topology, and project-appropriate names.
 6. For design work, recommend one concrete module tree and give representative contents for each area. For review-only work, record the observed tree and verified findings.
 7. Trace source dependencies and downward, upward, and horizontal communication.
 8. Add only the DDD building blocks and communication mechanisms that solve observed problems.
 9. Review structural completeness, orthogonality, DRY, and extensibility.
-10. Link each load-bearing structural claim to its driver or invariant, module decision, claim evidence state, evidence, disconfirming condition, and unresolved validation need.
+10. Link each load-bearing structural claim to its driver or invariant and module decision. Record its claim evidence state, evidence, disconfirming condition, and unresolved validation need.
     For iterative work or handoff, use stable repository-native identifiers and report added, changed, and retired identifiers.
     For design work or accepted changes, also plan reversible migration slices and reconcile affected artifacts; otherwise stop.
 
 ## Review the Architecture
 
 These checks evaluate structural fitness. Preserve the artifact lifecycle status, claim evidence state, and evidence from authoritative inputs.
-Treat an unsupported conclusion as a structural claim that still requires validation; do not increase its claim evidence state.
+Treat an unsupported conclusion as a structural claim that still requires validation; do not advance its claim evidence state.
 
 ### Completeness
 
@@ -475,13 +475,13 @@ extension seams only for changes the current evidence supports.
 
 Return only the sections needed for the request, but keep the result concrete. Include:
 
-1. Domain and architecture authority sources, constraints, assumptions, and preserved artifact or decision lifecycle status and claim evidence state.
+1. Domain and architecture authority sources, constraints, and assumptions. Preserve artifact or decision lifecycle status and claim evidence state.
 2. A recommended architecture profile, module tree, and exact local names for design work, or the observed architecture and verified findings for review-only work.
 3. The mapping from architecture drivers, invariants, and capabilities to responsibility and knowledge owners.
 4. Source dependencies and downward, upward, and horizontal communication.
 5. Important domain terms, model boundaries, and DDD choices.
 6. Findings from the structural completeness, orthogonality, DRY, and extensibility checks.
-7. Load-bearing structural claims linked to their drivers or invariants, module decisions, claim evidence states, evidence, disconfirming conditions, and open validation questions.
+7. Load-bearing structural claims linked to their drivers or invariants and module decisions. For each claim, include its claim evidence state, evidence, disconfirming condition, and open validation questions.
    Use stable identifiers for iterative work or handoff.
 8. For design work or accepted changes, incremental implementation, validation needs, and affected project artifacts; otherwise, validation needs and the retained architecture.
 
