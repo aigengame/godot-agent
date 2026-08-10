@@ -404,7 +404,7 @@ The symbols preserve separate authority domains. `K` and `L` own machine and lan
 governance decision. A derived artifact can bind these authorities, but it cannot replace or edit
 them.
 
-Authority formation is:
+**Authority formation is**:
 
 ```text
 PR_i = Seal(Manifest_i, Vectors_i)
@@ -422,7 +422,7 @@ successful admission outcome. `A` contains the exact, deeply immutable Kernel/LD
 admission outcome, canonical bytes, and read-only indexes. `A` is a host ownership and performance
 boundary; `K` and `L`, not `A`, remain the machine authorities.
 
-Model resolution and compilation are:
+**Model resolution and compilation are**:
 
 ```text
 (Lock, ResolutionReceipt) = Resolve_A(Req(M))
@@ -464,7 +464,7 @@ none enters the Resolved Model identity. Resolver and compiler implementation id
 provenance receipts; they do not participate in `Lock`, `RIR`, or `RM` content identity. The build
 publishes no member unless the complete build set is generated, validated, and committed.
 
-Runtime admission and Experiment execution are:
+**Runtime admission and Experiment execution are**:
 
 ```text
 ECM = DescribeCapabilities(EvaluatorBuild)
@@ -503,7 +503,7 @@ authority. `Run` records execution facts and binds `D`; neither artifact issues 
 A post-dispatch Runtime refusal produces the required terminal-audit artifact set instead of `D` or
 `Run`. An earlier refusal also produces no completed Evaluation run.
 
-Evidence, governance, and publication are:
+**Evidence, governance, and publication are**:
 
 ```text
 RC = CompareReplay_A(<Run_1, D_1, RR_1>, <Run_2, D_2, RR_2>, ReplayPolicy)
@@ -551,7 +551,7 @@ Evidence assertions, evaluator, and applicable policy. Artifact policy owns arti
 completeness, and publication rules. Infrastructure supplies bounded input and atomic filesystem
 mechanisms without becoming an authority for artifact meaning.
 
-The host call and result flow can be read as:
+**The host call and result flow can be read as**:
 
 ```text
 Request
