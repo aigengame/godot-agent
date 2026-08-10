@@ -252,6 +252,219 @@ Compiler, resolver, evaluator, CLI, and storage code are conforming host impleme
 not semantic authorities. Generated JSON Schema, help text, and SDK types project authoritative
 artifacts. These projections cannot add meaning.
 
+### 3.4 Symbolic architecture
+
+The following notation is an explanatory view of the relationships above. It does not define new
+machine semantics or replace a Kernel/LDB judgment. The function names describe architecture
+mechanisms; they are not public host API names.
+
+#### 3.4.1 Compact mental model
+
+The following expressions show the end-to-end success path. They omit diagnostic and negative
+outcomes. Section 3.4.2 defines those outcomes and expands each authority boundary.
+
+```text
+L = Seal(RootManifest, <PR_1, ..., PR_n>)
+Admit(K, L) ⇓ Success(J_admitted)              # therefore K ⊢ L
+A = IndexAndFreeze(K, L, J_admitted)           # host context, not authority
+
+(Lock, ResolutionReceipt) = Resolve_A(Requirements(M))
+(AST, HIR, RIR, DebugMap, RM) = Compile_A(M, Lock)
+
+CheckExperiment_A(E, RM, Lock, RIR) ⇓ Success(J_experiment_admitted)
+RR = AdmitRuntime_A(
+    ResolveRuntimeProfile_A(RuntimeProfileRef(E), Lock, RIR),
+    Lock, RM, RIR, E, ECM, Plat,
+)
+EIR = PrepareEvaluator(RIR, RR)                 # optional and evaluator-private
+EvaluatorInput = EIR if present else RIR
+(Trace, Snapshots, D, Run) =
+    Execute_A(
+        Runtime, Evaluator, EvaluatorInput, RM, RR, E, ExternalInputs(E), EffectiveSeed(E),
+    )
+
+EA = ValidateAndIssueEvidence_A(ClaimKind, Subjects, Policy, Issuer, VerifiedPrerequisites)
+AR = Govern(Decision, ApprovalPolicy, Attestation, SubjectGraph, EA, ...)
+(PublishedArtifacts, Locators, Receipts) =
+    Publish_A(ArtifactPolicy, CompleteArtifactSet, AtomicFilesystem)
+
+Request -> UI -> Application -> Domain_A -> TypedOutcome -> UI
+Domain_A -> Infrastructure
+```
+
+#### 3.4.2 Detailed symbolic model
+
+```text
+K       = one exact Schema-major Kernel Specification
+PR_i    = one exact Package Release
+L       = one whole Language Definition Bundle
+A       = one AdmittedAuthorityContext
+M       = one Model Source Package
+E       = one Experiment Specification
+ECM     = one Evaluator Capability Manifest
+RPD     = one Runtime profile definition
+Plat    = one platform identity
+X       = the external inputs bound by E
+s       = the effective seed owned by E
+
+Lock    = one canonical Package Lock
+AST     = one Authoring AST
+HIR     = one Typed HIR
+RIR     = one RIR semantic payload
+RM      = one Resolved Model
+RR      = one Resolved Runtime profile
+EIR     = one optional evaluator-private Execution IR
+D       = one Metric dataset
+Run     = one Evaluation run
+EA      = one Evidence assertion
+AR      = one Approval Record
+```
+
+`F_A(...)` means that host mechanism `F` consumes `A`. `Id(x)` is the exact content identity of
+`x`. `⊢` marks a proposition established by a successful judgment. `⇓` introduces the outcome.
+`...` stands only for other identities required by the admitted authorities. It
+does not permit a host implementation to add meaning. Unless a refusal is shown, each expression
+shows only the successful branch of this general form:
+
+```text
+Operation_A(inputs) ⇓ Success(outputs)
+                    | Refusal(stage, diagnostics)
+
+Judgment_A(inputs) ⇓ Success(positive_result)
+                   | Verdict(negative_report)
+                   | Refusal(stage, diagnostics)
+
+Refusal(stage_n) ⇒ no later-stage success artifacts
+```
+
+The symbols preserve separate authority domains. `K` and `L` own machine and language semantics.
+`M` owns editable model definitions and requirements. `E` owns evaluation intent. `AR` owns the
+governance decision. A derived artifact can bind these authorities, but it cannot replace or edit
+them.
+
+Authority formation is:
+
+```text
+PR_i = Seal(Manifest_i, PackageConformanceVectorSet_i)
+L    = Seal(RootManifest, <PR_1, ..., PR_n>)
+
+Admit(K, L) ⇓ Success(J_admitted)        # therefore K ⊢ L
+A = IndexAndFreeze(K, L, J_admitted)
+
+Admit(K, L) ⇓ Refusal(stage, diagnostics)  # no A is published
+```
+
+Each `PR_i` contains one manifest and its bound Package conformance vector set. `<PR_1, ..., PR_n>`
+is the closed, canonical Package Release inventory owned by the LDB root manifest. `J_admitted` is
+the successful admission outcome. `A` contains the exact, deeply immutable Kernel/LDB graph, its
+admission outcome, canonical bytes, and read-only indexes. `A` is a host ownership and performance
+boundary; `K` and `L`, not `A`, remain the machine authorities.
+
+Model resolution and compilation are:
+
+```text
+(Lock, ResolutionReceipt) = Resolve_A(Requirements(M))
+(AST, HIR, RIR, DebugMap, RM) = Compile_A(M, Lock)
+
+M -> AST -> HIR -> RIR
+RM = Bind(RIR, Id(K), Id(L), Id(Lock), ...)
+```
+
+The resolver selects Package Releases only from `L`. The compiler parses and checks `M` under the
+same `A`, then lowers selected, reachable semantics into `RIR`. `RM` is the exact-build execution
+authority wrapper. Resolver and compiler implementation identities belong in provenance receipts;
+they do not participate in `Lock`, `RIR`, or `RM` content identity.
+
+Runtime admission and Experiment execution are:
+
+```text
+ECM = DescribeCapabilities(EvaluatorBuild)
+
+CheckExperiment_A(E, RM, Lock, RIR) ⇓ Success(J_experiment_admitted)
+    # therefore A, RM, Lock, RIR ⊢ E
+
+CheckExperiment_A(E, RM, Lock, RIR) ⇓ Refusal(stage, diagnostics)
+    # execution does not start
+
+RPD = ResolveRuntimeProfile_A(RuntimeProfileRef(E), Lock, RIR)
+RR  = AdmitRuntime_A(RPD, Lock, RM, RIR, E, ECM, Plat)
+X   = ExternalInputs(E)
+s   = EffectiveSeed(E)
+
+EIR = PrepareEvaluator(RIR, RR)          # optional and evaluator-private
+EvaluatorInput = EIR if present else RIR
+(Trace, Snapshots, D, Run) =
+    Execute_A(
+        Runtime,
+        Evaluator,
+        EvaluatorInput,
+        RM,
+        RR,
+        E,
+        X,
+        s,
+    )
+```
+
+The Experiment judgment checks the exact model/runtime binding, scenarios, input contracts, Event
+plans, Metric definitions, and evaluation policy before dispatch. Runtime owns the lifecycle,
+scheduler, atomic Event transactions, Snapshots, and refusal boundary. The evaluator implements the
+admitted Kernel/LDB contracts and may use an EIR, but neither evaluator code nor EIR is semantic
+authority. `Run` records execution facts and binds `D`; neither artifact issues Evidence by itself.
+A post-dispatch Runtime refusal produces the required terminal-audit artifact set instead of `D` or
+`Run`. An earlier refusal also produces no completed Evaluation run.
+
+Evidence, governance, and publication are:
+
+```text
+ValidateAndIssueEvidence_A(
+    ClaimKind,
+    Subjects,
+    Policy,
+    Issuer,
+    VerifiedPrerequisites,
+) ⇓ Success(EA) | Verdict(report) | Refusal(stage, diagnostics)
+
+Govern(
+    Decision,
+    ApprovalPolicy,
+    Attestation,
+    SubjectGraph,
+    EA,
+    ...,
+) ⇓ Success(AR) | Verdict(report) | Refusal(stage, diagnostics)
+    # outside host execution
+
+(PublishedArtifacts, Locators, Receipts) =
+    Publish_A(ArtifactPolicy, CompleteArtifactSet, AtomicFilesystem)
+```
+
+The Evidence validator derives `EA` only from verified prerequisite artifacts. A person or
+governance system creates `AR`; the host does not infer it from a successful run or from `EA` alone.
+`AR` also binds the independent decision, policy, attestation, and complete subject graph. That
+graph identifies the exact model, Experiment, Metric datasets, Evaluation runs, Calibration reports,
+Evidence assertions, evaluator, and applicable policy. Artifact policy owns artifact identity, set
+completeness, and publication rules. Infrastructure supplies bounded input and atomic filesystem
+mechanisms without becoming an authority for artifact meaning.
+
+The host call and result flow can be read as:
+
+```text
+Request
+  -> Bind_UI
+  -> Invoke_Application(DomainMechanism)
+  -> TypedOutcome
+  -> Render_UI
+
+DomainMechanism -> InfrastructureMechanism
+```
+
+UI owns binding and rendering. Application owns use-case coordination. Domain code applies the
+admitted judgments and implements host artifact policy; it does not own their semantics. `Govern`
+remains outside host execution. When a Domain mechanism needs I/O, Infrastructure owns the technical
+input or filesystem mechanism. Each host layer conforms to the exact authorities it consumes; no
+layer can add language or model meaning.
+
 ## 4. Host implementation architecture
 
 Section 4.1 defines the layer dependency rules. Section 4.2 assigns each major subsystem to one
@@ -491,7 +704,7 @@ The public compilation pipeline is:
 - The **Resolved Model wrapper** binds the RIR payload to the exact Kernel Specification, whole LDB,
   selected Package Lock, RIR semantic identity, exact RIR content identity, and all other required
   build identities.
-- **EIR** is an evaluator-private execution representation. It may contain schedules, bytecode,
+- **Execution IR (EIR)** is evaluator-private. It may contain schedules, bytecode,
   layouts, or optimized kernels, but it is neither portable Standard Schema bytecode nor an
   interchange authority.
 
