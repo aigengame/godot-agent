@@ -1,105 +1,128 @@
-# Reconcile — reference
+# Reconcile reference
 
-Detailed companion to [SKILL.md](SKILL.md): the reference-graph edge taxonomy, how to read each
-source, the full check catalog, and a hook sample. This repo is single-context (`CONTEXT.md` +
-`docs/adr/` at the root) per `docs/agents/domain.md`.
+This companion defines the reference-graph taxonomy, artifact discovery, check catalog, report
+format, and optional reminder contract for [SKILL.md](SKILL.md).
+
+## Discover repository authorities
+
+Start with repository and directory guidance. Use it to locate:
+
+- context routing and ownership rules;
+- the issue or task tracker, if one exists;
+- requirements, specifications, and decision records;
+- the glossary or other terminology authority;
+- schemas for identifiers, statuses, links, and supersession;
+- local validation and editing rules.
+
+A repository may have one context or several. Do not infer a global context from a root glossary or
+one decision-record directory. Follow the repository's routing mechanism. If no routing mechanism
+exists, infer the smallest relevant scope from authoritative links and disclose the assumption.
 
 ## Reference-graph edge taxonomy
 
-| Edge | Source → target | How it appears | Mechanical failure |
+Use repository-native names for concrete artifacts. The generic edge types are:
+
+| Edge | Typical source -> target | Mechanical check | Semantic check |
 | --- | --- | --- | --- |
-| issue → issue | issue body | `## Parent` section, `## Blocked by` section, bare `#NN` | target issue missing/closed unexpectedly |
-| issue → ADR | issue body | `ADR-NNNN` | no `docs/adr/NNNN-*.md` |
-| issue → term | issue title/body | domain noun | term absent from glossary, or an `_Avoid_` synonym |
-| ADR → ADR | ADR body | `ADR-NNNN` (supersedes / contradicts / builds-on) | target ADR file missing |
-| ADR → term | ADR body | domain noun | `_Avoid_` synonym used |
-| ADR → CONTEXT | ADR body | references a glossary concept | concept not in glossary |
-| CONTEXT → ADR | glossary entry | `ADR-NNNN` (e.g. gda-mcp → ADR-0004) | target ADR file missing |
-| CONTEXT → term | `_Avoid_` lines | canonical term ↔ banned synonyms | — (this is the rule source) |
+| tracked work -> tracked work | parent, dependency, or related-work link | target exists | relationship and target state still mean what the source claims |
+| tracked work -> authority artifact | requirement or decision reference | target exists | tracked work agrees with the authority |
+| artifact -> artifact | file, section, identifier, or explicit relationship | target exists; required reciprocal pointer exists | relationship and affected scope remain accurate |
+| artifact -> term | use of an established domain term | explicitly prohibited synonym is absent | term is established, correctly scoped, and used with its defined meaning |
+| terminology authority -> artifact | source or decision behind a term | target exists | definition and cited authority agree |
 
-`status:` front-matter on an ADR (`accepted`, `superseded`, …) is graph metadata: a `superseded`
-ADR should have a `superseded-by: ADR-NNNN` pointer, and the superseding ADR should point back.
+Status fields, reciprocal links, and supersession metadata are graph data only when repository
+guidance defines them. Never assume field names, allowed values, or link directions.
 
-## How to read each source
+## How to read sources
 
-- **Issues** — `gh issue list --state open --json number,title,body,labels --jq '...'` to
-  enumerate; `gh issue view <n> --comments` for one. Conventions in `docs/agents/issue-tracker.md`.
-- **ADRs** — files `docs/adr/NNNN-*.md`; parse `status:` front-matter and inline `ADR-NNNN`.
-- **CONTEXT.md** — glossary terms are `**Term**:` headed; each may list `_Avoid_: a, b` synonyms
-  and inline `ADR-NNNN` refs. These define the canonical vocabulary.
+- **Repository guidance:** identify artifact ownership, context boundaries, editing authority, and
+  validation commands. Apply more specific nested guidance within its scope.
+- **Tracked work:** use the configured tracker and its documented fields. Read linked records when
+  their relationship affects the change. A closed state is not inherently inconsistent.
+- **Decision records and specifications:** use the repository's locations, identifiers, statuses,
+  and relationship schema. Read the normative sections and any stated scope.
+- **Terminology authorities:** use the project's declared glossary or domain documentation. Only an
+  explicit rule, such as a prohibited-synonym list, supports a mechanical terminology finding.
+- **Other artifacts:** include tests, implementation docs, examples, or configuration when the
+  changed fact governs them.
 
 ## Check catalog
 
-### Mechanical (always)
+### Mechanical checks
 
-1. **Dangling ADR ref** — `ADR-NNNN` with no matching `docs/adr/NNNN-*.md`.
-2. **Dangling issue ref** — `#NN` / Parent / Blocked-by pointing at a non-existent issue.
-3. **Dangling file path** — a path mentioned in a doc/issue that does not exist.
-4. **Orphan** — an ADR/issue nothing references and which references nothing (may be intentional;
-   report, don't assume broken).
-5. **Term drift** — an artifact uses a synonym the glossary lists under `_Avoid_` instead of the
-   canonical term. Propose the canonical term.
-6. **Status pointer asymmetry** — a `superseded` ADR missing its `superseded-by`, or a one-way
-   supersede link.
+Run only checks with a deterministic result under the repository's declared syntax and schema:
 
-### Semantic (when a change set exists)
+1. **Missing reference target:** an explicit artifact, tracker, section, or file reference does not
+   resolve.
+2. **Explicit terminology violation:** text uses a synonym that the terminology authority explicitly
+   prohibits.
+3. **Required pointer asymmetry:** one side of a relationship is missing when the repository schema
+   requires reciprocal pointers.
 
-For each change in the set, scan artifacts whose terms/topics overlap and judge staleness:
+Do not treat a closed tracker record, a term absent from a glossary, or an unreferenced artifact as
+a mechanical failure. These cases require context and belong in the semantic candidate set.
 
-1. **Contradicted decision** — a change reverses/refines an ADR `Decision` still marked `accepted`.
-2. **Renamed term** — a term changed in-session but old name still used in issues/ADRs/glossary.
-3. **Moved boundary** — Phase/scope boundary changed; issues or ADRs still describe the old split.
-4. **Superseded behavior** — an open issue describes behavior the change makes obsolete.
+### Semantic checks
 
-Match by domain-term overlap first (cheap), then judge each candidate's staleness with reasoning.
-State the evidence linking the change to each affected artifact; do not flag on keyword overlap
-alone.
+For each change, find overlapping artifacts and judge staleness from their meaning:
+
+1. **Contradicted decision:** a statement conflicts with an accepted authority.
+2. **Renamed or new term:** text uses an old name, or a candidate term may require definition in the
+   terminology authority.
+3. **Moved boundary:** an artifact still describes the old scope, phase, ownership, or dependency.
+4. **Superseded behavior:** tracked work, docs, tests, or examples still require obsolete behavior.
+5. **Supersession mismatch:** a record is marked as fully superseded when part remains valid, or a
+   partial refinement is presented as a complete replacement.
+6. **State mismatch:** a tracker state or relationship conflicts with its repository-defined meaning.
+7. **Unreferenced artifact:** an artifact appears detached from the graph and repository rules make
+   that detachment significant.
+
+Use term and topic overlap to find candidates, then inspect their meaning. Do not report a semantic
+finding from keyword overlap alone.
 
 ### Discount illustrative references
 
-A `#NN` or `ADR-NNNN` token is not always a real edge. Discount tokens that appear as
-*illustrative examples* — e.g. a sentence listing what a dangling reference looks like
-(`(ADR-9999, #999, …)`), or a template/skill doc demonstrating the syntax. Judge from context;
-do not report these as broken links. (This skill's own issue contains such examples.)
+An identifier or path token is not always a graph edge. Exclude syntax examples, templates, and
+other illustrative placeholders unless they claim to point to a real artifact.
+
+## Supersession
+
+First classify the change:
+
+- **Complete supersession:** the new decision replaces the old decision throughout the old scope.
+- **Partial supersession or refinement:** part of the old decision remains valid, or the new decision
+  applies only to a narrower scope.
+
+Then apply the repository-native schema. Update statuses, links, or inline statements only when its
+guidance defines them. For partial supersession, preserve the valid scope and identify the replaced
+scope precisely. If no schema exists, report the relationship and propose a convention separately.
 
 ## Reporting format
 
-One consolidated report, grouped by artifact:
+Group findings by artifact:
 
-```
-### <artifact> (e.g. ADR-0005 / issue #4 / CONTEXT.md)
-- [layer] <finding> — evidence: <file:line or issue + quote>
-  proposed: <unified diff for docs | exact gh command for issues>
-```
-
-Per `domain.md`: if a finding contradicts an accepted ADR, surface it explicitly
-(`> Contradicts ADR-NNNN — but worth reopening because…`) rather than silently overriding.
-
-## Hook sample (propose, never auto-add — HITL)
-
-A Stop hook that reminds to run reconciliation at session end. Review timing/behavior with the
-user before writing to `settings.json`.
-
-For a `Stop` event, exit-0 stdout goes to the **debug log**, not the transcript — a plain
-`echo 'reminder'` fires invisibly. To surface a message to the user, emit JSON with a
-`systemMessage` field (still exit 0, still non-blocking):
-
-```jsonc
-// .claude/settings.json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "echo '{\"systemMessage\": \"Consider running /reconcile if a decision changed this session.\"}'" }
-        ]
-      }
-    ]
-  }
-}
+```text
+### <artifact>
+- [mechanical | semantic] <finding>
+  evidence: <location and relevant text or state>
+  impact: <consistency or execution effect>
+  proposed: <local patch or exact repository-native remote edit>
 ```
 
-(`matcher` is omitted — it has no meaning for `Stop`, which carries no tool context.)
+When a proposal conflicts with an accepted authority, name that authority and state whether the
+proposal should be dropped or the decision should be reopened.
 
-A `git` pre-commit alternative belongs in `.git/hooks/pre-commit` or the repo's hook manager; it
-should likewise only *remind*, since reconcile is HITL and must not block on un-confirmed edits.
+## Optional reminder contract
+
+A reminder may suggest reconciliation after a session or before a version-control operation. It
+must:
+
+- be visible through the host's documented output channel;
+- say that reconciliation is only suggested, not completed;
+- remain non-blocking;
+- avoid editing local or remote artifacts;
+- require approval before its configuration is added or changed.
+
+A reminder is not automatic reconciliation. Describe it as automatic only if the host has a
+documented invocation mechanism, the mechanism has been tested, and the workflow still preserves
+the confirmation gate for mutations.

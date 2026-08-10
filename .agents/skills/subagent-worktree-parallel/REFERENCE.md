@@ -9,13 +9,14 @@ resource" rather than naming any one stack — map them onto your own toolchain.
 
 ## 1. Dependency analysis & decomposition
 
-Split the work into vertical slices, then classify every pair:
+Split the work into end-to-end slices, then classify every pair:
 
 - **Independent (parallel-safe):** slices touching disjoint code/modules. Fan these out.
 - **Coupled (must serialize):** two slices that extend the same component, or a
-  foundational *tracer* plus its *round-out*. Land the tracer and **merge it first**,
-  then fan out the round-outs. Parallel siblings that both scaffold the same thing
-  duplicate it and collide at merge.
+  **foundation slice** plus its **dependent follow-up slices**. A foundation slice
+  establishes the smallest shared contract or scaffold that its follow-ups require.
+  Land it first, then fan out the follow-ups. Parallel follow-ups that each scaffold the
+  same foundation duplicate it and collide at merge.
 
 **Identify the append hotspots up front.** These are the shared files *every* slice
 edits, where all the integration cost concentrates:
@@ -78,12 +79,25 @@ pre-flight verdict is not durable.
 - **≤ ~5 independent slices per wave.** (A run that tried ~9 at once hit two failure
   modes: subagents truncated at run limits, and a merge treadmill.)
 - **Merge the whole wave before starting the next.** Each rebase then lands on a stable
-  base. Skipping this creates the *treadmill*: merge one PR, every other open PR goes
-  `CONFLICTING`, rebase them all, merge the next, they all re-conflict again.
+  base. Skipping this creates the *treadmill*: merge one change request, every other open
+  change becomes conflicting, rebase them all, merge the next, then repeat.
 - Larger waves also raise the chance an agent is cut off mid-task (losing uncommitted
   work — see §7).
 
-## 3. Dispatching an implementer subagent (with a worktree)
+## 3. Planning and dispatching
+
+Record the operating mode and permissions before creating a worktree or dispatching an
+implementer:
+
+- **Planning-only:** produce the dependency map, slice briefs, wave plan, integration order,
+  validation plan, and any permission requests. Do not create worktrees or branches, edit,
+  commit, push, open change requests, merge, reply to reviews, or update remote trackers.
+- **Execution:** list the allowed local mutations. List each allowed remote write separately:
+  push, change-request creation or update, merge, review reply, or tracker update. Permission
+  to implement or commit does not imply any remote-write permission.
+
+For planning-only work, stop after returning the plan. The rest of this section applies only
+to execution mode.
 
 Launch one subagent per slice in its own git worktree. The harness usually pre-creates
 the worktree on an auto-named branch. Dispatch prompt should pin down these points:
@@ -91,22 +105,26 @@ the worktree on an auto-named branch. Dispatch prompt should pin down these poin
 ```
 You are implementing <slice> in an ISOLATED git worktree.
 
+- Local mutation authority: <exact allowed actions and files>.
+- Remote-write authority: <none, or an exact list of allowed actions>. Do not infer an
+  unlisted push, change request, merge, review reply, or tracker update.
 - Operate ONLY inside your own worktree directory. Before any git command, confirm
   `git rev-parse --show-toplevel` is your worktree root — NEVER run git ops against the
-  shared main checkout.
+  shared checkout.
 - To name your branch, RENAME the pre-created branch in place: `git branch -m <name>`.
   Do NOT use `git switch -c <name>` (your shell cwd can reset to the shared checkout
   between calls, so `switch -c` may create a stray branch there).
-- Commit early and often, even WIP — a truncated/killed run only loses UNcommitted work.
-- Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
-  the integration boundary — integration / e2e / compile / a parse `--check-only`), not
-  just the fast tier that stubs it. Do not satisfy DoD by deselecting the integration
-  tier (e.g. a pytest-style `-m "not <integration>"` filter — or your runner's equivalent).
-- Also part of DoD — beyond the test tiers, mirror the repo's NON-TEST PR-CI gates: read
-  the gate list off the CI workflow itself (do not recite it from memory) and run each
-  gate exactly as CI invokes it (same commands/flags) — typically the formatter CHECK,
-  linter, typecheck, and build/packaging. A green test run with a red format check still
-  bounces the PR.
+- If local commits are authorized, follow the repository's commit-history and checkpoint policy.
+  Create reviewable durable checkpoints at safe boundaries; do not introduce work-in-progress or
+  per-finding commits unless the repository or user requires them. Without commit authority, keep
+  the diff reviewable and report its state at each handoff.
+- Definition of Done: run every locally reproducible gate that covers the slice. Include
+  the tier that exercises the real integration boundary — integration / e2e / compile /
+  a parse `--check-only` — rather than only a fast tier that stubs it. Also run applicable
+  non-test checks with the repository's documented commands and flags.
+- Classify a gate as CI-only only when it depends on protected infrastructure, secrets,
+  remote policy, or hardware unavailable locally. If any gate cannot run, report the
+  reason, substitute evidence, and remaining risk. Do not report that gate as passed.
 - If a shared file is OWNED by a sibling slice this wave (the prompt names the owners),
   do NOT edit it — flag the needed change in your report and let the orchestrator route it.
 - Also part of DoD — deep-module reuse: if your change belongs in a shared/deep module (a
@@ -117,93 +135,147 @@ You are implementing <slice> in an ISOLATED git worktree.
   the change there and flag it in your report; when a SIBLING slice owns it, flag it for
   the owner/orchestrator instead of editing (previous line) — the lead reassigns
   ownership or serializes the slice, but the change still lands.
-- When done: **commit and push your branch — do NOT open the PR.** The orchestrator opens
-  every PR so the close-vs-reference keyword and PR conventions are applied in one place.
-  Report the branch name, the commit SHA, the exact test command + its result counts, the
-  linked issue/spec and **whether your slice fully satisfies it or only advances it** (so the
-  lead can choose `Closes #N` vs `Refs #N`), and any deep module you reused or shared file
-  you had to touch.
+- When done, commit only if local commit authority was granted. Do not push or perform any
+  other remote write unless the prompt lists that exact action. Report the branch, local
+  commit or uncommitted diff, exact validation commands and results, CI-only/unavailable
+  gates with residual risk, the source requirement, whether the slice fully satisfies it,
+  and any shared module or file involved.
 ```
 
 Worktree setup / cleanup:
 
 ```bash
-git worktree add -b feat/<slice> ../wt-<slice> origin/main   # worktree on a FRESH branch off main
-# ... agent implements, commits, pushes; the orchestrator opens the PR ...
-git worktree remove ../wt-<slice>                            # ONLY after its PR is merged
+git worktree add -b <slice-branch> <slice-worktree> <remote>/<base-branch>
+# ... agent performs only the authorized local work and remote writes ...
+git worktree remove <slice-worktree>  # only after its local artifacts are retained and integration is complete
 ```
 
-> Create the branch *with* the worktree (`-b`). `git worktree add ../wt origin/main`
+> Create the branch *with* the worktree (`-b`). `git worktree add <worktree> <remote>/<base-branch>`
 > (no `-b`) checks out in **detached HEAD**, so a follow-up `git branch -m` fails with
 > "cannot rename the current branch while not on any". The in-place `git branch -m`
-> above is only for the *harness-pre-created* branch case, where a branch already exists.
+> above is only for the *orchestrator-pre-created* branch case, where a branch already exists.
 
 > **Why `git branch -m`, not `switch -c`:** all worktrees share one `.git`, so refs are
 > global and a branch op meant for the worktree can land on the shared checkout when the
-> cwd has reset. Observed leaking to the parent's `main`/HEAD (even via `git reset
-> --hard`) more than once — see §7 for the verification that catches it.
+> cwd has reset. A leaked operation can move the shared checkout's branch or HEAD, including
+> through a reset. See §7 for the verification that catches it.
 
 ## 4. Merge recipe (serial, dependency order)
 
-Merging is an ordered serial workflow, not a fan-out:
+Merging is an ordered serial workflow, not a fan-out. Run local rebase/squash commands
+only with execution authority, and run pushes or hosted merges only with the corresponding
+remote-write authority.
 
-1. **Tracer first**, then **rebase each follower onto the new base**, then independent
-   groups can merge in any order.
-2. **Re-poll mergeability after every merge** — the host (e.g. GitHub) recomputes it
-   asynchronously, so a `CLEAN` PR can flip to `CONFLICTING` once a sibling merges.
+1. **Foundation slice first**, then **rebase each dependent follow-up slice onto the new
+   base**. Independent groups can integrate in any order.
+2. **Re-poll mergeability after every merge** — a hosting service can recompute it
+   asynchronously, so a previously mergeable change can become conflicting after a sibling merges.
 3. **A clean auto-merge still gets the integration gate** (§6) — the marker-free traps
    in §5 hide precisely in conflict-free rebases.
 
-**Base remediation invalidates dependent PR evidence.** If PR-A is the base for PR-B,
-then every review fix, doc fix, or force-push on A requires a fresh B check. Rebase B
-onto A's updated head, re-run the gates that cover the touched surface, and inspect B's
-user/agent-visible docs before treating it as merge-ready. A dependent PR can be green
-and still be stale because the base changed after its CI run.
+**Base remediation invalidates dependent-change evidence.** If change A is the base for
+change B, then every review fix, documentation fix, or history rewrite on A requires a
+fresh B check. Rebase B onto A's updated head, rerun the gates that cover the touched
+surface, and inspect B's user/agent-visible documentation before treating it as ready.
+A dependent change can retain an old green result after its base has changed.
 
-### Stacked PR after its base was squash-merged
+### Stacked change after its base was squash-merged
 
-If the repo **squash-merges** and PR-B is stacked on PR-A, then once A is squash-merged
-into main, do **NOT** `git merge origin/main` into B: B carries A's *individual* commits
-via the branch point while main now has A as *one* squash commit, so git sees divergence
+If the repository **squash-merges** and change B is stacked on change A, then once A is
+squash-merged into the base branch, do **NOT** merge the base branch into B. B carries
+A's individual commits via the branch point while the base now has one squash commit, so git sees divergence
 and conflicts on **every file A touched** (even files B never edited).
 
-Replay only B's own commits onto main instead. If B is a normal branch with only B's
-commits after A, preserve its commit structure:
+Before any command that mutates B's index, worktree, or history, complete this local
+preflight in B's worktree:
 
 ```bash
-git -C <B-worktree> fetch origin
-git -C <B-worktree> rebase --onto origin/main <old-A-branch-or-sha> B-branch
-# resolve only genuine A↔B overlap, run fast + integration tiers, then:
-git -C <B-worktree> push --force-with-lease
+git -C <B-worktree> rev-parse --show-toplevel             # must be <B-worktree>
+git -C <B-worktree> branch --show-current                 # must be <B-branch>
+git -C <B-worktree> status --porcelain=v1                 # must be empty: index + worktree
+git -C <B-worktree> fetch <remote>
+git -C <B-worktree> rev-parse --verify <remote>/<base-branch>
+original_tip=$(git -C <B-worktree> rev-parse <B-branch>)
+test -n "$original_tip"
+```
+
+Stop if the root, branch, clean-state, base-refresh, or local-tip check fails. Keep `original_tip`
+as the recovery reference. The fetch makes `<remote>/<base-branch>` current for both local-only and
+published-branch rebases. A local-only rebase does not require B to have a remote branch.
+
+When a push is authorized and planned, inspect B's remote state before rewriting history:
+
+```bash
+remote_result=$(git -C <B-worktree> ls-remote <remote> refs/heads/<B-branch>) || exit 1
+expected_remote_sha=$(printf '%s\n' "$remote_result" | awk '{print $1}')
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> merge-base --is-ancestor "$expected_remote_sha" "$original_tip" || exit 1
+fi
+```
+
+An empty `expected_remote_sha` means that B is unpublished; it does not block the local rewrite.
+If another process can touch the worktree, repeat the branch and clean-state checks immediately
+before the rewrite. For a published branch, keep the recorded expected SHA until the push. Never
+replace it with the post-rewrite local SHA.
+
+Replay only B's own commits onto the base branch. If B contains only its own commits after
+A, preserve its commit structure:
+
+```bash
+git -C <B-worktree> rebase --onto <remote>/<base-branch> <old-A-tip> <B-branch>
+# resolve only genuine A/B overlap; run applicable locally reproducible gates; then verify:
+git -C <B-worktree> branch --show-current                 # must still be <B-branch>
+git -C <B-worktree> status --porcelain=v1                 # must be empty
+# only with explicit push authority; force only when the branch was already published:
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> push \
+    --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
+    <remote> HEAD:refs/heads/<B-branch>
+else
+  git -C <B-worktree> push <remote> HEAD:refs/heads/<B-branch>
+fi
 ```
 
 If B has messy local history and you want a single merge commit's worth of B content,
 squash B first, then replay it:
 
 ```bash
-# Scope EVERY mutating git command with `-C <B-worktree>` (per §3/§7 — never let a
-# command run against the shared checkout because cwd reset). Don't chain with `&&`,
-# which hides an unscoped second command.
-base=$(git -C <B-worktree> merge-base B-branch A-branch)        # branch point where B forked off A
-git -C <B-worktree> reset --soft "$base"                        # squash B → 1 commit ...
-git -C <B-worktree> commit -m "<B title>"                       # ... (scoped: lands in B, not main)
-git -C <B-worktree> rebase --onto origin/main "$base" B-branch  # 1 commit → ONE conflict pass
-# resolve only the genuine A↔B overlap, run fast + integration tiers, then:
-git -C <B-worktree> push --force-with-lease
+# Complete the same preflight above first. Scope every mutation with `-C <B-worktree>`.
+base=$(git -C <B-worktree> merge-base "$original_tip" <old-A-tip>)
+git -C <B-worktree> reset --soft "$base"
+git -C <B-worktree> diff --cached --check
+git -C <B-worktree> commit -m "<B title>"
+git -C <B-worktree> rebase --onto <remote>/<base-branch> "$base" <B-branch>
+# resolve only genuine A/B overlap; run applicable locally reproducible gates; then verify:
+git -C <B-worktree> branch --show-current                 # must still be <B-branch>
+git -C <B-worktree> status --porcelain=v1                 # must be empty
+# only with explicit push authority; force only when the branch was already published:
+if test -n "$expected_remote_sha"; then
+  git -C <B-worktree> push \
+    --force-with-lease="refs/heads/<B-branch>:$expected_remote_sha" \
+    <remote> HEAD:refs/heads/<B-branch>
+else
+  git -C <B-worktree> push <remote> HEAD:refs/heads/<B-branch>
+fi
 ```
 
-> The portable lesson is host-agnostic: **replay only B's own commits with `git rebase
-> --onto`; never merge the base in.** The `main` / `origin/main` names are just this
-> example's base branch and remote — substitute your own.
+> The portable rule is: **replay only B's own commits with `git rebase --onto`; never
+> merge the squash-merged base into B.** Preserve the original local tip, bind any history
+> rewrite push to the exact remote SHA observed before the rewrite, and stop on drift.
 
-After the replay, update the PR metadata before merging:
+After the replay, update the hosted change record before merging, but only with authority
+for those remote writes:
 
-- retarget the PR to the real base branch if the host did not already do it
-- remove stale "stacked on PR-A" text
-- change `Refs #N` to `Closes #N` only if B now fully satisfies the issue
-- refresh any verification evidence recorded in the PR description to the commands
+- retarget the change to the real base branch if the host did not already do it
+- remove stale text about its former stacked base
+- mark the source work item complete only if B now fully satisfies it
+- refresh any verification evidence recorded in the change description to the commands
   actually run on the post-rebase head
-- wait for CI on the new head; old green checks belonged to the stacked base
+- wait for required CI-only gates on the new head before a hosted merge; old green checks
+  belonged to the stacked base
+
+If the required remote writes are not authorized, report each pending update and the
+remaining merge risk without performing it.
 
 ## 5. The two silent merge hazards (no conflict marker; fast tests still pass)
 
@@ -237,26 +309,37 @@ the grep heuristic might miss in another language.
 
 ## 6. Verification & Definition of Done
 
-- **Re-run the integration tier yourself before merging.** A `mergeable=CLEAN` rebase is
-  exactly where the §5 marker-free traps hide; do not let CLEAN substitute for the gate.
+Classify every required gate before execution:
+
+- **Locally reproducible:** the required dependencies and environment are available without
+  protected secrets or remote-only infrastructure. Run these gates locally with the authoritative
+  commands and flags before integration.
+- **CI-only:** the gate requires protected infrastructure, secrets, remote policy evaluation, or
+  hardware that is not available locally. Do not simulate a pass. Record why it cannot run locally,
+  the substitute evidence gathered, and the remaining risk. When remote execution is authorized,
+  require its result on the exact candidate head before merge.
+
+An unavailable local dependency does not automatically make a gate CI-only. First determine whether
+the documented environment can be reproduced safely. If it cannot, record the limitation as above.
+
+- **Re-run the locally reproducible integration tier yourself before merging.** A clean rebase is
+  exactly where the §5 marker-free traps hide; do not let mergeability substitute for the gate.
 - **Beware the test-tier blind spot.** A fast tier that stubs the integration boundary
   (fakes/mocks/in-memory doubles) never executes the merged artifact, so it passes on a
   broken merge. After touching an integration point, run the real tier (integration /
   e2e / compile / parse-check).
-- **A green DoD is not spec conformance — re-read each slice against its *originating
-  spec*.** Passing its own tests + CI proves a slice does what its author built, not what
+- **A green DoD is not requirement conformance — re-read each slice against its source
+  requirement.** Passing its own tests and hosted gates shows what the implementation does, not what
   the spec/decision required; the author's tests inherit the author's blind spot. Before
-  merging, the orchestrator adversarially re-reads each slice against the spec that
-  spawned it and hunts the contract gap those tests can't see. This *front-runs* the fixed
-  external per-PR review — it complements that review, never replaces or duplicates it —
-  and how deep to go is the orchestrator's call.
+  merging, the orchestrator re-reads each slice against its source requirement and looks
+  for contract gaps that its tests do not cover. This complements independent review; it
+  does not replace it. The orchestrator selects review depth from the slice's risk.
 - **Public-surface consistency is part of integration.** When a slice changes a public
   shape or user/agent-observable behavior, audit every mirrored surface before merge:
-  CLI/help text, schema/model descriptions, command catalogs, README-style user docs,
-  generated or translated docs and their sync markers, and bundled agent skills or
-  playbooks. Re-run the repo's doc/skill/schema sync tests. Do this again after base
-  review fixes in a stacked PR, because the dependent PR may carry stale help text or
-  regenerated docs even when its code tests pass.
+  command/help text, schema/model descriptions, public documentation, generated or
+  translated artifacts, and bundled agent guidance. Rerun the project's applicable
+  consistency checks. Do this again after base review fixes in a stacked change, because
+  the dependent change can carry stale generated surfaces even when its code tests pass.
 - **Run shared-global-resource tests SERIALLY across worktrees.** If the integration
   tier contends on a global resource — a shared log directory, a fixed port, a fixed
   on-disk fixture/path — concurrent runs across worktrees race and produce spurious
@@ -278,85 +361,88 @@ the grep heuristic might miss in another language.
   whose diff cannot touch that path points at infra, not the change. Adjudicate with:
   re-run the single test standalone, then demand one fully green full run — an
   intermittent display/timing-dependent test that passes both is a flake to note, not a
-  blocker (but say so honestly in the PR).
-- **Scale the heaviest gate to the wave, not the PR (a cost decision the lead sets).**
+  blocker (but record it honestly in the change evidence).
+- **Scale the heaviest gate to the wave, not each change request (a cost decision the lead sets).**
   When the full integration tier is expensive (long CI runs, real engines/devices), a
   workable economy is: per-branch risk covered by the lead's local serial runs (above),
-  PR CI running only the cheap tiers, and ONE full-tier run on the merged trunk after
-  the wave's last merge as the wave gate. The trade is deferred detection on the trunk —
+  per-change hosted validation running only the cheap tiers, and one full-tier run on the
+  integrated base after the wave's last merge. The trade is deferred detection on the integrated base —
   make it deliberately, not by default.
-- **Close the review loop.** For actionable PR review comments, implement the fix,
-  re-run the relevant gates, push, and reply or resolve the thread according to the
-  repo's convention. Review remediation can touch shared docs or other hotspots, so
-  update the overlap map and dependent PR plan after each review fix.
+- **Close the review loop.** For actionable review comments, implement the fix,
+  rerun the relevant gates, then push and reply or resolve only when those remote writes
+  are authorized. Follow the host's convention. Review remediation can touch shared surfaces, so
+  update the overlap map and dependent-change plan after each review fix.
 
 ## 7. Resilience & takeover
 
-- **Commit early.** Truncation/kill only loses *uncommitted* work; an agent cut off
-  before committing can leave a broken, unsaved file in its worktree.
+- **Create durable local artifacts at safe boundaries when authorized.** Follow the repository's
+  commit-history and checkpoint policy. Without commit authority, keep the diff reviewable and
+  report its state at each handoff.
 - **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
   resuming the ORIGINAL implementer (its context is intact), but do not assume it
-  remembers the rules it followed last round: restate worktree pinning, commit-early,
-  and the §3 DoD gates in the round's dispatch brief, and require **one commit per finding**. Kills
+  remembers the rules it followed last round: restate worktree pinning, checkpoint policy,
+  permissions, and the §3 DoD gates in the round's dispatch brief. Require one commit per finding
+  only when the repository or user explicitly requires that granularity. Otherwise map findings to
+  their resolutions in the handoff. Kills
   strike mid-round too (session/usage limits, not just truncation) — one real agent
   finished an entire review/fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
   against the findings it claims to fix, run the same gates the dispatch DoD requires
-  (§3: the integration tier plus the PR-CI gate list read off the CI workflow), then
-  commit and push it under an honest message. Don't re-dispatch what a diff review can
+  (§3: the locally reproducible gates plus the recorded CI-only gates), then commit or
+  push only when each action is authorized. Don't re-dispatch what a diff review can
   verify — and don't commit what you haven't read.
-- **Trivial mechanical CI failures are the lead's to fix in place.** A formatter diff or
+- **Trivial mechanical validation failures are the lead's to fix in place when authorized.** A formatter diff or
   an import sort on an otherwise-verified branch is cheaper to fix, test, and push
   yourself than to re-dispatch an agent for.
 - **"Completed but no artifact" = needs-takeover.** Never trust a completion claim —
   independently verify with `git status` (clean?), `git log` (recent commits?), and
-  remote-tracking (pushed?). Also seen: an agent reports done while its test run is "still
-  settling" (no counts), or committed but never pushed — both are takeover, re-run and
-  finish it yourself.
-- **The orchestrator opens the PR — and decides `Closes #N` vs `Refs #N`.** PR creation is
-  the lead's, not the subagent's (§3). Once a slice's pushed commits verify, open its PR
-  yourself. Use the closing keyword `Closes #N` **only when that PR fully satisfies the
-  linked issue** (all acceptance criteria, verified); for a tracer, round-out, or
-  stacked/multi-wave slice that only *advances* the issue, use a non-closing `Refs #N` so a
-  partial merge does not close it prematurely. Do not delegate the keyword to the subagent
-  and spot-check it after: even when the brief demands it, subagent-authored PRs reliably
-  bury or omit it — owning PR creation removes the failure mode.
-- **Verify the shared checkout after every worktree agent.** Confirm the main checkout is
-  still on its branch and clean (`git -C <main> branch --show-current`, `git status
+  remote-tracking when a push was authorized and expected. An agent report with no
+  completed validation result, or with an expected push absent, needs takeover and verification.
+- **The orchestrator owns hosted integration records when remote writes are authorized.**
+  Once a slice's published commits verify, create or update its change request according
+  to the host's convention. Mark a source work item complete only when that slice satisfies
+  every acceptance criterion. A foundation slice, dependent follow-up slice, or stacked
+  partial change must remain non-closing. Without remote-write authority, report the
+  required record and do not create or update it.
+- **Verify the shared checkout after every worktree agent.** Confirm the shared checkout is
+  still on its branch and clean (`git -C <shared-checkout> branch --show-current`, `git status
   --short`, no stray branches) before relying on it — worktree agents have leaked git
   ops to it (§3).
-- **Force-pushing a *feature* branch after a rebase is normal** (`--force-with-lease`).
-  Distinguish it from touching shared/protected branches; don't let a generic
-  "dangerous git" guardrail block the legitimate rebase → force-push of a PR branch you own.
+- **A history-rewrite push of a published branch requires explicit authority and an explicit
+  lease.** Use the exact expected remote SHA recorded by §4; bare `--force-with-lease` is not
+  enough for this recipe. An unpublished branch uses a normal initial push. Never rewrite a shared
+  or protected branch.
 
 ## 8. Architectural fix: kill the hotspots
 
 The durable cure for append conflicts is to stop appending to shared files: **split each
 central registry / dispatch table / map so every module owns its own fragment that is
 auto-collected** (one file per module, discovered/aggregated at build or load). Then
-independent slices stop colliding at all, and per-PR conflict count drops from "many
+independent slices stop colliding at all, and per-change conflict count drops from "many
 files, many regions" toward 1–2. When the conflict tax is high, this is worth a dedicated
-design decision (an ADR) of its own.
+design decision record.
 
 ## 9. Pre-launch checklist
 
 - [ ] Slices in this wave are independent (no shared module/group); coupled ones serialized.
-- [ ] Wave ≤ ~5; will merge before the next wave.
+- [ ] Wave ≤ ~5; the plan integrates it before the next wave when execution is authorized.
+- [ ] Operating mode is explicit: planning-only stops after the plan; execution lists allowed local mutations.
+- [ ] Every push, change-request write, merge, review reply, and tracker update has separate explicit authority or is marked pending.
 - [ ] Every append hotspot has exactly ONE owner slice this wave; sibling prompts say "flag, don't edit" (§1).
-- [ ] Each subagent's DoD includes the integration tier (not just the stubbed fast tier).
-- [ ] Each subagent's DoD covers the PR-CI gate list read off the CI workflow itself — the test tiers plus the non-test gates (formatter check, lint, typecheck, build), invoked as CI invokes them (§3).
+- [ ] Each subagent's DoD includes every applicable locally reproducible gate, including the real integration boundary.
+- [ ] Each CI-only or unavailable gate records the reason, substitute evidence, remaining risk, and exact-head requirement (§3, §6).
 - [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
-- [ ] Review/fix rounds restate the dispatch discipline (resume the original agent; one commit per finding); actionable review comments are closed with code/tests plus a finding→resolution reply or thread resolution on the review channel — by the lead, who re-verifies and keeps the PR/change description current where the host supports it (§6, §7).
-- [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.
-- [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
-- [ ] Stacked followers have an explicit retarget/rebase plan for after the base PR lands
-      or receives review fixes; old base branch/SHA is recorded for `rebase --onto`.
+- [ ] Review/fix rounds restate worktree, permission, and gate requirements; remote review replies occur only when authorized (§6, §7).
+- [ ] Agents are pinned to their worktrees; local artifacts follow the granted commit authority; "done but no artifact" = takeover.
+- [ ] Merge order decided (foundation slice before dependent follow-up slices); after each resolution, audit for the marker-free traps.
+- [ ] Stacked followers have an explicit retarget/rebase plan for after the base change lands
+      or receives review fixes; the original local tip is recorded before mutation, and the expected
+      remote SHA is recorded when a published branch will be rewritten and pushed.
 - [ ] Shared-global-resource tests will run serially across worktrees.
 - [ ] Orchestrator will independently re-verify before each merge.
-- [ ] Any public-surface change has a docs/schema/help/agent-skill/i18n sync gate in the
-      orchestrator's verification plan.
-- [ ] PR creation is the orchestrator's: subagents commit + push only; the lead opens each PR and chooses `Closes #N` (only if the slice fully satisfies its issue) vs `Refs #N`.
-- [ ] If append hotspots keep causing conflicts, consider splitting them (ADR).
+- [ ] Any public-surface change has the applicable documentation/schema/help/generated-artifact consistency gates in the orchestrator's verification plan.
+- [ ] Hosted integration records are orchestrator-owned when authorized; partial slices do not close their source work item.
+- [ ] If append hotspots keep causing conflicts, consider splitting them through a design decision.
 
 ## 10. Cost / benefit
 
@@ -364,4 +450,4 @@ design decision (an ADR) of its own.
 |---|---|
 | **Wins** | implementation wall-clock (large); context isolation (each agent's tool output stays out of the orchestrator); independent-perspective quality (adversarial review surfaces hidden issues — one slice even found a latent bug in neighboring code) |
 | **Costs** | merging is serial and can be conflict-heavy; duplicated scaffolding; verification burden on the orchestrator; truncation risk at large batch sizes |
-| **Net** | strongly positive for independent, modest-sized waves **with an integration-tier test gate**; neutral-to-negative for tightly-coupled slices hammering shared files |
+| **Net** | strongly positive for independent, modest-sized waves with applicable locally reproducible and CI-only gates; neutral-to-negative for tightly-coupled slices hammering shared files |
