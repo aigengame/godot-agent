@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass
 
-from gda_balancing.domain.model.checking import check_model_source
-from gda_balancing.domain.model.compilation import verify_checked_model
+from gda_balancing.domain.model import check_model_source, verify_checked_model
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 
 

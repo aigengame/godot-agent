@@ -4,8 +4,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
-from gda_balancing.domain.model import compilation
-from gda_balancing.domain.model.checking import check_model_source
+from gda_balancing.domain.model import (
+    authority_context_for_checked,
+    check_model_source,
+    compile_checked_model,
+    model_build_command_input_identity,
+    validate_compiled_artifacts,
+)
 from gda_balancing.domain.publication import (
     publication_authentication_key,
     publish_lazy_artifact_set,
@@ -46,15 +51,15 @@ def build_model(
     if isinstance(checked, Schema2RefusalReport):
         return checked
     receipt = publish_lazy_artifact_set(
-        compilation.authority_context_for_checked(checked),
+        authority_context_for_checked(checked),
         checked.source_identity,
         out,
         invocation_key,
         descriptor_identity,
-        compilation.model_build_command_input_identity(checked),
+        model_build_command_input_identity(checked),
         artifact_set,
-        lambda: compilation.compile_checked_model(checked),
-        compilation.validate_compiled_artifacts,
+        lambda: compile_checked_model(checked),
+        validate_compiled_artifacts,
         publication_fault,
         authentication_key=authentication_key,
     )

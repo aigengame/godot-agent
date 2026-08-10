@@ -9,7 +9,7 @@ from gda_balancing.domain.authority.context import (
     admit_authority_context,
 )
 from gda_balancing.domain.canonical import JsonValue
-from gda_balancing.domain.model.resolution import (
+from gda_balancing.domain.model._resolution import (
     CheckedModel,
     _RESOLVER_IMPLEMENTATION_IDENTITY,
     _formula_policy,
@@ -17,7 +17,7 @@ from gda_balancing.domain.model.resolution import (
     _pointer,
     _resolution_profile,
 )
-from gda_balancing.domain.model.lowering import (
+from gda_balancing.domain.model._lowering import (
     _LOWERER_IMPLEMENTATION_IDENTITY,
     _compile_initialization_programs,
     _composition_policy,
@@ -31,7 +31,7 @@ from gda_balancing.domain.model.lowering import (
     _runtime_projection_budget,
     _specialize_operation_formula_slots,
 )
-from gda_balancing.domain.model.admission import (
+from gda_balancing.domain.model._admission import (
     _model_explanation_pairs_are_admitted,
     admit_resolved_model,
 )

@@ -4,9 +4,9 @@ from typing import Any, cast
 
 from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.canonical import JsonValue
-from gda_balancing.domain.model.compilation import validate_compiled_artifacts
-from gda_balancing.domain.model.inspection_types import ModelInspectAdmissionError
-from gda_balancing.domain.model.admission import _model_explanation_pairs_are_admitted
+from gda_balancing.domain.model._compilation import validate_compiled_artifacts
+from gda_balancing.domain.model._inspection_types import ModelInspectAdmissionError
+from gda_balancing.domain.model._admission import _model_explanation_pairs_are_admitted
 from gda_balancing.domain.publication import read_authenticated_artifact_set
 from gda_balancing.domain.publication_types import PublicationAdmissionError
 

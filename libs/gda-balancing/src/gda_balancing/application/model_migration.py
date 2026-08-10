@@ -27,8 +27,7 @@ from gda_balancing.domain.authority.context import (
 )
 from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
-from gda_balancing.domain.model.checking import check_model_source_value
-from gda_balancing.domain.model.resolution import CheckedModel
+from gda_balancing.domain.model import CheckedModel, check_model_source_value
 
 
 MigrationAuthorityProvider = Callable[[], AdmittedAuthorityContext]
