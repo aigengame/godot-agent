@@ -33,7 +33,7 @@ Choose repository-native names, but preserve these ownership roles:
 | Role | Owns | Must not become |
 | --- | --- | --- |
 | Requirements/PRD | user outcomes, scope, acceptance criteria, live completion | detailed architecture or evidence by assertion |
-| Architecture narrative | macro topology, responsibilities, cross-cutting invariants, delivery order | duplicate detailed decisions or machine semantics |
+| Architecture narrative | macro topology, responsibilities, cross-subsystem invariants, delivery order | duplicate detailed decisions or machine semantics |
 | Decision records | one binding decision, alternatives, consequences, validation | status dashboard or broad narrative |
 | Glossary/context | canonical terms and distinctions | a second architecture specification |
 | Specification/standard | normative semantics, public contracts, conformance requirements, versioning, and designation of normative machine-readable artifacts | architecture rationale, implementation details, evidence, or acceptance state |

@@ -10,7 +10,7 @@ balancing-domain knowledge. The toolkit's context is confined to this directory.
 
 - **`BALANCING-CONTEXT.md`** at this package's root — the toolkit's glossary / shared language.
 - **`docs/ARCHITECTURE.md`** — the Standard Schema 2.0 macro architecture, subsystem boundaries,
-  cross-cutting invariants, and validation order; read it for any 2.x architecture work.
+  cross-subsystem invariants, and validation order; read it for any 2.x architecture work.
 - **`docs/badr/`** — balancing decision records (bADR); read the ones touching the area
   you'll work in.
 

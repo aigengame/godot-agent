@@ -9,7 +9,7 @@ non-Turing-complete modeling language with deterministic execution and an immuta
 it is not a larger JSON template format.
 
 This document is the human-readable authority for the **macro architecture**: system topology,
-subsystem boundaries, cross-cutting invariants, and the order in which the design becomes an
+subsystem boundaries, cross-subsystem invariants, and the order in which the design becomes an
 implemented and proven Standard Schema 2.0. It synthesizes the accepted design decisions, PRD,
 domain language, genre-coverage contract, four disposable architecture-probe rounds, and
 maintained-product dogfooding.
@@ -25,7 +25,7 @@ module, or prototype may become an accidental second specification.
 
 | Authority | Owns | Does not own |
 | --- | --- | --- |
-| This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-cutting invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
+| This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
 | [bADR-0012…0025](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
