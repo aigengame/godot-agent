@@ -26,6 +26,10 @@ peer authority merely because its terminology is reused.
 
 ### 3. Iterative probes
 
+The selected direction is translated into a concrete module structure. That structural pass returns
+claims about responsibility ownership, dependency direction, and extension boundaries. The probes
+below test those claims; an adopted refinement changes only the affected structural decisions.
+
 1. An end-to-end slice compiles one policy, runs it, and publishes an audit. It confirms connectivity
    but exposes ambiguous refusal staging and identity.
 2. Two independent runtimes consume each other's canonical artifacts. A mutation test reveals one

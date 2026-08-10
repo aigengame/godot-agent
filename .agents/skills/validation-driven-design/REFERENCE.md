@@ -4,9 +4,9 @@ Use this file for detailed templates, proof obligations, and delivery gates. `SK
 owns the design workflow; this file does not restate it.
 
 Contents: [modes and authority](#1-engagement-modes-and-authority-map) ·
-[claims](#2-claim-and-evidence-ladder) · [theory](#3-theory-support-matrix) ·
+[claims](#2-claim-evidence-ladder) · [theory](#3-theory-support-matrix) ·
 [external research](#4-external-system-research-matrix) · [validation](#5-validation-portfolio) ·
-[quality gates](#6-four-design-axes-and-cross-cutting-qualities) ·
+[quality gates](#6-four-design-axes-and-cross-cutting-quality-attributes) ·
 [defect attribution](#7-defect-attribution-ladder) · [delivery](#8-delivery-gates-and-production-planning) ·
 [completion](#9-completion-audit)
 
@@ -18,13 +18,13 @@ Choose mode before building the authority map:
 | --- | --- | --- |
 | `lightweight` | a bounded, reversible decision can be owned by one compact decision record and does not change a public contract, extension contract, or production boundary | owner, requirement/decision, falsifier, affected axes, one discriminating check, non-claims, and human decision gate |
 | `full-design` | a framework/language/runtime or broad, hard-to-reverse claim changes authority, semantics, extension, or production boundaries | the complete workflow, matrices, proof obligations, and delivery gates |
-| `audit-only` | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis and cross-cutting-quality findings, completion gaps, and recorded human decision outcome; no edits unless requested |
+| `audit-only` | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis findings, findings about cross-cutting quality attributes, completion gaps, and recorded human decision outcome; no edits unless requested |
 
 Every mode keeps explicit authority, falsifier, non-claims, and human decision ownership. Scale the
 remaining evidence work to claim breadth, reversibility, novelty, and operational risk.
 
-`lightweight` is a ceiling as well as a minimum: start with one compact decision record and
-one discriminating check. Do not create theory/research matrices, a prototype portfolio, the full
+`lightweight` sets the minimum and maximum initial scope: start with one compact decision record
+and one discriminating check. Do not create theory/research matrices, a prototype portfolio, the full
 delivery sequence, or a full completion audit unless the falsifier exposes a specific need; state
 why before expanding. `audit-only` similarly reports only findings inside the pinned claimed scope.
 
@@ -39,7 +39,7 @@ Choose repository-native names, but preserve these ownership roles:
 | Requirements | user outcomes, scope, acceptance criteria, live completion | detailed architecture or evidence by assertion |
 | Architecture narrative | macro topology, responsibilities, cross-cutting invariants, delivery order | duplicate detailed decisions or machine semantics |
 | Decision records | one binding decision, alternatives, consequences, validation | status dashboard or broad narrative |
-| Glossary/context | canonical terms and distinctions | a second architecture specification |
+| Glossary/context | canonical domain terms, distinctions, and model scope | a second architecture specification |
 | Specification/standard | normative semantics, public contracts, conformance requirements, versioning, and designation of normative machine-readable artifacts | architecture rationale, implementation details, evidence, or acceptance state |
 | Executable conformance assets | machine-checkable schemas, executable conformance cases, validators, and observable oracles that realize or test the specification | an independent semantic authority or proof merely because tests pass |
 | Evidence record | prototype/research inputs, outputs, provenance, bounded conclusions | semantic authority or acceptance state |
@@ -60,11 +60,12 @@ For each fact, mark exactly one authoritative source and every derived copy. Pre
 reference over restating a list, algorithm, count, precedence rule, or state machine. Reconcile the
 pinned current artifact revision and any live coordination state after each design iteration.
 
-## 2. Claim and evidence ladder
+## 2. Claim evidence ladder
 
-Use exact, bounded language:
+A claim evidence state records evidence strength or an explicit scope boundary. It is separate from
+an artifact or decision lifecycle status. Use exact, bounded language:
 
-| State | Meaning | Sufficient evidence |
+| Claim evidence state | Meaning | Sufficient evidence |
 | --- | --- | --- |
 | `proposed` | a candidate mechanism | rationale only |
 | `theory-supported` | established theory explains why the mechanism should work | explicit theory-to-invariant mapping and proof boundary |
@@ -86,8 +87,8 @@ Dogfooding uses a separate disposition namespace:
 | `gap-opened` | the observation exposed an unresolved defect, ambiguity, or evidence gate |
 | `no-design-effect` | the observation was instance-local, out of claim scope, or required no normative change |
 
-After recording the disposition, set the affected claim to the applicable maturity state above.
-Never reuse a claim-state label as a dogfooding disposition.
+After recording the disposition, set the affected claim to the applicable claim evidence state above.
+Never reuse a claim evidence state as a dogfooding disposition.
 
 ## 3. Theory-support matrix
 
@@ -126,6 +127,7 @@ Rules:
    otherwise record the evidence form that can discriminate the claim.
 5. Treat an external version change as a deliberate local design decision, never ambient drift.
 6. Compare with non-adoption: importing a standard can cost more authority and surface than it saves.
+7. Treat external systems as architecture evidence, not as authority for local domain meaning.
 
 ## 5. Validation portfolio
 
@@ -136,7 +138,7 @@ Choose validation form by uncertainty:
 | layer connectivity/integration | smallest end-to-end slice |
 | semantic authority/portability | two independent interpreters or compilers consuming each other's artifacts |
 | state/lifecycle/order | executable state-machine or scheduler harness with boundary permutations |
-| orthogonality | add one independent axis, then exercise cross-products and mutation cases |
+| orthogonality | vary one concern while holding the others fixed, then test pairwise and cross-product compositions and ordering cases |
 | extensibility | add an out-of-family capability through public contracts with unchanged core/builds |
 | requirement breadth | research corpus mapped to the coverage matrix, explicitly non-conforming |
 | human interaction/usability | visual or interactive prototype |
@@ -184,17 +186,21 @@ Run another disposable prototype only when the design adds or changes normative 
 extension contract, an authority owner or binding, or a comparably high-risk uncertainty. Otherwise
 move to permanent executable conformance cases and end-to-end production slices.
 
-## 6. Four design axes and cross-cutting qualities
+## 6. Four design axes and cross-cutting quality attributes
 
-The four axes assess design structure. Consistency, reliability, and operability apply across every
-axis; they are not additional peers in the design-axis taxonomy.
+The four axes assess design structure. Consistency, reliability, and operability are quality
+attributes that apply across every axis; they are not additional peers in the design-axis taxonomy.
 
 | Axis | Required questions | Strong evidence | Failure signal |
 | --- | --- | --- | --- |
 | Abstraction | What theory supports the model? Which semantics are public? Which implementation details may vary? | explicit semantic boundaries; preservation/refusal contracts; independent implementations | host behavior, serialization, framework, or optimizer becomes hidden authority |
 | Completeness | Do all known stories, failures, variants, interactions, operations, and production concerns map to observable contracts? | requirements-to-mechanism-to-scenario-to-conformance-case-to-observable matrix | vocabulary/package inventory presented as coverage; important paths only appear in prose |
-| Orthogonality | Does each concern have one owner and independent representation? Are cross-products and precedence closed? | mutation tests; pairwise/cross-product scenarios; canonical ordering/reducers | independent axes share hidden state or leave interaction order to the host |
+| Orthogonality | Does each concern in the selected orthogonal basis have a distinct meaning and reason to change? Is it necessary, non-overlapping, and independently variable? Does composition preserve this independence? | vary one concern while other observations stay fixed; pairwise and cross-product cases; explicit precedence where order matters | a concern can be removed without loss; changing one concern changes unrelated concerns; composition shares hidden state or leaves precedence to the host |
 | Extensibility | What is configuration, extension, framework evolution, or irreducible core? Can an out-of-family case use unchanged core and dispatch? | explicit extension invariance; fixed-build witness; negative capability/refusal cases | each new domain adds core fields, phases, switches, callbacks, or parallel semantics |
+
+Apply the authority rule in [SKILL.md §7](SKILL.md#7-run-design-axis-and-quality-attribute-gates) to
+specialized structural evaluation criteria. Use this table as the default coverage check, not as a
+parallel structural standard.
 
 Also audit consistency, reliability, and operability:
 
@@ -228,7 +234,7 @@ This section exclusively owns the detailed default delivery sequence:
 2. **Permanent conformance foundation:** replace prototype-local authority with versioned rules,
    schemas, fixtures, negative/mutation conformance cases, and reusable harnesses.
 3. **Production end-to-end slice:** exercise the public API/artifact path end to end.
-4. **Known-domain breadth:** close the full requirements coverage matrix without parallel semantics.
+4. **Known-scenario breadth:** close the full requirements coverage matrix without parallel semantics.
 5. **Out-of-family witness:** prove the extension promise against a structurally different consumer.
 6. **Production rollout:** validate security, performance, capacity, observability, recovery,
    compatibility/migration, deployment, rollback, and operational ownership.
