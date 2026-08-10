@@ -258,6 +258,37 @@ The following notation is an explanatory view of the relationships above. It doe
 machine semantics or replace a Kernel/LDB judgment. The function names describe architecture
 mechanisms; they are not public host API names.
 
+```text
+K       = one exact Schema-major Kernel Specification
+PR_i    = one exact Package Release
+L       = one whole Language Definition Bundle
+A       = one AdmittedAuthorityContext
+M       = one Model Source Package
+E       = one Experiment Specification
+ECM     = one Evaluator Capability Manifest
+RPD     = one Runtime profile definition
+Plat    = one platform identity
+X       = the external inputs bound by E
+s       = the effective seed owned by E
+
+Lock    = one canonical Package Lock
+AST     = one Authoring AST
+HIR     = one Typed HIR
+RIR     = one RIR semantic payload
+RM      = one Resolved Model
+RR      = one Resolved Runtime profile
+EIR     = one optional evaluator-private Execution IR
+D       = one Metric dataset
+Run     = one Evaluation run
+EA      = one Evidence assertion
+AR      = one Approval Record
+```
+
+`F_A(...)` means that host mechanism `F` consumes `A`. `Id(x)` is the exact content identity of
+`x`. `⊢` marks a proposition established by a successful judgment. `⇓` introduces the outcome.
+`...` stands only for other identities required by the admitted authorities. It does not permit a
+host implementation to add meaning.
+
 #### 3.4.1 Compact mental model
 
 The following expressions show the end-to-end success path. They omit diagnostic and negative
@@ -294,37 +325,7 @@ Domain_A -> Infrastructure
 
 #### 3.4.2 Detailed symbolic model
 
-```text
-K       = one exact Schema-major Kernel Specification
-PR_i    = one exact Package Release
-L       = one whole Language Definition Bundle
-A       = one AdmittedAuthorityContext
-M       = one Model Source Package
-E       = one Experiment Specification
-ECM     = one Evaluator Capability Manifest
-RPD     = one Runtime profile definition
-Plat    = one platform identity
-X       = the external inputs bound by E
-s       = the effective seed owned by E
-
-Lock    = one canonical Package Lock
-AST     = one Authoring AST
-HIR     = one Typed HIR
-RIR     = one RIR semantic payload
-RM      = one Resolved Model
-RR      = one Resolved Runtime profile
-EIR     = one optional evaluator-private Execution IR
-D       = one Metric dataset
-Run     = one Evaluation run
-EA      = one Evidence assertion
-AR      = one Approval Record
-```
-
-`F_A(...)` means that host mechanism `F` consumes `A`. `Id(x)` is the exact content identity of
-`x`. `⊢` marks a proposition established by a successful judgment. `⇓` introduces the outcome.
-`...` stands only for other identities required by the admitted authorities. It
-does not permit a host implementation to add meaning. Unless a refusal is shown, each expression
-shows only the successful branch of this general form:
+The detailed model uses the following outcome forms:
 
 ```text
 Operation_A(inputs) ⇓ Success(outputs)
