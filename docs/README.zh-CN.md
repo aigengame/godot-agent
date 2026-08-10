@@ -20,7 +20,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](../LICENSE)
 
 AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你补上这一环：你的 agent
-发出一个操作，拿回一个干净的 JSON 结果就能据此行动——而不是一堆需要费力翻找的引擎日志。
+发出一个操作，拿回一个干净的 JSON 结果就能据此行动——无需费力查找引擎日志。
 它有**两种模式**：
 
 - **Headless（无头）** — 一次性、无状态、零配置。无需编辑器插件、无需 daemon，
@@ -29,7 +29,7 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **Live（实时）** — 通过一个后台 daemon 操控*正在运行*的游戏，完成所有只有运行中的引擎才能做的事：
   读取运行时场景树、读写运行时属性、模拟输入、捕获截图、采样性能。
 
-> `gda` 目前处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前 CLI 界面
+> `gda` 处于 **pre-1.0** 阶段：目前每条命令都能端到端跑通，但在 1.0 之前 CLI 界面
 > 仍可能变化。
 
 ---
@@ -54,11 +54,11 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 
 - **🤖 结构化输出，为 agent 而生。** 每条命令在 stdout 上只输出**恰好一个** JSON
   对象（`--json`）；引擎横幅、警告和 `print()` 都走 stderr。你的 agent 解析的是一个结果，
-  而不是满屏日志。
+  而不是被大量日志淹没。
 - **📐 带类型、可自描述。** 每条命令的输入和输出都是带类型的模型，它们同时提供一份机器可读的
   `--schema`（JSON-Schema 契约），让 agent 能以编程方式发现并校验整个命令界面，而不必猜测。
 - **🔀 CLI、Skill、MCP——交给你的 agent 自选。** 用原生的 `gda` CLI 从终端或 CI 操控 Godot，
-  把随包附带的 **Skill**（`gda skill`）交给你的 agent、教它什么时候用、怎么用 CLI，或者把同一套操作以
+  把随包附带的 **Skill**（`gda skill`）交给你的 agent、教它何时以及如何使用 CLI，或者把同一套操作以
   **MCP** 工具的形式暴露出来（`gda-mcp`，由 CLI 自身的 schema 生成）。一套命令界面，三种接入方式——
   你的 agent 支持哪种就用哪种。
 - **🧩 Godot 原生命令。** 按 Godot 对象分组（`gda scene create`、
@@ -67,8 +67,8 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 - **⚡ 默认 Headless，需要时再 Live。** Headless 操作不需要 daemon、也不需要编辑器——
   只要一个 Godot 二进制文件。Live 操作则通过一个基于 Unix 域套接字的 daemon，为正在运行的游戏
   加上实时控制能力，用的还是同一套 CLI 语法。
-- **🛡️ 出错必然明确报出，绝不静默吞掉。** 引擎缺失或卡死都会明确报错（缺失直接报出，卡死由超时兜底），
-  并映射为一个**稳定的非零退出码**外加一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
+- **🛡️ 出错时明确报告，绝不静默忽略。** 引擎缺失会立即报错；引擎卡死则会触发超时处理。
+  这些错误都会映射为一个**稳定的非零退出码**，并附带一个结构化的 `{"error": {…}}` 信封——这样 shell 或 agent
   无需解析自然语言文本，就能按失败类别分支处理。
 
 ---
@@ -79,7 +79,7 @@ AI agent 擅长编写 GDScript，却很难看到*发生了什么*。`gda` 帮你
 | 你的需求 | 用这个 |
 | --- | --- |
 | 从 agent 或脚本生成项目文件 | `scene` / `node` / `script` / `resource` / `shader` / `theme`——以 Headless 方式创建和编辑 |
-| 解析结果，而不是翻找引擎日志 | `--json`（一个干净的对象）和 `--schema`（JSON-Schema 契约） |
+| 解析结果，而不是查找引擎日志 | `--json`（一个干净的对象）和 `--schema`（JSON-Schema 契约） |
 | 把 Godot 工具交给 agent | 随包附带的 **Skill**（`gda skill`）或 **`gda-mcp`** 服务器 |
 | 自动化 CI、导出和项目分析 | Headless 命令——无需编辑器、无需插件，只要一个 Godot 二进制文件 |
 | 调试*正在运行*的游戏的运行时行为 | `gda daemon start`，然后用 `game` / `diag` / `logger` / `perf` / `input` / `screen` |
@@ -182,7 +182,7 @@ gda daemon stop
 
 ### 作为 Skill 使用
 
-`gda` 附带一个 agent **Skill**——一份 `SKILL.md`，教 AI agent *什么时候*用、*怎么*用 CLI 操控
+`gda` 附带一个 agent **Skill**——一份 `SKILL.md`，教 AI agent *何时*以及*如何*使用 CLI 操控
 Godot。这是最轻量的接入方式（没有服务器要注册），随包附带，并与你的安装版本锁定。把它打印出来，
 或安装到你的 agent 的 skills 目录里：
 
@@ -213,18 +213,18 @@ uvx --from "gda[mcp]" gda-mcp
 ```
 
 服务器需要确定两件事——操控哪个 Godot**项目**，以及运行哪个 Godot**二进制文件**
-（MCP 无法逐次调用传递 flag）：
+（MCP 无法在每次调用时传入 flag）：
 
 - **项目** — 当你的客户端无法提供工作区 **roots** 时，设置 `GDA_PROJECT`；否则 `gda-mcp`
   会从客户端发来的 roots（你打开的那个文件夹）自动检测项目。*已设置但无效*的 `GDA_PROJECT`
-  会被当作错误明确报出，而不是静默兜底。注意 MCP 2026-07-28 规范修订版弃用了 roots 功能：
+  会明确报错，而不会静默回退到其他配置。注意 MCP 2026-07-28 规范修订版弃用了 roots 功能：
   现在的客户端行为不变，但固定 `GDA_PROJECT` 才是面向未来的配置（走新无状态协议的客户端没有
   roots 可以提供）。完整的 CLI 与 MCP 解析顺序参见[配置](#configuration)。
 - **引擎** — 把 `GDA_GODOT` 设为你的 Godot 二进制文件，例如 `"GDA_GODOT": "/path/to/Godot"`。
 
 对走 MCP 2026-07-28 修订版协议的客户端，`gda-mcp` 会把 `tools/list` 响应标记为可缓存
 （1 小时 TTL、public 范围）——生成的工具列表在服务器生命周期内固定不变，升级后的客户端
-因此不必反复拉取；2026 年以前的客户端行为完全不变。
+因此不必反复拉取；使用 2026 年以前 MCP 协议的客户端，其请求流量完全不变。
 
 
 #### 在编程 agent 中注册
@@ -322,7 +322,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | **`gda-daemon`** | 一个按项目运行的进程，为 Live 操作守护一个正在运行的游戏。 |
 
 - **Headless 操作**一次性运行——没有 daemon、无需安装任何东西（创建场景、编辑脚本、导出、分析）。
-- **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个被动的游戏内 harness，
+- **Live 操作**需要一个正在运行的游戏——`gda-daemon` 启动它、注入一个默认处于休眠状态的游戏内 harness，
   并通过 Unix 域套接字中转请求（运行时树、输入、截图、性能、诊断）。
 
 `gda-daemon` 注入的游戏内 harness **仅用于开发**：`gda export run` 会把它从产物中彻底剥离；
@@ -388,7 +388,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 实例化另一个场景作为子节点。 |
+| `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 将另一个场景实例化为子节点。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
 | `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。 |
@@ -465,7 +465,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `theme create` | 创建一个全新的 `.tres` Theme 资源（不覆盖已有文件）。 |
+| `theme create` | 创建一个全新的、可加载的 `.tres` Theme 资源（不覆盖已有文件）。 |
 
 ### Live 命令 — 经由 `gda-daemon`；Godot 4.6+，macOS/Linux
 
@@ -518,7 +518,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | ------- | ------------ |
 | `input key` | 注入一个按键事件（带修饰键）。 |
 | `input mouse-click` | 在 `(x, y)` 处注入一次鼠标点击。 |
-| `input mouse-move` | 注入一次鼠标移动，移向 `(x, y)`。 |
+| `input mouse-move` | 将鼠标移动到 `(x, y)`。 |
 | `input action` | 按下/释放一个已映射的输入动作。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
 
@@ -557,7 +557,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 2. **`GDA_PROJECT`** 环境变量。
 3. **当前目录**，当它本身是个 Godot 项目时（含有 `project.godot`）。
 
-显式指定的目录必须是个项目，否则 `gda` 会把它当作错误处理并明确报出。当没有任何一项解析成功时，
+显式指定的目录必须是个项目，否则 `gda` 会直接报错。当没有任何一项解析成功时，
 `gda` 会以**无项目（projectless）**方式运行——只有文件系统路径（绝对路径或相对于 cwd 的路径）
 能解析，`res://` 不行。**MCP 服务器**没有 flag，所以它解析项目的方式略有不同：
 
@@ -569,15 +569,14 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 <details>
 <summary>项目代码执行——当你指向一个项目时会运行什么</summary>
 
-为了让 `res://` 路径生效而解析一个项目，需要让 Godot 运行该项目，而 Godot 运行时会执行
-项目自身的一部分代码。具体来说：
+解析项目以启用 `res://` 路径时，Godot 会以该项目启动，并执行项目自身的一部分代码。具体来说：
 
 - **每个 `--project` 操作都会运行 autoload。** 当一个项目被解析时，引擎会在启动阶段——
   在命令本身的工作开始之前——构造该项目的 autoload 单例，因此它们的 `_init`（以及 `_ready`）
-  会在**每一次**操作时执行，包括 `scene get`、`node list` 这类只读操作。如果没有解析到项目，
+  会在**每次**操作中执行，包括 `scene get`、`node list` 这类只读操作。如果没有解析到项目，
   就不会注册任何 autoload，它们也就不会运行。
 - **会实例化场景的命令，会执行该场景所附脚本的构造函数。**
-  任何需要实际节点树的命令——每一个会改动状态的命令（`node add`、`node set`、
+  任何需要实例化节点树的命令——每一个会改动状态的命令（`node add`、`node set`、
   `node remove` 等），以及 `node get`（它会报告存储数据本身不携带的运行时属性默认值）——
   都会加载并实例化该场景，这会构造每个节点，并运行其中任何附加在节点上的脚本的 `_init`。
   只读取已存储场景数据的命令（`scene get`、`scene list`、`node list`）只是遍历它而不实例化，
@@ -592,7 +591,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 <details>
 <summary><strong>底层原理</strong> — 结构化输出契约与退出码</summary>
 
-Headless 的 Godot 会把它的横幅、警告和 `print()` 输出交错混入 stdout。`gda`
+Headless 的 Godot 会把它的横幅、警告和 `print()` 输出混在 stdout 中。`gda`
 用一套哨兵（sentinel）契约来解决这个问题
 （[ADR-0002](adr/0002-headless-structured-output-contract.md)）：
 
@@ -602,13 +601,13 @@ Headless 的 Godot 会把它的横幅、警告和 `print()` 输出交错混入 s
   <<<GDA:RESULT>>>{ …json… }<<<GDA:END>>>
   ```
 
-- 它把自己**全部**的诊断信息都导向 stderr；stdout 上除了契约什么都不带。
+- 它会将**全部**诊断信息写入 stderr；stdout 上除了契约什么都不带。
 - `gda` 只提取并解析两个哨兵之间的字节，忽略周围的引擎噪声，并把 stderr 暴露出来供检查。
 
-正是这一点让 `gda` 的输出可以被程序安全地解析使用，而且这一契约还延续成了 daemon 为 Live 操作
+正是这一点让程序可以安全解析并使用 `gda` 的输出，而且这一契约还延续成了 daemon 为 Live 操作
 所用的逐消息协议。
 
-**退出码（CLI ABI）。** 一次失败的 `gda` 运行会以少量固定的退出码退出，这样 shell
+**退出码（CLI ABI）。** 一次失败的 `gda` 运行会返回一个稳定的退出码，这样 shell
 或 agent 就能**在不解析 JSON 错误的情况下**按失败**类别**分支处理：
 
 | 退出码 | 类别      | 何时                                                                  |
@@ -677,9 +676,9 @@ docs/adr/           # architecture decision records
 CONTEXT.md          # the project's shared domain language
 ```
 
-`gda` 有两条外部边界，每条边界背后都有一个便于快速注入测试的接缝（seam）：启动一次性的
+`gda` 有两条外部边界，每条边界背后都有一个便于快速注入测试替身的接缝（seam）：启动一次性的
 headless 进程（`runner.py`），以及通过 daemon 与正在运行的游戏对话（`live_runner.py`）。
-e2e 套件会驱动真实引擎把这两条边界都跑一遍。
+e2e 套件会驱动真实引擎覆盖这两条边界。
 </details>
 
 ---
@@ -696,7 +695,7 @@ Python 代码用 [ruff](https://docs.astral.sh/ruff/) 做 lint 和格式化、�
 
 > **正在和 AI 编程 agent 协作？** 本项目从设计上就便于 agent 导航——
 > [`AGENTS.md`](../AGENTS.md) 是编程 agent 的入口，把项目的规则、领域文档和 skill 都
-> 串了起来。
+> 串联起来。
 
 <a id="license"></a>
 ## 许可证
