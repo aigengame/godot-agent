@@ -1,4 +1,4 @@
 interface:
   display_name: "Design Domain Modular Architecture"
-  short_description: "Design framework-independent domain module boundaries"
-  default_prompt: "Use $design-domain-modular-architecture to design or review framework-independent, domain-centered module boundaries and dependencies."
+  short_description: "Design domain-centered modular architectures"
+  default_prompt: "Use $design-domain-modular-architecture to turn an applicable domain model, architecture direction, and project constraints into module boundaries, ownership, dependencies, and communication."
