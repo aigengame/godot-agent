@@ -48,7 +48,7 @@ conformance case and its minimum fields.
 3. Map load-bearing mechanisms to mature theory and external systems; record adoption and proof gaps.
 4. Rank architecture uncertainties and run only the smallest discriminating validation.
 5. Feed dogfooding back into requirements, decisions, terms, specifications, executable conformance cases, and gates.
-6. Audit the four design axes and cross-cutting qualities; keep non-claims explicit.
+6. Audit the four design axes and cross-cutting quality attributes; keep non-claims explicit.
 
 See [REFERENCE.md](REFERENCE.md) for templates and proof obligations, and [EXAMPLES.md](EXAMPLES.md).
 
@@ -62,7 +62,7 @@ without redesign or edits unless the user requests them.
 ### 1. Establish the design contract
 
 - Read repository guidance and current authoritative artifacts before proposing structure.
-- Turn outcomes into traceable requirements, scope, non-goals, invariants, failures, and qualities.
+- Turn outcomes into traceable requirements, scope, non-goals, invariants, failures, and quality attributes.
 - Build one authority map, which can include a one-way reference graph. Give every normative fact
   one owner; derived artifacts reference it.
 - Preserve each supplied claim's source and identifier. Keep artifact or decision lifecycle status
@@ -118,11 +118,13 @@ without redesign or edits unless the user requests them.
 - Stop disposable prototyping when the risk class is resolved. Move remaining proof into permanent
   conformance assets and end-to-end production slices.
 
-### 7. Run design-axis and cross-cutting-quality gates
+### 7. Run design-axis and quality-attribute gates
 
-When the candidate architecture supplies specialized structural criteria, use them as the acceptance
-criteria for the applicable claims. Use the generic axes below to assess evidence coverage and
-unresolved interactions, not to replace those criteria.
+Treat specialized criteria supplied by a candidate architecture as structural evaluation criteria,
+not acceptance criteria. Bind each criterion to an authoritative requirement, specification,
+decision record, or explicitly scoped architecture contract before using it. Requirements retain
+ownership of acceptance criteria. Use the generic axes below to assess evidence coverage and
+unresolved interactions, not to replace the bound criteria.
 
 - **Abstraction:** theory-grounded boundaries hide implementation choices without hiding semantics.
 - **Completeness:** every known requirement, refusal, interaction, and operational concern maps to a
@@ -139,10 +141,21 @@ unresolved interactions, not to replace those criteria.
 
 ## Output
 
-Return only the sections needed for the request, but preserve traceability. Include:
+Select the output contract by mode:
+
+- For `full-design`, include all applicable items below.
+- For `lightweight`, return the mode minimum and only the items produced by the selected bounded
+  check. Do not add alternatives, structural-placement decisions, or adopted refinements unless the
+  check required them.
+- For `audit-only`, return the pinned baseline and scope, authorities, observed architecture direction
+  and claims, evidence gaps, design-axis findings, findings about cross-cutting quality attributes, completion
+  gaps, and recorded human decision outcome. Do not propose alternatives, structural placements,
+  refinements, or edits unless the user requests redesign or edits.
+
+The `full-design` output includes:
 
 1. Authority sources, assumptions, and open input conflicts.
-2. Goals, non-goals, architecture drivers, invariants, and quality constraints.
+2. Goals, non-goals, architecture drivers, invariants, and quality attributes.
 3. The selected architecture direction and the alternatives considered.
 4. Load-bearing mechanisms, semantic boundaries, claims, claim evidence states, evidence, and non-claims.
 5. Decisions that require concrete structural placement, with stable identifiers for iterative work or handoff.

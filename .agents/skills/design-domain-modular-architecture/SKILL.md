@@ -76,8 +76,8 @@ Establish only the facts that can change the design:
 - The rules, state, and invariants that carry domain complexity.
 - The scope in which each model and language applies.
 - The architecture drivers, load-bearing mechanisms, and semantic boundaries.
-- The supplied claims, evidence, assumptions, open questions, and claim evidence states. A claim evidence state classifies evidence strength or an explicit scope boundary.
-  Use project values and ordering when supplied; otherwise, use `open` for a claim that needs evidence and do not define a broader ladder here.
+- The supplied claims, evidence, assumptions, open questions, and claim evidence states. A claim evidence state classifies evidence strength or an explicit scope boundary, not artifact or decision lifecycle status. Reuse project values and ordering only when the project explicitly classifies them as claim evidence states; never copy lifecycle status into this field.
+  If no such vocabulary exists, record `open`, meaning that the available evidence does not establish the claim at its required scope. Record evidence separately; do not invent or infer a stronger state or ordering.
 - The capabilities that need independent reuse, testing, deployment, or evolution.
 - The observed variation points, team size, change rate, and maintenance budget.
 

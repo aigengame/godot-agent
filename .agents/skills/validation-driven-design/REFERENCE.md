@@ -6,7 +6,7 @@ owns the design workflow; this file does not restate it.
 Contents: [modes and authority](#1-engagement-modes-and-authority-map) ·
 [claims](#2-claim-evidence-ladder) · [theory](#3-theory-support-matrix) ·
 [external research](#4-external-system-research-matrix) · [validation](#5-validation-portfolio) ·
-[quality gates](#6-four-design-axes-and-cross-cutting-qualities) ·
+[quality gates](#6-four-design-axes-and-cross-cutting-quality-attributes) ·
 [defect attribution](#7-defect-attribution-ladder) · [delivery](#8-delivery-gates-and-production-planning) ·
 [completion](#9-completion-audit)
 
@@ -18,7 +18,7 @@ Choose mode before building the authority map:
 | --- | --- | --- |
 | `lightweight` | a bounded, reversible decision can be owned by one compact decision record and does not change a public contract, extension contract, or production boundary | owner, requirement/decision, falsifier, affected axes, one discriminating check, non-claims, and human decision gate |
 | `full-design` | a framework/language/runtime or broad, hard-to-reverse claim changes authority, semantics, extension, or production boundaries | the complete workflow, matrices, proof obligations, and delivery gates |
-| `audit-only` | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis and cross-cutting-quality findings, completion gaps, and recorded human decision outcome; no edits unless requested |
+| `audit-only` | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis findings, findings about cross-cutting quality attributes, completion gaps, and recorded human decision outcome; no edits unless requested |
 
 Every mode keeps explicit authority, falsifier, non-claims, and human decision ownership. Scale the
 remaining evidence work to claim breadth, reversibility, novelty, and operational risk.
@@ -186,10 +186,10 @@ Run another disposable prototype only when the design adds or changes normative 
 extension contract, an authority owner or binding, or a comparably high-risk uncertainty. Otherwise
 move to permanent executable conformance cases and end-to-end production slices.
 
-## 6. Four design axes and cross-cutting qualities
+## 6. Four design axes and cross-cutting quality attributes
 
-The four axes assess design structure. Consistency, reliability, and operability apply across every
-axis; they are not additional peers in the design-axis taxonomy.
+The four axes assess design structure. Consistency, reliability, and operability are quality
+attributes that apply across every axis; they are not additional peers in the design-axis taxonomy.
 
 | Axis | Required questions | Strong evidence | Failure signal |
 | --- | --- | --- | --- |
@@ -198,8 +198,9 @@ axis; they are not additional peers in the design-axis taxonomy.
 | Orthogonality | Does each concern in the selected orthogonal basis have a distinct meaning and reason to change? Is it necessary, non-overlapping, and independently variable? Does composition preserve this independence? | vary one concern while other observations stay fixed; pairwise and cross-product cases; explicit precedence where order matters | a concern can be removed without loss; changing one concern changes unrelated concerns; composition shares hidden state or leaves precedence to the host |
 | Extensibility | What is configuration, extension, framework evolution, or irreducible core? Can an out-of-family case use unchanged core and dispatch? | explicit extension invariance; fixed-build witness; negative capability/refusal cases | each new domain adds core fields, phases, switches, callbacks, or parallel semantics |
 
-When a candidate architecture defines specialized structural criteria, bind evidence to those
-criteria. Use this table as the default coverage check, not as a parallel structural standard.
+Apply the authority rule in [SKILL.md §7](SKILL.md#7-run-design-axis-and-quality-attribute-gates) to
+specialized structural evaluation criteria. Use this table as the default coverage check, not as a
+parallel structural standard.
 
 Also audit consistency, reliability, and operability:
 
