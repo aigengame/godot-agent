@@ -29,7 +29,7 @@ from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
 from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
 )
-from gda_balancing.domain.model.admission import admit_resolved_model
+from gda_balancing.domain.model import admit_resolved_model
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 

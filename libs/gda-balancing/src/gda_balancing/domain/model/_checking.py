@@ -23,7 +23,7 @@ from gda_balancing.infrastructure.input_bytes import (
     InputTooLargeError,
     read_bounded_input,
 )
-from gda_balancing.domain.model.resolution import (
+from gda_balancing.domain.model._resolution import (
     CheckedModel,
     _bounded_refusal,
     _formula_pair_diagnostics,
@@ -38,7 +38,7 @@ from gda_balancing.domain.model.resolution import (
     _strict_object,
     _unique_reason,
 )
-from gda_balancing.domain.model.lowering import (
+from gda_balancing.domain.model._lowering import (
     _EntrypointBindingError,
     _FormulaResolutionError,
     _RuntimeProjectionResourceExhausted,

@@ -33,7 +33,7 @@ from gda_balancing.domain.formula.types import (
     literal_context_contract as _literal_context_contract,
 )
 
-from gda_balancing.domain.model.resolution import (
+from gda_balancing.domain.model._resolution import (
     CheckedModel,
     _formula_contexts,
     _formula_policy,
@@ -45,7 +45,7 @@ from gda_balancing.domain.model.resolution import (
     _resolution_profile,
     _selected_resolved_operation_coordinates,
 )
-from gda_balancing.domain.model.lowering import (
+from gda_balancing.domain.model._lowering import (
     _RuntimeProjectionResourceExhausted,
     _assignment_policy,
     _assignment_policy_by_role,

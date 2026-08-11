@@ -20,7 +20,7 @@ import gda_balancing.interfaces.cli.experiment_check as experiment_check_command
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
-import gda_balancing.domain.model.lowering as model_lowering_module
+import gda_balancing.domain.model._lowering as model_lowering_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport

@@ -7,9 +7,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-import gda_balancing.domain.model.resolution as model_module
-import gda_balancing.domain.model.admission as model_admission_module
-import gda_balancing.domain.model.checking as model_checking_module
+import gda_balancing.domain.model._resolution as model_module
+import gda_balancing.domain.model._admission as model_admission_module
+import gda_balancing.domain.model._checking as model_checking_module
 import jsonschema
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -25,12 +25,12 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.domain.model.resolution import (
+from gda_balancing.domain.model import (
     CheckedModel,
+    admit_resolved_model,
+    check_model_source,
 )
-from gda_balancing.domain.model.admission import admit_resolved_model
-from gda_balancing.domain.model.checking import check_model_source
-from gda_balancing.domain.model.compilation import lower_checked_model
+from gda_balancing.domain.model._compilation import lower_checked_model
 from schema2_authority_support import mutable_authorities
 
 

@@ -23,7 +23,7 @@ from gda_balancing.domain.formula.types import (
     resolve_formula_contract as _resolved_formula_contract,
 )
 
-from gda_balancing.domain.model.resolution import (
+from gda_balancing.domain.model._resolution import (
     CheckedModel,
     _FORMULA_REASON,
     _formula_contexts,

@@ -14,9 +14,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-import gda_balancing.domain.model.compilation as model_compilation_module
-import gda_balancing.domain.model.checking as model_checking_module
-import gda_balancing.domain.model.inspection as model_inspection_module
+import gda_balancing.domain.model._compilation as model_compilation_module
+import gda_balancing.domain.model._checking as model_checking_module
+import gda_balancing.domain.model._inspection as model_inspection_module
 import gda_balancing.interfaces.cli.model_build as model_build_command_module
 import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_module
 import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
@@ -24,9 +24,9 @@ import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
-import gda_balancing.domain.model.resolution as model_module
-import gda_balancing.domain.model.lowering as model_lowering_module
-import gda_balancing.domain.model.admission as model_admission_module
+import gda_balancing.domain.model._resolution as model_module
+import gda_balancing.domain.model._lowering as model_lowering_module
+import gda_balancing.domain.model._admission as model_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.publication as publication_module
 import jsonschema
