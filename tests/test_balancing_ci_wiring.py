@@ -106,7 +106,7 @@ def test_scope_diff_preserves_both_sides_of_cross_boundary_renames(tmp_path):
     assert json.loads(policy_guard.stdout)["required"] is True
 
 
-def test_scheduled_matrix_and_manual_unfiltered_have_isolated_non_cancelling_groups():
+def test_scheduled_and_manual_evidence_runs_have_isolated_non_cancelling_groups():
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
 
@@ -117,15 +117,25 @@ def test_scheduled_matrix_and_manual_unfiltered_have_isolated_non_cancelling_gro
     assert "github.event_name == 'push'" in concurrency
 
 
-def test_scheduled_run_uses_the_full_matrix_and_unfiltered_is_manual_only():
+def test_scheduled_run_uses_the_full_matrix_without_a_serial_duplicate():
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     scope = _workflow_job(workflow, "balancing-scope")
-    unfiltered = _workflow_job(workflow, "balancing-unfiltered")
+    inventory = _workflow_job(workflow, "balancing-inventory")
+    tests = _workflow_job(workflow, "balancing-tests")
+    smoke = _workflow_job(workflow, "balancing-smoke")
+    required = _workflow_job(workflow, "balancing-required")
 
+    assert "EVENT_NAME: ${{ github.event_name }}" in scope
+    assert 'if [ "$EVENT_NAME" = "pull_request" ]; then' in scope
     assert "classify --all" in scope
-    assert "github.event_name == 'workflow_dispatch'" in unfiltered
-    assert "inputs['run-balancing-unfiltered']" in unfiltered
-    assert "github.event_name == 'schedule'" not in unfiltered
+    for job in (inventory, tests, smoke):
+        assert "needs.balancing-scope.outputs.required == 'true'" in job
+        assert "github.event_name" not in job
+    assert "- balancing-inventory" in required
+    assert "- balancing-tests" in required
+    assert "- balancing-smoke" in required
+    assert "run-balancing-unfiltered" not in workflow
+    assert "balancing-unfiltered:" not in workflow
 
 
 def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
@@ -138,7 +148,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
 
     assert "required-test-shards" in workflow
     assert "process-timeout required" in workflow
-    assert "process-timeout unfiltered" in workflow
+    assert "process-timeout unfiltered" not in workflow
     assert "shard-paths smoke" in workflow
     assert "libs/gda-balancing/tests/test_e2e_cli.py" not in workflow
     assert "python3 libs/gda-balancing/tools/ci.py" not in workflow
@@ -159,7 +169,6 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     _assert_job_timeout(workflow, "balancing-tests", 15)
     _assert_job_timeout(workflow, "balancing-smoke", 15)
     _assert_job_timeout(workflow, "balancing-required", 5)
-    _assert_job_timeout(workflow, "balancing-unfiltered", 20)
     _assert_job_timeout(release, "build-release-gda-balancing", 30)
     assert "process-timeout unfiltered" in release
     assert "verify-outcomes" in release

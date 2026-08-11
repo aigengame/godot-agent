@@ -72,11 +72,12 @@ CI also runs the existing outcome check on each JUnit file; undeclared skips
 and xfails fail the job. Balancing-affecting or unknown paths run inventory,
 all six required shards, the separate smoke shard, and the stable
 `gda-balancing required` result. Each test process retains the existing
-eight-minute bound and fifteen-minute job timeout. Scheduled and release flows
-retain their complete unfiltered-suite checks, existing fifteen-minute process
-bound, outcome verification, and diagnostic uploads. Member release PRs remain
-restricted to `libs/gda-balancing/**`; this change does not alter those
-workflows or their ownership boundary.
+eight-minute bound and fifteen-minute job timeout. Scheduled validation uses
+this complete inventory-closed matrix; it does not run the whole suite in one
+process. The release flow retains that single-process check, its fifteen-minute
+process bound, outcome verification, and diagnostic uploads. Member release
+PRs remain restricted to
+`libs/gda-balancing/**`; the workflows keep their existing ownership boundary.
 
 ## Optimizations
 
@@ -156,6 +157,10 @@ three-run performance sample. #597 uses this fixed comparison; the rolling
 20-run p95 protocol introduced with #587 is not a standing gate for this
 refactor.
 
-Nightly and release flows are not restructured by this member change. Any
-future workflow change must be justified independently by measured CI evidence
-and must live in a root-owned, non-releasing PR.
+The member optimization did not restructure nightly or release flows. Later
+root-owned CI evidence showed that the scheduled serial suite exceeded its
+process bound while every inventory-closed shard passed. #635 therefore uses
+the existing matrix for scheduled validation and removes the duplicate serial
+job. The release flow remains unchanged; #597 tracks its current serial-path
+risk. Any further workflow change requires independent CI evidence and a
+root-owned, non-releasing PR.

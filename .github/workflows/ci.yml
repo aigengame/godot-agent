@@ -19,24 +19,19 @@ on:
         required: false
         default: false
         type: boolean
-      run-balancing-unfiltered:
-        description: "Run the complete unfiltered gda-balancing suite"
-        required: false
-        default: false
-        type: boolean
   schedule:
-    # Nightly (03:24 UTC) — the automatic, dependable trigger for the godot-e2e job
-    # (workflow_dispatch with run-e2e is the on-demand extra). Daily so a regression in
-    # the real-engine tier is caught within a day rather than up to a week.
+    # Nightly (03:24 UTC) runs the complete gda-balancing matrix and the godot-e2e
+    # job. workflow_dispatch with run-e2e is the on-demand engine-test path.
+    # Daily execution detects a regression in either tier within one day.
     - cron: "24 3 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  # Scheduled matrix runs and manually requested unfiltered runs are evidence
-  # runs: a push must not cancel them merely because all three can target
-  # refs/heads/main. PR and push runs still replace stale runs for the same ref.
+  # Scheduled and manually requested evidence runs must not be cancelled by a
+  # push merely because all three can target refs/heads/main. PR and push runs
+  # still replace stale runs for the same ref.
   group: >-
     ${{
       github.workflow
@@ -408,70 +403,6 @@ jobs:
               exit 1
             fi
           done
-
-  # Scheduled runs already select the inventory-closed shard matrix above.
-  # Keep this single-process path only as an explicit diagnostic probe; making
-  # it a second nightly suite duplicates coverage and scales with total suite
-  # time instead of the slowest shard.
-  balancing-unfiltered:
-    name: gda-balancing manual unfiltered suite
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch' &&
-        inputs['run-balancing-unfiltered']
-      }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up gda-balancing environment
-        uses: ./.github/actions/setup-python-env
-        with:
-          sync: member
-          save-cache: false
-
-      - name: Run the complete unfiltered suite
-        run: |
-          mkdir -p test-results
-          set -o pipefail
-          process_timeout="$(uv run --no-project --python 3.13 python \
-            libs/gda-balancing/tools/ci.py process-timeout unfiltered)"
-          timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
-            uv run --frozen --project libs/gda-balancing pytest \
-              libs/gda-balancing/tests -q --durations=50 \
-              --junitxml=test-results/unfiltered-junit.xml \
-            2>&1 | tee test-results/unfiltered.log
-
-      - name: Summarize durations and verify unfiltered outcomes
-        if: ${{ always() }}
-        run: |
-          mkdir -p test-results
-          if [ -f test-results/unfiltered-junit.xml ]; then
-            uv run --no-project --python 3.13 python \
-              libs/gda-balancing/tools/ci.py summarize-junit \
-              --junit test-results/unfiltered-junit.xml \
-              --report test-results/unfiltered-durations.json
-            uv run --no-project --python 3.13 python \
-              libs/gda-balancing/tools/ci.py verify-outcomes \
-              --junit test-results/unfiltered-junit.xml \
-              --report test-results/unfiltered-outcomes.json
-          else
-            printf '{"error":"unfiltered run timed out before JUnit was finalized"}\n' \
-              > test-results/unfiltered-durations.json
-            printf '{"error":"unfiltered run timed out before JUnit was finalized"}\n' \
-              > test-results/unfiltered-outcomes.json
-          fi
-
-      - name: Upload unfiltered diagnostics
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: gda-balancing-unfiltered-diagnostics
-          path: test-results/
-          if-no-files-found: error
 
   coinstall-smoke:
     name: Both products co-install
