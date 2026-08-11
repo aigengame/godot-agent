@@ -106,7 +106,7 @@ def test_scope_diff_preserves_both_sides_of_cross_boundary_renames(tmp_path):
     assert json.loads(policy_guard.stdout)["required"] is True
 
 
-def test_scheduled_unfiltered_run_has_an_isolated_non_cancelling_group():
+def test_scheduled_matrix_and_manual_unfiltered_have_isolated_non_cancelling_groups():
     workflow = _WORKFLOW.read_text(encoding="utf-8")
     concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
 
@@ -115,6 +115,17 @@ def test_scheduled_unfiltered_run_has_an_isolated_non_cancelling_group():
     assert "format('{0}-{1}', github.event_name, github.run_id)" in concurrency
     assert "github.event_name == 'pull_request'" in concurrency
     assert "github.event_name == 'push'" in concurrency
+
+
+def test_scheduled_run_uses_the_full_matrix_and_unfiltered_is_manual_only():
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    scope = _workflow_job(workflow, "balancing-scope")
+    unfiltered = _workflow_job(workflow, "balancing-unfiltered")
+
+    assert "classify --all" in scope
+    assert "github.event_name == 'workflow_dispatch'" in unfiltered
+    assert "inputs['run-balancing-unfiltered']" in unfiltered
+    assert "github.event_name == 'schedule'" not in unfiltered
 
 
 def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
@@ -148,7 +159,7 @@ def test_workflow_derives_shards_budgets_and_smoke_paths_from_policy():
     _assert_job_timeout(workflow, "balancing-tests", 15)
     _assert_job_timeout(workflow, "balancing-smoke", 15)
     _assert_job_timeout(workflow, "balancing-required", 5)
-    _assert_job_timeout(workflow, "balancing-nightly", 20)
+    _assert_job_timeout(workflow, "balancing-unfiltered", 20)
     _assert_job_timeout(release, "build-release-gda-balancing", 30)
     assert "process-timeout unfiltered" in release
     assert "verify-outcomes" in release

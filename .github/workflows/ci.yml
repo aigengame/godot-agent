@@ -34,9 +34,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Scheduled and manually requested unfiltered runs are evidence runs: a push
-  # must not cancel them merely because all three can target refs/heads/main.
-  # PR and push runs still replace stale runs for the same ref.
+  # Scheduled matrix runs and manually requested unfiltered runs are evidence
+  # runs: a push must not cancel them merely because all three can target
+  # refs/heads/main. PR and push runs still replace stale runs for the same ref.
   group: >-
     ${{
       github.workflow
@@ -409,13 +409,16 @@ jobs:
             fi
           done
 
-  balancing-nightly:
-    name: gda-balancing nightly unfiltered suite
+  # Scheduled runs already select the inventory-closed shard matrix above.
+  # Keep this single-process path only as an explicit diagnostic probe; making
+  # it a second nightly suite duplicates coverage and scales with total suite
+  # time instead of the slowest shard.
+  balancing-unfiltered:
+    name: gda-balancing manual unfiltered suite
     if: >-
       ${{
-        github.event_name == 'schedule' ||
-        (github.event_name == 'workflow_dispatch' &&
-          inputs['run-balancing-unfiltered'])
+        github.event_name == 'workflow_dispatch' &&
+        inputs['run-balancing-unfiltered']
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -439,34 +442,34 @@ jobs:
           timeout --signal=TERM --kill-after=30s "${process_timeout}s" \
             uv run --frozen --project libs/gda-balancing pytest \
               libs/gda-balancing/tests -q --durations=50 \
-              --junitxml=test-results/nightly-junit.xml \
-            2>&1 | tee test-results/nightly.log
+              --junitxml=test-results/unfiltered-junit.xml \
+            2>&1 | tee test-results/unfiltered.log
 
-      - name: Summarize durations and verify nightly outcomes
+      - name: Summarize durations and verify unfiltered outcomes
         if: ${{ always() }}
         run: |
           mkdir -p test-results
-          if [ -f test-results/nightly-junit.xml ]; then
+          if [ -f test-results/unfiltered-junit.xml ]; then
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py summarize-junit \
-              --junit test-results/nightly-junit.xml \
-              --report test-results/nightly-durations.json
+              --junit test-results/unfiltered-junit.xml \
+              --report test-results/unfiltered-durations.json
             uv run --no-project --python 3.13 python \
               libs/gda-balancing/tools/ci.py verify-outcomes \
-              --junit test-results/nightly-junit.xml \
-              --report test-results/nightly-outcomes.json
+              --junit test-results/unfiltered-junit.xml \
+              --report test-results/unfiltered-outcomes.json
           else
-            printf '{"error":"nightly timed out before JUnit was finalized"}\n' \
-              > test-results/nightly-durations.json
-            printf '{"error":"nightly timed out before JUnit was finalized"}\n' \
-              > test-results/nightly-outcomes.json
+            printf '{"error":"unfiltered run timed out before JUnit was finalized"}\n' \
+              > test-results/unfiltered-durations.json
+            printf '{"error":"unfiltered run timed out before JUnit was finalized"}\n' \
+              > test-results/unfiltered-outcomes.json
           fi
 
-      - name: Upload nightly diagnostics
+      - name: Upload unfiltered diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: gda-balancing-nightly-diagnostics
+          name: gda-balancing-unfiltered-diagnostics
           path: test-results/
           if-no-files-found: error
 
