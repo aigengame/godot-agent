@@ -12,6 +12,15 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.structured_values import (
+    TYPED_ENVELOPE_ADMISSION_LAW,
+    StructuredValueAuthority,
+    StructuredValueFault,
+    equal_result_contract,
+    language_structured_value_authority,
+    lookup_type_contract,
+    nominal_type_key,
+)
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
@@ -72,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03"
+    "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3005,12 +3014,7 @@ def _literal_typing_profiles_are_closed(
         "formal_closure": "at-least-one-exact-operation-value-contract",
         "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
         "typed_envelope_profile": {
-            "admission": {
-                "envelope_members": ["type", "value"],
-                "operator": "recursive-typed-envelope",
-                "resource_charge_per_node": 1,
-                "type_relation": "exact-selected-type",
-            },
+            "admission": TYPED_ENVELOPE_ADMISSION_LAW,
             "id": "standard.schema.nominal-structured",
             "required_constructors": [
                 "standard.schema.enum",
@@ -3199,16 +3203,19 @@ def _literal_operation_contracts(
         ]
         if (
             len(typed_profiles) == 1
-            and isinstance(type_expression, dict)
-            and set(type_expression) == {"package", "version", "id"}
-            and all(
-                isinstance(type_expression.get(member), str) and type_expression[member]
-                for member in ("package", "version", "id")
+            and isinstance(typed_profiles[0].get("admission"), dict)
+            and (
+                coordinate := nominal_type_key(
+                    type_expression,
+                    cast(dict[str, Any], typed_profiles[0]["admission"]),
+                )
             )
+            is not None
         ):
+            package, version, type_id = coordinate
             return (
                 {
-                    "type": type_expression,
+                    "type": {"id": type_id, "package": package, "version": version},
                     "value_kind": "nominal-structured",
                 },
             )
@@ -3274,52 +3281,52 @@ def _operation_contract_for_structured_type(
 def _declared_lookup_operation_contract(
     value_contract: dict[str, Any],
     key: Any,
-    nominal_types: dict[tuple[str, str, str], dict[str, Any]],
+    structured_authority: StructuredValueAuthority,
     literal_profiles: Any,
     key_candidates: tuple[dict[str, Any], ...] | None,
     runtime_numeric_policies: list[str],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any], str] | None:
     type_expression = value_contract.get("type")
-    if not isinstance(type_expression, dict):
-        return None
-    coordinate = tuple(
-        type_expression.get(member) for member in ("package", "version", "id")
-    )
-    if all(isinstance(item, str) and item for item in coordinate):
-        nominal = nominal_types.get(cast(tuple[str, str, str], coordinate))
-        if nominal is None:
-            return None
-        type_expression = nominal.get("definition")
-    if not isinstance(type_expression, dict):
-        return None
-    if type_expression.get("kind") == "record" and isinstance(key, str):
-        fields = type_expression.get("fields")
-        if not isinstance(fields, list):
-            return None
-        matches = [
-            field
-            for field in fields
-            if isinstance(field, dict) and field.get("name") == key
-        ]
-        return (
-            _operation_contract_for_structured_type(
-                matches[0].get("type"), literal_profiles
-            )
-            if len(matches) == 1
-            else None
+    try:
+        selector, result_type, refusal_signal = lookup_type_contract(
+            type_expression, key, authority=structured_authority
         )
-    if type_expression.get("kind") == "list":
+    except StructuredValueFault:
+        return None
+    if selector == "local-index":
+        integer_profiles = (
+            [
+                profile
+                for profile in literal_profiles
+                if isinstance(profile, dict)
+                and profile.get("source_kind") == "integer"
+                and profile.get("numeric_policy") in runtime_numeric_policies
+            ]
+            if isinstance(literal_profiles, list)
+            else []
+        )
         if not key_candidates or any(
-            candidate.get("kind") != "scalar"
-            or candidate.get("representation") != "Int"
-            or candidate.get("numeric_policy") not in runtime_numeric_policies
+            not any(
+                _operation_value_contract_matches(candidate, profile)
+                for profile in integer_profiles
+            )
             for candidate in key_candidates
         ):
             return None
-        return _operation_contract_for_structured_type(
-            type_expression.get("element"), literal_profiles
+    result = _operation_contract_for_structured_type(result_type, literal_profiles)
+    return (result, refusal_signal) if result is not None else None
+
+
+def _declared_equal_result_contract(
+    value_contract: dict[str, Any],
+    structured_authority: StructuredValueAuthority,
+) -> str | None:
+    try:
+        return equal_result_contract(
+            value_contract.get("type"), authority=structured_authority
         )
-    return None
+    except StructuredValueFault:
+        return None
 
 
 def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
@@ -3427,18 +3434,16 @@ def _operation_composition_diagnostic_subjects(
     }
     if len(node_definitions) != len(runtime_nodes):
         return ("kernel.meta-format.runtime-program.nodes",)
-    nominal_type_definitions = {
-        (
-            cast(str, definition["package"]),
-            cast(str, definition["version"]),
-            cast(str, definition["id"]),
-        ): definition
-        for definition in cast(list[dict[str, Any]], language.get("nominal_types", []))
-        if all(
-            isinstance(definition.get(member), str)
-            for member in ("package", "version", "id")
-        )
-    }
+    try:
+        structured_authority = language_structured_value_authority(language_bundle)
+    except (KeyError, TypeError, ValueError):
+        return ("language.structured-operations",)
+    reasons_by_signal: dict[str, list[str]] = {}
+    for reason in cast(list[dict[str, Any]], language.get("reasons", [])):
+        signal = reason.get("signal") if isinstance(reason, dict) else None
+        reason_id = reason.get("id") if isinstance(reason, dict) else None
+        if isinstance(signal, str) and isinstance(reason_id, str):
+            reasons_by_signal.setdefault(signal, []).append(reason_id)
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
         package_id = package.get("id")
@@ -3597,6 +3602,24 @@ def _operation_composition_diagnostic_subjects(
                     constraint_kind = constraint["kind"]
                     if constraint_kind == "same-value-contract":
                         shared = compatible_candidates(referenced)
+                        if node["semantics"]["operator"] == "canonical-equal":
+                            expected_result_contract = cast(
+                                dict[str, Any], node["result"]["typing"]
+                            ).get("contract")
+                            shared = tuple(
+                                candidate
+                                for candidate in shared
+                                if candidate.get("value_kind")
+                                not in {"nominal-structured", "structured"}
+                                or (
+                                    isinstance(expected_result_contract, str)
+                                    and _declared_equal_result_contract(
+                                        candidate,
+                                        structured_authority,
+                                    )
+                                    == expected_result_contract
+                                )
+                            )
                         if not shared:
                             refuse(owner, operation, str(instruction_index), "typing")
                             return None
@@ -3755,7 +3778,7 @@ def _operation_composition_diagnostic_subjects(
                             if isinstance(value_name, str)
                             else None
                         )
-                        result_candidates = (
+                        declared_results = (
                             tuple(
                                 result
                                 for candidate in value_candidates
@@ -3763,7 +3786,7 @@ def _operation_composition_diagnostic_subjects(
                                     result := _declared_lookup_operation_contract(
                                         candidate,
                                         instruction.get("key"),
-                                        nominal_type_definitions,
+                                        structured_authority,
                                         literal_profiles,
                                         locals_.get(cast(str, instruction.get("key")))
                                         if isinstance(instruction.get("key"), str)
@@ -3775,6 +3798,22 @@ def _operation_composition_diagnostic_subjects(
                             )
                             if value_candidates is not None
                             else ()
+                        )
+                        if any(
+                            signal not in cast(list[str], node.get("refusals", []))
+                            or len(reasons_by_signal.get(signal, [])) != 1
+                            or reasons_by_signal[signal][0] not in refusals
+                            for _result, signal in declared_results
+                        ):
+                            refuse(
+                                owner,
+                                operation,
+                                str(instruction_index),
+                                "refusals",
+                            )
+                            return None
+                        result_candidates = tuple(
+                            result for result, _signal in declared_results
                         )
                     else:
                         literal_candidates = [

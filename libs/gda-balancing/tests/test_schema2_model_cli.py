@@ -140,160 +140,15 @@ def _model_source() -> dict[str, Any]:
 
 
 def _structured_model_source() -> dict[str, Any]:
-    operation = {
-        "package": "standard.conformance.structured",
-        "version": "1.0.0",
-        "id": "standard.conformance.structured.select-v1",
-    }
-
-    def entrypoint(
-        entrypoint_id: str, *, candidate_kind: str, candidate_key: str
-    ) -> dict[str, Any]:
-        return {
-            "id": entrypoint_id,
-            "operation": operation,
-            "arguments": [
-                {
-                    "port": "selection_state",
-                    "operand": {
-                        "kind": "symbol",
-                        "module": "selection",
-                        "symbol": "selection_state",
-                    },
-                },
-                {
-                    "port": "expected_kind",
-                    "operand": {
-                        "kind": "literal",
-                        "value": {
-                            "type": {
-                                "package": "standard.conformance.structured",
-                                "version": "1.0.0",
-                                "id": "CandidateKind",
-                            },
-                            "value": candidate_kind,
-                        },
-                    },
-                },
-                {
-                    "port": "expected_key",
-                    "operand": {
-                        "kind": "literal",
-                        "value": {
-                            "type": {
-                                "package": "standard.conformance.structured",
-                                "version": "1.0.0",
-                                "id": "CandidateRef",
-                            },
-                            "value": {"key": candidate_key},
-                        },
-                    },
-                },
-                {
-                    "port": "selected_result",
-                    "operand": {
-                        "kind": "symbol",
-                        "module": "selection",
-                        "symbol": "selected_result",
-                    },
-                },
-                {
-                    "port": "selection_metric",
-                    "operand": {
-                        "kind": "symbol",
-                        "module": "selection",
-                        "symbol": "selection_metric",
-                    },
-                },
-            ],
-            "result": {
-                "kind": "symbol",
-                "module": "selection",
-                "symbol": "selection_result",
-            },
-        }
-
-    return {
-        "schema_version": "2.0.0",
-        "manifest": {
-            "id": "standard.structured-selection-model",
-            "version": "1.0.0",
-            "entry_module": "selection",
-        },
-        "package_requirements": [
-            {"id": "core.quantity", "version": "2.1.0"},
-            {"id": "standard.conformance.structured", "version": "1.0.0"},
-        ],
-        "entrypoints": [
-            entrypoint(
-                "structured.select-candidate-a",
-                candidate_kind="primary",
-                candidate_key="candidate_a",
-            ),
-            entrypoint(
-                "structured.select-candidate-b",
-                candidate_kind="secondary",
-                candidate_key="candidate_b",
-            ),
-        ],
-        "modules": [
-            {
-                "id": "selection",
-                "imports": [
-                    {
-                        "alias": "selection-state",
-                        "package": "standard.conformance.structured",
-                        "version": "1.0.0",
-                        "symbol": "SelectionState",
-                    },
-                    {
-                        "alias": "selection-result",
-                        "package": "standard.conformance.structured",
-                        "version": "1.0.0",
-                        "symbol": "SelectionResult",
-                    },
-                    {
-                        "alias": "quantity",
-                        "package": "core.quantity",
-                        "version": "2.1.0",
-                        "symbol": "Quantity",
-                    },
-                ],
-                "symbols": [
-                    {
-                        "symbol": "selection_state",
-                        "type": "selection-state",
-                        "role": "state",
-                        "value_policy": {"mode": "experiment-required"},
-                    },
-                    {
-                        "symbol": "selected_result",
-                        "type": "selection-result",
-                        "role": "state",
-                        "value_policy": {"mode": "experiment-required"},
-                    },
-                    {
-                        "symbol": "selection_metric",
-                        "type": "quantity",
-                        "role": "state",
-                        "representation": "Int",
-                        "kind": "scalar",
-                        "unit": "1",
-                        "domain_kind": "closed-interval",
-                        "domain": {"minimum": 0, "maximum": 15},
-                        "numeric_policy": "exact-int64",
-                        "value_policy": {"mode": "experiment-required"},
-                    },
-                    {
-                        "symbol": "selection_result",
-                        "type": "selection-result",
-                        "role": "output",
-                        "value_policy": {"mode": "none"},
-                    },
-                ],
-            }
-        ],
-    }
+    return cast(
+        dict[str, Any],
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/structured-selection/model-source.json"
+            ).read_text(encoding="utf-8")
+        ),
+    )
 
 
 def _use_derived_value(source: dict[str, Any]) -> None:
@@ -459,6 +314,11 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
         {
             "admission": {
                 "envelope_members": ["type", "value"],
+                "nominal_type_reference": {
+                    "coordinate_members": ["package", "version", "id"],
+                    "optional_kind_member": "kind",
+                    "optional_kind_value": "nominal",
+                },
                 "operator": "recursive-typed-envelope",
                 "resource_charge_per_node": 1,
                 "type_relation": "exact-selected-type",

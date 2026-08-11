@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.snapshot",
   "version": "1.0.0",
-  "kernel_identity": "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03",
-  "language_bundle_identity": "sha256:e7c2cc7b5892518d2f0426826e4fb0cfdbdb5feac5692f64126eeedc52f80f7a",
+  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "language_bundle_identity": "sha256:fc0441807b1d9d1ea4ff554351ba75c8ae6b0d404219711257b4c10731951d94",
   "model": {
     "source_identity": "sha256:8925004e32bab21428c8a1a971e3e91269a394f92f26b7ef1637fe6156351f83",
-    "build_receipt_identity": "sha256:c0e992275f0b64008058e697da8e8c037fdb7f5581d5c18e2d6e65af5c5deb1c",
-    "resolved_model_identity": "sha256:fa402a03c58b79e391e01bc58da9f4e5add488677a15ada1737dd95ea0862c62",
-    "package_lock_identity": "sha256:55afa9df3ca0d3f80e07cc1652c4482ffc7772ab11afcbbc79ab7c9fee6e2529",
-    "rir_identity": "sha256:764cf5cf6b76e3a3e6ed8e309b4ce965139145768cebf157870832b3a68aca58"
+    "build_receipt_identity": "sha256:1f31db3d50ccfd9e25b038749bb3f75fbe8a96692d9777a96b4cb86f47530c88",
+    "resolved_model_identity": "sha256:30207634192b7b05b9b493b9a5e2f930885e8617f0aa1a1afe919f3972708e7d",
+    "package_lock_identity": "sha256:22b79b37e08a2143662b55b4aa780f8d025240a702c1cf2a9757041a24cab4bd",
+    "rir_identity": "sha256:8c263cb18daeaf320b19cf932e0da6bcdbb89020e81dc9549323858ce0b331a4"
   },
   "seed": {
     "algorithm": "splitmix64-v1",

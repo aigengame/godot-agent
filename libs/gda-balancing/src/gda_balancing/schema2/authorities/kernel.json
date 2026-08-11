@@ -621,6 +621,12 @@
               }
             },
             {
+              "owners": "language_bundle.language.structured_operations",
+              "targets": {
+                "owner_constructor": "language_bundle.language.constructors.id"
+              }
+            },
+            {
               "owners": "language_bundle.language.runtime_profiles",
               "targets": {
                 "numeric_policy": "language_bundle.language.quantity.numeric_policies.id"
@@ -898,7 +904,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03",
+  "content_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3593,14 +3599,58 @@
         },
         "structured_operations": {
           "field_types": {
-            "body": {
-              "type": "canonical-value"
-            },
             "id": {
               "type": "non-empty-string"
             },
-            "inputs": {
-              "type": "canonical-value"
+            "law": {
+              "discriminator": "operator",
+              "type": "closed-discriminated-object",
+              "variants": {
+                "bounded-lookup": {
+                  "field_types": {
+                    "operator": {
+                      "const": "bounded-lookup"
+                    },
+                    "refusal_signal": {
+                      "type": "non-empty-string"
+                    },
+                    "result_projection": {
+                      "enum": [
+                        "list-element-type",
+                        "record-field-type"
+                      ]
+                    },
+                    "selector": {
+                      "enum": [
+                        "local-index",
+                        "static-field"
+                      ]
+                    }
+                  },
+                  "required_members": [
+                    "operator",
+                    "selector",
+                    "result_projection",
+                    "refusal_signal"
+                  ],
+                  "type": "closed-object"
+                },
+                "canonical-equal": {
+                  "field_types": {
+                    "operator": {
+                      "const": "canonical-equal"
+                    },
+                    "result_contract": {
+                      "const": "kernel-boolean"
+                    }
+                  },
+                  "required_members": [
+                    "operator",
+                    "result_contract"
+                  ],
+                  "type": "closed-object"
+                }
+              }
             },
             "owner_constructor": {
               "type": "non-empty-string"
@@ -3616,12 +3666,6 @@
               ],
               "type": "closed-object"
             },
-            "result": {
-              "type": "canonical-value"
-            },
-            "type_parameters": {
-              "type": "string-list"
-            },
             "version": {
               "type": "non-empty-string"
             }
@@ -3630,10 +3674,7 @@
             "id",
             "version",
             "owner_constructor",
-            "type_parameters",
-            "inputs",
-            "result",
-            "body",
+            "law",
             "resource_bounds"
           ]
         }
@@ -5717,7 +5758,7 @@
           "id": "lookup",
           "operand_constraints": [],
           "refusals": [
-            "lookup-out-of-range"
+            "structured-lookup-out-of-range"
           ],
           "required_members": [
             "node",
@@ -7720,6 +7761,15 @@
             "type",
             "value"
           ],
+          "nominal_type_reference": {
+            "coordinate_members": [
+              "package",
+              "version",
+              "id"
+            ],
+            "optional_kind_member": "kind",
+            "optional_kind_value": "nominal"
+          },
           "operator": "recursive-typed-envelope",
           "resource_charge_per_node": 1,
           "type_relation": "exact-selected-type"

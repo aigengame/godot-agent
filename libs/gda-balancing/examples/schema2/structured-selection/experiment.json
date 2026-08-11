@@ -3,8 +3,8 @@
     "policy": "all-metrics-within-target"
   },
   "id": "standard.structured-selection",
-  "kernel_identity": "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03",
-  "language_bundle_identity": "sha256:e7c2cc7b5892518d2f0426826e4fb0cfdbdb5feac5692f64126eeedc52f80f7a",
+  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "language_bundle_identity": "sha256:fc0441807b1d9d1ea4ff554351ba75c8ae6b0d404219711257b4c10731951d94",
   "metrics": [
     {
       "aggregation": "single",
@@ -33,10 +33,10 @@
     }
   ],
   "model": {
-    "build_receipt_identity": "sha256:47a23b204f2b79d915667e7a696fafea8f084b24f33342a136c4fd2352074ce6",
-    "package_lock_identity": "sha256:f5d2796a282224c1914a391f92e2592630dbfbdaf4bfba35e3ed18799301c9b1",
-    "resolved_model_identity": "sha256:8b03bf34bac7c0a7af30db02cb1052320c6d85d9f357a8f05488a6f9e5060819",
-    "rir_identity": "sha256:c9aa2d21f6bda19e8596015b910116d0bb5577959fbd1cd46f9eb094c8bde494",
+    "build_receipt_identity": "sha256:fc9c2a9125c13f8cdc5329f39a3992cd0faa92518860f15c23070ad241dd6222",
+    "package_lock_identity": "sha256:15b97e447538a184c9ad4a8385dd3d262ef04530f02ad139d70dc7acbb86d468",
+    "resolved_model_identity": "sha256:85acbb00f6534c140a14f8a77df517562545d2804b9d547f64ddbbe05449d4c6",
+    "rir_identity": "sha256:0d83cbb1d943144291c083e3e8fd7dcc55ebe12d2c9e015175ba7ae94222ee12",
     "source_identity": "sha256:8fe4f1f3e35b11746513522f0b1364eaab4068c2cf5c2a5cf7f1ab9b1856b5a3"
   },
   "runtime": {

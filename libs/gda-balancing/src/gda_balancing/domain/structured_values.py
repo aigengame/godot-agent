@@ -15,12 +15,25 @@ from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 _TypeKey = tuple[str, str, str]
 
+TYPED_ENVELOPE_ADMISSION_LAW: dict[str, Any] = {
+    "envelope_members": ["type", "value"],
+    "nominal_type_reference": {
+        "coordinate_members": ["package", "version", "id"],
+        "optional_kind_member": "kind",
+        "optional_kind_value": "nominal",
+    },
+    "operator": "recursive-typed-envelope",
+    "resource_charge_per_node": 1,
+    "type_relation": "exact-selected-type",
+}
+
 
 @dataclass(frozen=True)
 class StructuredValueAuthority:
     """The selected machine rules needed to admit structured values."""
 
     constructors: dict[str, dict[str, Any]]
+    operations: dict[str, dict[str, Any]]
     types: dict[_TypeKey, dict[str, Any]]
     typed_envelope_profile: dict[str, Any] | None
 
@@ -68,12 +81,7 @@ def _typed_envelope_profile(profiles: Iterable[dict[str, Any]]) -> dict[str, Any
     if len(matches) != 1:
         raise ValueError("admitted language has no unique typed-envelope profile")
     admission = matches[0].get("admission")
-    if admission != {
-        "envelope_members": ["type", "value"],
-        "operator": "recursive-typed-envelope",
-        "resource_charge_per_node": 1,
-        "type_relation": "exact-selected-type",
-    }:
+    if admission != TYPED_ENVELOPE_ADMISSION_LAW:
         raise ValueError("typed-envelope admission law is unsupported")
     return matches[0]
 
@@ -97,6 +105,7 @@ def package_structured_value_authority(
     """Project structured-value rules from admitted Package Releases."""
     packages = list(package_releases)
     constructors: dict[str, dict[str, Any]] = {}
+    operations: dict[str, dict[str, Any]] = {}
     definitions: dict[_TypeKey, dict[str, Any]] = {}
     profiles: list[dict[str, Any]] = []
     for package in packages:
@@ -105,6 +114,13 @@ def package_structured_value_authority(
             if constructor_id in constructors:
                 raise ValueError("admitted constructor identity is duplicated")
             constructors[constructor_id] = constructor
+        for operation in _semantic_definitions(
+            package, "language.structured_operations"
+        ):
+            operation_id = cast(str, operation["id"])
+            if operation_id in operations:
+                raise ValueError("admitted structured operation identity is duplicated")
+            operations[operation_id] = operation
         profiles.extend(
             _semantic_definitions(package, "language.literal_typing_profiles")
         )
@@ -134,6 +150,7 @@ def package_structured_value_authority(
             definitions[key] = definition
     return StructuredValueAuthority(
         constructors=constructors,
+        operations=operations,
         types=definitions,
         typed_envelope_profile=_typed_envelope_profile(profiles),
     )
@@ -180,8 +197,15 @@ def language_structured_value_authority(
         cast(str, constructor["id"]): constructor
         for constructor in cast(list[dict[str, Any]], language.get("constructors"))
     }
+    operations = {
+        cast(str, operation["id"]): operation
+        for operation in cast(
+            list[dict[str, Any]], language.get("structured_operations")
+        )
+    }
     return StructuredValueAuthority(
         constructors=constructors,
+        operations=operations,
         types=definitions,
         typed_envelope_profile=_typed_envelope_profile(
             cast(list[dict[str, Any]], language.get("literal_typing_profiles"))
@@ -220,6 +244,12 @@ def selected_structured_value_authority(
             list[dict[str, Any]], selected_semantics["constructors"]
         )
     }
+    operations = {
+        cast(str, row["definition"]["id"]): cast(dict[str, Any], row["definition"])
+        for row in cast(
+            list[dict[str, Any]], selected_semantics["structured_operations"]
+        )
+    }
     profiles = [
         cast(dict[str, Any], row["definition"])
         for row in cast(
@@ -228,24 +258,56 @@ def selected_structured_value_authority(
     ]
     return StructuredValueAuthority(
         constructors=constructors,
+        operations=operations,
         types=definitions,
         typed_envelope_profile=_selected_typed_envelope_profile(profiles),
     )
 
 
-def _nominal_key(type_expression: Any) -> tuple[str, str, str] | None:
+def nominal_type_key(
+    type_expression: Any, admission_law: dict[str, Any]
+) -> tuple[str, str, str] | None:
+    """Read one nominal coordinate through the selected typed-envelope law."""
     if not isinstance(type_expression, dict):
         return None
-    if set(type_expression) == {"package", "version", "id"} or (
-        set(type_expression) == {"kind", "package", "version", "id"}
-        and type_expression.get("kind") == "nominal"
+    contract = admission_law.get("nominal_type_reference")
+    if not isinstance(contract, dict):
+        return None
+    coordinate_members = contract.get("coordinate_members")
+    optional_kind_member = contract.get("optional_kind_member")
+    optional_kind_value = contract.get("optional_kind_value")
+    if (
+        not isinstance(coordinate_members, list)
+        or coordinate_members != ["package", "version", "id"]
+        or not isinstance(optional_kind_member, str)
+        or not optional_kind_member
+        or not isinstance(optional_kind_value, str)
+        or not optional_kind_value
     ):
-        values = tuple(
-            type_expression.get(name) for name in ("package", "version", "id")
-        )
-        if all(isinstance(value, str) and value for value in values):
-            return cast(tuple[str, str, str], values)
+        return None
+    expected_members = set(coordinate_members)
+    if optional_kind_member in type_expression:
+        expected_members.add(optional_kind_member)
+        if type_expression.get(optional_kind_member) != optional_kind_value:
+            return None
+    if set(type_expression) != expected_members:
+        return None
+    values = tuple(type_expression.get(name) for name in coordinate_members)
+    if all(isinstance(value, str) and value for value in values):
+        return cast(tuple[str, str, str], values)
     return None
+
+
+def _nominal_key(
+    type_expression: Any, authority: StructuredValueAuthority
+) -> tuple[str, str, str] | None:
+    profile = authority.typed_envelope_profile
+    admission = profile.get("admission") if isinstance(profile, dict) else None
+    return (
+        nominal_type_key(type_expression, admission)
+        if isinstance(admission, dict)
+        else None
+    )
 
 
 def _member_pointer(pointer: str, member: str | int) -> str:
@@ -253,9 +315,11 @@ def _member_pointer(pointer: str, member: str | int) -> str:
     return f"{pointer}/{escaped}"
 
 
-def _canonical_type_expression(type_expression: Any) -> JsonValue:
+def _canonical_type_expression(
+    type_expression: Any, authority: StructuredValueAuthority
+) -> JsonValue:
     """Normalize equivalent nominal spellings at public value boundaries."""
-    nominal = _nominal_key(type_expression)
+    nominal = _nominal_key(type_expression, authority)
     if nominal is not None:
         package, version, type_id = nominal
         return {"id": type_id, "package": package, "version": version}
@@ -263,16 +327,164 @@ def _canonical_type_expression(type_expression: Any) -> JsonValue:
         if isinstance(type_expression, list):
             return cast(
                 JsonValue,
-                [_canonical_type_expression(item) for item in type_expression],
+                [
+                    _canonical_type_expression(item, authority)
+                    for item in type_expression
+                ],
             )
         return cast(JsonValue, type_expression)
     return cast(
         JsonValue,
         {
-            member: _canonical_type_expression(value)
+            member: _canonical_type_expression(value, authority)
             for member, value in type_expression.items()
         },
     )
+
+
+def _structural_type_contract(
+    type_expression: Any,
+    authority: StructuredValueAuthority,
+    *,
+    pointer: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    nominal_key = _nominal_key(type_expression, authority)
+    constructor: dict[str, Any] | None = None
+    if nominal_key is not None:
+        type_definition = authority.types.get(nominal_key)
+        constructor_id = (
+            type_definition.get("constructor")
+            if isinstance(type_definition, dict)
+            else None
+        )
+        constructor = (
+            authority.constructors.get(constructor_id)
+            if isinstance(constructor_id, str)
+            else None
+        )
+        if (
+            not isinstance(type_definition, dict)
+            or constructor is None
+            or "definition" not in type_definition
+        ):
+            raise StructuredValueFault(
+                "language.structured_value_type_mismatch", pointer
+            )
+        type_expression = type_definition["definition"]
+    if not isinstance(type_expression, dict):
+        raise StructuredValueFault("language.structured_value_type_mismatch", pointer)
+    if constructor is None:
+        kind = type_expression.get("kind")
+        matches = [
+            candidate
+            for candidate in authority.constructors.values()
+            if cast(dict[str, Any], candidate.get("value_rule", {})).get(
+                "definition_kind"
+            )
+            == kind
+        ]
+        if len(matches) != 1:
+            raise StructuredValueFault(
+                "language.structured_value_type_mismatch", pointer
+            )
+        constructor = matches[0]
+    rule = constructor.get("value_rule")
+    if not isinstance(rule, dict):
+        raise StructuredValueFault("language.structured_value_type_mismatch", pointer)
+    return type_expression, constructor, rule
+
+
+def _structured_operation_law(
+    authority: StructuredValueAuthority,
+    constructor: dict[str, Any],
+    operator: str,
+    *,
+    pointer: str,
+) -> dict[str, Any]:
+    constructor_id = constructor.get("id")
+    matches = [
+        cast(dict[str, Any], operation["law"])
+        for operation in authority.operations.values()
+        if operation.get("owner_constructor") == constructor_id
+        and isinstance(operation.get("law"), dict)
+        and operation["law"].get("operator") == operator
+    ]
+    if len(matches) != 1:
+        raise StructuredValueFault("language.structured_value_type_mismatch", pointer)
+    return matches[0]
+
+
+def lookup_type_contract(
+    type_expression: Any,
+    key: Any,
+    *,
+    authority: StructuredValueAuthority,
+) -> tuple[str, JsonValue, str]:
+    """Project one declared lookup selector and result type from authority."""
+    definition, constructor, rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    law = _structured_operation_law(
+        authority, constructor, "bounded-lookup", pointer="/type"
+    )
+    selector = law.get("selector")
+    projection = law.get("result_projection")
+    refusal_signal = law.get("refusal_signal")
+    if not isinstance(refusal_signal, str) or not refusal_signal:
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    if (
+        selector == "static-field"
+        and projection == "record-field-type"
+        and rule.get("operator") == "closed-record"
+        and isinstance(key, str)
+    ):
+        fields = definition.get(cast(str, rule["fields_member"]))
+        name_member = cast(str, rule["field_name_member"])
+        type_member = cast(str, rule["field_type_member"])
+        matches = (
+            [
+                field
+                for field in fields
+                if isinstance(field, dict) and field.get(name_member) == key
+            ]
+            if isinstance(fields, list)
+            else []
+        )
+        if len(matches) == 1:
+            return (
+                selector,
+                _canonical_type_expression(matches[0][type_member], authority),
+                refusal_signal,
+            )
+    if (
+        selector == "local-index"
+        and projection == "list-element-type"
+        and rule.get("operator") == "bounded-list"
+    ):
+        return (
+            selector,
+            _canonical_type_expression(
+                definition[cast(str, rule["element_member"])], authority
+            ),
+            refusal_signal,
+        )
+    raise StructuredValueFault("language.structured_value_type_mismatch", "/key")
+
+
+def equal_result_contract(
+    type_expression: Any, *, authority: StructuredValueAuthority
+) -> str:
+    """Return the fixed Kernel result contract for declared structured equality."""
+    _definition, constructor, _rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    law = _structured_operation_law(
+        authority, constructor, "canonical-equal", pointer="/type"
+    )
+    result_contract = law.get("result_contract")
+    if not isinstance(result_contract, str) or not result_contract:
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    return result_contract
 
 
 def _validate(
@@ -289,7 +501,7 @@ def _validate(
     )
     for _ in range(charge):
         budget.consume(pointer)
-    nominal_key = _nominal_key(type_expression)
+    nominal_key = _nominal_key(type_expression, authority)
     if nominal_key is not None:
         type_definition = authority.types.get(nominal_key)
         if type_definition is None:
@@ -415,7 +627,10 @@ def _validate(
         key_pattern = type_expression.get(cast(str, rule["key_pattern_member"]))
         value_members = cast(list[str], rule["value_members"])
         if (
-            _nominal_key(type_expression.get(cast(str, rule["target_member"]))) is None
+            _nominal_key(
+                type_expression.get(cast(str, rule["target_member"])), authority
+            )
+            is None
             or not isinstance(key_pattern, str)
             or not key_pattern
             or not isinstance(value, dict)
@@ -454,7 +669,7 @@ def admit_typed_value(
     ):
         raise StructuredValueFault("language.structured_value_type_mismatch", "")
     return {
-        "type": _canonical_type_expression(envelope["type"]),
+        "type": _canonical_type_expression(envelope["type"], authority),
         "value": _validate(
             envelope["type"],
             envelope["value"],
@@ -470,33 +685,16 @@ def lookup_selector_kind(envelope: Any, *, authority: StructuredValueAuthority) 
     if not isinstance(envelope, dict) or set(envelope) != {"type", "value"}:
         raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
     type_expression = envelope["type"]
-    nominal_key = _nominal_key(type_expression)
-    if nominal_key is not None:
-        definition = authority.types.get(nominal_key)
-        if definition is None or "definition" not in definition:
-            raise StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
-            )
-        type_expression = definition["definition"]
-    if not isinstance(type_expression, dict):
+    _definition, constructor, _rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    law = _structured_operation_law(
+        authority, constructor, "bounded-lookup", pointer="/type"
+    )
+    selector = law.get("selector")
+    if selector not in {"static-field", "local-index"}:
         raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
-    kind = type_expression.get("kind")
-    matches = [
-        cast(dict[str, Any], constructor["value_rule"])
-        for constructor in authority.constructors.values()
-        if cast(dict[str, Any], constructor.get("value_rule", {})).get(
-            "definition_kind"
-        )
-        == kind
-    ]
-    if len(matches) != 1:
-        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
-    operator = matches[0].get("operator")
-    if operator == "closed-record":
-        return "static-field"
-    if operator == "bounded-list":
-        return "local-index"
-    raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    return cast(str, selector)
 
 
 def lookup_typed_value(
@@ -511,30 +709,17 @@ def lookup_typed_value(
         envelope, authority=authority, resource_limit=resource_limit
     )
     type_expression: Any = admitted["type"]
-    nominal_key = _nominal_key(type_expression)
-    if nominal_key is not None:
-        nominal = authority.types.get(nominal_key)
-        if nominal is None:
-            raise StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
-            )
-        type_expression = nominal["definition"]
-    kind = type_expression.get("kind") if isinstance(type_expression, dict) else None
-    rules = [
-        cast(dict[str, Any], constructor["value_rule"])
-        for constructor in authority.constructors.values()
-        if cast(dict[str, Any], constructor.get("value_rule", {})).get(
-            "definition_kind"
-        )
-        == kind
-    ]
-    if len(rules) != 1:
-        raise StructuredValueFault("language.structured_value_type_mismatch", "/key")
-    rule = rules[0]
-    if rule["operator"] == "closed-record" and isinstance(key, str):
+    type_expression, _constructor, rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    selector, result_type, refusal_signal = lookup_type_contract(
+        admitted["type"], key, authority=authority
+    )
+    if refusal_signal != "structured-lookup-out-of-range":
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    if selector == "static-field" and isinstance(key, str):
         fields = type_expression[cast(str, rule["fields_member"])]
         name_member = cast(str, rule["field_name_member"])
-        type_member = cast(str, rule["field_type_member"])
         field = next(
             (
                 field
@@ -546,21 +731,15 @@ def lookup_typed_value(
         if field is None:
             raise StructuredValueFault("runtime.structured_lookup_out_of_range", "/key")
         return {
-            "type": _canonical_type_expression(field[type_member]),
+            "type": result_type,
             "value": cast(dict[str, Any], admitted["value"])[key],
         }
-    if (
-        rule["operator"] == "bounded-list"
-        and isinstance(key, int)
-        and not isinstance(key, bool)
-    ):
+    if selector == "local-index" and isinstance(key, int) and not isinstance(key, bool):
         value = cast(list[JsonValue], admitted["value"])
         if not 0 <= key < len(value):
             raise StructuredValueFault("runtime.structured_lookup_out_of_range", "/key")
         return {
-            "type": _canonical_type_expression(
-                type_expression[cast(str, rule["element_member"])]
-            ),
+            "type": result_type,
             "value": value[key],
         }
     raise StructuredValueFault("language.structured_value_type_mismatch", "/key")
@@ -585,6 +764,13 @@ def equal_typed_values(
     ):
         raise StructuredValueFault(
             "language.structured_value_type_mismatch", "/right/type"
+        )
+    if (
+        equal_result_contract(admitted_left["type"], authority=authority)
+        != "kernel-boolean"
+    ):
+        raise StructuredValueFault(
+            "language.structured_value_type_mismatch", "/left/type"
         )
     return {
         "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},

@@ -6,6 +6,81 @@ from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 
 
+def _rename_structural_type_member(value, *, kind, old, new):
+    if isinstance(value, dict):
+        if value.get("kind") == kind and old in value:
+            value[new] = value.pop(old)
+        for child in value.values():
+            _rename_structural_type_member(child, kind=kind, old=old, new=new)
+    elif isinstance(value, list):
+        for child in value:
+            _rename_structural_type_member(child, kind=kind, old=old, new=new)
+
+
+@pytest.mark.parametrize(
+    ("constructor_id", "rule_member", "kind", "old", "new"),
+    (
+        ("standard.schema.record", "fields_member", "record", "fields", "members"),
+        ("standard.schema.list", "element_member", "list", "element", "item"),
+    ),
+)
+def test_two_consumers_follow_constructor_member_indirection(
+    constructor_id, rule_member, kind, old, new
+):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    constructor = next(
+        item for item in language["constructors"] if item["id"] == constructor_id
+    )
+    constructor["value_rule"][rule_member] = new
+    for nominal_type in language["nominal_types"]:
+        _rename_structural_type_member(
+            nominal_type["definition"], kind=kind, old=old, new=new
+        )
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True, first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    ("law_member", "replacement", "diagnostic_member"),
+    (
+        ("result_projection", "list-element-type", "typing"),
+        ("refusal_signal", "example-unknown-signal", "refusals"),
+    ),
+)
+def test_two_consumers_require_declared_record_lookup_semantics(
+    law_member, replacement, diagnostic_member
+):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        item
+        for item in ldb["language"]["structured_operations"]
+        if item["id"] == "standard.schema.record-field-v1"
+    )
+    operation["law"][law_member] = replacement
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.operations.standard.conformance.structured@1.0.0."
+        "standard.conformance.structured.select-v1.body.0."
+        f"{diagnostic_member}",
+    ) in first["diagnostics"]
+
+
 def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
     language = ldb["language"]
     source = next(
