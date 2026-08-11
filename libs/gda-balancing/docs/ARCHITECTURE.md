@@ -650,6 +650,13 @@ The initial language uses a closed constructor set:
 `Ref<T>`, `Quantity`, and `Distribution`.
 
 The list is closed for one Schema major. New convenience names do not become primitive types.
+The current `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
+constructors. A Domain package gives each use a nominal identity and exact definition. Record fields
+are closed, while Record object-member order is insignificant. Lists are invariant and bounded, and each Ref definition owns its nominal
+target and canonical key pattern. Public structured values use one `{type, value}` envelope. The
+LDB-selected type remains the authority; the envelope only carries that type across source,
+Experiment, Runtime, and artifact boundaries.
+
 `Quantity` carries orthogonal facets instead:
 
 - representation (`Int`, `Fixed`, `Decimal`, or admitted `Float` profile);
@@ -685,6 +692,17 @@ with a statically declared random-stream effect; it is never reclassified as pur
 unbounded iteration are forbidden. Unit conversion is explicit, and persistent mutation occurs only
 through declared transitions. Host callbacks, ambient RNG, implicit conversions, and
 implementation-defined iteration are outside the language.
+
+The Kernel's pure-expression vocabulary includes typed literals, bounded Record/List lookup, and
+exact-type canonical equality. Lookup returns a typed envelope for the selected field or element.
+The statically resolved container type determines the selector: a Record key is a field literal,
+and a List key is an exact integer local. Runtime never guesses from same-name locals. RIR carries
+the recursive nominal-type and constructor closure selected for those values; Runtime does not read
+an ambient LDB inventory.
+Equality first requires the same canonical type and then compares canonical values. Enum and Ref
+equality therefore use their admitted type definitions; host object identity and host container
+order have no semantic force. Missing fields, extra fields, unknown Enum members, invalid Ref keys,
+resource exhaustion, and out-of-range lookup produce authority-owned Diagnostics.
 
 Model Source owns module-level named **Formula declarations** with typed parameters, result, and a
 structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
@@ -855,11 +873,13 @@ weaken the same entrypoint/call-site closure.
 
 A literal has no host-default type. Each type package may independently export Literal Typing
 Profiles, and the runtime projection selects the profiles reachable from the Model's exact Type
-exports. A profile closes against its owner Type, the LDB value inventories, and at least one
-Operation formal value contract. Selection matches source kind, formal type, representation, kind,
-unit, domain, Numeric policy, and numeric bound; overlapping ranges for the same match contract are
-invalid. Zero or multiple matches refuse before Typed HIR; successful lowering preserves the selected
-profile in the RIR operand and its identity. The Symbol assignment policy therefore remains
+exports. Numeric profiles match the source kind, formal type, representation, kind, unit, domain,
+Numeric policy, and bound. Structured profiles match an explicit typed envelope and validate its
+value against the referenced nominal definition. Every profile closes against its owner Type, the
+LDB value inventories, and at least one Operation formal value contract. Overlapping profiles for
+the same match contract are invalid. Zero or multiple matches refuse before Typed HIR; successful
+lowering preserves the selected profile and canonical typed value in the RIR operand. The Symbol
+assignment policy therefore remains
 orthogonal: it owns only Symbol roles, access, initialization ownership, and Experiment
 cardinality. Under
 `operation-body-order`, writable aliases denote one runtime location for the complete invocation:
@@ -1136,6 +1156,12 @@ contracts and Metric definitions. They cannot choose a phase or Model entrypoint
 Dispatching **each queued event** is one atomic transaction over the latest committed Snapshot.
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
 commits. A refusal discards that event's buffers.
+
+State and result slots may carry either exact numeric values or admitted structured envelopes. A
+structured write must retain the slot's exact nominal type. Runtime traces and Snapshots preserve
+the complete envelope, while Metrics continue to observe explicitly selected numeric members. If a
+later precondition or lookup refuses, the Event discards every earlier numeric and structured write
+from that transaction.
 
 Every committed Snapshot identity covers its state values and the resumable Runtime continuation.
 The continuation includes:
@@ -1451,6 +1477,15 @@ issues own detailed observations, acceptance criteria, and live completion statu
     Effect coverage remain open.
   - Evidence: [rpg-periodic-effect](../examples/schema2/rpg-periodic-effect/) and
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md).
+- **Structured selection ([#636](https://github.com/aigengame/godot-agent/issues/636))**
+  - Architecture consequence: Added authority-owned Enum, Record, List, and Ref values to the
+    public Model and Experiment path. The same slice added typed literals, bounded lookup,
+    exact-type equality, structured Snapshot/trace values, and atomic rollback after structured
+    writes.
+  - Open boundary: The example proves one neutral bounded selection flow. It does not define entity
+    identity, rewards, inventory, targeting, arbitrary collections, or a general query language.
+  - Evidence: [structured-selection](../examples/schema2/structured-selection/),
+    `standard.schema@2.3.0`, and `standard.conformance.structured@1.0.0`.
 
 ### 12.3 Architecture consequence
 
@@ -1512,6 +1547,12 @@ typed-Quantity source schema, exact wire and Diagnostic projections, and descrip
 Numeric and RNG behavior, selected package resolution, publication, comparison, and Evidence remain
 open until a vertical tracer exercises each contract. Issue #538 makes no success claim for those
 absent artifact domains.
+
+Issue #636 extends the permanent foundation with authority-owned structured-value definitions and
+vectors. Production and independent consumers execute the same Enum, Record, List, Ref, lookup,
+equality, diagnostic, and resource-bound cases. The maintained neutral selection example carries
+those values through Model build, Experiment admission, Runtime execution, Snapshots, traces, and a
+numeric Metric. It does not close the broader type system or Genre coverage gates.
 
 Gate 2 follows bADR-0012's dependency order:
 

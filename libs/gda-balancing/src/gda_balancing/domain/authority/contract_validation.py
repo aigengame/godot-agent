@@ -278,6 +278,21 @@ def _value_matches_contract(
                 for name in required
             )
         )
+    if value_type == "closed-discriminated-object":
+        discriminator = contract.get("discriminator")
+        variants = contract.get("variants")
+        if (
+            not isinstance(value, dict)
+            or not isinstance(discriminator, str)
+            or not discriminator
+            or not isinstance(variants, dict)
+            or not variants
+        ):
+            return False
+        variant = variants.get(value.get(discriminator))
+        return isinstance(variant, dict) and _value_matches_contract(
+            value, variant, language_bundle
+        )
     if value_type == "list-of":
         item_contract = contract.get("items")
         return (

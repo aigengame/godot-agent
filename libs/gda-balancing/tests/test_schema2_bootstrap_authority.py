@@ -22,8 +22,57 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert first == second
     assert first["admitted"] is True
     assert first["law_ids"]
-    assert first["rule_ids"] == ["quantity.declare", "quantity.lower"]
+    assert first["rule_ids"] == [
+        "quantity.declare",
+        "quantity.lower",
+        "structured.declare",
+        "structured.lower",
+    ]
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "unknown-operator",
+        "missing-member",
+        "wrong-member-type",
+        "quantity-missing-bound",
+    ),
+)
+def test_constructor_value_rule_mutations_refuse_in_both_consumers(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    constructor = next(
+        item
+        for item in ldb["language"]["constructors"]
+        if item["id"]
+        == (
+            "core.quantity"
+            if mutation == "quantity-missing-bound"
+            else "standard.schema.list"
+        )
+    )
+    if mutation == "quantity-missing-bound":
+        del constructor["value_rule"]["maximum"]
+    elif mutation == "unknown-operator":
+        constructor["value_rule"]["operator"] = "unknown-list-law"
+    elif mutation == "missing-member":
+        del constructor["value_rule"]["maximum_length_member"]
+    else:
+        constructor["value_rule"]["element_member"] = 7
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.definitions",
+    ) in first["diagnostics"]
 
 
 def test_periodic_effect_package_owns_one_exact_bounded_lifecycle_contract():

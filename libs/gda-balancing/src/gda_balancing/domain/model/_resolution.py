@@ -768,11 +768,76 @@ def _schema_error_code(
     )
 
 
+def _schema_error_pointer_count(error: jsonschema.ValidationError) -> int:
+    if error.validator == "required" and isinstance(error.instance, dict):
+        required = error.validator_value
+        if isinstance(required, list):
+            return max(1, len(set(required) - set(error.instance)))
+    if error.validator in {
+        "additionalProperties",
+        "unevaluatedProperties",
+    } and isinstance(error.instance, dict):
+        schema = error.schema
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        if isinstance(properties, dict):
+            return max(1, len(set(error.instance) - set(properties)))
+    return 1
+
+
+def _preferred_schema_errors(
+    error: jsonschema.ValidationError,
+) -> list[jsonschema.ValidationError]:
+    if error.validator not in {"oneOf", "anyOf"} or not error.context:
+        return [error]
+    branches: dict[object, list[jsonschema.ValidationError]] = {}
+    for child in error.context:
+        schema_path = list(child.schema_path)
+        markers = [
+            index
+            for index, segment in enumerate(schema_path)
+            if segment == error.validator
+        ]
+        branch = (
+            schema_path[markers[-1] + 1]
+            if markers and markers[-1] + 1 < len(schema_path)
+            else schema_path[0]
+            if schema_path and isinstance(schema_path[0], int)
+            else None
+        )
+        branches.setdefault(branch, []).append(child)
+    selected = min(
+        branches.values(),
+        key=lambda items: (
+            sum(_schema_error_pointer_count(item) for item in items),
+            tuple(str(item.schema_path) for item in items),
+        ),
+    )
+    return [
+        preferred for child in selected for preferred in _preferred_schema_errors(child)
+    ]
+
+
 def _schema_error_diagnostics(
     error: jsonschema.ValidationError,
     source_identity: str,
     language_bundle: dict[str, Any],
 ) -> list[Schema2Diagnostic]:
+    error_path = tuple(error.absolute_path)
+    if (
+        error.validator in {"oneOf", "anyOf"}
+        and error.context
+        and len(error_path) >= 2
+        and error_path[-2] == "symbols"
+    ):
+        return [
+            diagnostic
+            for preferred in _preferred_schema_errors(error)
+            for diagnostic in _schema_error_diagnostics(
+                preferred,
+                source_identity,
+                language_bundle,
+            )
+        ]
     code = _schema_error_code(error, language_bundle)
     base = tuple(error.absolute_path)
     pointers: list[tuple[object, ...]] = []

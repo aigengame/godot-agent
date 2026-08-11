@@ -142,14 +142,28 @@ def test_literal_typing_is_an_independent_package_owned_authority():
     owner = next(
         package for package in language["packages"] if package["id"] == "core.quantity"
     )
+    structured_owner = next(
+        package
+        for package in language["packages"]
+        if package["id"] == "standard.schema"
+    )
 
     assert "literal_profiles" not in policy
     assert "literal_selection" not in policy
-    assert [profile["id"] for profile in profiles] == ["quantity.dimensionless-int64"]
+    assert [profile["id"] for profile in profiles] == [
+        "quantity.dimensionless-int64",
+        "standard.schema.nominal-structured",
+    ]
     assert owner["exports"]["literal_typing_profiles"] == [
         "quantity.dimensionless-int64"
     ]
+    assert structured_owner["exports"]["literal_typing_profiles"] == [
+        "standard.schema.nominal-structured"
+    ]
     assert "language.literal_typing_profiles" in owner["runtime_semantic_paths"]
+    assert (
+        "language.literal_typing_profiles" in structured_owner["runtime_semantic_paths"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -212,6 +226,7 @@ def test_distinct_overlapping_numeric_literal_profiles_preserve_operation_admiss
     )
     currency_constructor["id"] = "core.currency"
     language["constructors"].append(currency_constructor)
+    owner["exports"]["constructors"].append(currency_constructor["id"])
     currency_profile = deepcopy(language["literal_typing_profiles"][0])
     currency_profile["id"] = "currency.dimensionless-int64"
     currency_profile["type"]["id"] = "Currency"
@@ -481,6 +496,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
         assert node["result"]["kind"]
         if node["result"]["kind"] in {"local", "draw"}:
             assert node["result"]["typing"]["kind"] in {
+                "declared-result",
                 "fixed",
                 "same-as-references",
                 "literal-profile",

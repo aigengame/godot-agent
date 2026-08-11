@@ -72,7 +72,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c"
+    "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1394,9 +1394,11 @@ def _contract_value_kind(contract: Any) -> str | None:
         return "string"
     if value_type in {"list", "list-of", "string-list"}:
         return "array"
-    if value_type in {"closed-int64-interval", "closed-object"} or (
-        "required_members" in contract and "field_types" in contract
-    ):
+    if value_type in {
+        "closed-discriminated-object",
+        "closed-int64-interval",
+        "closed-object",
+    } or ("required_members" in contract and "field_types" in contract):
         return "object"
     if value_type in {"positive-signed-int64", "signed-int64"}:
         return "integer"
@@ -1725,6 +1727,35 @@ def _definition_contract_at_path(
 ) -> dict[str, Any] | None:
     selected = contract
     for segment in path:
+        if selected.get("type") == "closed-discriminated-object":
+            variants = selected.get("variants")
+            children = (
+                [
+                    child
+                    for variant in variants.values()
+                    if isinstance(variant, dict)
+                    and isinstance(variant.get("field_types"), dict)
+                    and isinstance(child := variant["field_types"].get(segment), dict)
+                ]
+                if isinstance(variants, dict)
+                else []
+            )
+            kinds = {_contract_value_kind(child) for child in children}
+            if not children or len(kinds) != 1 or None in kinds:
+                return None
+            if all(child == children[0] for child in children[1:]):
+                selected = children[0]
+            else:
+                selected = {
+                    "type": {
+                        "array": "list",
+                        "boolean": "boolean",
+                        "integer": "signed-int64",
+                        "object": "object",
+                        "string": "non-empty-string",
+                    }[cast(str, next(iter(kinds)))]
+                }
+            continue
         field_types = selected.get("field_types")
         if not isinstance(field_types, dict):
             return None
@@ -1776,6 +1807,8 @@ def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> boo
         # canonical value. The Kernel contract establishes only that the
         # language definition is canonically encodable.
         return True
+    if value_type == "closed-discriminated-object":
+        return schema == {}
     if value_type == "list-of":
         item = contract.get("items")
         return (
@@ -1827,7 +1860,8 @@ def _runtime_projection_is_closed(
 ) -> bool:
     if (
         not isinstance(profile, dict)
-        or set(profile) != {"outputs", "collections", "seeds", "edges"}
+        or set(profile)
+        != {"outputs", "collections", "seeds", "edges", "type_reference_closure"}
         or not isinstance(contract, dict)
         or set(contract)
         != {
@@ -1840,6 +1874,7 @@ def _runtime_projection_is_closed(
             "collection",
             "seed",
             "edge",
+            "type_reference_closure",
             "path_typing",
             "output_typing",
             "resource_accounting",
@@ -1879,9 +1914,15 @@ def _runtime_projection_is_closed(
                 "declaration_package_path",
                 "target_path",
                 "same_package",
+                "missing_declaration_path",
+                "applicability_member",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
+            "missing_declaration_path": "not-applicable",
+            "applicability": "declared-member-present",
+            "optional_members": ["missing_target"],
+            "missing_target_modes": ["not-applicable", "refuse"],
         }
         or contract.get("edge")
         != {
@@ -1892,9 +1933,25 @@ def _runtime_projection_is_closed(
                 "target_collection",
                 "target_path",
                 "same_package",
+                "missing_target",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
+            "missing_target_modes": ["not-applicable", "refuse"],
+        }
+        or contract.get("type_reference_closure")
+        != {
+            "required_members": [
+                "source_collection",
+                "source_definition_path",
+                "target_type_collection",
+                "target_constructor_collection",
+                "coordinate_members",
+                "structural_kind_member",
+                "constructor_kind_path",
+            ],
+            "coordinate_match": "exact-package-version-type-id",
+            "structural_match": "definition-kind-to-constructor-kind",
         }
         or contract.get("path_typing")
         != {
@@ -1923,6 +1980,9 @@ def _runtime_projection_is_closed(
                 "seed-candidate",
                 "edge-source",
                 "edge-target",
+                "type-reference-term",
+                "type-reference-target",
+                "constructor-kind-target",
                 "collection-output-row",
                 "explicit-output-row",
             ],
@@ -1946,11 +2006,22 @@ def _runtime_projection_is_closed(
     collections = profile.get("collections")
     seeds = profile.get("seeds")
     edges = profile.get("edges")
+    type_reference_closure = profile.get("type_reference_closure")
     if (
         not isinstance(outputs, list)
         or not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
+        or type_reference_closure
+        != {
+            "constructor_kind_path": ["value_rule", "definition_kind"],
+            "coordinate_members": ["package", "version", "id"],
+            "source_collection": "nominal_types",
+            "source_definition_path": ["definition"],
+            "structural_kind_member": "kind",
+            "target_constructor_collection": "constructors",
+            "target_type_collection": "types",
+        }
     ):
         return False
     output_members: list[str] = []
@@ -2077,7 +2148,11 @@ def _runtime_projection_is_closed(
             "declaration_package_path",
             "target_path",
             "same_package",
+            "missing_declaration_path",
+            "applicability_member",
         }
+        if "missing_target" in seed:
+            expected.add("missing_target")
         if (
             set(seed) != expected
             or seed.get("collection") not in collection_names
@@ -2085,6 +2160,10 @@ def _runtime_projection_is_closed(
             or not path_is_closed(seed.get("declaration_path"))
             or not path_is_closed(seed.get("target_path"), empty=True)
             or not isinstance(seed.get("same_package"), bool)
+            or seed.get("missing_declaration_path") != "not-applicable"
+            or not isinstance(seed.get("applicability_member"), str)
+            or not seed["applicability_member"]
+            or seed.get("missing_target", "refuse") not in {"not-applicable", "refuse"}
         ):
             return False
     for edge in edges:
@@ -2098,6 +2177,7 @@ def _runtime_projection_is_closed(
                 "target_collection",
                 "target_path",
                 "same_package",
+                "missing_target",
             }
             or edge.get("operator") not in edge_operators
             or edge.get("source_collection") not in collection_names
@@ -2105,6 +2185,7 @@ def _runtime_projection_is_closed(
             or not path_is_closed(edge.get("source_path"), empty=True)
             or not path_is_closed(edge.get("target_path"), empty=True)
             or not isinstance(edge.get("same_package"), bool)
+            or edge.get("missing_target") not in {"not-applicable", "refuse"}
         ):
             return False
     if len(output_members) != len(set(output_members)):
@@ -2230,17 +2311,19 @@ def _runtime_projection_is_closed(
         return _contract_value_kind(selected)
 
     for seed in seeds:
+        if seed["applicability_member"] not in declaration_fields:
+            continue
         declaration_kind = contract_kind(fact_contract(seed["declaration_path"]))
         package_kind = contract_kind(fact_contract(seed["declaration_package_path"]))
+        if declaration_kind is None:
+            if seed["missing_declaration_path"] != "not-applicable":
+                return False
+            continue
         target_kind = projected_kind(
             collection_shapes[seed["collection"]],
             seed["target_path"],
         )
-        if (
-            declaration_kind is None
-            or declaration_kind != target_kind
-            or package_kind != "string"
-        ):
+        if declaration_kind != target_kind or package_kind != "string":
             return False
     for edge in edges:
         source_kind = projected_kind(
@@ -2551,68 +2634,82 @@ def _language_definitions_are_closed(
     for lowering in lowerings:
         if not isinstance(lowering, dict):
             return False
-        chain = lowering.get("rule_chain")
         equalities = lowering.get("output_equalities")
         profile_id = lowering.get("resolution_profile")
-        initial_kind = lowering.get("initial_fact_kind")
-        if not isinstance(profile_id, str) or not isinstance(initial_kind, str):
+        paths = [
+            (lowering.get("rule_chain"), lowering.get("initial_fact_kind")),
+            (
+                lowering.get("structured_rule_chain"),
+                lowering.get("structured_initial_fact_kind"),
+            ),
+        ]
+        if not isinstance(profile_id, str):
             return False
         profile = profiles_by_id.get(profile_id)
-        initial_fields = fact_schemas.get(initial_kind)
         if (
-            not isinstance(chain, list)
-            or not chain
-            or not isinstance(equalities, list)
+            not isinstance(equalities, list)
             or not all(isinstance(item, dict) for item in equalities)
             or not isinstance(profile, dict)
-            or not isinstance(initial_fields, dict)
-            or profile.get("symbol_fact_member") not in initial_fields
         ):
             return False
-        terminal = chain[-1]
-        rule = (
-            rules_by_id.get(terminal.get("rule"))
-            if isinstance(terminal, dict)
-            else None
-        )
-        conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
-        kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
-        fields = fact_schemas.get(kind) if isinstance(kind, str) else None
-        pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
-        if not isinstance(fields, dict) or not _runtime_projection_is_closed(
-            lowering.get("runtime_projection"),
-            runtime_projection_contract,
-            language_bundle,
-            fields,
-            cast(dict[str, Any], meta_format["language_definitions"]),
-        ):
-            return False
-        for equality in equalities:
-            left = equality.get("left")
-            right = equality.get("right")
+        for chain, initial_kind in paths:
+            initial_fields = (
+                fact_schemas.get(initial_kind)
+                if isinstance(initial_kind, str)
+                else None
+            )
             if (
-                not _fact_contract_path_is_declared(fields, left)
-                or not _fact_contract_path_is_declared(fields, right)
-                or left == right
+                not isinstance(chain, list)
+                or not chain
+                or not isinstance(initial_fields, dict)
+                or profile.get("symbol_fact_member") not in initial_fields
             ):
                 return False
-            left_contract = _fact_contract_at_path(fields, left)
-            right_contract = _fact_contract_at_path(fields, right)
-            left_kind = _contract_value_kind(left_contract)
-            right_kind = _contract_value_kind(right_contract)
-            if (
-                left_kind is None
-                or left_kind != right_kind
-                or (
-                    left_kind in {"array", "object"} and left_contract != right_contract
-                )
+            terminal = chain[-1]
+            rule = (
+                rules_by_id.get(terminal.get("rule"))
+                if isinstance(terminal, dict)
+                else None
+            )
+            conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
+            kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
+            fields = fact_schemas.get(kind) if isinstance(kind, str) else None
+            pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+            if not isinstance(fields, dict) or not _runtime_projection_is_closed(
+                lowering.get("runtime_projection"),
+                runtime_projection_contract,
+                language_bundle,
+                fields,
+                cast(dict[str, Any], meta_format["language_definitions"]),
             ):
                 return False
-            pairs.append((tuple(left), tuple(right)))
-        if len(pairs) != len(set(pairs)):
-            return False
-        if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
-            return False
+            for equality in equalities:
+                left = equality.get("left")
+                right = equality.get("right")
+                if (
+                    not _fact_contract_path_is_declared(fields, left)
+                    or not _fact_contract_path_is_declared(fields, right)
+                    or left == right
+                ):
+                    return False
+                left_contract = _fact_contract_at_path(fields, left)
+                right_contract = _fact_contract_at_path(fields, right)
+                left_kind = _contract_value_kind(left_contract)
+                right_kind = _contract_value_kind(right_contract)
+                if (
+                    left_kind is None
+                    or left_kind != right_kind
+                    or (
+                        left_kind in {"array", "object"}
+                        and left_contract != right_contract
+                    )
+                ):
+                    return False
+                pairs.append((tuple(left), tuple(right)))
+            if len(pairs) != len(set(pairs)):
+                return False
+            if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
+                return False
     return True
 
 
@@ -2888,7 +2985,7 @@ def _literal_typing_profiles_are_closed(
         "closed": True,
         "collection": "language.literal_typing_profiles",
         "selection": "unique-formal-match",
-        "source_kinds": ["integer"],
+        "source_kinds": ["integer", "typed-envelope"],
         "match_members": [
             "type",
             "representation",
@@ -2901,9 +2998,31 @@ def _literal_typing_profiles_are_closed(
             "maximum": "maximum",
             "minimum": "minimum",
         },
-        "ownership": "profile-owner-must-own-exact-type-export",
+        "ownership": {
+            "integer": "profile-owner-must-own-exact-type-export",
+            "typed-envelope": "profile-owner-must-own-structured-constructors",
+        },
         "formal_closure": "at-least-one-exact-operation-value-contract",
         "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
+        "typed_envelope_profile": {
+            "admission": {
+                "envelope_members": ["type", "value"],
+                "operator": "recursive-typed-envelope",
+                "resource_charge_per_node": 1,
+                "type_relation": "exact-selected-type",
+            },
+            "id": "standard.schema.nominal-structured",
+            "required_constructors": [
+                "standard.schema.enum",
+                "standard.schema.list",
+                "standard.schema.record",
+                "standard.schema.ref",
+            ],
+            "selection": "exact-envelope-type",
+            "type_member": "type",
+            "value_kind": "nominal-structured",
+            "value_member": "value",
+        },
     }
     language = language_bundle.get("language")
     if not isinstance(language, dict) or contract != expected_contract:
@@ -2961,11 +3080,36 @@ def _literal_typing_profiles_are_closed(
         )
     ]
     match_members = cast(list[str], literal_contract["match_members"])
+    typed_profile_contract = cast(
+        dict[str, Any], literal_contract["typed_envelope_profile"]
+    )
+    numeric_profiles: list[dict[str, Any]] = []
     for profile in profiles:
         profile_id = profile.get("id") if isinstance(profile, dict) else None
         profile_owners = (
             owners.get(profile_id, []) if isinstance(profile_id, str) else []
         )
+        if not isinstance(profile, dict) or not isinstance(profile_id, str):
+            return False
+        if profile.get("source_kind") == "typed-envelope":
+            owner = profile_owners[0] if len(profile_owners) == 1 else None
+            owner_exports = owner.get("exports") if isinstance(owner, dict) else None
+            if (
+                set(profile) != {"admission", "id", "source_kind", "value_kind"}
+                or profile.get("admission") != typed_profile_contract["admission"]
+                or profile_id != typed_profile_contract["id"]
+                or profile.get("value_kind") != typed_profile_contract["value_kind"]
+                or not isinstance(owner_exports, dict)
+                or set(cast(list[Any], owner_exports.get("constructors", [])))
+                != set(typed_profile_contract["required_constructors"])
+                or not any(
+                    formal.get("value_kind") == typed_profile_contract["value_kind"]
+                    and isinstance(formal.get("type"), dict)
+                    for formal in formals
+                )
+            ):
+                return False
+            continue
         if (
             not isinstance(profile, dict)
             or profile.get("source_kind") != "integer"
@@ -2981,6 +3125,7 @@ def _literal_typing_profiles_are_closed(
             or not isinstance(profile.get("type"), dict)
         ):
             return False
+        numeric_profiles.append(profile)
         owner = profile_owners[0]
         owner_exports = cast(dict[str, Any], owner["exports"])
         exported_types = owner_exports.get("types")
@@ -3006,8 +3151,8 @@ def _literal_typing_profiles_are_closed(
             )
         ):
             return False
-    for index, left in enumerate(cast(list[dict[str, Any]], profiles)):
-        for right in cast(list[dict[str, Any]], profiles)[index + 1 :]:
+    for index, left in enumerate(numeric_profiles):
+        for right in numeric_profiles[index + 1 :]:
             if (
                 left["source_kind"] == right["source_kind"]
                 and all(
@@ -3041,11 +3186,34 @@ def _literal_operation_contracts(
     value: Any,
     literal_profiles: Any,
 ) -> tuple[dict[str, Any], ...]:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or not isinstance(literal_profiles, list)
-    ):
+    if not isinstance(literal_profiles, list):
+        return ()
+    if isinstance(value, dict) and set(value) == {"type", "value"}:
+        type_expression = value["type"]
+        typed_profiles = [
+            profile
+            for profile in literal_profiles
+            if isinstance(profile, dict)
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == "nominal-structured"
+        ]
+        if (
+            len(typed_profiles) == 1
+            and isinstance(type_expression, dict)
+            and set(type_expression) == {"package", "version", "id"}
+            and all(
+                isinstance(type_expression.get(member), str) and type_expression[member]
+                for member in ("package", "version", "id")
+            )
+        ):
+            return (
+                {
+                    "type": type_expression,
+                    "value_kind": "nominal-structured",
+                },
+            )
+        return ()
+    if not isinstance(value, int) or isinstance(value, bool):
         return ()
     matches = [
         profile
@@ -3059,6 +3227,99 @@ def _literal_operation_contracts(
         and profile["minimum"] <= value <= profile["maximum"]
     ]
     return tuple(cast(list[dict[str, Any]], matches))
+
+
+def _operation_contract_for_structured_type(
+    type_expression: Any,
+    literal_profiles: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(type_expression, dict):
+        return None
+    package = type_expression.get("package")
+    version = type_expression.get("version")
+    type_id = type_expression.get("id")
+    if all(isinstance(item, str) and item for item in (package, version, type_id)):
+        exact_type = {"id": type_id, "package": package, "version": version}
+        scalar_profiles = (
+            [
+                profile
+                for profile in literal_profiles
+                if isinstance(profile, dict)
+                and profile.get("source_kind") == "integer"
+                and profile.get("type") == exact_type
+            ]
+            if isinstance(literal_profiles, list)
+            else []
+        )
+        if len(scalar_profiles) == 1:
+            profile = scalar_profiles[0]
+            return {
+                member: profile[member]
+                for member in (
+                    "domain",
+                    "kind",
+                    "numeric_policy",
+                    "representation",
+                    "unit",
+                )
+            } | {
+                "type": exact_type,
+            }
+        return {"type": exact_type, "value_kind": "nominal-structured"}
+    if type_expression.get("kind") in {"list", "ref"}:
+        return {"type": type_expression, "value_kind": "structured"}
+    return None
+
+
+def _declared_lookup_operation_contract(
+    value_contract: dict[str, Any],
+    key: Any,
+    nominal_types: dict[tuple[str, str, str], dict[str, Any]],
+    literal_profiles: Any,
+    key_candidates: tuple[dict[str, Any], ...] | None,
+    runtime_numeric_policies: list[str],
+) -> dict[str, Any] | None:
+    type_expression = value_contract.get("type")
+    if not isinstance(type_expression, dict):
+        return None
+    coordinate = tuple(
+        type_expression.get(member) for member in ("package", "version", "id")
+    )
+    if all(isinstance(item, str) and item for item in coordinate):
+        nominal = nominal_types.get(cast(tuple[str, str, str], coordinate))
+        if nominal is None:
+            return None
+        type_expression = nominal.get("definition")
+    if not isinstance(type_expression, dict):
+        return None
+    if type_expression.get("kind") == "record" and isinstance(key, str):
+        fields = type_expression.get("fields")
+        if not isinstance(fields, list):
+            return None
+        matches = [
+            field
+            for field in fields
+            if isinstance(field, dict) and field.get("name") == key
+        ]
+        return (
+            _operation_contract_for_structured_type(
+                matches[0].get("type"), literal_profiles
+            )
+            if len(matches) == 1
+            else None
+        )
+    if type_expression.get("kind") == "list":
+        if not key_candidates or any(
+            candidate.get("kind") != "scalar"
+            or candidate.get("representation") != "Int"
+            or candidate.get("numeric_policy") not in runtime_numeric_policies
+            for candidate in key_candidates
+        ):
+            return None
+        return _operation_contract_for_structured_type(
+            type_expression.get("element"), literal_profiles
+        )
+    return None
 
 
 def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
@@ -3166,6 +3427,18 @@ def _operation_composition_diagnostic_subjects(
     }
     if len(node_definitions) != len(runtime_nodes):
         return ("kernel.meta-format.runtime-program.nodes",)
+    nominal_type_definitions = {
+        (
+            cast(str, definition["package"]),
+            cast(str, definition["version"]),
+            cast(str, definition["id"]),
+        ): definition
+        for definition in cast(list[dict[str, Any]], language.get("nominal_types", []))
+        if all(
+            isinstance(definition.get(member), str)
+            for member in ("package", "version", "id")
+        )
+    }
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
         package_id = package.get("id")
@@ -3473,6 +3746,34 @@ def _operation_composition_diagnostic_subjects(
                         result_candidates = (
                             compatible_candidates(referenced)
                             if referenced is not None
+                            else ()
+                        )
+                    elif typing_kind == "declared-result":
+                        value_name = instruction.get("value")
+                        value_candidates = (
+                            lexical_environment.get(value_name)
+                            if isinstance(value_name, str)
+                            else None
+                        )
+                        result_candidates = (
+                            tuple(
+                                result
+                                for candidate in value_candidates
+                                if (
+                                    result := _declared_lookup_operation_contract(
+                                        candidate,
+                                        instruction.get("key"),
+                                        nominal_type_definitions,
+                                        literal_profiles,
+                                        locals_.get(cast(str, instruction.get("key")))
+                                        if isinstance(instruction.get("key"), str)
+                                        else None,
+                                        runtime_numeric_policies,
+                                    )
+                                )
+                                is not None
+                            )
+                            if value_candidates is not None
                             else ()
                         )
                     else:

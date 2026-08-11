@@ -32,6 +32,12 @@ from gda_balancing.infrastructure.input_bytes import (
 from gda_balancing.domain.model import admit_resolved_model
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
+from gda_balancing.domain.structured_values import (
+    StructuredValueAuthority,
+    StructuredValueFault,
+    admit_typed_value,
+    package_structured_value_authority,
+)
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
 
@@ -40,6 +46,10 @@ EXPERIMENT_CHECK_REFUSAL_REASONS = (
     "model.reason.source-parse-failure",
     "model.reason.source-contract-mismatch",
     "quantity.reason.invalid-domain",
+    "structured.reason.resource-exhausted",
+    "structured.reason.type-mismatch",
+    "structured.reason.unknown-enum",
+    "structured.reason.record-member-mismatch",
     "model.reason.resolved-authority-mismatch",
     "model.reason.resolution-binding-mismatch",
 )
@@ -110,6 +120,43 @@ def _first_schema_error(
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
     return errors[0] if errors else None
+
+
+def _declared_value_fault(
+    value: Any,
+    declaration: dict[str, Any],
+    *,
+    structured_authority: StructuredValueAuthority,
+    resource_limit: int,
+) -> StructuredValueFault | None:
+    type_identity = cast(dict[str, str], declaration["type_identity"])
+    declared_type: JsonValue = {
+        "id": type_identity["symbol"],
+        "package": type_identity["package"],
+        "version": type_identity["version"],
+    }
+    if declaration.get("value_kind") == "nominal-structured":
+        try:
+            admitted = admit_typed_value(
+                value,
+                authority=structured_authority,
+                resource_limit=resource_limit,
+            )
+        except StructuredValueFault as fault:
+            return fault
+        if canonical_bytes(admitted["type"]) != canonical_bytes(declared_type):
+            return StructuredValueFault(
+                "language.structured_value_type_mismatch", "/type"
+            )
+        return None
+    domain = declaration["domain"]
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not domain["minimum"] <= value <= domain["maximum"]
+    ):
+        return StructuredValueFault("language.invalid_domain", "")
+    return None
 
 
 def _pointer(parts: Any) -> str:
@@ -513,6 +560,15 @@ def check_experiment(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in rir["declarations"]
     }
+    structured_authority = package_structured_value_authority(
+        cast(
+            list[dict[str, Any]],
+            context.language_bundle["language"]["packages"],
+        )
+    )
+    structured_resource_limit = cast(
+        int, language_bundle["resources"]["max_rule_match_steps"]
+    )
     required_profile = value["runtime"]["profile"]
     if required_profile not in runtime_profiles:
         return _refusal(
@@ -623,14 +679,21 @@ def check_experiment(
                 declaration = declarations[
                     canonical_bytes(cast(JsonValue, row["target"]))
                 ]
-                domain = declaration["domain"]
-                if not domain["minimum"] <= row["value"] <= domain["maximum"]:
+                fault = _declared_value_fault(
+                    row["value"],
+                    declaration,
+                    structured_authority=structured_authority,
+                    resource_limit=structured_resource_limit,
+                )
+                if fault is not None:
                     return _refusal(
                         stage="static",
-                        code="language.invalid_domain",
+                        code=fault.code,
                         identity=experiment_identity,
-                        pointer=f"{payload_pointer}/{payload_index}/value",
-                        message="Event-local payload is outside its declared domain",
+                        pointer=(
+                            f"{payload_pointer}/{payload_index}/value{fault.pointer}"
+                        ),
+                        message="Event-local payload does not match its declared value",
                     )
             reference_contracts = cast(
                 list[dict[str, Any]], payload_contract["event_references"]
@@ -763,16 +826,24 @@ def check_experiment(
                 pointer=f"/scenarios/{scenario_index}/event_plan",
                 message=str(err),
             )
-        for row in scenario["assignments"]:
+        for assignment_index, row in enumerate(scenario["assignments"]):
             declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
-            domain = declaration["domain"]
-            if not domain["minimum"] <= row["value"] <= domain["maximum"]:
+            fault = _declared_value_fault(
+                row["value"],
+                declaration,
+                structured_authority=structured_authority,
+                resource_limit=structured_resource_limit,
+            )
+            if fault is not None:
                 return _refusal(
                     stage="static",
-                    code="language.invalid_domain",
+                    code=fault.code,
                     identity=experiment_identity,
-                    pointer=f"/scenarios/{scenario_index}/assignments",
-                    message="Scenario assignment is outside its declared domain",
+                    pointer=(
+                        f"/scenarios/{scenario_index}/assignments/"
+                        f"{assignment_index}/value{fault.pointer}"
+                    ),
+                    message="Scenario assignment does not match its declared value",
                 )
         for event_index, event in enumerate(_scenario_root_events(scenario)):
             if event["kind"] != "external-input":
@@ -795,15 +866,20 @@ def check_experiment(
                             "entrypoints' exact external-fact contract"
                         ),
                     )
-                value_contract = cast(dict[str, Any], target_contract["value_contract"])
-                domain = cast(dict[str, int], value_contract["domain"])
-                if not domain["minimum"] <= fact["value"] <= domain["maximum"]:
+                declaration = declarations[identity]
+                fault = _declared_value_fault(
+                    fact["value"],
+                    declaration,
+                    structured_authority=structured_authority,
+                    resource_limit=structured_resource_limit,
+                )
+                if fault is not None:
                     return _refusal(
                         stage="static",
-                        code="language.invalid_domain",
+                        code=fault.code,
                         identity=experiment_identity,
-                        pointer=f"{pointer}/value",
-                        message="External-input fact is outside its declared domain",
+                        pointer=f"{pointer}/value{fault.pointer}",
+                        message="External-input fact does not match its declared value",
                     )
     expected_requirements = {
         "operation_kinds": required_operation_kinds,

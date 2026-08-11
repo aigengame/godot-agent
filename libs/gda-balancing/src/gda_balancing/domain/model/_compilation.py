@@ -95,6 +95,11 @@ def validate_compiled_artifacts(
     lock = artifacts["package-lock"]
     rir = artifacts["rir-semantic-payload"]
     resolved = artifacts["resolved-model"]
+    lowering = _model_lowering(language_bundle)
+    output_member = lowering.get("output_member")
+    declarations = rir.get(output_member) if isinstance(output_member, str) else None
+    if not isinstance(declarations, list):
+        raise RuntimeError("RIR declaration output is not an admitted list")
     if artifacts["capability-manifest"] != _capability_manifest(
         cast(dict[str, Any], lock),
         cast(dict[str, Any], rir),
@@ -109,12 +114,12 @@ def validate_compiled_artifacts(
         lock,
         rir,
         artifacts["debug-map"],
+        cast(list[dict[str, JsonValue]], declarations),
     ):
         raise RuntimeError("Model explanation is not an exact projection")
     build_receipt = artifacts["build-receipt"]
     debug_map = artifacts["debug-map"]
     resolution_receipt = artifacts["resolution-receipt"]
-    lowering = _model_lowering(language_bundle)
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
@@ -165,6 +170,7 @@ def _model_explanation(
     lock: dict[str, JsonValue],
     rir: dict[str, JsonValue],
     debug_map: dict[str, JsonValue],
+    declarations: list[dict[str, JsonValue]],
 ) -> dict[str, JsonValue]:
     """Project the immutable human inspection companion from exact build data."""
     language_bundle = authority_context.language_bundle
@@ -277,6 +283,15 @@ def _model_explanation(
     payload = {
         "rir_identity": rir["content_identity"],
         "debug_map_identity": debug_map["content_identity"],
+        "declaration_explanations": [
+            {
+                "resolved_symbol": declaration["resolved_symbol"],
+                "type_identity": declaration["type_identity"],
+                "value_kind": declaration["value_kind"],
+            }
+            for declaration in declarations
+            if declaration.get("value_kind") == "nominal-structured"
+        ],
         "formula_explanations": cast(JsonValue, formula_explanations),
         "operation_explanations": cast(JsonValue, operation_explanations),
     }
@@ -439,6 +454,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         lock,
         rir,
         debug_map,
+        declarations,
     )
     resolution_receipt = _identified_artifact(
         checked.language_bundle,

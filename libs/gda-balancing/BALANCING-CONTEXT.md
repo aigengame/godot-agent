@@ -342,11 +342,20 @@ _Avoid_: package type, attribute type, custom primitive
 **Nominal reference**:
 A core `Ref<T>` value that identifies one stable target under a nominal target contract without
 granting traversal, lifecycle, or object semantics. Its canonical identity pairs the statically
-known target identity with a package-defined canonical reference key; the exporting package owns
+known target identity with a package-defined canonical reference key. The Ref definition carries
+the key pattern, so a host cannot substitute its own identifier rule. The exporting package owns
 existence, lifetime, and missing-target outcomes. `game.entity` defines `EntityRef` as its
 `Ref<game.entity.Entity>` specialization; other packages may specialize references for their own
 nominal artifacts without pretending they are game entities (bADR-0016).
 _Avoid_: untyped id, host object reference, EntityRef as core primitive
+
+**Typed value envelope**:
+The public `{type, value}` form for a structured literal, Experiment assignment, Runtime fact, or
+generated artifact member. `type` names one exact nominal type or closed generic type expression.
+`value` must satisfy that type's admitted Enum, Record, List, or Ref contract. The envelope does not
+add a second type authority; it carries the LDB-selected type across public boundaries. Numeric
+values keep their existing enclosing Quantity contract (bADR-0016/0022).
+_Avoid_: tagged host object, untyped JSON payload, evaluator-specific value wrapper
 
 **Quantity**:
 A typed numeric value whose concerns are explicit and orthogonal: numeric representation, nominal
@@ -499,12 +508,13 @@ _Avoid_: implicit same-name lookup, ambient variable, parameter declaration
 
 **Literal Typing Profile**:
 An independently exported LDB definition that lets one package map a source-literal kind and
-bounded value range to an exact type/value contract. The exporting package must own that exact Type
-release; referenced representation, kind, unit, and Numeric policy must close against LDB
-inventories; the profile must match at least one Operation formal value contract; and overlapping
-profiles for the same match contract are refused. Selected profiles enter RIR runtime semantics,
-while the Symbol assignment policy remains limited to Symbol roles, access, initialization
-ownership, and Experiment cardinality (bADR-0016/0022).
+value shape to an exact type/value contract. Numeric profiles own bounded integer ranges and their
+representation, kind, unit, domain, and Numeric policy. A structured profile admits an explicit
+typed value envelope and validates its value against the referenced nominal definition. The
+exporting package must own that exact Type release; the profile must match at least one Operation
+formal value contract; and overlapping profiles for the same match contract are refused. Selected
+profiles enter RIR runtime semantics, while the Symbol assignment policy remains limited to Symbol
+roles, access, initialization ownership, and Experiment cardinality (bADR-0016/0022).
 _Avoid_: host literal default, lowering-owned literal table, Symbol assignment rule
 
 **Operation call site**:

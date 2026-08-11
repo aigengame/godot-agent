@@ -29,6 +29,9 @@ from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
+from gda_balancing.domain.structured_values import (
+    package_structured_value_authority,
+)
 from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
@@ -44,6 +47,9 @@ _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-
 _PERIODIC_EXAMPLE_DIR = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
 )
+_STRUCTURED_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "structured-selection"
+)
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
@@ -58,6 +64,100 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "external_input_identity",
     "observation",
 }
+
+
+def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_authority(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        )
+    )
+    lookup_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "lookup"
+    )
+    variables: dict[str, Any] = {
+        "candidate": {
+            "type": {
+                "id": "Candidate",
+                "package": "standard.conformance.structured",
+                "version": "1.0.0",
+            },
+            "value": {"key": {"key": "candidate_a"}, "kind": "primary"},
+        },
+        "kind": 0,
+    }
+
+    experiment_runtime_module._execute_value_instruction(
+        {
+            "key": "kind",
+            "node": "lookup",
+            "target": "selected_kind",
+            "value": "candidate",
+        },
+        variables,
+        {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+        lookup_contract,
+        structured_authority=structured_authority,
+        structured_resource_limit=1024,
+    )
+
+    assert variables["selected_kind"] == {
+        "type": {
+            "id": "CandidateKind",
+            "package": "standard.conformance.structured",
+            "version": "1.0.0",
+        },
+        "value": "primary",
+    }
+
+
+def test_list_lookup_requires_the_statically_resolved_index_local():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_authority(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        )
+    )
+    lookup_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "lookup"
+    )
+    variables = {
+        "candidates": {
+            "type": {
+                "element": {
+                    "id": "Candidate",
+                    "kind": "nominal",
+                    "package": "standard.conformance.structured",
+                    "version": "1.0.0",
+                },
+                "kind": "list",
+                "maximum_length": 16,
+            },
+            "value": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="List lookup index local is unavailable"):
+        experiment_runtime_module._execute_value_instruction(
+            {
+                "key": "missing_index",
+                "node": "lookup",
+                "target": "selected_candidate",
+                "value": "candidates",
+            },
+            variables,
+            {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+            lookup_contract,
+            structured_authority=structured_authority,
+            structured_resource_limit=1024,
+        )
 
 
 def test_experiment_conformance_uses_only_prepared_public_documents():
@@ -298,7 +398,7 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
         ["experiment", "check", str(specification_path)]
     )
 
-    assert (exit_code, stderr) == (2, "")
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.source_contract_mismatch"
     assert diagnostic["primary"]["pointer"] == "/scenarios/0/assignments"
@@ -713,7 +813,7 @@ def _reference_execute_event(
                     )
                     draws.append(draw)
                     write_local(instruction["target"], draw["value"])
-                elif operator == "integer-literal":
+                elif operator == "typed-literal":
                     write_local(instruction["target"], instruction["literal"])
                 elif operator == "copy-value":
                     write_local(
@@ -1429,6 +1529,209 @@ def _write_built_periodic_experiment(tmp_path, run_cli):
     specification_path = tmp_path / "periodic-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
     return specification_path, build_receipt
+
+
+def _write_built_structured_experiment(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_STRUCTURED_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-structured-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = json.loads(
+        (_STRUCTURED_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    specification["kernel_identity"] = build_record["kernel_identity"]
+    specification["language_bundle_identity"] = build_record["language_bundle_identity"]
+    specification["model"] = {
+        "source_identity": build_record["source_identity"],
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
+    specification_path = tmp_path / "structured-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path, specification
+
+
+def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+
+    def run(candidate: str, *, reordered: bool, invocation: str):
+        scenario = specification["scenarios"][0]
+        assignments = {row["target"]["name"]: row for row in scenario["assignments"]}
+        scenario["event_plan"][0]["entrypoint"] = (
+            f"structured.select-{candidate.replace('_', '-')}"
+        )
+        state = assignments["selection_state"]["value"]["value"]
+        if reordered:
+            state["candidates"].reverse()
+            state["results"].reverse()
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"evaluation-{invocation}.json"),
+                "--invocation-key",
+                invocation * 64,
+            ]
+        )
+        assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+        receipt = json.loads(stdout)
+        return (
+            _member(receipt, "event-trace"),
+            _member(receipt, "snapshot-series"),
+            _member(receipt, "metric-dataset"),
+        )
+
+    success_trace, success_snapshots, success_metrics = run(
+        "candidate_a", reordered=False, invocation="7"
+    )
+    success = success_trace["events"][0]
+    assert success["outcome"] == {"id": "selected", "kind": "success"}
+    assert success["rng_draws"] == [
+        {
+            "stream": "selection",
+            "index": 0,
+            "candidate_hex": "e9d99c027e25cf36",
+            "accepted": True,
+            "minimum": 0,
+            "maximum": 1,
+            "value": 0,
+        }
+    ]
+    output = next(row for row in success["facts"] if row["name"] == "selection_result")
+    assert output["kind"] == "structured"
+    assert output["value"]["value"] == {
+        "selected": {"key": "candidate_a"},
+        "kind": "primary",
+        "rank": 3,
+    }
+    before_result = next(
+        row for row in success["state_before"] if row["name"] == "selected_result"
+    )
+    after_result = next(
+        row for row in success["state_after"] if row["name"] == "selected_result"
+    )
+    assert before_result["value"]["value"] == {
+        "selected": {"key": "candidate_b"},
+        "kind": "secondary",
+        "rank": 9,
+    }
+    assert after_result["value"] == output["value"]
+    assert success_metrics["samples"][0]["value"] == 3
+    assert success_snapshots["snapshots"][-1]["values"] == success["state_after"]
+
+    failure_trace, failure_snapshots, failure_metrics = run(
+        "candidate_b", reordered=False, invocation="8"
+    )
+    failure = failure_trace["events"][0]
+    assert failure["outcome"] == {
+        "id": "candidate-mismatch",
+        "kind": "gameplay-alternative",
+    }
+    assert failure["state_after"] == failure["state_before"]
+    assert failure_snapshots["snapshots"][1]["values"] == failure["state_before"]
+    assert not any(row["name"] == "selection_result" for row in failure["facts"])
+    assert failure_metrics["samples"][0]["value"] == 9
+
+    reordered_trace, _, reordered_metrics = run(
+        "candidate_b", reordered=True, invocation="9"
+    )
+    reordered = reordered_trace["events"][0]
+    assert reordered["outcome"] == {"id": "selected", "kind": "success"}
+    assert reordered["rng_draws"][0]["index"] == success["rng_draws"][0]["index"]
+    assert (
+        reordered["rng_draws"][0]["candidate_hex"]
+        == success["rng_draws"][0]["candidate_hex"]
+    )
+    assert reordered_metrics["samples"][0]["value"] == 9
+
+
+def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    specification["scenarios"][0]["assignments"][0]["value"]["value"]["candidates"][0][
+        "kind"
+    ] = "unknown"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.structured_value_unknown_enum"
+    assert diagnostic["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/candidates/0/kind"
+    )
+
+
+def test_public_structured_lookup_refuses_and_rolls_back_the_event(tmp_path, run_cli):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
+    initial_state["candidates"] = []
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (
+        check_stdout,
+        check_stderr,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "lookup-refusal.json"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "runtime.structured_lookup_out_of_range"
+    ]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == (
+        "runtime.structured_lookup_out_of_range"
+    )
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(

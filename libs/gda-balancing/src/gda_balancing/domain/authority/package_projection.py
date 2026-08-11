@@ -218,6 +218,7 @@ def _json_pointer_schema(meta_format: dict[str, Any]) -> dict[str, object]:
 
 
 def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, object]]:
+    pointer_schema = _json_pointer_schema(meta_format)
     contract = meta_format.get("package_vector")
     runtime = meta_format.get("runtime_program")
     named_rng = runtime.get("named_rng") if isinstance(runtime, dict) else None
@@ -574,6 +575,68 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                             "unevaluatedProperties": False,
                         },
                     ]
+                }
+                if set(properties) != set(required):
+                    raise ValueError(
+                        f"Kernel package-vector kind is not closed: {kind_id}"
+                    )
+                variants.append(
+                    {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                        "unevaluatedProperties": False,
+                    }
+                )
+                continue
+            if kind_id == "structured-value":
+                actions = kind.get("actions")
+                expect_members = kind.get("expect_members")
+                if (
+                    input_members != ["action", "key", "left", "limit", "right"]
+                    or actions != ["admit", "equal", "lookup"]
+                    or expect_members != ["code", "outcome", "pointer", "type", "value"]
+                ):
+                    raise ValueError(
+                        "Kernel structured-value vector contract is incomplete"
+                    )
+                properties["input"] = {
+                    "type": "object",
+                    "properties": {
+                        "action": {"enum": actions},
+                        "key": {},
+                        "left": {},
+                        "limit": {
+                            "oneOf": [
+                                {"type": "null"},
+                                {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 2**63 - 1,
+                                },
+                            ]
+                        },
+                        "right": {},
+                    },
+                    "required": input_members,
+                    "unevaluatedProperties": False,
+                }
+                properties["expect"] = {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "oneOf": [
+                                _non_empty_string_schema(),
+                                {"type": "null"},
+                            ]
+                        },
+                        "outcome": {"enum": ["admitted", "refused"]},
+                        "pointer": pointer_schema,
+                        "type": {},
+                        "value": {},
+                    },
+                    "required": expect_members,
+                    "unevaluatedProperties": False,
                 }
                 if set(properties) != set(required):
                     raise ValueError(

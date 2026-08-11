@@ -60,6 +60,13 @@ _PACKAGE_VECTOR_KIND_MEMBERS = {
         "state_value_members",
         "target_states",
     },
+    "structured-value": {
+        "actions",
+        "expect_members",
+        "id",
+        "input_members",
+        "required_members",
+    },
 }
 
 
@@ -154,6 +161,13 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         "scheduler-scenario": {
             "category",
             "detects_mutation",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
+        "structured-value": {
+            "category",
             "expect",
             "id",
             "input",
@@ -270,6 +284,11 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         == ["scenario", "value"]
         and kinds["scheduler-scenario"].get("target_states")
         == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
+        and kinds["structured-value"].get("actions") == ["admit", "equal", "lookup"]
+        and kinds["structured-value"].get("input_members")
+        == ["action", "key", "left", "limit", "right"]
+        and kinds["structured-value"].get("expect_members")
+        == ["code", "outcome", "pointer", "type", "value"]
     )
 
 

@@ -481,6 +481,36 @@ def _package_evidence_vectors_are_closed(
             if not _scheduler_scenario_vector_is_closed(vector, kind, phase_inventory):
                 return False
             continue
+        if kind_id == "structured-value":
+            inp = vector.get("input")
+            expect = vector.get("expect")
+            if (
+                not isinstance(inp, dict)
+                or set(inp) != set(kind["input_members"])
+                or inp.get("action") not in kind["actions"]
+                or not (
+                    inp.get("limit") is None
+                    or (
+                        isinstance(inp["limit"], int)
+                        and not isinstance(inp["limit"], bool)
+                        and inp["limit"] > 0
+                    )
+                )
+                or not isinstance(expect, dict)
+                or set(expect) != set(kind["expect_members"])
+                or expect.get("outcome") not in {"admitted", "refused"}
+                or not (
+                    (expect["outcome"] == "admitted" and expect.get("code") is None)
+                    or (
+                        expect["outcome"] == "refused"
+                        and isinstance(expect.get("code"), str)
+                        and bool(expect["code"])
+                        and isinstance(expect.get("pointer"), str)
+                    )
+                )
+            ):
+                return False
+            continue
         operation = operations.get(vector.get("operation"))
         if not isinstance(operation, dict):
             return False

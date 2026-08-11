@@ -262,6 +262,22 @@
               ],
               "path": "language_bundle.language.literal_typing_profiles",
               "subject": "language.literal_typing_profiles"
+            },
+            {
+              "keys": [
+                "package",
+                "version",
+                "id"
+              ],
+              "path": "language_bundle.language.nominal_types",
+              "subject": "language-bundle.nominal-types"
+            },
+            {
+              "keys": [
+                "id"
+              ],
+              "path": "language_bundle.language.structured_operations",
+              "subject": "language-bundle.structured-operations"
             }
           ]
         },
@@ -360,6 +376,16 @@
               ],
               "owner_key_member": "rule",
               "owners": "language_bundle.language.model_lowerings.rule_chain",
+              "target_key_member": "id",
+              "targets": "language_bundle.language.rules"
+            },
+            {
+              "equal_members": [
+                "phase",
+                "judgment"
+              ],
+              "owner_key_member": "rule",
+              "owners": "language_bundle.language.model_lowerings.structured_rule_chain",
               "target_key_member": "id",
               "targets": "language_bundle.language.rules"
             }
@@ -560,7 +586,9 @@
                 "admission_reason": "language_bundle.language.reasons.id",
                 "initial_fact_kind": "kernel.meta_format.fact.schemas.kind",
                 "resolution_profile": "language_bundle.language.resolution_profiles.id",
-                "rule_chain.rule": "language_bundle.language.rules.id"
+                "rule_chain.rule": "language_bundle.language.rules.id",
+                "structured_initial_fact_kind": "kernel.meta_format.fact.schemas.kind",
+                "structured_rule_chain.rule": "language_bundle.language.rules.id"
               }
             },
             {
@@ -624,19 +652,8 @@
                 "exports.units": "language_bundle.language.quantity.units.id",
                 "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id",
                 "profiles.resolution": "language_bundle.language.resolution_profiles.id",
-                "profiles.runtime": "language_bundle.language.runtime_profiles.id"
-              }
-            },
-            {
-              "owners": "language_bundle.language.literal_typing_profiles",
-              "targets": {
-                "kind": "language_bundle.language.quantity.kinds",
-                "numeric_policy": "language_bundle.language.quantity.numeric_policies.id",
-                "representation": "language_bundle.language.quantity.representations",
-                "type.id": "language_bundle.language.packages.exports.types.id",
-                "type.package": "language_bundle.language.packages.id",
-                "type.version": "language_bundle.language.packages.version",
-                "unit": "language_bundle.language.quantity.units.id"
+                "profiles.runtime": "language_bundle.language.runtime_profiles.id",
+                "exports.structured_operations": "language_bundle.language.structured_operations.id"
               }
             }
           ]
@@ -746,12 +763,14 @@
       "model_lowerings",
       "model_source_schema_versions",
       "operations",
+      "nominal_types",
       "packages",
       "quantity",
       "reasons",
       "resolution_profiles",
       "rules",
       "runtime_profiles",
+      "structured_operations",
       "template_admission_profiles",
       "wire_schemas"
     ]
@@ -843,7 +862,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          "\u007f"
+          ""
         ]
       },
       {
@@ -858,7 +877,7 @@
             1
           ],
           "quote": "\"\n\\",
-          "\u00e9": "\u96ea"
+          "é": "雪"
         }
       },
       {
@@ -879,7 +898,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c",
+  "content_identity": "sha256:7e5585c648cf0a79204229fa4991e8da4a5c2bf391ad74c29398a224f4095b03",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -990,6 +1009,59 @@
           "value_policy": {
             "type": "canonical-value"
           }
+        },
+        "structured-symbol": {
+          "resolved_symbol": {
+            "field_types": {
+              "model": {
+                "type": "non-empty-string"
+              },
+              "module": {
+                "type": "non-empty-string"
+              },
+              "name": {
+                "type": "non-empty-string"
+              }
+            },
+            "required_members": [
+              "model",
+              "module",
+              "name"
+            ],
+            "type": "closed-object"
+          },
+          "role": {
+            "path": "language.quantity.symbol_roles",
+            "type": "inventory-member"
+          },
+          "symbol": {
+            "type": "non-empty-string"
+          },
+          "type_identity": {
+            "field_types": {
+              "package": {
+                "type": "non-empty-string"
+              },
+              "symbol": {
+                "type": "non-empty-string"
+              },
+              "version": {
+                "type": "non-empty-string"
+              }
+            },
+            "required_members": [
+              "package",
+              "version",
+              "symbol"
+            ],
+            "type": "closed-object"
+          },
+          "value_kind": {
+            "const": "nominal-structured"
+          },
+          "value_policy": {
+            "type": "canonical-value"
+          }
         }
       },
       "field_names": "non-empty-strings",
@@ -1009,6 +1081,18 @@
         {
           "field_contract": "quantity-symbol",
           "kind": "rir-quantity-declaration"
+        },
+        {
+          "field_contract": "structured-symbol",
+          "kind": "structured-source"
+        },
+        {
+          "field_contract": "structured-symbol",
+          "kind": "typed-structured-symbol"
+        },
+        {
+          "field_contract": "structured-symbol",
+          "kind": "rir-structured-declaration"
         }
       ]
     },
@@ -2396,11 +2480,151 @@
             },
             "parameters": {
               "type": "string-list"
+            },
+            "value_rule": {
+              "discriminator": "operator",
+              "type": "closed-discriminated-object",
+              "variants": {
+                "bounded-list": {
+                  "field_types": {
+                    "definition_kind": {
+                      "const": "list"
+                    },
+                    "duplicates": {
+                      "const": "preserve"
+                    },
+                    "element_member": {
+                      "type": "non-empty-string"
+                    },
+                    "maximum_length_member": {
+                      "type": "non-empty-string"
+                    },
+                    "operator": {
+                      "const": "bounded-list"
+                    },
+                    "order": {
+                      "const": "preserve"
+                    }
+                  },
+                  "required_members": [
+                    "definition_kind",
+                    "duplicates",
+                    "element_member",
+                    "maximum_length_member",
+                    "operator",
+                    "order"
+                  ],
+                  "type": "closed-object"
+                },
+                "canonical-ref-key": {
+                  "field_types": {
+                    "definition_kind": {
+                      "const": "ref"
+                    },
+                    "key_pattern_member": {
+                      "type": "non-empty-string"
+                    },
+                    "operator": {
+                      "const": "canonical-ref-key"
+                    },
+                    "pattern_match": {
+                      "const": "full"
+                    },
+                    "target_member": {
+                      "type": "non-empty-string"
+                    },
+                    "value_members": {
+                      "type": "string-list"
+                    }
+                  },
+                  "required_members": [
+                    "definition_kind",
+                    "key_pattern_member",
+                    "operator",
+                    "pattern_match",
+                    "target_member",
+                    "value_members"
+                  ],
+                  "type": "closed-object"
+                },
+                "closed-record": {
+                  "field_types": {
+                    "definition_kind": {
+                      "const": "record"
+                    },
+                    "field_name_member": {
+                      "type": "non-empty-string"
+                    },
+                    "field_type_member": {
+                      "type": "non-empty-string"
+                    },
+                    "fields_member": {
+                      "type": "non-empty-string"
+                    },
+                    "member_order": {
+                      "const": "insignificant"
+                    },
+                    "operator": {
+                      "const": "closed-record"
+                    }
+                  },
+                  "required_members": [
+                    "definition_kind",
+                    "field_name_member",
+                    "field_type_member",
+                    "fields_member",
+                    "member_order",
+                    "operator"
+                  ],
+                  "type": "closed-object"
+                },
+                "enum-member": {
+                  "field_types": {
+                    "definition_kind": {
+                      "const": "enum"
+                    },
+                    "members_member": {
+                      "type": "non-empty-string"
+                    },
+                    "operator": {
+                      "const": "enum-member"
+                    }
+                  },
+                  "required_members": [
+                    "definition_kind",
+                    "members_member",
+                    "operator"
+                  ],
+                  "type": "closed-object"
+                },
+                "exact-integer": {
+                  "field_types": {
+                    "maximum": {
+                      "type": "signed-int64"
+                    },
+                    "minimum": {
+                      "type": "signed-int64"
+                    },
+                    "operator": {
+                      "const": "exact-integer"
+                    }
+                  },
+                  "required_members": [
+                    "maximum",
+                    "minimum",
+                    "operator"
+                  ],
+                  "type": "closed-object"
+                }
+              }
             }
           },
           "required_members": [
             "id",
             "parameters"
+          ],
+          "optional_members": [
+            "value_rule"
           ]
         },
         "conversions": {
@@ -2580,30 +2804,30 @@
                                 "required"
                               ]
                             },
-                    "event_payload_cardinality": {
-                      "enum": [
-                        "forbidden",
-                        "optional",
-                        "required"
-                      ]
-                    },
-                    "external_fact_cardinality": {
-                      "enum": [
-                        "forbidden",
-                        "optional",
-                        "required"
-                      ]
-                    }
+                            "event_payload_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
+                            },
+                            "external_fact_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
+                            }
                           },
                           "required_members": [
                             "id",
                             "initialization_source",
                             "value_member",
-                    "experiment_cardinality",
-                    "override",
-                    "event_payload_cardinality",
-                    "external_fact_cardinality"
-                  ],
+                            "experiment_cardinality",
+                            "override",
+                            "event_payload_cardinality",
+                            "external_fact_cardinality"
+                          ],
                           "type": "closed-object"
                         },
                         "type": "list-of"
@@ -2696,6 +2920,34 @@
                 "resources"
               ],
               "type": "closed-object"
+            },
+            "structured_initial_fact_kind": {
+              "type": "non-empty-string"
+            },
+            "structured_rule_chain": {
+              "items": {
+                "field_types": {
+                  "judgment": {
+                    "type": "non-empty-string"
+                  },
+                  "phase": {
+                    "enum": [
+                      "type",
+                      "lower"
+                    ]
+                  },
+                  "rule": {
+                    "type": "non-empty-string"
+                  }
+                },
+                "required_members": [
+                  "rule",
+                  "phase",
+                  "judgment"
+                ],
+                "type": "closed-object"
+              },
+              "type": "list-of"
             }
           },
           "required_members": [
@@ -2709,7 +2961,9 @@
             "output_equalities",
             "resolution_profile",
             "assignment_policy",
-            "composition_policy"
+            "composition_policy",
+            "structured_initial_fact_kind",
+            "structured_rule_chain"
           ]
         },
         "model_source_schema_versions": {
@@ -3238,6 +3492,9 @@
         },
         "literal_typing_profiles": {
           "field_types": {
+            "admission": {
+              "type": "canonical-value"
+            },
             "domain": {
               "type": "canonical-value"
             },
@@ -3260,7 +3517,10 @@
               "type": "non-empty-string"
             },
             "source_kind": {
-              "const": "integer"
+              "enum": [
+                "integer",
+                "typed-envelope"
+              ]
             },
             "type": {
               "field_types": {
@@ -3283,11 +3543,16 @@
             },
             "unit": {
               "type": "non-empty-string"
+            },
+            "value_kind": {
+              "const": "nominal-structured"
             }
           },
           "required_members": [
             "id",
-            "source_kind",
+            "source_kind"
+          ],
+          "optional_members": [
             "type",
             "representation",
             "kind",
@@ -3295,7 +3560,81 @@
             "domain",
             "numeric_policy",
             "minimum",
-            "maximum"
+            "maximum",
+            "value_kind",
+            "admission"
+          ]
+        },
+        "nominal_types": {
+          "field_types": {
+            "constructor": {
+              "type": "non-empty-string"
+            },
+            "definition": {
+              "type": "canonical-value"
+            },
+            "id": {
+              "type": "non-empty-string"
+            },
+            "package": {
+              "type": "non-empty-string"
+            },
+            "version": {
+              "type": "non-empty-string"
+            }
+          },
+          "required_members": [
+            "package",
+            "version",
+            "id",
+            "constructor",
+            "definition"
+          ]
+        },
+        "structured_operations": {
+          "field_types": {
+            "body": {
+              "type": "canonical-value"
+            },
+            "id": {
+              "type": "non-empty-string"
+            },
+            "inputs": {
+              "type": "canonical-value"
+            },
+            "owner_constructor": {
+              "type": "non-empty-string"
+            },
+            "resource_bounds": {
+              "field_types": {
+                "max_steps": {
+                  "type": "positive-signed-int64"
+                }
+              },
+              "required_members": [
+                "max_steps"
+              ],
+              "type": "closed-object"
+            },
+            "result": {
+              "type": "canonical-value"
+            },
+            "type_parameters": {
+              "type": "string-list"
+            },
+            "version": {
+              "type": "non-empty-string"
+            }
+          },
+          "required_members": [
+            "id",
+            "version",
+            "owner_constructor",
+            "type_parameters",
+            "inputs",
+            "result",
+            "body",
+            "resource_bounds"
           ]
         }
       },
@@ -3517,6 +3856,15 @@
           },
           "literal_typing_profiles": {
             "type": "string-list"
+          },
+          "constructors": {
+            "type": "string-list"
+          },
+          "nominal_types": {
+            "type": "string-list"
+          },
+          "structured_operations": {
+            "type": "string-list"
           }
         },
         "profiles": {
@@ -3555,6 +3903,7 @@
           "artifact_contracts",
           "artifact_wire_schemas",
           "components",
+          "constructors",
           "conversions",
           "diagnostics",
           "domains",
@@ -3565,8 +3914,10 @@
           "model_lowerings",
           "model_source_schema_versions",
           "operations",
+          "nominal_types",
           "reasons",
           "representations",
+          "structured_operations",
           "symbol_roles",
           "template_admission_profiles",
           "types",
@@ -3634,7 +3985,7 @@
           {
             "authority_path": "language.constructors",
             "key_member": "id",
-            "owners_path": "exports.types.constructor"
+            "owners_path": "exports.constructors"
           },
           {
             "authority_path": "language.conversions",
@@ -3665,6 +4016,11 @@
             "authority_path": "language.operations",
             "key_member": "id",
             "owners_path": "exports.operations"
+          },
+          {
+            "authority_path": "language.nominal_types",
+            "key_member": "id",
+            "owners_path": "exports.nominal_types"
           },
           {
             "authority_path": "language.quantity.domains",
@@ -3715,6 +4071,11 @@
             "authority_path": "language.runtime_profiles",
             "key_member": "id",
             "owners_path": "profiles.runtime"
+          },
+          {
+            "authority_path": "language.structured_operations",
+            "key_member": "id",
+            "owners_path": "exports.structured_operations"
           },
           {
             "authority_path": "language.template_admission_profiles",
@@ -3971,6 +4332,35 @@
             "pending",
             "provisional",
             "unknown"
+          ]
+        },
+        {
+          "actions": [
+            "admit",
+            "equal",
+            "lookup"
+          ],
+          "expect_members": [
+            "code",
+            "outcome",
+            "pointer",
+            "type",
+            "value"
+          ],
+          "id": "structured-value",
+          "input_members": [
+            "action",
+            "key",
+            "left",
+            "limit",
+            "right"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind"
           ]
         }
       ],
@@ -4792,10 +5182,21 @@
           "declaration_path",
           "declaration_package_path",
           "target_path",
-          "same_package"
+          "same_package",
+          "missing_declaration_path",
+          "applicability_member"
         ],
         "match": "canonical-equality",
-        "cardinality": "at-least-one"
+        "cardinality": "at-least-one",
+        "applicability": "declared-member-present",
+        "missing_declaration_path": "not-applicable",
+        "optional_members": [
+          "missing_target"
+        ],
+        "missing_target_modes": [
+          "not-applicable",
+          "refuse"
+        ]
       },
       "edge": {
         "required_members": [
@@ -4804,10 +5205,28 @@
           "source_path",
           "target_collection",
           "target_path",
-          "same_package"
+          "same_package",
+          "missing_target"
         ],
         "match": "canonical-equality",
-        "cardinality": "at-least-one"
+        "cardinality": "at-least-one",
+        "missing_target_modes": [
+          "not-applicable",
+          "refuse"
+        ]
+      },
+      "type_reference_closure": {
+        "required_members": [
+          "source_collection",
+          "source_definition_path",
+          "target_type_collection",
+          "target_constructor_collection",
+          "coordinate_members",
+          "structural_kind_member",
+          "constructor_kind_path"
+        ],
+        "coordinate_match": "exact-package-version-type-id",
+        "structural_match": "definition-kind-to-constructor-kind"
       },
       "path_typing": {
         "declaration": "terminal-fact-contract",
@@ -4833,6 +5252,9 @@
           "seed-candidate",
           "edge-source",
           "edge-target",
+          "type-reference-term",
+          "type-reference-target",
+          "constructor-kind-target",
           "collection-output-row",
           "explicit-output-row"
         ],
@@ -4901,10 +5323,12 @@
         "add",
         "constant",
         "copy",
+        "equal",
         "greater-than-or-equal",
         "if",
         "less-than",
         "less-than-or-equal",
+        "lookup",
         "maximum",
         "multiply",
         "subtract",
@@ -5053,7 +5477,7 @@
             }
           },
           "semantics": {
-            "operator": "integer-literal"
+            "operator": "typed-literal"
           }
         },
         {
@@ -5081,6 +5505,40 @@
           },
           "semantics": {
             "operator": "copy-value"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "equal",
+          "operand_constraints": [
+            {
+              "kind": "same-value-contract",
+              "members": [
+                "left",
+                "right"
+              ]
+            }
+          ],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
+          },
+          "semantics": {
+            "operator": "canonical-equal"
           }
         },
         {
@@ -5252,6 +5710,37 @@
           "semantics": {
             "comparison": "less-than-or-equal",
             "operator": "integer-compare"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "lookup",
+          "operand_constraints": [],
+          "refusals": [
+            "lookup-out-of-range"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "value",
+            "key"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "kind": "declared-result",
+              "members": [
+                "value",
+                "key"
+              ]
+            }
+          },
+          "semantics": {
+            "operator": "bounded-lookup"
           }
         },
         {
@@ -5736,7 +6225,7 @@
           "expect": {
             "charge": 1,
             "operand_constraints": [],
-            "operator": "integer-literal",
+            "operator": "typed-literal",
             "result_kind": "local",
             "result_typing": {
               "kind": "literal-profile",
@@ -5779,6 +6268,37 @@
           },
           "kind": "node",
           "node": "copy"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [
+              {
+                "kind": "same-value-contract",
+                "members": [
+                  "left",
+                  "right"
+                ]
+              }
+            ],
+            "operator": "canonical-equal",
+            "result_kind": "local",
+            "result_typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
+          },
+          "id": "runtime.node.equal",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "equal"
         },
         {
           "expect": {
@@ -5935,6 +6455,32 @@
           },
           "kind": "node",
           "node": "less-than-or-equal"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [],
+            "operator": "bounded-lookup",
+            "result_kind": "local",
+            "result_typing": {
+              "kind": "declared-result",
+              "members": [
+                "value",
+                "key"
+              ]
+            }
+          },
+          "id": "runtime.node.lookup",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "value",
+              "key"
+            ]
+          },
+          "kind": "node",
+          "node": "lookup"
         },
         {
           "expect": {
@@ -7147,7 +7693,8 @@
       "collection": "language.literal_typing_profiles",
       "selection": "unique-formal-match",
       "source_kinds": [
-        "integer"
+        "integer",
+        "typed-envelope"
       ],
       "match_members": [
         "type",
@@ -7161,9 +7708,34 @@
         "maximum": "maximum",
         "minimum": "minimum"
       },
-      "ownership": "profile-owner-must-own-exact-type-export",
+      "ownership": {
+        "integer": "profile-owner-must-own-exact-type-export",
+        "typed-envelope": "profile-owner-must-own-structured-constructors"
+      },
       "formal_closure": "at-least-one-exact-operation-value-contract",
-      "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract"
+      "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
+      "typed_envelope_profile": {
+        "admission": {
+          "envelope_members": [
+            "type",
+            "value"
+          ],
+          "operator": "recursive-typed-envelope",
+          "resource_charge_per_node": 1,
+          "type_relation": "exact-selected-type"
+        },
+        "id": "standard.schema.nominal-structured",
+        "required_constructors": [
+          "standard.schema.enum",
+          "standard.schema.list",
+          "standard.schema.record",
+          "standard.schema.ref"
+        ],
+        "selection": "exact-envelope-type",
+        "type_member": "type",
+        "value_kind": "nominal-structured",
+        "value_member": "value"
+      }
     },
     "authority_wire_schema_projection": {
       "identity_domains": {
@@ -7241,12 +7813,12 @@
     }
   },
   "resources": {
-    "max_authority_bytes": 262144,
+    "max_authority_bytes": 524288,
     "max_diagnostics": 128,
     "max_members": 256,
     "max_nesting_depth": 32,
     "max_ldb_root_bytes": 65536,
-    "max_ldb_child_bytes": 262144,
+    "max_ldb_child_bytes": 524288,
     "max_ldb_total_bytes": 4194304,
     "max_ldb_package_count": 128,
     "max_ldb_dependency_depth": 32,

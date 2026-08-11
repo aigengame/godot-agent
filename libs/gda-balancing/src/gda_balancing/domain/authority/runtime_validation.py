@@ -13,7 +13,11 @@ _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
 def _operation_value_contract_matches(
     actual: dict[str, Any], formal: dict[str, Any]
 ) -> bool:
-    return actual.get("type") == formal.get("type") and all(
+    if actual.get("type") != formal.get("type"):
+        return False
+    if "value_kind" in actual or "value_kind" in formal:
+        return actual.get("value_kind") == formal.get("value_kind")
+    return all(
         actual.get(member) == formal.get(member)
         for member in (
             "representation",
@@ -576,7 +580,11 @@ def _runtime_authority_is_closed(
                     or typing.get("contract") not in fixed_value_contracts
                 ):
                     return False
-            elif typing_kind in {"same-as-references", "literal-profile"}:
+            elif typing_kind in {
+                "declared-result",
+                "same-as-references",
+                "literal-profile",
+            }:
                 members = typing.get("members")
                 if (
                     set(typing) != {"kind", "members"}
@@ -1050,41 +1058,43 @@ def _runtime_authority_is_closed(
             continue
         inputs = operation.get("inputs")
         result = operation.get("result")
+        numeric_input_members = {
+            "id",
+            "type",
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+            "access",
+        }
+        structured_input_members = {"id", "type", "value_kind", "access"}
+        numeric_result_members = numeric_input_members | {"discardable", "source"}
+        structured_result_members = structured_input_members | {
+            "discardable",
+            "source",
+        }
         if (
             not isinstance(inputs, list)
             or len({item.get("id") for item in inputs if isinstance(item, dict)})
             != len(inputs)
             or any(
                 not isinstance(item, dict)
-                or set(item)
-                != {
-                    "id",
-                    "type",
-                    "representation",
-                    "kind",
-                    "unit",
-                    "domain",
-                    "numeric_policy",
-                    "access",
-                }
+                or set(item) not in (numeric_input_members, structured_input_members)
+                or (
+                    set(item) == structured_input_members
+                    and item.get("value_kind") != "nominal-structured"
+                )
                 or not isinstance(item.get("id"), str)
                 or item.get("access") not in {"read", "read-write", "write"}
                 for item in inputs
             )
             or not isinstance(result, dict)
-            or set(result)
-            != {
-                "id",
-                "type",
-                "representation",
-                "kind",
-                "unit",
-                "domain",
-                "numeric_policy",
-                "access",
-                "discardable",
-                "source",
-            }
+            or set(result) not in (numeric_result_members, structured_result_members)
+            or (
+                set(result) == structured_result_members
+                and result.get("value_kind") != "nominal-structured"
+            )
             or result.get("access") != "read"
             or not isinstance(result.get("discardable"), bool)
             or not _operation_result_source_shape_is_closed(

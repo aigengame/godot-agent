@@ -22,6 +22,11 @@ from gda_balancing.domain.formula.types import (
     literal_context_contract as _literal_context_contract,
     resolve_formula_contract as _resolved_formula_contract,
 )
+from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
+    admit_typed_value,
+    language_structured_value_authority,
+)
 
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
@@ -57,11 +62,15 @@ def lowering_inputs(
     source_rows = _resolved_source_symbols(checked.source, checked.language_bundle)
     declarations: list[dict[str, JsonValue]] = []
     for fields, _source_pointer in source_rows:
+        structured = fields.get("value_kind") == "nominal-structured"
         fact = {
-            "kind": lowering["initial_fact_kind"],
+            "kind": lowering[
+                "structured_initial_fact_kind" if structured else "initial_fact_kind"
+            ],
             "fields": fields,
         }
-        for invocation in cast(list[dict[str, str]], lowering["rule_chain"]):
+        rule_chain_member = "structured_rule_chain" if structured else "rule_chain"
+        for invocation in cast(list[dict[str, str]], lowering[rule_chain_member]):
             fact = _apply_language_rule(
                 language,
                 rule_id=invocation["rule"],
@@ -295,6 +304,15 @@ def _resolved_source_symbols(
                 "version": imported[version_member],
                 "symbol": imported[import_symbol_member],
             }
+            nominal_matches = [
+                definition
+                for definition in cast(list[dict[str, Any]], language["nominal_types"])
+                if definition.get("package") == imported[package_member]
+                and definition.get("version") == imported[version_member]
+                and definition.get("id") == imported[import_symbol_member]
+            ]
+            if len(nominal_matches) == 1:
+                fields["value_kind"] = "nominal-structured"
             rows.append(
                 (
                     fields,
@@ -1814,18 +1832,20 @@ def _value_contract_matches(
     contract: dict[str, Any],
 ) -> bool:
     expected_type = contract.get("type")
-    return (
-        isinstance(expected_type, dict)
-        and declaration.get("type_identity")
-        == {
-            "package": expected_type.get("package"),
-            "version": expected_type.get("version"),
-            "symbol": expected_type.get("id"),
-        }
-        and all(
-            declaration.get(member) == contract.get(member)
-            for member in ("representation", "kind", "unit", "numeric_policy")
-        )
+    type_matches = isinstance(expected_type, dict) and declaration.get(
+        "type_identity"
+    ) == {
+        "package": expected_type.get("package"),
+        "version": expected_type.get("version"),
+        "symbol": expected_type.get("id"),
+    }
+    if not type_matches:
+        return False
+    if declaration.get("value_kind") == "nominal-structured":
+        return contract.get("value_kind") == "nominal-structured"
+    return all(
+        declaration.get(member) == contract.get(member)
+        for member in ("representation", "kind", "unit", "numeric_policy")
     )
 
 
@@ -2651,13 +2671,13 @@ def _symbol_external_fact_contract(
     cardinality = cast(str, mode["external_fact_cardinality"])
     if cardinality == "forbidden":
         return None
-    return {
-        "target": resolved_symbol,
-        "target_identity": target_identity,
-        "owner": "external-source",
-        "cardinality": cardinality,
-        "value_source": "external-input-fact",
-        "value_contract": {
+    value_contract = (
+        {
+            "type_identity": cast(JsonValue, declaration["type_identity"]),
+            "value_kind": "nominal-structured",
+        }
+        if declaration.get("value_kind") == "nominal-structured"
+        else {
             member: cast(JsonValue, declaration[member])
             for member in (
                 "type_identity",
@@ -2668,7 +2688,15 @@ def _symbol_external_fact_contract(
                 "domain",
                 "numeric_policy",
             )
-        },
+        }
+    )
+    return {
+        "target": resolved_symbol,
+        "target_identity": target_identity,
+        "owner": "external-source",
+        "cardinality": cardinality,
+        "value_source": "external-input-fact",
+        "value_contract": value_contract,
     }
 
 
@@ -2911,6 +2939,10 @@ def _resolved_entrypoints(
         checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
             "identity_domains"
         ],
+    )
+    structured_authority = language_structured_value_authority(checked.language_bundle)
+    structured_resource_limit = cast(
+        int, checked.language_bundle["resources"]["max_rule_match_steps"]
     )
     entrypoints: list[dict[str, JsonValue]] = []
     seen_entrypoints: set[str] = set()
@@ -3213,6 +3245,18 @@ def _resolved_entrypoints(
                         "literal operand cannot bind a writable port",
                     )
                 value = source_operand["value"]
+                if isinstance(value, dict):
+                    try:
+                        value = admit_typed_value(
+                            value,
+                            authority=structured_authority,
+                            resource_limit=structured_resource_limit,
+                        )
+                    except StructuredValueFault as fault:
+                        raise _EntrypointBindingError(
+                            f"{operand_pointer}/value{fault.pointer}",
+                            f"structured literal was refused: {fault.code}",
+                        ) from fault
                 context_type = _literal_context_contract(
                     value,
                     formal,
@@ -3390,7 +3434,14 @@ def _operation_contract_matches(
     actual: dict[str, Any],
     formal: dict[str, Any],
 ) -> bool:
-    return actual.get("type") == formal.get("type") and all(
+    if actual.get("type") != formal.get("type"):
+        return False
+    if (
+        actual.get("value_kind") == "nominal-structured"
+        or formal.get("value_kind") == "nominal-structured"
+    ):
+        return actual.get("value_kind") == formal.get("value_kind")
+    return all(
         actual.get(member) == formal.get(member)
         for member in (
             "representation",
@@ -4129,35 +4180,88 @@ def _runtime_projection(
         collection_id = cast(str, seed["collection"])
         catalog = catalogs[collection_id]
         for declaration in declarations:
+            if seed["applicability_member"] not in declaration:
+                continue
+            try:
+                expected = path_value(
+                    declaration, cast(list[str], seed["declaration_path"])
+                )
+            except ValueError:
+                if seed.get("missing_declaration_path") == "not-applicable":
+                    continue
+                raise
             package = path_value(
                 declaration,
                 cast(list[str], seed["declaration_package_path"]),
             )
             if seed["operator"] != "declaration-field":
                 raise ValueError("unknown admitted runtime projection seed operator")
-            expected = path_value(
-                declaration, cast(list[str], seed["declaration_path"])
-            )
-            matches = [
-                index
-                for index, row in enumerate(catalog)
-                if (
-                    budget.consume() is None
-                    and (not seed["same_package"] or row["package"] == package)
-                    and canonical_bytes(
-                        path_value(
-                            row["value"],
-                            cast(list[str], seed["target_path"]),
-                        )
+            matches = []
+            for index, row in enumerate(catalog):
+                budget.consume()
+                if seed["same_package"] and row["package"] != package:
+                    continue
+                try:
+                    target = path_value(
+                        row["value"], cast(list[str], seed["target_path"])
                     )
-                    == canonical_bytes(expected)
-                )
-            ]
+                except ValueError:
+                    if seed.get("missing_target") == "not-applicable":
+                        continue
+                    raise
+                if canonical_bytes(target) == canonical_bytes(expected):
+                    matches.append(index)
             if not matches:
                 raise ValueError("runtime projection seed did not resolve")
             selected[collection_id].update(matches)
 
     changed = True
+    type_reference_closure = cast(dict[str, Any], profile.get("type_reference_closure"))
+    if set(type_reference_closure) != {
+        "constructor_kind_path",
+        "coordinate_members",
+        "source_collection",
+        "source_definition_path",
+        "structural_kind_member",
+        "target_constructor_collection",
+        "target_type_collection",
+    }:
+        raise ValueError("runtime projection type-reference closure is incomplete")
+    package_versions = {
+        cast(str, row["id"]): cast(str, row["version"])
+        for row in cast(list[dict[str, Any]], lock["packages"])
+    }
+
+    def nested_type_terms(root: Any) -> tuple[set[tuple[str, str, str]], set[str]]:
+        coordinate_members = cast(
+            list[str], type_reference_closure["coordinate_members"]
+        )
+        structural_kind_member = cast(
+            str, type_reference_closure["structural_kind_member"]
+        )
+        coordinates: set[tuple[str, str, str]] = set()
+        structural_kinds: set[str] = set()
+
+        def visit(value: Any) -> None:
+            budget.consume()
+            if isinstance(value, dict):
+                coordinate = tuple(value.get(member) for member in coordinate_members)
+                if len(coordinate) == 3 and all(
+                    isinstance(item, str) and item for item in coordinate
+                ):
+                    coordinates.add(cast(tuple[str, str, str], coordinate))
+                kind = value.get(structural_kind_member)
+                if isinstance(kind, str) and kind:
+                    structural_kinds.add(kind)
+                for child in value.values():
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(root)
+        return coordinates, structural_kinds
+
     while changed:
         changed = False
         for edge in cast(list[dict[str, Any]], profile["edges"]):
@@ -4191,6 +4295,8 @@ def _runtime_projection(
                     == canonical_bytes(source_value)
                 ]
                 if not matches:
+                    if edge.get("missing_target") == "not-applicable":
+                        continue
                     source_label = (
                         source_row["value"].get("id")
                         if isinstance(source_row["value"], dict)
@@ -4204,6 +4310,59 @@ def _runtime_projection(
                 previous_count = len(selected[target_id])
                 selected[target_id].update(matches)
                 changed = changed or len(selected[target_id]) != previous_count
+
+        source_id = cast(str, type_reference_closure["source_collection"])
+        type_target_id = cast(str, type_reference_closure["target_type_collection"])
+        constructor_target_id = cast(
+            str, type_reference_closure["target_constructor_collection"]
+        )
+        source_definition_path = cast(
+            list[str], type_reference_closure["source_definition_path"]
+        )
+        constructor_kind_path = cast(
+            list[str], type_reference_closure["constructor_kind_path"]
+        )
+        coordinates: set[tuple[str, str, str]] = set()
+        structural_kinds: set[str] = set()
+        for source_index in tuple(selected[source_id]):
+            nested_coordinates, nested_kinds = nested_type_terms(
+                path_value(
+                    catalogs[source_id][source_index]["value"], source_definition_path
+                )
+            )
+            coordinates.update(nested_coordinates)
+            structural_kinds.update(nested_kinds)
+        type_matches = {
+            index
+            for index, row in enumerate(catalogs[type_target_id])
+            if (
+                budget.consume() is None
+                and any(
+                    row["package"] == package
+                    and row["value"].get("id") == type_id
+                    and package_versions.get(package) == version
+                    for package, version, type_id in coordinates
+                )
+            )
+        }
+        constructor_matches: set[int] = set()
+        for index, row in enumerate(catalogs[constructor_target_id]):
+            budget.consume()
+            try:
+                constructor_kind = path_value(row["value"], constructor_kind_path)
+            except ValueError:
+                continue
+            if constructor_kind in structural_kinds:
+                constructor_matches.add(index)
+        previous_types = len(selected[type_target_id])
+        previous_constructors = len(selected[constructor_target_id])
+        selected[type_target_id].update(type_matches)
+        selected[constructor_target_id].update(constructor_matches)
+        changed = (
+            changed
+            or len(selected[type_target_id]) != previous_types
+            or len(selected[constructor_target_id]) != previous_constructors
+        )
 
     selected_packages = {
         row["package"]

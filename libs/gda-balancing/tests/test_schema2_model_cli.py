@@ -139,6 +139,163 @@ def _model_source() -> dict[str, Any]:
     }
 
 
+def _structured_model_source() -> dict[str, Any]:
+    operation = {
+        "package": "standard.conformance.structured",
+        "version": "1.0.0",
+        "id": "standard.conformance.structured.select-v1",
+    }
+
+    def entrypoint(
+        entrypoint_id: str, *, candidate_kind: str, candidate_key: str
+    ) -> dict[str, Any]:
+        return {
+            "id": entrypoint_id,
+            "operation": operation,
+            "arguments": [
+                {
+                    "port": "selection_state",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "selection",
+                        "symbol": "selection_state",
+                    },
+                },
+                {
+                    "port": "expected_kind",
+                    "operand": {
+                        "kind": "literal",
+                        "value": {
+                            "type": {
+                                "package": "standard.conformance.structured",
+                                "version": "1.0.0",
+                                "id": "CandidateKind",
+                            },
+                            "value": candidate_kind,
+                        },
+                    },
+                },
+                {
+                    "port": "expected_key",
+                    "operand": {
+                        "kind": "literal",
+                        "value": {
+                            "type": {
+                                "package": "standard.conformance.structured",
+                                "version": "1.0.0",
+                                "id": "CandidateRef",
+                            },
+                            "value": {"key": candidate_key},
+                        },
+                    },
+                },
+                {
+                    "port": "selected_result",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "selection",
+                        "symbol": "selected_result",
+                    },
+                },
+                {
+                    "port": "selection_metric",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "selection",
+                        "symbol": "selection_metric",
+                    },
+                },
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "selection",
+                "symbol": "selection_result",
+            },
+        }
+
+    return {
+        "schema_version": "2.0.0",
+        "manifest": {
+            "id": "standard.structured-selection-model",
+            "version": "1.0.0",
+            "entry_module": "selection",
+        },
+        "package_requirements": [
+            {"id": "core.quantity", "version": "2.1.0"},
+            {"id": "standard.conformance.structured", "version": "1.0.0"},
+        ],
+        "entrypoints": [
+            entrypoint(
+                "structured.select-candidate-a",
+                candidate_kind="primary",
+                candidate_key="candidate_a",
+            ),
+            entrypoint(
+                "structured.select-candidate-b",
+                candidate_kind="secondary",
+                candidate_key="candidate_b",
+            ),
+        ],
+        "modules": [
+            {
+                "id": "selection",
+                "imports": [
+                    {
+                        "alias": "selection-state",
+                        "package": "standard.conformance.structured",
+                        "version": "1.0.0",
+                        "symbol": "SelectionState",
+                    },
+                    {
+                        "alias": "selection-result",
+                        "package": "standard.conformance.structured",
+                        "version": "1.0.0",
+                        "symbol": "SelectionResult",
+                    },
+                    {
+                        "alias": "quantity",
+                        "package": "core.quantity",
+                        "version": "2.1.0",
+                        "symbol": "Quantity",
+                    },
+                ],
+                "symbols": [
+                    {
+                        "symbol": "selection_state",
+                        "type": "selection-state",
+                        "role": "state",
+                        "value_policy": {"mode": "experiment-required"},
+                    },
+                    {
+                        "symbol": "selected_result",
+                        "type": "selection-result",
+                        "role": "state",
+                        "value_policy": {"mode": "experiment-required"},
+                    },
+                    {
+                        "symbol": "selection_metric",
+                        "type": "quantity",
+                        "role": "state",
+                        "representation": "Int",
+                        "kind": "scalar",
+                        "unit": "1",
+                        "domain_kind": "closed-interval",
+                        "domain": {"minimum": 0, "maximum": 15},
+                        "numeric_policy": "exact-int64",
+                        "value_policy": {"mode": "experiment-required"},
+                    },
+                    {
+                        "symbol": "selection_result",
+                        "type": "selection-result",
+                        "role": "output",
+                        "value_policy": {"mode": "none"},
+                    },
+                ],
+            }
+        ],
+    }
+
+
 def _use_derived_value(source: dict[str, Any]) -> None:
     source["entrypoints"] = [
         {
@@ -212,6 +369,140 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert result["kernel_identity"].startswith("sha256:")
     assert result["language_bundle_identity"].startswith("sha256:")
     assert set(tmp_path.iterdir()) == before
+
+
+def test_structured_model_check_build_and_inspect_preserve_nominal_types(
+    tmp_path, run_cli
+):
+    source = tmp_path / "structured-model-source.json"
+    source.write_text(json.dumps(_structured_model_source()), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(["model", "check", str(source)])
+
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+    assert json.loads(check_stdout)["checked"] is True
+
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, "")
+    artifact_dir = _artifact_directory(json.loads(build_stdout))
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    structured_declarations = [
+        row
+        for row in rir["declarations"]
+        if row.get("value_kind") == "nominal-structured"
+    ]
+    assert {
+        row["resolved_symbol"]["name"]: row["type_identity"]["symbol"]
+        for row in structured_declarations
+    } == {
+        "selected_result": "SelectionResult",
+        "selection_result": "SelectionResult",
+        "selection_state": "SelectionState",
+    }
+    assert all(
+        row["type_identity"]["package"] == "standard.conformance.structured"
+        and row["type_identity"]["version"] == "1.0.0"
+        for row in structured_declarations
+    )
+    assert all(
+        member not in row
+        for row in structured_declarations
+        for member in (
+            "domain",
+            "domain_kind",
+            "kind",
+            "numeric_policy",
+            "representation",
+            "unit",
+        )
+    )
+    lock = json.loads((artifact_dir / "package-lock.json").read_text())
+    assert {(row["id"], row["version"]) for row in lock["packages"]} >= {
+        ("core.quantity", "2.1.0"),
+        ("standard.conformance.structured", "1.0.0"),
+        ("standard.runtime", "1.1.0"),
+        ("standard.schema", "2.3.0"),
+    }
+    assert {
+        (row["package"], row["definition"]["id"])
+        for row in rir["selected_semantics"]["nominal_types"]
+    } == {
+        ("standard.conformance.structured", "Candidate"),
+        ("standard.conformance.structured", "CandidateKind"),
+        ("standard.conformance.structured", "CandidateRef"),
+        ("standard.conformance.structured", "SelectionResult"),
+        ("standard.conformance.structured", "SelectionState"),
+    }
+    assert {row["id"] for row in rir["selected_semantics"]["constructors"]} == {
+        "core.quantity",
+        "standard.schema.enum",
+        "standard.schema.list",
+        "standard.schema.record",
+        "standard.schema.ref",
+    }
+    assert [
+        row["definition"]
+        for row in rir["selected_semantics"]["literal_typing_profiles"]
+        if row["definition"]["source_kind"] == "typed-envelope"
+    ] == [
+        {
+            "admission": {
+                "envelope_members": ["type", "value"],
+                "operator": "recursive-typed-envelope",
+                "resource_charge_per_node": 1,
+                "type_relation": "exact-selected-type",
+            },
+            "id": "standard.schema.nominal-structured",
+            "source_kind": "typed-envelope",
+            "value_kind": "nominal-structured",
+        }
+    ]
+    literal_operands = [
+        binding["operand"]
+        for entrypoint in rir["entrypoints"]
+        for binding in entrypoint["arguments"]
+        if binding["operand"]["kind"] == "literal"
+    ]
+    assert len(literal_operands) == 4
+    assert {operand["value"]["type"]["id"] for operand in literal_operands} == {
+        "CandidateKind",
+        "CandidateRef",
+    }
+    assert all(
+        operand["context_type"]
+        == {
+            "id": "standard.schema.nominal-structured",
+            "type": operand["value"]["type"],
+            "value_kind": "nominal-structured",
+        }
+        for operand in literal_operands
+    )
+
+    inspect_exit, inspect_stdout, inspect_stderr = run_cli(
+        ["model", "inspect", str(artifact_dir / "artifact-set-receipt.json")]
+    )
+
+    assert (inspect_exit, inspect_stderr) == (0, "")
+    explanation = json.loads(inspect_stdout)
+    assert explanation["declaration_explanations"] == [
+        {
+            "resolved_symbol": row["resolved_symbol"],
+            "type_identity": row["type_identity"],
+            "value_kind": "nominal-structured",
+        }
+        for row in structured_declarations
+    ]
 
 
 def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
@@ -3343,8 +3634,10 @@ def test_model_build_explanation_schema_fault_publishes_nothing(
     out = tmp_path / "published-model"
     explanation = model_compilation_module._model_explanation
 
-    def generate_invalid_explanation(authority_context, lock, rir, debug_map):
-        valid = explanation(authority_context, lock, rir, debug_map)
+    def generate_invalid_explanation(
+        authority_context, lock, rir, debug_map, declarations
+    ):
+        valid = explanation(authority_context, lock, rir, debug_map, declarations)
         return artifacts_module._identified_artifact(
             authority_context.language_bundle,
             "model-explanation",
@@ -5356,6 +5649,126 @@ def test_package_admission_closes_every_operation_composition_axis(
 
     assert expected_subject in composition_subjects
     assert admission.admitted is False
+
+
+@pytest.mark.parametrize("key", ("missing_index", "candidates"))
+def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key):
+    baseline = model_checking_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/structured-selection/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    operation = next(
+        item
+        for item in candidate_ldb["language"]["operations"]
+        if item["id"] == "standard.conformance.structured.select-v1"
+    )
+    lookup = next(
+        instruction
+        for instruction in operation["body"]
+        if instruction.get("target") == "selected_candidate"
+    )
+    lookup["key"] = key
+    _reidentify_language_bundle(candidate_ldb)
+
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        baseline.kernel, candidate_ldb
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert (
+        "language.operations.standard.conformance.structured@1.0.0."
+        "standard.conformance.structured.select-v1.body.3.typing"
+        in composition_subjects
+    )
+    assert admission.admitted is False
+
+
+def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile():
+    exact_type = {
+        "id": "Amount",
+        "package": "example.scalar",
+        "version": "3.0.0",
+    }
+    profile = {
+        "domain": {"kind": "actual"},
+        "id": "example.scalar.amount",
+        "kind": "scalar",
+        "maximum": 200,
+        "minimum": -100,
+        "numeric_policy": "example-exact",
+        "representation": "Integer",
+        "source_kind": "integer",
+        "type": exact_type,
+        "unit": "points",
+    }
+
+    result = bootstrap_module._operation_contract_for_structured_type(
+        exact_type, [profile]
+    )
+
+    assert result == {
+        "domain": {"kind": "actual"},
+        "kind": "scalar",
+        "numeric_policy": "example-exact",
+        "representation": "Integer",
+        "type": exact_type,
+        "unit": "points",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "unknown-operator",
+        "missing-member",
+        "wrong-member-type",
+        "quantity-missing-bound",
+    ),
+)
+def test_authority_admission_rejects_an_invalid_constructor_value_rule(mutation):
+    baseline = model_checking_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/structured-selection/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    constructor = next(
+        item
+        for item in candidate_ldb["language"]["constructors"]
+        if item["id"]
+        == (
+            "core.quantity"
+            if mutation == "quantity-missing-bound"
+            else "standard.schema.list"
+        )
+    )
+    if mutation == "quantity-missing-bound":
+        del constructor["value_rule"]["maximum"]
+    elif mutation == "unknown-operator":
+        constructor["value_rule"]["operator"] = "unknown-list-law"
+    elif mutation == "missing-member":
+        del constructor["value_rule"]["maximum_length_member"]
+    else:
+        constructor["value_rule"]["element_member"] = 7
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject == "language.definitions"
+        for diagnostic in admission.diagnostics
+    ), admission.diagnostics
 
 
 def test_authority_admission_rejects_operation_closure_at_the_package_site():

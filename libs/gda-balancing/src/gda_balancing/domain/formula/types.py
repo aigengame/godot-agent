@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from gda_balancing.domain.canonical import JsonValue
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 
 _FORMULA_CONTRACT_MEMBERS = (
@@ -24,6 +24,12 @@ _LITERAL_CONTEXT_MEMBERS = (
     "unit",
     "domain",
     "numeric_policy",
+)
+
+_STRUCTURED_LITERAL_CONTEXT_MEMBERS = (
+    "id",
+    "type",
+    "value_kind",
 )
 
 
@@ -165,8 +171,6 @@ def literal_context_contract(
     selected_semantics: dict[str, Any],
 ) -> dict[str, JsonValue] | None:
     """Select the one authority-owned literal profile matching an Operation formal."""
-    if not isinstance(value, int) or isinstance(value, bool):
-        return None
     literal_contract = kernel.get("meta_format", {}).get("literal_typing")
     selected = selected_semantics.get("literal_typing_profiles")
     if (
@@ -180,6 +184,37 @@ def literal_context_contract(
         for row in selected
         if isinstance(row, dict) and isinstance(row.get("definition"), dict)
     ]
+    if (
+        isinstance(value, dict)
+        and set(value) == {"type", "value"}
+        and isinstance(value.get("type"), dict)
+        and isinstance(formal.get("type"), dict)
+    ):
+        typed_envelope_contract = literal_contract.get("typed_envelope_profile")
+        matches = [
+            profile
+            for profile in profiles
+            if isinstance(profile, dict)
+            and isinstance(typed_envelope_contract, dict)
+            and profile.get("id") == typed_envelope_contract.get("id")
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == typed_envelope_contract.get("value_kind")
+            and formal.get("value_kind") == profile.get("value_kind")
+            and canonical_bytes(cast(JsonValue, value["type"]))
+            == canonical_bytes(cast(JsonValue, formal.get("type")))
+        ]
+        if len(matches) != 1:
+            return None
+        profile = cast(dict[str, JsonValue], matches[0])
+        context = {
+            **profile,
+            "type": cast(JsonValue, value["type"]),
+        }
+        return {
+            member: context[member] for member in _STRUCTURED_LITERAL_CONTEXT_MEMBERS
+        }
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
     matches = [
         profile
         for profile in profiles
