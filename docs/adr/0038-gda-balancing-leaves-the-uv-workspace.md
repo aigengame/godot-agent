@@ -140,12 +140,17 @@ uv project inside the repo, with its own lock under its own directory.**
   > `libs/gda-balancing/tools/ci.py` is the single authority for affecting
   > paths, shard membership, process budgets, logical inventory, and allowed
   > historical skip outcomes; the workflow derives those values rather than
-  > restating them. Nightly, manual evidence, and release validation retain the
-  > complete unfiltered suite. Repository protection adopted the stable
+  > restating them. Repository protection adopted the stable
   > aggregator before the duplicate member test/build steps were removed from
   > the root job. Because this topology changes un-excluded root automation but
   > not the `gda` product, its commits and squash title use non-releasing `ci`
   > types.
+  >
+  > **Outcome (2026-08-11, #597/#635):** scheduled validation uses the same
+  > inventory-closed matrix after the duplicate serial nightly suite exceeded
+  > its process bound while every required shard still passed. The release
+  > workflow retains its exact-SHA unfiltered suite; #597 remains open for that
+  > path's current performance risk.
 - **CI and Release share one exact uv tool version.** The shared
   `setup-python-env` action owns the pin for every project-sync and release
   consumer; workflows may not opt back into a moving `latest` or restate the
