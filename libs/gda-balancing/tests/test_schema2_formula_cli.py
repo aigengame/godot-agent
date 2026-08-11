@@ -7,12 +7,13 @@ from typing import cast
 
 import pytest
 
-import gda_balancing.commands.formula as formula_command_module
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.formula_notation as formula_notation_module
-import gda_balancing.schema2.model as model_module
-from gda_balancing.schema2.canonical import JsonValue, content_identity
-from gda_balancing.schema2.formula_notation import admit_formula_pair
+import gda_balancing.domain.formula.notation as formula_notation_module
+import gda_balancing.interfaces.cli.formula as formula_command_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.model._admission as model_admission_module
+import gda_balancing.domain.artifacts as artifacts_module
+from gda_balancing.domain.formula.notation import admit_formula_pair
+from gda_balancing.domain.canonical import JsonValue, content_identity
 from schema2_bootstrap_production_support import (
     _refresh_package_closure_and_reidentify,
 )
@@ -765,14 +766,14 @@ def test_formula_parse_reverse_admits_its_canonical_pair(
     source = tmp_path / "parse-request.json"
     source.write_text(formula_command_module._VALID_PARSE_REQUEST, encoding="utf-8")
     admitted_pairs: list[dict] = []
-    real_admit = formula_command_module.admit_formula_pair
+    real_admit = formula_notation_module.admit_formula_pair
 
     def observe_admission(request, authority_context, **kwargs):
         admitted_pairs.append(deepcopy(request))
         return real_admit(request, authority_context, **kwargs)
 
     monkeypatch.setattr(
-        formula_command_module,
+        formula_notation_module,
         "admit_formula_pair",
         observe_admission,
     )
@@ -2177,7 +2178,7 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
     context = authority_module.packaged_authority_context()
     tampered_rir = deepcopy(rir)
     tampered_rir["formulas"][0]["expression"] += " "
-    contract = model_module._artifact_contract(
+    contract = artifacts_module._artifact_contract(
         context.language_bundle, "rir-semantic-payload"
     )
     tampered_rir["content_identity"] = content_identity(
@@ -2191,7 +2192,7 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
             },
         ),
     )
-    tampered_resolved = model_module.identified_artifact(
+    tampered_resolved = artifacts_module.identified_artifact(
         context.language_bundle,
         "resolved-model",
         {
@@ -2204,7 +2205,7 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
             "rir_semantic_identity": tampered_rir["semantic_identity"],
         },
     )
-    assert not model_module.admit_resolved_model(
+    assert not model_admission_module.admit_resolved_model(
         {
             "package-lock": json.loads(
                 locators["package-lock"].read_text(encoding="utf-8")
@@ -2216,7 +2217,7 @@ def test_model_build_publishes_paired_formula_surfaces_and_rir_identities(
     ).admitted
     tampered_explanation = deepcopy(explanation)
     tampered_explanation["formula_explanations"][0]["expression"] += " "
-    assert not model_module._model_explanation_pairs_are_admitted(
+    assert not model_admission_module._model_explanation_pairs_are_admitted(
         tampered_explanation,
         rir,
         json.loads(locators["package-lock"].read_text(encoding="utf-8")),

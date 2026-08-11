@@ -11,34 +11,41 @@ from typing import Any, cast
 
 import jsonschema
 import pytest
-import gda_balancing.schema2.model as schema2_model
-from gda_balancing.commands.template import (
-    TEMPLATE_GET,
+import gda_balancing.domain.artifacts as artifacts_module
+import gda_balancing.infrastructure.atomic_files as atomic_files_module
+from gda_balancing.interfaces.cli.template_instantiation import (
     TEMPLATE_INSTANTIATE,
-    _member_schema_identities,
-    _minimal_release,
-    _validate_template_release,
-    template_get_handler,
     template_instantiate_handler,
 )
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.template import (
+    minimal_release,
+    validate_template_release,
+)
+from gda_balancing.interfaces.cli.template_catalog import (
+    TEMPLATE_GET,
+    template_get_handler,
+)
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
     authority_set,
 )
-from gda_balancing.schema2.authority_graph import derive_language_index
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.authority.graph import derive_language_index
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import Schema2RefusalReport
+from gda_balancing.domain.model import (
     CheckedModel,
     check_model_source_value,
     checked_model_template_facts,
 )
-from gda_balancing.schema2.projections import wire_schema_projection
-from gda_balancing.schema2.package_semantics import package_runtime_semantic_closure
-from gda_balancing.schema2.wire_schema import (
+from gda_balancing.domain.authority.projections import wire_schema_projection
+from gda_balancing.domain.authority.package_semantics import (
+    package_runtime_semantic_closure,
+)
+from gda_balancing.domain.wire_schema import (
     artifact_wire_schema_identity,
     wire_schema_identity as schema_definition_identity,
+    wire_schema_identity_for_kind,
 )
 
 
@@ -917,6 +924,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
 
 def test_template_schema_identity_refuses_a_missing_authority_contract():
     authority = authority_set()
+    kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
     source_schema = cast(Any, language_bundle["language"])["wire_schemas"][0]
     schema_kind = source_schema["artifact_kind"]
@@ -926,7 +934,7 @@ def test_template_schema_identity_refuses_a_missing_authority_contract():
         ValueError,
         match=f"exact wire-schema identity domain is unavailable for {schema_kind}",
     ):
-        _member_schema_identities(language_bundle)
+        minimal_release(kernel, language_bundle)
 
 
 def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain():
@@ -939,6 +947,15 @@ def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain(
     context = admit_authority_context(kernel, language_bundle)
 
     assert isinstance(context, AdmittedAuthorityContext)
+    release = minimal_release(
+        cast(Any, context.kernel),
+        cast(Any, context.language_bundle),
+    )
+    model_source_member = next(
+        member
+        for member in cast(list[dict[str, Any]], release["members"])
+        if member["member_kind"] == "model-source-package"
+    )
     schema_body = {
         key: value for key, value in source_schema["schema"].items() if key != "$id"
     }
@@ -955,19 +972,14 @@ def test_every_wire_schema_consumer_projects_an_extension_owned_identity_domain(
         if row["artifact_kind"] == "model-source-package"
     )
 
-    assert _member_schema_identities(context.language_bundle)[
-        "model-source-package"
-    ] == schema2_model._wire_schema_identity_for_kind(
-        context.language_bundle,
-        "model-source-package",
-    )
     assert (
-        schema2_model._wire_schema_identity_for_kind(
+        artifacts_module.wire_schema_identity(
             context.language_bundle,
             "model-source-package",
         )
         == expected
     )
+    assert model_source_member["member_schema_identity"] == expected
     assert projected_source_schema["$id"].endswith(expected.removeprefix("sha256:"))
 
 
@@ -1093,7 +1105,7 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
     context = admit_authority_context(kernel, language_bundle)
 
     assert isinstance(context, AdmittedAuthorityContext)
-    release = _minimal_release(
+    release = minimal_release(
         cast(Any, context.kernel),
         cast(Any, context.language_bundle),
     )
@@ -1108,7 +1120,7 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
         "negative-vector",
     )
     assert (
-        _validate_template_release(
+        validate_template_release(
             release,
             cast(Any, context.kernel),
             cast(Any, context.language_bundle),
@@ -1120,8 +1132,12 @@ def test_template_admits_a_member_whose_artifact_and_schema_kinds_differ():
 
 def test_template_refuses_an_artifact_kind_that_shadows_a_standalone_schema():
     authority = authority_set()
+    kernel = authority["kernel"]
     language_bundle = authority["language_bundle"]
-    original_identity = _member_schema_identities(language_bundle)["negative-vector"]
+    original_identity = wire_schema_identity_for_kind(
+        language_bundle,
+        "negative-vector",
+    )
     _install_negative_vector_artifact_contract(
         language_bundle,
         retain_standalone=True,
@@ -1131,7 +1147,7 @@ def test_template_refuses_an_artifact_kind_that_shadows_a_standalone_schema():
         ValueError,
         match="wire-schema kind authority is ambiguous: negative-vector",
     ):
-        _member_schema_identities(language_bundle)
+        minimal_release(kernel, language_bundle)
     with pytest.raises(
         ValueError,
         match="wire-schema kind authority is ambiguous: negative-vector",
@@ -1165,7 +1181,7 @@ def test_minimal_release_derives_every_authority_identity_from_its_inputs():
     )
     schema["title"] = "Changed boundary vector schema"
 
-    release = cast(Any, _minimal_release(kernel, language_bundle))
+    release = cast(Any, minimal_release(kernel, language_bundle))
 
     assert release["kernel_identity"] == kernel["content_identity"]
     assert release["language_bundle_identity"] == language_bundle["content_identity"]
@@ -2780,7 +2796,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
     tmp_path, run_cli, monkeypatch
 ):
     store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
-    real_fsync_directory = schema2_model._fsync_directory
+    real_fsync_directory = atomic_files_module.fsync_directory
     injected = False
 
     def fail_after_anchor_link(path):
@@ -2794,7 +2810,7 @@ def test_template_publication_recovers_when_anchor_directory_fsync_fails(
             raise OSError("injected anchor directory fsync failure")
         real_fsync_directory(path)
 
-    monkeypatch.setattr(schema2_model, "_fsync_directory", fail_after_anchor_link)
+    monkeypatch.setattr(atomic_files_module, "fsync_directory", fail_after_anchor_link)
     invocation_key = "b" * 64
     argv = [
         "template",

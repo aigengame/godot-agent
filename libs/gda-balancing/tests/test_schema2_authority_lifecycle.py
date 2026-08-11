@@ -7,16 +7,17 @@ from typing import Any, cast
 
 import pytest
 
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.domain.authority.contract_validation as contract_validation
 import schema2_bootstrap_conformance_support as consumer_support
-from gda_balancing.commands import REGISTRY
-from gda_balancing.commands.model import (
+from gda_balancing.interfaces.cli.registry import REGISTRY
+from gda_balancing.interfaces.cli.model_check import (
     ModelCheckInput,
     ModelCheckResult,
     run_model_check,
 )
-from gda_balancing.schema2.authority_graph import LanguageBundleIndex
+from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
 
 _PACKAGE_ROOT = Path(__file__).parents[1]
@@ -254,7 +255,7 @@ def test_refused_injected_context_cannot_poison_packaged_observations():
 def test_production_schema_meta_validation_cache_binds_actual_bytes_and_profile(
     monkeypatch,
 ):
-    bootstrap_module.reset_schema_meta_validation_cache_for_tests()
+    contract_validation.reset_schema_meta_validation_cache_for_tests()
     production_check_schema = (
         bootstrap_module.jsonschema.Draft202012Validator.check_schema
     )
@@ -280,13 +281,13 @@ def test_production_schema_meta_validation_cache_binds_actual_bytes_and_profile(
     assert len(calls) == len(
         {bootstrap_module.canonical_bytes(schema) for schema in calls}
     )
-    info = bootstrap_module.schema_meta_validation_cache_info()
+    info = contract_validation.schema_meta_validation_cache_info()
     assert info.hits >= len(calls)
     assert info.misses == len(calls)
 
 
 def test_schema_meta_validation_cache_misses_for_changed_bytes_or_profile():
-    bootstrap_module.reset_schema_meta_validation_cache_for_tests()
+    contract_validation.reset_schema_meta_validation_cache_for_tests()
     first_schema = bootstrap_module.canonical_bytes(
         {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -308,12 +309,12 @@ def test_schema_meta_validation_cache_misses_for_changed_bytes_or_profile():
     assert bootstrap_module._meta_validate_json_schema(changed_schema, first_profile)
     assert bootstrap_module._meta_validate_json_schema(first_schema, changed_profile)
 
-    info = bootstrap_module.schema_meta_validation_cache_info()
+    info = contract_validation.schema_meta_validation_cache_info()
     assert (info.hits, info.misses) == (1, 3)
 
 
 def test_consumer_b_owns_an_independent_meta_validation_cache_domain():
-    bootstrap_module.reset_schema_meta_validation_cache_for_tests()
+    contract_validation.reset_schema_meta_validation_cache_for_tests()
     consumer_support._consumer_b_meta_validate_schema.cache_clear()
     schema = consumer_support._encoded(
         {
@@ -327,7 +328,7 @@ def test_consumer_b_owns_an_independent_meta_validation_cache_domain():
     assert consumer_support._consumer_b_meta_validate_schema(schema, profile)
 
     assert consumer_support._consumer_b_meta_validate_schema.cache_info().hits == 1
-    assert bootstrap_module.schema_meta_validation_cache_info().currsize == 0
+    assert contract_validation.schema_meta_validation_cache_info().currsize == 0
 
 
 def test_cold_model_check_performs_one_packaged_graph_admission(monkeypatch):
@@ -392,8 +393,8 @@ def test_authority_lifecycle_module_is_the_only_packaged_production_owner():
     for path in sorted(_SOURCE_ROOT.rglob("*.py")):
         relative = path.relative_to(_SOURCE_ROOT)
         if relative.as_posix() in {
-            "schema2/authority.py",
-            "schema2/bootstrap.py",
+            "domain/authority/admission.py",
+            "domain/authority/context.py",
         }:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -422,15 +423,15 @@ def test_consumer_b_functions_do_not_call_production_admission_or_cache():
 
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and node.module in {
-            "gda_balancing.schema2.authority",
-            "gda_balancing.schema2.bootstrap",
+            "gda_balancing.domain.authority.context",
+            "gda_balancing.domain.authority.admission",
         }:
             violations.append(f"module:{node.lineno}:{node.module}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in {
-                    "gda_balancing.schema2.authority",
-                    "gda_balancing.schema2.bootstrap",
+                    "gda_balancing.domain.authority.context",
+                    "gda_balancing.domain.authority.admission",
                 }:
                     violations.append(f"module:{node.lineno}:{alias.name}")
 

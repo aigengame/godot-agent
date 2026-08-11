@@ -1,18 +1,18 @@
-# One periodic Effect through the ordinary Runtime schedule
+# One periodic Effect through the Runtime Event queue
 
-This tutorial drives one bounded periodic Effect through the public Standard Schema 2.x path:
+This tutorial runs one bounded periodic Effect through the public Standard Schema 2.x path:
 
 ```text
-Model Source Formula + game.effect binding
+Model Source Package + game.effect Formula binding
     |
     v
-Model build -> Package Lock + RIR + Model explanation
+model build -> complete Model artifact set
     |
     v
 Experiment apply Event -> scheduled tick/tick/expire Events
     |
     v
-Event trace + committed Snapshots + Metrics
+Event trace + committed Snapshots + Metric dataset
 ```
 
 The example demonstrates two magnitude-timing policies over the same authored Formula:
@@ -20,13 +20,14 @@ The example demonstrates two magnitude-timing policies over the same authored Fo
 - `snapshot`: evaluate once during apply and schedule both ticks with the captured magnitude;
 - `live`: evaluate at each tick against that Event's pre-Event committed Snapshot.
 
-The Effect uses Runtime logical time and the ordinary Event queue. It has no Effect-specific loop,
-wall-clock timer, evaluator callback, or repeated-scenario substitute. The `game.effect@1.0.0`
-Package Release owns this exact bounded variant: duration `3`, period `1`, ticks at logical times
-`1` and `2`, and expiry at `3`. Those values are a closed package contract, not authored
-Experiment timing knobs.
+The Effect uses Runtime logical time and the Runtime Event queue. It does not use an Effect-specific
+loop, wall-clock timer, evaluator callback, or repeated scenarios.
 
-This slice does not claim immunity, stacking, dispel, buildup, multiple contributors, same-Event
+The `game.effect@1.0.0` Package Release defines this bounded variant. Its duration is `3`, and its
+period is `1`. It schedules ticks at logical times `1` and `2`, and it expires at `3`. The
+Experiment cannot change these package-owned values.
+
+This example does not define immunity, stacking, dispel, buildup, multiple contributors, same-Event
 request precedence, complete buff/debuff coverage, Replay, or Evidence.
 
 ## 1. Prepare an isolated run
@@ -45,17 +46,18 @@ export MODEL_BUILD_INVOCATION_KEY="$(openssl rand -hex 32)"
 export EXPERIMENT_RUN_INVOCATION_KEY="$(openssl rand -hex 32)"
 ```
 
-Keep the anchor key stable for this store. Reusing an Invocation key with byte-identical input
-recovers the committed result. Generate a new key after changing Model Source or Experiment input.
+Keep the anchor key stable for this store. Repeat a command with the same Invocation key and
+byte-identical input to recover the committed result. After you change the Model Source Package or
+Experiment input, generate a new Invocation key.
 
 ## 2. Read the authored Model and package boundary
 
-The permanent files are:
+The checked-in files are:
 
 - `model-source.json` — state, the `periodic-magnitude` Formula, exact snapshot/live Formula-slot
   bindings, and Model entrypoints;
 - `experiment.json` — one snapshot-policy lifecycle;
-- `same-time-experiment.json` — one live tick sharing logical time `1` with ordinary combat.
+- `same-time-experiment.json` — one live tick sharing logical time `1` with a combat Event.
 
 Inspect the Formula and bindings:
 
@@ -75,11 +77,12 @@ let magnitude = floor_zero(raw_magnitude);
 magnitude
 ```
 
-Model Source owns that pure policy and its exact Operation-slot bindings. The package owns when the
-slot is evaluated and how the result participates in apply/tick/expiry. Runtime owns only generic
-ordering, scheduling legality, atomic commit, budgets, RNG and Snapshot laws.
+The Model Source Package owns the pure Formula policy and its exact Operation-slot bindings. The
+`game.effect` Package Release defines when Runtime evaluates the slot. It also defines how the
+result participates in apply, tick, and expiry Operations. Runtime owns generic ordering,
+scheduling legality, atomic commit, budgets, RNG, and Snapshot laws.
 
-## 3. Build and inspect the exact Model
+## 3. Build and inspect the Model artifact set
 
 Build and save the artifact-set receipt:
 
@@ -93,7 +96,7 @@ uv run gda-balancing model build \
   | tee "$MODEL_SET_RECEIPT"
 ```
 
-Inspect the stored explanation and exact RIR:
+Inspect the stored Model explanation and RIR semantic payload:
 
 ```bash
 uv run gda-balancing model inspect \
@@ -101,11 +104,6 @@ uv run gda-balancing model inspect \
   --format indented \
   | tee "$GDA_BALANCING_TUTORIAL_ROOT/model-explanation.json"
 
-export BUILD_RECORD_PATH="$(
-  jq -r '.member_locators[]
-    | select(.logical_name == "build-receipt")
-    | .locator' "$MODEL_SET_RECEIPT"
-)"
 export RIR_PATH="$(
   jq -r '.member_locators[]
     | select(.logical_name == "rir-semantic-payload")
@@ -122,14 +120,15 @@ jq '.selected_semantics.operations[].definition
   | {id, effects, resource_bounds, extensions}' "$RIR_PATH"
 ```
 
-The RIR exposes `game.effect.periodic` beside ordinary Runtime instructions. Snapshot apply
-contains three schedule nodes; live apply schedules tick Events whose own Operation carries the
-Formula evaluation site. No host-only Effect descriptor or arithmetic table exists.
+The RIR semantic payload contains `game.effect.periodic` with the Runtime instructions. The
+snapshot apply Operation contains three schedule nodes. The live apply Operation schedules tick
+Events. Each live tick Operation contains its Formula evaluation site. Host code does not provide
+an Effect descriptor or arithmetic table.
 
 ## 4. Run the snapshot lifecycle
 
-The checked-in Experiment files bind the exact identities produced by the checked-in Model Source.
-Use the snapshot Experiment directly:
+The checked-in Experiment files bind the identities of the checked-in Model Source Package. Use the
+snapshot Experiment directly:
 
 ```bash
 export SNAPSHOT_EXPERIMENT=examples/schema2/rpg-periodic-effect/experiment.json
@@ -199,10 +198,12 @@ jq '.samples[] | {metric, value, logical_time, snapshot_identity, within_target}
 jq . "$REPRODUCTION_PATH"
 ```
 
-The transition sequence is `apply -> tick -> tick -> expire` at logical times `0, 1, 2, 3`.
-Snapshot policy records one Formula evaluation during apply with result `15`; both scheduled tick
-Events carry that captured magnitude. Health changes `100 -> 85 -> 70`, expiry changes
-`effect_active` from `1` to `0`, and the same positive Effect-instance id appears throughout.
+The transition sequence is `apply -> tick -> tick -> expire`. The logical times are `0`, `1`, `2`,
+and `3`. The snapshot policy records one Formula evaluation during apply. Its result is `15`.
+Both scheduled tick Events carry this captured magnitude.
+
+Health changes from `100` to `85` and then to `70`. Expiry changes `effect_active` from `1` to `0`.
+The same positive Effect instance identity appears in all lifecycle Events.
 
 ## 5. Compare live and snapshot timing at the same logical time
 
@@ -219,10 +220,11 @@ uv run gda-balancing experiment run \
   | tee "$GDA_BALANCING_TUTORIAL_ROOT/same-time-live-receipt.json"
 ```
 
-At logical time `1`, the ordinary combat root was admitted before the scheduled live tick and both
-have priority `0`, so combat commits first. The live tick reads health `90`, computes magnitude
-`5`, and the second tick computes `0`; terminal health and the
-`target_health_remaining` Metric sample are both `85`.
+Runtime admits the combat root before the apply Event schedules the live tick. Both Events have
+priority `0` at logical time `1`. Runtime therefore dispatches and commits the combat Event first.
+
+The live tick reads health `90` and calculates a magnitude of `5`. The second tick calculates `0`.
+The terminal health and the `target_health_remaining` Metric sample value are both `85`.
 
 Make only the combat priority lower:
 
@@ -241,11 +243,12 @@ uv run gda-balancing experiment run \
   | tee "$GDA_BALANCING_TUTORIAL_ROOT/same-time-tick-first-receipt.json"
 ```
 
-With tick priority `0` and combat priority `-1`, the tick runs first against health `100`, computes
-`15`, then combat commits `10`; terminal health and the `target_health_remaining` Metric sample
-are both `75`. Changing the apply entrypoint to
-`effect.apply-snapshot-periodic` evaluates `15` once at logical time `0`, so either priority order
-ends at health `60`. Run that policy explicitly:
+The tick has priority `0`, and the combat Event has priority `-1`. Runtime therefore dispatches the
+tick first. The tick reads health `100` and calculates `15`. The combat Event then commits `10`
+damage. The terminal health and the `target_health_remaining` Metric sample value are both `75`.
+
+The `effect.apply-snapshot-periodic` entrypoint evaluates `15` once at logical time `0`. Both
+priority orders then produce terminal health `60`. Run that policy explicitly:
 
 ```bash
 export SNAPSHOT_SAME_TIME_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/same-time-snapshot.json"
@@ -261,12 +264,12 @@ uv run gda-balancing experiment run \
   --invocation-key "$SNAPSHOT_SAME_TIME_KEY"
 ```
 
-Priority changes ordering; it never changes the fixed phase table or exposes another Event's
-buffered writes.
+Priority changes Event order. It does not change the fixed phase table. It also does not expose an
+Event's buffered writes to another Event.
 
 ## 6. Edit the authored Formula and rerun
 
-Create a tuned Model Source that reverses the subtraction and updates the adjacent canonical
+Create a tuned Model Source Package. Reverse the subtraction and update the adjacent canonical
 expression in the same edit:
 
 ```bash
@@ -288,8 +291,8 @@ uv run gda-balancing model build \
   | tee "$TUNED_MODEL_RECEIPT"
 ```
 
-Resolve its build record and bind a new Experiment. Widen only the tutorial target so both values
-are accepted:
+Resolve the new Build receipt and bind a new Experiment. Widen only the tutorial target so that it
+accepts both values:
 
 ```bash
 bind_experiment() {
@@ -333,48 +336,49 @@ uv run gda-balancing experiment run \
   --invocation-key "$TUNED_RUN_KEY"
 ```
 
-The tuned Formula returns `0`, so terminal health remains `100`. Source, Formula, RIR, Resolved
-Model, exact Experiment, trace and Metric identities change. Kernel, LDB, Package Lock, package
-Operations, compiler/evaluator dispatch and unrelated declarations remain fixed. Running the old
-exact Experiment against the new Model is not a rebind; it must refuse until a new exact
-Experiment is authored.
+The tuned Formula returns `0`. Thus, terminal health remains `100`.
+
+The edit changes the Model Source Package, Formula, RIR semantic payload, and Resolved Model
+identities. It also changes the exact Experiment, Event trace, and Metric dataset identities. It
+does not change the Kernel, LDB, Package Lock, package Operations, compiler dispatch, or evaluator
+dispatch.
+
+The old Experiment still binds the old Resolved Model. It remains valid only for that exact build.
+Create a new Experiment from the new Build receipt before you run the tuned Model. Experiment
+admission refuses an incoherent mix of old and new identities.
 
 ## 7. Why logical time is not an Effect loop or repeated scenarios
 
-One Runtime queue is required because the tick and ordinary combat Event must observe each other's
-committed results. A private fixed-tick Effect loop would create another ordering authority and
-could expose different state. Repeating Experiment scenarios would be even less equivalent: every
-scenario has its own Snapshot 0, queue, RNG state and replication identity, so no scenario can be
-the next tick of another scenario.
+The tick and combat Event must observe each other's committed results. Therefore, they must use one
+Runtime Event queue. A private fixed-tick Effect loop would create a second ordering authority and
+could expose different state.
 
-The bounded package contract schedules ordinary child Events. Runtime orders them with every other
-Event by logical time, phase, priority and enqueue sequence, commits each transaction atomically,
-and creates one Snapshot boundary after success. That is the complete time-advancement model used
-by this example.
+Repeated Experiment scenarios are not equivalent to scheduled ticks. Each scenario has its own
+Snapshot 0, Event queue, RNG state, and replication identity. A scenario cannot be the next tick of
+another scenario.
 
-## 8. Product and architecture review
+The `game.effect` Package Release schedules ordinary child Events. Runtime orders them with all
+other Events. It uses logical time, phase, priority, and enqueue sequence. Runtime commits each
+transaction atomically and creates a Snapshot after each success. This example uses no other
+time-advancement mechanism.
 
-The human owner should run the snapshot, same-time live/tick-first and tuned-Formula paths, then
-record `accept`, `accept with explicit conditions`, or `reopen` on issue #596.
+## 8. Validation scope
 
-Review:
-
-- whether Formula ownership and snapshot/live timing are understandable;
-- whether scheduled child ids, parent links, Effect-instance identity and ordering are inspectable;
-- whether state changes are clear across Event trace, Snapshot series and Metrics;
-- whether the Formula edit/rebind feedback loop is usable;
-- whether any discovered behavior belongs in Kernel, `game.effect`, Model Source, Experiment, or
-  only this authored example.
-
-Do not close broader Effect, Replay, Evidence, RPG or Genre coverage from this tutorial.
+Automated end-to-end tests validate the snapshot lifecycle, live timing, same-logical-time order,
+Formula edit, exact Experiment binding, refusal paths, recovery, and independent evaluation.
+The [Periodic Effect entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples) summarizes
+its architecture consequence and open boundary.
+This README explains how to run and inspect those behaviors. It does not define their architecture.
 
 ## Troubleshooting
 
 - Keys must contain exactly 64 lowercase hexadecimal digits.
-- Keep the same store and anchor key for build and run so exact Model artifacts remain resolvable.
-- `invocation_key_conflict` means that key already names different canonical input.
-- Checked-in Experiments bind the checked-in Model Source exactly. After editing that source,
-  author a newly bound Experiment from the new Build receipt before running it.
-- `language.formula_notation_mismatch` means the Formula body and expression were not edited as one
+- Use the same store and anchor key for build and run. Runtime can then resolve the exact build
+  artifacts.
+- `invocation_key_conflict` means that the key already identifies different canonical input.
+- Checked-in Experiments bind the checked-in Model Source Package. After you edit that source,
+  create a new Experiment from the new Build receipt.
+- `language.formula_notation_mismatch` means that the Formula body and expression are not one
   canonical pair.
-- Inspect receipt `member_locators`; `--out` is only a convenience copy, not the complete set.
+- Inspect the receipt's `member_locators`. The `--out` file is a convenience copy, not the complete
+  artifact set.

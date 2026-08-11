@@ -11,7 +11,7 @@ import re
 from copy import deepcopy
 from typing import Any, cast
 
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 
 def _authority(

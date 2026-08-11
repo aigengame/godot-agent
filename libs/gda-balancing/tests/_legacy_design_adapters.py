@@ -1,128 +1,151 @@
-"""Test-only Standard Schema 1.x source-input regression adapters.
+"""Test-only driver for the retired Standard Schema 1.x design commands.
 
-Schema 2.0 exposes ``model migrate`` as the only production 1.x entrypoint.
-These descriptors live outside ``src`` and therefore outside the wheel; legacy
-regression tests retain them over the exact 1.x funnel without shipping the
-superseded ``design`` group as hidden product code.
-
-``design format`` runs the *same* funnel and, on success, emits the **validated**
-document in canonical form (bADR-0005; V11): the model dump materializes every
-defined default and excludes reserved sections, and canonical emission sorts the
-keys — so a valid non-canonical input round-trips to a byte-stable form,
-idempotently. It is an artifact-sink command (bADR-0009): with ``--out`` the
-canonical document goes to the sink and stdout carries the receipt. The dispatch
-tail owns emission; both handlers only return data.
+Production exposes Standard Schema 1.x only through ``model migrate``. These
+helpers keep the historical funnel and canonical-format regressions without
+reintroducing a 1.x descriptor or refusal path into the active CLI.
 """
 
-from typing import Literal
+import os
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict
 
-from gda_balancing.descriptors import (
-    ArtifactReceipt,
-    CommandDescriptor,
-    ConformanceFixtures,
+from gda_balancing.infrastructure.atomic_files import materialize_bytes
+from gda_balancing.interfaces.cli.envelope import (
+    ERROR_ENVELOPE_SCHEMA,
+    internal_envelope,
+    usage_envelope,
 )
-from gda_balancing.envelope import RefusalReport
+from gda_balancing.interfaces.cli.errors import UsageError
+from gda_balancing.interfaces.cli.path_contracts import reject_input_aliasing
+from gda_balancing.interfaces.cli.rendering import canonical_json, model_payload
 from gda_balancing.schema import funnel
-from gda_balancing.schema.model.document import DesignDocument
+from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
+from gda_balancing.schema.refusal import (
+    JSON_POINTER_PATTERN,
+    REFUSAL_BOUND,
+    RefusalReport,
+)
 
+RunResult = tuple[int, str, str]
 
-class DesignValidateInput(BaseModel):
-    """`design validate` takes exactly the Design document's path."""
+_LEGACY_REFUSAL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "category": {"const": "refusal"},
+        "message": {"type": "string"},
+        "refusals": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": REFUSAL_BOUND,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "path": {
+                        "type": "string",
+                        "pattern": JSON_POINTER_PATTERN,
+                        "anyOf": [{"const": ""}, {"pattern": "^/"}],
+                    },
+                    "detail": {"type": "string"},
+                },
+                "required": ["code", "path", "detail"],
+                "additionalProperties": False,
+            },
+        },
+        "truncated": {"type": "boolean"},
+    },
+    "required": ["category", "message", "refusals", "truncated"],
+    "additionalProperties": False,
+}
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    document: str
+LEGACY_ERROR_ENVELOPE_SCHEMA = deepcopy(ERROR_ENVELOPE_SCHEMA)
+LEGACY_ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"].insert(
+    0, _LEGACY_REFUSAL_SCHEMA
+)
 
 
 class ValidationResult(BaseModel):
-    """A document that crossed the funnel. ``valid`` is fixed ``True`` — an
-    *invalid* document is a `refusal` envelope, never this result with a
-    ``False`` field (bADR-0004: refusal is the rejection path, not a verdict
-    flag)."""
+    """A document that crossed the historical 1.x funnel."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     valid: Literal[True] = True
 
 
-def run_design_validate(inp: DesignValidateInput) -> ValidationResult | RefusalReport:
-    """Load the document and run the funnel; a refusal report is the product on
-    an invalid document, :class:`ValidationResult` on one that passes.
-
-    The funnel returns the typed :class:`DesignDocument` on success; this
-    command reports only *that* it validated (``design format`` consumes the
-    typed document in a later stage), so the document is mapped to the fixed
-    :class:`ValidationResult`."""
-    data = funnel.load(inp.document)
-    outcome = funnel.validate(data)
-    if isinstance(outcome, RefusalReport):
-        return outcome
-    return ValidationResult()
-
-
-DESIGN_VALIDATE = CommandDescriptor(
-    group="design",
-    command="validate",
-    description="Validate a Design document through the boundary funnel (bADR-0004).",
-    input_model=DesignValidateInput,
-    output_model=ValidationResult,
-    handler=run_design_validate,
-    positional_field="document",
-    fixtures=ConformanceFixtures(
-        # A V1 minimal document (bADR-0004a) — the smallest document that
-        # clears preflight — and one whose only defect is an unsupported major,
-        # a stable preflight refusal (unsupported_schema_version).
-        valid_document='{"schema_version": "1.0.0", "meta": {"name": "smallest"}}',
-        refusing_document='{"schema_version": "9.0.0", "meta": {"name": "smallest"}}',
-    ),
-)
+def refusal_envelope(report: RefusalReport) -> dict[str, Any]:
+    """Project one historical 1.x refusal report into its former CLI shape."""
+    return {
+        "error": {
+            "category": "refusal",
+            "message": "the document was refused; see refusals",
+            "refusals": [
+                {"code": item.code, "path": item.path, "detail": item.detail}
+                for item in report.refusals
+            ],
+            "truncated": report.truncated,
+        }
+    }
 
 
-class DesignFormatInput(BaseModel):
-    """`design format` takes exactly the Design document's path."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    document: str
+def _usage(code: str, message: str) -> RunResult:
+    return 3, "", canonical_json(usage_envelope(code, message))
 
 
-class DesignFormatOutput(RootModel[DesignDocument | ArtifactReceipt]):
-    """The success result: the canonically-emitted document, or — when ``--out``
-    was given — the :class:`ArtifactReceipt` the dispatch tail substitutes
-    (bADR-0009). The union is the artifact-sink output-model contract; the body
-    arm is the bare :class:`DesignDocument` (bADR-0008's no-wrapper law), so the
-    document *is* the result, never nested under a key."""
+def _read_legacy_source(path: str) -> bytes:
+    """Read the bounded source needed by the retired test-only CLI driver."""
+    try:
+        with Path(path).open("rb") as stream:
+            return stream.read(MAX_DOCUMENT_BYTES + 1)
+    except OSError as error:
+        raise UsageError(
+            "unreadable_input", f"cannot read input document: {path}"
+        ) from error
 
 
-def run_design_format(inp: DesignFormatInput) -> DesignFormatOutput | RefusalReport:
-    """Load the document and run the funnel; a refusal report is the product on
-    an invalid document, the canonical :class:`DesignDocument` (wrapped in
-    :class:`DesignFormatOutput`) on one that passes. Emission does the rest:
-    the model dump materializes every defined default (V11) and drops reserved
-    sections; canonical emission sorts the keys."""
-    data = funnel.load(inp.document)
-    outcome = funnel.validate(data)
-    if isinstance(outcome, RefusalReport):
-        return outcome
-    return DesignFormatOutput(root=outcome)
+def run_legacy_cli(argv: list[str]) -> RunResult:
+    """Drive only the two retired commands needed by 1.x funnel regressions."""
+    try:
+        if len(argv) < 3 or argv[:2] not in (
+            ["design", "validate"],
+            ["design", "format"],
+        ):
+            return _usage("invalid_argument", "expected design validate|format PATH")
+        source = argv[2]
+        tail = argv[3:]
+        if argv[1] == "validate" and tail:
+            return _usage("unknown_argument", f"unknown argument: {tail[0]}")
+        out: str | None = None
+        if argv[1] == "format" and tail:
+            if len(tail) != 2 or tail[0] != "--out":
+                return _usage("unknown_argument", f"unknown argument: {tail[0]}")
+            out = tail[1]
+            reject_input_aliasing(out, source, input_is_known_path=True)
 
+        outcome = funnel.validate(_read_legacy_source(source))
+        if isinstance(outcome, RefusalReport):
+            return 2, canonical_json(refusal_envelope(outcome)), ""
+        if argv[1] == "validate":
+            return 0, canonical_json(model_payload(ValidationResult())), ""
 
-DESIGN_FORMAT = CommandDescriptor(
-    group="design",
-    command="format",
-    description="Emit the validated document in canonical form (bADR-0005).",
-    input_model=DesignFormatInput,
-    output_model=DesignFormatOutput,
-    handler=run_design_format,
-    positional_field="document",
-    artifact_sink=True,
-    fixtures=ConformanceFixtures(
-        # The V1 minimal document (bADR-0004a) and the same stable-refusal
-        # document `design validate` uses (an unsupported major → a preflight
-        # `unsupported_schema_version` refusal).
-        valid_document='{"schema_version": "1.0.0", "meta": {"name": "smallest"}}',
-        refusing_document='{"schema_version": "9.0.0", "meta": {"name": "smallest"}}',
-    ),
-)
+        body = canonical_json(model_payload(outcome))
+        if out is None:
+            return 0, body, ""
+        try:
+            materialize_bytes(Path(out), body.encode("utf-8"))
+        except OSError:
+            return _usage("unwritable_output", f"cannot write output file: {out}")
+        receipt = {
+            "artifact": {
+                "path": os.path.realpath(out),
+                "bytes": len(body.encode("utf-8")),
+            }
+        }
+        return 0, canonical_json(receipt), ""
+    except UsageError as error:
+        return _usage(error.code, error.message)
+    except Exception as error:
+        message = f"the toolkit failed unexpectedly ({type(error).__name__})"
+        return 4, "", canonical_json(internal_envelope(message))

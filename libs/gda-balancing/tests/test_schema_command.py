@@ -9,7 +9,7 @@ validation at the usage boundary, so `schema get bogus` is a usage
 import json
 import jsonschema
 
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
 
 
 def test_unknown_artifact_is_a_usage_error(run_cli):

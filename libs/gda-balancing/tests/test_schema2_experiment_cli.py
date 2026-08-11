@@ -11,15 +11,25 @@ from typing import Any, cast
 import pytest
 import jsonschema
 
-import gda_balancing.commands.experiment as experiment_command_module
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.schema2.experiment as experiment_runtime_module
-import gda_balancing.schema2.model as model_module
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import ArtifactLocation
-from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
-from gda_balancing.schema2.surface import (
+import gda_balancing.application.experiment_run as experiment_run_application_module
+import gda_balancing.domain.experiment as experiment_admission_module
+import gda_balancing.domain.artifacts as artifacts_module
+import gda_balancing.domain.evidence as experiment_evidence_module
+import gda_balancing.domain.runtime.execution as experiment_runtime_module
+import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
+import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.domain.model._lowering as model_lowering_module
+import gda_balancing.domain.publication as publication_module
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.infrastructure.input_bytes import (
+    BoundedInputObservation,
+    read_bounded_input_with_sha256,
+)
+from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
+from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
     schema2_error_envelope_schema,
 )
@@ -52,7 +62,7 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
 
 def test_experiment_conformance_uses_only_prepared_public_documents():
     for descriptor in (
-        experiment_command_module.EXPERIMENT_CHECK,
+        experiment_check_command_module.EXPERIMENT_CHECK,
         experiment_command_module.EXPERIMENT_RUN,
     ):
         assert descriptor.fixtures.valid_document is None
@@ -214,7 +224,7 @@ def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
     ]
 
     with pytest.raises(ValueError, match="conflicting Scenario Input Contract"):
-        experiment_runtime_module._canonical_contract_union(
+        experiment_admission_module._canonical_contract_union(
             rows,
             contract_name="Scenario Input Contract",
         )
@@ -237,8 +247,8 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
     )
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    original_find = experiment_runtime_module.find_published_artifact
-    original_admit = experiment_runtime_module.admit_resolved_model
+    original_find = experiment_admission_module.find_published_artifact
+    original_admit = experiment_admission_module.admit_resolved_model
     original_rir: dict[str, Any] | None = None
 
     def find_with_conflicting_entrypoint(content_identity_value, artifact_kind, ldb):
@@ -274,12 +284,12 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
         )
 
     monkeypatch.setattr(
-        experiment_runtime_module,
+        experiment_admission_module,
         "find_published_artifact",
         find_with_conflicting_entrypoint,
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
+        experiment_admission_module,
         "admit_resolved_model",
         admit_original_model,
     )
@@ -1618,7 +1628,7 @@ def _write_scheduled_experiment(tmp_path, run_cli) -> Path:
         )
     ]
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
             entrypoint_id="combat.plan-casts",
             runtime_profile=specification["runtime"]["profile"],
@@ -1758,8 +1768,8 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     )
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 4}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan = next(
         row["definition"]
@@ -1769,7 +1779,7 @@ def test_scheduled_events_resolve_state_from_the_latest_committed_snapshot(
     plan["body"] = [row for row in plan["body"] if row["node"] != "cancel"]
     checked_value = deepcopy(checked.value)
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             rir,
             entrypoint_id="combat.plan-casts",
             runtime_profile=checked_value["runtime"]["profile"],
@@ -1809,8 +1819,8 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     entrypoint = next(
         row for row in checked.rir["entrypoints"] if row["id"] == "combat.cast"
     )
@@ -1863,8 +1873,8 @@ def test_event_payload_overlays_formula_dependencies_before_formula_evaluation(
 
 def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -1945,10 +1955,10 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         for row in snapshot_series["event_catalog"]
     )
     assert all(
-        experiment_runtime_module._event_catalog_record_is_valid(checked, row)
+        experiment_evidence_module._event_catalog_record_is_valid(checked, row)
         for row in snapshot_series["event_catalog"]
     )
-    assert experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         snapshot_series["event_catalog"],
         events,
@@ -1959,7 +1969,7 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         event_spec_domain,
         coordinated_root_drift[0]["event_spec"],
     )
-    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         coordinated_root_drift,
         events,
@@ -1975,14 +1985,14 @@ def test_snapshots_bind_the_complete_runtime_continuation(tmp_path, run_cli):
         event_spec_domain,
         scheduled_record["event_spec"],
     )
-    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         coordinated_schedule_drift,
         events,
     )
     drifted_catalog_record = deepcopy(snapshot_series["event_catalog"][0])
     drifted_catalog_record["event_spec"]["zero_time_depth"] += 1
-    assert not experiment_runtime_module._event_catalog_record_is_valid(
+    assert not experiment_evidence_module._event_catalog_record_is_valid(
         checked,
         drifted_catalog_record,
     )
@@ -2181,14 +2191,14 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
     values = {
         name: deepcopy(member.value) for name, member in evaluation.members.items()
     }
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     snapshot_payload = {
         key: value
@@ -2223,10 +2233,10 @@ def test_artifact_set_validation_rejects_individually_valid_cross_bind_drift(
     ).value
 
     assert all(
-        experiment_runtime_module.validate_experiment_member(checked, name, value)
+        experiment_evidence_module.validate_experiment_member(checked, name, value)
         for name, value in values.items()
     )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked, values
     )
 
@@ -2235,8 +2245,8 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2247,9 +2257,11 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     def drift_refusing_index(audit):
         audit["refusing_event"]["index"] += 1
@@ -2292,12 +2304,12 @@ def test_terminal_audit_validation_rejects_individually_valid_cross_field_drift(
         )
         drifted_values["runtime-terminal-audit"] = drifted.value
 
-        assert experiment_runtime_module.validate_experiment_member(
+        assert experiment_evidence_module.validate_experiment_member(
             checked,
             "runtime-terminal-audit",
             drifted.value,
         )
-        assert not experiment_runtime_module.validate_experiment_artifact_set(
+        assert not experiment_evidence_module.validate_experiment_artifact_set(
             checked,
             drifted_values,
         )
@@ -2307,8 +2319,8 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -2324,7 +2336,9 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.committed_trace_prefix == ()
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["event_catalog_prefix"]
@@ -2336,7 +2350,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
         audit["refusing_event"]["event_spec"]["event_id"]
         == audit["refusing_event"]["event_id"]
     )
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     def reidentify(drifted_audit):
         payload = {
@@ -2367,7 +2381,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_snapshot)
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2378,7 +2392,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     coordinated_event["refusing_event"]["event_spec"]["event_id"] = replacement_event_id
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_event)
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2411,7 +2425,7 @@ def test_terminal_audit_validation_rejects_coordinated_empty_prefix_drift(
     )
     drifted_values = deepcopy(values)
     drifted_values["runtime-terminal-audit"] = reidentify(coordinated_budget)
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2421,8 +2435,8 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2433,11 +2447,13 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["event_spec"]["kind"] == "observation"
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     drifted_audit = deepcopy(audit)
     refusing = drifted_audit["refusing_event"]
@@ -2472,12 +2488,12 @@ def test_terminal_audit_validation_rejects_coordinated_observation_ordering_drif
         payload,
     ).value
 
-    assert experiment_runtime_module.validate_experiment_member(
+    assert experiment_evidence_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2487,8 +2503,8 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2499,12 +2515,14 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
     assert audit["budget_counters"]["event_steps"] > 0
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
@@ -2529,12 +2547,12 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         payload,
     ).value
 
-    assert experiment_runtime_module.validate_experiment_member(
+    assert experiment_evidence_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2544,8 +2562,8 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     cast_operation = next(
         row["definition"]
@@ -2556,12 +2574,14 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
     checked = replace(checked, rir=rir)
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
     audit = values["runtime-terminal-audit"]
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
     assert audit["budget_counters"]["event_steps"] > 1
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] -= 1
@@ -2584,12 +2604,12 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
         payload,
     ).value
 
-    assert experiment_runtime_module.validate_experiment_member(
+    assert experiment_evidence_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2623,12 +2643,12 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
         payload,
     ).value
 
-    assert experiment_runtime_module.validate_experiment_member(
+    assert experiment_evidence_module.validate_experiment_member(
         checked,
         "runtime-terminal-audit",
         drifted_values["runtime-terminal-audit"],
     )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked,
         drifted_values,
     )
@@ -2636,8 +2656,8 @@ def test_terminal_audit_validation_rejects_coordinated_nonzero_step_decrement(
 
 def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, run_cli):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
     catalog = deepcopy(artifacts.members["snapshot-series"].value["event_catalog"])
@@ -2669,7 +2689,7 @@ def test_event_catalog_replay_rejects_coordinated_parent_fact_drift(tmp_path, ru
             scheduled_record["event_spec"],
         )
 
-    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         events,
@@ -2681,8 +2701,8 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     tmp_path, run_cli, schedule_shape
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2741,7 +2761,7 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
     values = {
         name: deepcopy(member.value) for name, member in artifacts.members.items()
     }
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
     trace_events = values["event-trace"]["events"]
     catalog = values["snapshot-series"]["event_catalog"]
     scheduled_record = next(
@@ -2770,7 +2790,7 @@ def test_artifact_revalidation_accepts_nested_and_local_schedule_provenance(
         scheduled_record["event_spec"],
     )
 
-    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         trace_events,
@@ -2781,8 +2801,8 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     tmp_path, run_cli
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2828,7 +2848,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
     values = {
         name: deepcopy(member.value) for name, member in artifacts.members.items()
     }
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
     events = values["event-trace"]["events"]
     catalog = values["snapshot-series"]["event_catalog"]
     parent_event = next(event for event in events if event["rng_draws"])
@@ -2859,7 +2879,7 @@ def test_event_catalog_replay_rejects_rng_derived_schedule_local_drift(
         scheduled_record["event_spec"],
     )
 
-    assert not experiment_runtime_module._event_catalog_records_are_authoritative(
+    assert not experiment_evidence_module._event_catalog_records_are_authoritative(
         checked,
         catalog,
         events,
@@ -2888,8 +2908,8 @@ def test_event_budget_and_rng_are_independent_per_scenario(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -2935,8 +2955,8 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -2947,7 +2967,7 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
     per_event_steps = sum(
         runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
-        for instruction in experiment_runtime_module._expanded_operation_body(
+        for instruction in experiment_admission_module._expanded_operation_body(
             operation, operations
         )
     )
@@ -3004,8 +3024,8 @@ def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     ]
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
 
@@ -3066,8 +3086,8 @@ def test_event_metric_searches_the_complete_committed_scenario_trace(tmp_path, r
         )
     ]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -3081,8 +3101,8 @@ def test_runtime_refuses_backward_child_scheduling_before_committing_the_event(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3121,8 +3141,8 @@ def test_scheduler_refusal_variants_preserve_the_pre_event_prefix(
     tmp_path, run_cli, mutation, expected_code
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3187,8 +3207,8 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     tmp_path, run_cli, monkeypatch, mutation, expected_code
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     apply_operation = next(
         row["definition"]
@@ -3225,7 +3245,7 @@ def test_periodic_scheduler_refusals_publish_through_the_public_run_command(
     # public handler seam, then drive the real dispatch, refusal envelope,
     # rollback audit, and publication path end to end.
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "check_experiment",
         lambda _path: replace(checked, rir=rir),
     )
@@ -3260,8 +3280,8 @@ def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     plan_operation = next(
         row["definition"]
@@ -3286,8 +3306,8 @@ def test_fault_after_provisional_schedules_rolls_back_scheduler_state(
 
 def test_total_event_budget_counts_derived_observation_events(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -3330,8 +3350,8 @@ def test_authored_roots_are_admitted_against_runtime_bounds_before_dispatch(
     scenario["event_plan"].append(second)
     scenario["terminal_condition"] = {"kind": "event-count", "maximum": 2}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -3351,8 +3371,8 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     tmp_path, run_cli
 ):
     specification_path = _write_scheduled_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     value = deepcopy(checked.value)
     second = deepcopy(value["scenarios"][0])
     second["id"] = "second-scenario"
@@ -3373,7 +3393,7 @@ def test_complete_root_map_is_allocated_before_the_first_scenario_dispatch(
     checked = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -3433,7 +3453,7 @@ def test_external_input_sources_require_canonical_contiguous_sequences(
     scenario["terminal_condition"] = {"kind": "queue-drained"}
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_runtime_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(str(specification_path))
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -3505,7 +3525,7 @@ def test_external_facts_must_target_the_compiler_projected_reachable_contract(
     specification_path = tmp_path / "external-fact-contract-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    result = experiment_runtime_module.check_experiment(str(specification_path))
+    result = experiment_admission_module.check_experiment(str(specification_path))
 
     assert isinstance(result, experiment_runtime_module.Schema2RefusalReport)
     assert result.stage == "static"
@@ -3775,8 +3795,8 @@ def test_initialization_formula_computes_a_read_only_derived_symbol_before_snaps
     specification_path = tmp_path / "formula-runtime-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     selected_entrypoints = [checked.rir["entrypoints"][0]]
     actual_values = {
         canonical_bytes(cast(Any, initializer["target"])): initializer["value"]
@@ -4265,8 +4285,8 @@ def test_initialization_formula_refusal_precedes_snapshot_zero_and_publication(
     assert "terminal_audit" not in error
     assert not out.exists()
 
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.Schema2RefusalReport)
     assert evaluation.variant == "pre-event"
@@ -4331,8 +4351,8 @@ def test_derived_formula_re_evaluates_against_each_new_committed_snapshot(
     ]
     spec_path = tmp_path / "snapshot-derived-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(spec_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(spec_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     observation_frames: list[str | None] = []
     observation_cache_growth: list[int] = []
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
@@ -4421,8 +4441,8 @@ def test_observation_formula_refusal_preserves_the_committed_event_and_snapshot(
     second["id"] = "second-cast"
     specification["scenarios"].append(second)
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluate_programs = experiment_runtime_module._evaluate_initialization_programs
     observation_frames: list[str] = []
     observation_cache_growth: list[int] = []
@@ -4561,7 +4581,7 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
         }
     )
     requirements, _named_streams = (
-        experiment_runtime_module.derive_scenario_program_requirements(
+        experiment_admission_module.derive_scenario_program_requirements(
             _member(build_receipt, "rir-semantic-payload"),
             entrypoint_id=specification["scenarios"][0]["event_plan"][0]["entrypoint"],
             runtime_profile=specification["runtime"]["profile"],
@@ -4571,8 +4591,8 @@ def test_event_formula_adds_its_symbol_to_the_scenario_input_contract(
     specification["runtime"]["required_evaluator"] = requirements
     spec_path = tmp_path / "event-symbol-formula-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    checked = experiment_runtime_module.check_experiment(str(spec_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(spec_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     artifacts = experiment_runtime_module.evaluate_experiment(checked)
 
@@ -4970,8 +4990,8 @@ def test_optional_experiment_override_uses_the_model_default_or_exact_override(
         path = tmp_path / f"optional-{case}.json"
         path.write_text(json.dumps(specification), encoding="utf-8")
 
-        checked = experiment_runtime_module.check_experiment(str(path))
-        assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+        checked = experiment_admission_module.check_experiment(str(path))
+        assert isinstance(checked, experiment_admission_module.CheckedExperiment)
         artifacts = experiment_runtime_module.evaluate_experiment(checked)
         assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
         event = artifacts.members["event-trace"].value["events"][0]
@@ -5227,9 +5247,9 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         and baseline_resolved["content_identity"]
         != renamed_resolved["content_identity"]
     )
-    assert experiment_runtime_module.experiment_input_identity(
+    assert experiment_admission_module.experiment_input_identity(
         baseline_spec
-    ) != experiment_runtime_module.experiment_input_identity(renamed_spec)
+    ) != experiment_admission_module.experiment_input_identity(renamed_spec)
     assert all(
         baseline_artifacts[name]["content_identity"]
         != renamed_artifacts[name]["content_identity"]
@@ -5329,7 +5349,7 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
     manifest_path.write_bytes(canonical_bytes(replacement_manifest))
     context = authority_module.packaged_authority_context()
     assert (
-        model_module.find_published_artifact(
+        publication_module.find_published_artifact(
             build_record["content_identity"],
             "build-receipt",
             context.language_bundle,
@@ -6035,6 +6055,49 @@ def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
     ]
 
 
+def test_experiment_check_bounds_the_file_read_before_admission(monkeypatch):
+    context = authority_module.packaged_authority_context()
+    max_bytes = cast(int, context.language_bundle["resources"]["max_source_bytes"])
+    calls: list[tuple[str, int]] = []
+    oversized_sha256 = "a" * 64
+
+    def reject_oversized(path: str, limit: int) -> BoundedInputObservation:
+        calls.append((path, limit))
+        return BoundedInputObservation(data=None, sha256=oversized_sha256)
+
+    monkeypatch.setattr(
+        experiment_admission_module,
+        "read_bounded_input_with_sha256",
+        reject_oversized,
+        raising=False,
+    )
+
+    result = experiment_admission_module.check_experiment(
+        "oversized-experiment.json",
+        authority_context=context,
+    )
+
+    assert isinstance(result, Schema2RefusalReport)
+    assert calls == [("oversized-experiment.json", max_bytes)]
+    assert result.stage == "ingress"
+    assert result.diagnostics[0].code == "language.source_too_large"
+    assert isinstance(result.diagnostics[0].primary, ArtifactLocation)
+    assert result.diagnostics[0].primary.content_identity == (
+        f"sha256:{oversized_sha256}"
+    )
+
+
+def test_hashed_bounded_input_preserves_oversized_content_identity(tmp_path):
+    data = b"oversized" * 10
+    source = tmp_path / "oversized.bin"
+    source.write_bytes(data)
+
+    observation = read_bounded_input_with_sha256(str(source), max_bytes=8)
+
+    assert observation.data is None
+    assert observation.sha256 == hashlib.sha256(data).hexdigest()
+
+
 def test_experiment_refuses_removed_top_level_external_inputs_member(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
@@ -6092,8 +6155,8 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     tmp_path, run_cli, monkeypatch
 ):
     specification = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     first = experiment_runtime_module._evaluator_manifest(checked)
     operations = {
@@ -6105,7 +6168,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
-        for instruction in experiment_runtime_module._expanded_operation_body(
+        for instruction in experiment_admission_module._expanded_operation_body(
             operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
@@ -6507,8 +6570,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
         run_cli,
         base_damage=90,
     )
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6541,7 +6604,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     )
     mitigation["operand"]["port"] = "target_health"
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
@@ -6572,7 +6635,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     candidate = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -6613,8 +6676,8 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
 
 def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6631,7 +6694,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     )
     cost["operand"] = {"kind": "literal", "literal": 8}
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
@@ -6677,8 +6740,8 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
 
 def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_cli):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6696,7 +6759,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
         "site": "apply-damage",
     }
     lowering = checked.language_bundle["language"]["model_lowerings"][0]
-    rir["call_sites"] = model_module._resolved_call_sites(
+    rir["call_sites"] = model_lowering_module._resolved_call_sites(
         checked.kernel,
         rir["selected_semantics"],
         lowering["composition_policy"],
@@ -6739,8 +6802,8 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     run_cli,
 ):
     specification_path = _write_built_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification_path))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -6801,7 +6864,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
     candidate = replace(
         checked,
         value=value,
-        content_identity=experiment_runtime_module.experiment_input_identity(value),
+        content_identity=experiment_admission_module.experiment_input_identity(value),
         rir=rir,
     )
 
@@ -7228,7 +7291,7 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
             raise AssertionError("Invocation-key recovery reran the periodic evaluator")
 
         monkeypatch.setattr(
-            experiment_command_module,
+            experiment_run_application_module,
             "evaluate_experiment",
             evaluator_must_not_run,
         )
@@ -7400,14 +7463,14 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     evaluation = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(evaluation, experiment_runtime_module.EvaluationArtifacts)
     values = {
         name: deepcopy(member.value) for name, member in evaluation.members.items()
     }
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     trace = values["event-trace"]
     snapshots = values["snapshot-series"]
@@ -7506,14 +7569,14 @@ def test_periodic_formula_evidence_rejects_coherent_semantic_mutation(
     reidentify("evaluation-run")
 
     assert all(
-        model_module.verify_artifact(value, checked.language_bundle)
+        artifacts_module.verify_artifact(value, checked.language_bundle)
         for value in values.values()
     )
     if mutation == "result":
-        assert not experiment_runtime_module.validate_experiment_member(
+        assert not experiment_evidence_module.validate_experiment_member(
             checked, "event-trace", values["event-trace"]
         )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked, values
     )
 
@@ -7523,8 +7586,8 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     tmp_path, run_cli, mutation
 ):
     specification, _build_receipt = _write_built_periodic_experiment(tmp_path, run_cli)
-    checked = experiment_runtime_module.check_experiment(str(specification))
-    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+    checked = experiment_admission_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
     runtime_profile = next(
         row
@@ -7536,9 +7599,11 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
     outcome = experiment_runtime_module.evaluate_experiment(checked)
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
     assert outcome.report.diagnostics[0].code == "runtime.event_limit_exceeded"
-    members = experiment_runtime_module.runtime_terminal_audit_members(checked, outcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
     values = {name: deepcopy(member.value) for name, member in members.items()}
-    assert experiment_runtime_module.validate_experiment_artifact_set(checked, values)
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
     audit = values["runtime-terminal-audit"]
     events = audit["committed_trace_prefix"]
@@ -7615,16 +7680,16 @@ def test_periodic_terminal_audit_rejects_coherent_formula_evidence_mutation(
         checked, "runtime-terminal-audit", payload
     ).value
 
-    assert model_module.verify_artifact(
+    assert artifacts_module.verify_artifact(
         values["runtime-terminal-audit"], checked.language_bundle
     )
     if mutation == "result":
-        assert not experiment_runtime_module.validate_experiment_member(
+        assert not experiment_evidence_module.validate_experiment_member(
             checked,
             "runtime-terminal-audit",
             values["runtime-terminal-audit"],
         )
-    assert not experiment_runtime_module.validate_experiment_artifact_set(
+    assert not experiment_evidence_module.validate_experiment_artifact_set(
         checked, values
     )
 
@@ -7685,7 +7750,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         raise AssertionError("Invocation-key recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -7749,7 +7814,7 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
     assert not out.exists()
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "validate_experiment_artifact_set",
         lambda _checked, _artifacts: False,
     )
@@ -7758,7 +7823,7 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
         raise AssertionError("semantically invalid recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -7816,7 +7881,7 @@ def test_committed_recovery_revalidates_the_presentation_trust_boundary(
         raise AssertionError("invalid recovery presentation reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_command_module,
+        experiment_run_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )

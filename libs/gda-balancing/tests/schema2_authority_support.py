@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.authority_graph import LanguageBundleIndex
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.authority.graph import LanguageBundleIndex
 
 
 def mutable_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:

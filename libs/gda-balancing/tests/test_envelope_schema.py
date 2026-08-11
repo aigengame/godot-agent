@@ -10,22 +10,20 @@ import jsonschema
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from gda_balancing.envelope import (
+from gda_balancing.interfaces.cli.envelope import (
     CLI_ERROR_CODES,
-    ERROR_ENVELOPE_SCHEMA,
     INTERNAL_ERROR,
-    REFUSAL_BOUND,
     USAGE_CODES,
-    Refusal,
-    RefusalReport,
     internal_envelope,
-    refusal_envelope,
     usage_envelope,
 )
+from _legacy_design_adapters import LEGACY_ERROR_ENVELOPE_SCHEMA, refusal_envelope
+from gda_balancing.schema.refusal import Refusal, RefusalReport
+from gda_balancing.schema.refusal import REFUSAL_BOUND
 
 
 def _valid(payload: dict) -> None:
-    jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(payload, LEGACY_ERROR_ENVELOPE_SCHEMA)
 
 
 def _invalid(payload: dict) -> None:

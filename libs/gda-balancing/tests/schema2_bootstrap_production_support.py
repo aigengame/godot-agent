@@ -9,14 +9,14 @@ bootstrap nor the production authority cache.
 from copy import deepcopy
 from typing import Any
 
-import gda_balancing.schema2.bootstrap as production_bootstrap
+import gda_balancing.domain.authority.admission as production_bootstrap
 
-from gda_balancing.schema2.authority import packaged_authority_context
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.domain.authority.admission import admit_authorities
 from schema2_bootstrap_conformance_support import (
     _bind_package_vector_set,
     _encoded,

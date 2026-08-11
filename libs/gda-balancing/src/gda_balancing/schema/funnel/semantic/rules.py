@@ -44,7 +44,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from gda_balancing.envelope import Refusal
+from gda_balancing.schema.refusal import Refusal
 from gda_balancing.schema import pointer
 from gda_balancing.schema.funnel.semantic.graph import (
     Tokens,

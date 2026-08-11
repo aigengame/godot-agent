@@ -29,7 +29,7 @@ Two conformance surfaces:
 import json
 from pathlib import Path
 
-from gda_balancing.emit import canonical_json
+from gda_balancing.interfaces.cli.rendering import canonical_json
 from gda_balancing.schema.bundle import current_bundle
 from gda_balancing.schema.funnel import semantic
 from gda_balancing.schema.funnel.semantic import SEMANTIC_RULES

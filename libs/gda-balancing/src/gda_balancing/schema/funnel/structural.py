@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import jsonschema
 
-from gda_balancing.envelope import Refusal
+from gda_balancing.schema.refusal import Refusal
 from gda_balancing.schema import pointer
 
 if TYPE_CHECKING:

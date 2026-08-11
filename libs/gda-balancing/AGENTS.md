@@ -32,7 +32,7 @@ Local layout (analogue of the parent's):
 | `docs/adr/NNNN-*.md` | `docs/badr/NNNN-*.md` | balancing decision records (bADR), same numbering |
 
 For Standard Schema 2.x architecture work, also read `docs/ARCHITECTURE.md`: it is the
-human-readable macro architecture authority for topology, subsystem boundaries, cross-cutting
+human-readable macro architecture authority for topology, subsystem boundaries, cross-subsystem
 invariants, and validation order. It does not replace the glossary, detailed bADRs, PRD acceptance
 status, or Kernel/LDB machine authority.
 

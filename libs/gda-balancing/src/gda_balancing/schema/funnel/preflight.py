@@ -41,7 +41,7 @@ import math
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
-from gda_balancing.envelope import Refusal
+from gda_balancing.schema.refusal import Refusal
 from gda_balancing.schema import pointer
 from gda_balancing.schema.version import parse_line
 

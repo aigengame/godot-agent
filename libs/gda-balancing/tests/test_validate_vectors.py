@@ -14,8 +14,8 @@ import time
 import jsonschema
 import pytest
 
-from gda_balancing.emit import canonical_json
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.rendering import canonical_json
+from _legacy_design_adapters import LEGACY_ERROR_ENVELOPE_SCHEMA
 from _legacy_formula import evaluate_bases
 from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.model.document import DesignDocument
@@ -34,7 +34,7 @@ def _run(run_legacy_cli, tmp_path, content, name="doc.json"):
 
 def _refusals(stdout: str) -> list[dict]:
     payload = json.loads(stdout)
-    jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(payload, LEGACY_ERROR_ENVELOPE_SCHEMA)
     assert payload["error"]["category"] == "refusal"
     return payload["error"]["refusals"]
 
@@ -1528,7 +1528,7 @@ def test_nonexistent_path_is_a_usage_error(run_legacy_cli, tmp_path):
     )
     assert (exit_code, stdout) == (3, "")
     error = json.loads(stderr)["error"]
-    jsonschema.validate(json.loads(stderr), ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(json.loads(stderr), LEGACY_ERROR_ENVELOPE_SCHEMA)
     assert (error["category"], error["code"]) == ("usage", "unreadable_input")
 
 
@@ -1536,5 +1536,5 @@ def test_directory_path_is_a_usage_error(run_legacy_cli, tmp_path):
     exit_code, stdout, stderr = run_legacy_cli(["design", "validate", str(tmp_path)])
     assert (exit_code, stdout) == (3, "")
     error = json.loads(stderr)["error"]
-    jsonschema.validate(json.loads(stderr), ERROR_ENVELOPE_SCHEMA)
+    jsonschema.validate(json.loads(stderr), LEGACY_ERROR_ENVELOPE_SCHEMA)
     assert (error["category"], error["code"]) == ("usage", "unreadable_input")

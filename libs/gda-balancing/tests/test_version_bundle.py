@@ -16,7 +16,7 @@ keep the multi-line contract diagnosable ahead of a second registered line.
 
 import json
 
-from gda_balancing.envelope import Refusal, RefusalReport
+from gda_balancing.schema.refusal import Refusal, RefusalReport
 from gda_balancing.schema.bundle import (
     BUNDLES,
     SUPPORTED_LINES,

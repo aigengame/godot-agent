@@ -1,0 +1,1 @@
+"""Standard Schema Formula semantics."""

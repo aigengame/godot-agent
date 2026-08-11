@@ -150,7 +150,7 @@ def test_toolkit_carries_no_per_game_config() -> None:
 
 
 def test_clean_forward_package_has_no_legacy_command_or_evaluator_seam() -> None:
-    assert importlib.util.find_spec("gda_balancing.commands.design") is None
+    assert not (_SRC_DIR / "commands" / "design.py").exists()
     assert importlib.util.find_spec("gda_balancing.formula") is None
 
 

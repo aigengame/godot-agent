@@ -13,24 +13,21 @@ import jsonschema
 import pytest
 from pydantic import BaseModel, create_model
 
-from gda_balancing.commands import REGISTRY
-from gda_balancing.descriptors import (
+from gda_balancing.interfaces.cli.registry import REGISTRY
+from gda_balancing.interfaces.cli.descriptors import (
     RESERVED_GROUPS,
     RESERVED_META,
     CommandDescriptor,
     build_registry,
 )
-from gda_balancing.emit import canonical_json
-from gda_balancing.envelope import (
+from gda_balancing.interfaces.cli.rendering import canonical_json
+from gda_balancing.interfaces.cli.envelope import (
     ERROR_ENVELOPE_SCHEMA,
-    REFUSAL_BOUND,
     USAGE_CODES,
-    Refusal,
-    RefusalReport,
-    UnreadableInputError,
 )
-from gda_balancing.schema.funnel import refusal_code_namespace
-from gda_balancing.schema2.surface import schema2_error_envelope_schema
+from gda_balancing.domain.errors import UnreadableInputError
+from gda_balancing.schema.refusal import REFUSAL_BOUND, Refusal, RefusalReport
+from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:
@@ -172,16 +169,10 @@ class TestPerDescriptorRows:
         assert (exit_code, stderr) == (2, "")
         payload = json.loads(stdout)
         assert payload["error"]["category"] == "refusal"
-        if descriptor.schema_major == 2:
-            jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
-            catalog = {code for code, _stage in descriptor.refusal_catalog}
-            for entry in payload["error"]["diagnostics"]:
-                assert entry["code"] in catalog
-        else:
-            jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-            namespace = refusal_code_namespace()
-            for entry in payload["error"]["refusals"]:
-                assert entry["code"] in namespace
+        jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
+        catalog = {code for code, _stage in descriptor.refusal_catalog}
+        for entry in payload["error"]["diagnostics"]:
+            assert entry["code"] in catalog
 
     def test_input_immutability_row(self, descriptor, run_cli, invocation):
         # A document-taking command never rewrites its input (bADR-0011).
@@ -308,18 +299,11 @@ class TestPerDescriptorRows:
 
 class TestSurfaceLaws:
     def test_error_schema_is_line_or_descriptor_owned(self, run_cli):
-        legacy_renderings: set[str] = set()
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])
             actual = canonical_json(json.loads(stdout)["error"])
-            if descriptor.schema_major == 1:
-                legacy_renderings.add(actual)
-            else:
-                assert actual == canonical_json(
-                    schema2_error_envelope_schema(descriptor)
-                )
+            assert actual == canonical_json(schema2_error_envelope_schema(descriptor))
         assert all(descriptor.schema_major == 2 for descriptor in REGISTRY)
-        assert legacy_renderings == set()
 
     def test_schema2_runtime_rejects_usage_outside_descriptor_catalog(self, run_cli):
         descriptor = next(item for item in REGISTRY if item.schema_major == 2)
@@ -386,13 +370,12 @@ class TestSurfaceLaws:
             assert (exit_code, stdout) == (3, "")
             assert _assert_envelope(stderr, "usage")["code"] == "unknown_command"
 
-    def test_refusal_outcome_maps_to_refusal_envelope_exit_2(self, run_cli, invocation):
-        # No v1 command produces refusals (#504 lands the funnel); the seam
-        # is proven by injection, like the internal row: a handler returning
-        # a RefusalReport must yield the refusal envelope on STDOUT, exit 2.
-        # Driven at both constructible edges — the outcome models bound what
-        # a handler can build (bADR-0011's outcome→invocation-result
-        # invariant: whatever constructs emits schema-valid stdout).
+    def test_legacy_refusal_cannot_enter_the_schema2_dispatch_path(
+        self, run_cli, invocation
+    ):
+        # Standard Schema 1.x exists only behind the source-migration boundary.
+        # Returning its refusal type from any active 2.x descriptor is a host
+        # bug and must not serialize as a public Schema 2.x refusal.
         minimal = RefusalReport(
             refusals=(Refusal(code="some_refusal", path="", detail="why"),),
             truncated=False,
@@ -411,12 +394,8 @@ class TestSurfaceLaws:
             )
             for descriptor in registry:
                 exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
-                assert (exit_code, stderr) == (2, "")
-                payload = json.loads(stdout)
-                jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-                assert payload["error"]["category"] == "refusal"
-                assert payload["error"]["truncated"] is report.truncated
-                assert len(payload["error"]["refusals"]) == len(report.refusals)
+                assert (exit_code, stdout) == (4, "")
+                assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_duplicate_command_registration_is_rejected(self):
         with pytest.raises(ValueError, match="duplicate command registration"):

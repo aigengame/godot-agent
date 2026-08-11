@@ -1,6 +1,6 @@
 """Shared drivers for the gda-balancing suite.
 
-``run_cli`` drives :func:`gda_balancing.dispatch.dispatch` in-process (fast
+``run_cli`` drives :func:`gda_balancing.interfaces.cli.dispatch.dispatch` in-process (fast
 rows); the subprocess smoke in test_cli_conformance.py separately proves the
 installed entry points. ``fault_registry`` is bADR-0011's fault-injection
 seam: a registry copy whose handlers raise, driving the `internal` row —
@@ -29,11 +29,11 @@ from pathlib import Path
 
 import pytest
 
-from gda_balancing.commands import REGISTRY
-from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
-from gda_balancing.descriptors import CommandDescriptor
-from gda_balancing.dispatch import dispatch
-from gda_balancing.schema2.authority import (
+from gda_balancing.interfaces.cli.registry import REGISTRY
+from _legacy_design_adapters import run_legacy_cli as _run_legacy_cli
+from gda_balancing.interfaces.cli.descriptors import CommandDescriptor
+from gda_balancing.interfaces.cli.dispatch import dispatch
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     packaged_authority_context,
 )
@@ -122,12 +122,8 @@ def run_cli() -> Callable[..., RunResult]:
 
 @pytest.fixture
 def run_legacy_cli() -> Callable[..., RunResult]:
-    """Drive the unregistered 1.x source-input adapters for migration regression."""
-
-    def _run_legacy(argv: list[str]) -> RunResult:
-        return _run(argv, registry=(DESIGN_VALIDATE, DESIGN_FORMAT))
-
-    return _run_legacy
+    """Drive the test-only 1.x source-input regression harness."""
+    return _run_legacy_cli
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:

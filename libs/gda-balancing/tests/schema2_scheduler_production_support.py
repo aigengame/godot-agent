@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from gda_balancing.schema2.runtime_scheduler import RuntimeScheduler
+from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 
 
 @dataclass(frozen=True)

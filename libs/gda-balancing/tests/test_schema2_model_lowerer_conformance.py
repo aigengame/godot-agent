@@ -7,35 +7,42 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
-import gda_balancing.schema2.model as model_module
+import gda_balancing.domain.model._resolution as model_module
+import gda_balancing.domain.model._admission as model_admission_module
+import gda_balancing.domain.model._checking as model_checking_module
 import jsonschema
-from gda_balancing.schema2.authority import (
+from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
     admit_authority_context,
 )
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.domain.authority.graph import (
     LanguageBundleIndex,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.schema2.model import (
+from gda_balancing.domain.model import (
     CheckedModel,
     admit_resolved_model,
     check_model_source,
-    lower_checked_model,
 )
+from gda_balancing.domain.model._compilation import lower_checked_model
 from schema2_authority_support import mutable_authorities
 
 
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
     context = admit_authority_context(kernel, language_bundle)
     assert isinstance(context, AdmittedAuthorityContext)
-    monkeypatch.setattr(model_module, "packaged_authority_context", lambda: context)
+    monkeypatch.setattr(
+        model_admission_module, "packaged_authority_context", lambda: context
+    )
+    monkeypatch.setattr(
+        model_checking_module, "packaged_authority_context", lambda: context
+    )
     return context
 
 

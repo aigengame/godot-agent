@@ -25,7 +25,7 @@ from pathlib import Path
 
 import jsonschema
 
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.interfaces.cli.envelope import ERROR_ENVELOPE_SCHEMA
 
 _RPG_COMBAT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"

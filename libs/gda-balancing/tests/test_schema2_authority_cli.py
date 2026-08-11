@@ -20,40 +20,38 @@ from typing import Any, cast, get_args
 import jsonschema
 import pytest
 
-import gda_balancing.schema2.authority as authority_module
-import gda_balancing.schema2.bootstrap as bootstrap_module
-import gda_balancing.commands.schema as schema_command_module
-from gda_balancing.commands.manifest import MANIFEST
-from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
-from gda_balancing.commands.formula import FORMULA_PARSE, FORMULA_RENDER
-from gda_balancing.commands.model import (
-    MODEL_BUILD,
-    MODEL_CHECK,
-    MODEL_INSPECT,
-    MODEL_MIGRATE,
-)
-from gda_balancing.commands.package import (
+import gda_balancing.domain.authority.context as authority_module
+import gda_balancing.infrastructure.package_resources as package_resources_module
+import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.schema2.authorities as authority_resources
+import gda_balancing.interfaces.cli.schema as schema_command_module
+from gda_balancing.interfaces.cli.registry import MANIFEST
+from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN
+from gda_balancing.interfaces.cli.formula import FORMULA_PARSE, FORMULA_RENDER
+from gda_balancing.interfaces.cli.model_build import MODEL_BUILD
+from gda_balancing.interfaces.cli.model_check import MODEL_CHECK
+from gda_balancing.interfaces.cli.model_inspect import MODEL_INSPECT
+from gda_balancing.interfaces.cli.experiment_check import EXPERIMENT_CHECK
+from gda_balancing.interfaces.cli.model_migration import MODEL_MIGRATE
+from gda_balancing.interfaces.cli.package import (
     package_get_success_schema,
     package_list_success_schema,
-    package_vector_set_success_schema,
+    package_vector_set_schema,
 )
-from gda_balancing.commands.schema import (
+from gda_balancing.interfaces.cli.schema import (
     SCHEMA_GET,
     schema_get_handler,
     schema_get_success_schema,
 )
-from gda_balancing.commands.template import (
-    TEMPLATE_GET,
-    TEMPLATE_INSTANTIATE,
-    TEMPLATE_LIST,
-)
-from gda_balancing.schema2.authority_graph import (
+from gda_balancing.interfaces.cli.template_catalog import TEMPLATE_GET, TEMPLATE_LIST
+from gda_balancing.interfaces.cli.template_instantiation import TEMPLATE_INSTANTIATE
+from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
     derive_language_index,
 )
-from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG
-from gda_balancing.schema2.canonical import canonical_bytes, content_identity
-from gda_balancing.schema2.diagnostics import (
+from gda_balancing.domain.authority.admission import BOOTSTRAP_REFUSAL_CATALOG
+from gda_balancing.domain.canonical import canonical_bytes, content_identity
+from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     RefusalStage,
     RuntimeLocation,
@@ -61,7 +59,10 @@ from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
     bound_diagnostics,
 )
-from gda_balancing.schema2.surface import schema2_error_envelope_schema
+from gda_balancing.interfaces.cli.surface import schema2_error_envelope_schema
+
+
+_AUTHORITY_DIR = Path(cast(str, authority_resources.__file__)).parent
 
 
 _WHEEL_DISPATCH_BATCH = """
@@ -69,7 +70,7 @@ import io
 import json
 import sys
 
-from gda_balancing.dispatch import dispatch
+from gda_balancing.interfaces.cli.dispatch import dispatch
 
 results = []
 for command in json.load(sys.stdin):
@@ -221,7 +222,7 @@ def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, ru
             return b'{"schema_major":999,"schema_major":2}'
 
     monkeypatch.setattr(
-        authority_module, "files", lambda _package: DuplicateKeyResource()
+        package_resources_module, "files", lambda _package: DuplicateKeyResource()
     )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
@@ -273,7 +274,9 @@ def test_packaged_authority_loader_refuses_noncanonical_transport_bytes(
         def read_bytes(self):
             return logical_members[self.logical_name]
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: MutatedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: MutatedResource()
+    )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
         authority_module.load_authorities()
@@ -287,7 +290,7 @@ def test_rebuild_tool_projects_kernel_package_coordinate_patterns(tmp_path):
     tool = runpy.run_path(
         str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
     )
-    source = Path(authority_module.__file__).parent / "authorities"
+    source = _AUTHORITY_DIR
     candidate = tmp_path / "authorities"
     copytree(source, candidate)
     root_path = candidate / "language-bundle.json"
@@ -303,7 +306,7 @@ def test_rebuild_tool_reproduces_every_committed_authority_byte():
     tool = runpy.run_path(
         str(Path(__file__).parents[1] / "tools" / "rebuild_schema2_ldb.py")
     )
-    source = Path(authority_module.__file__).parent / "authorities"
+    source = _AUTHORITY_DIR
     root_bytes, package_bytes = tool["_build"](source)
     expected = {
         source / "language-bundle.json": root_bytes,
@@ -316,7 +319,7 @@ def test_rebuild_tool_reproduces_every_committed_authority_byte():
 
 def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
     kernel, language_bundle = authority_module.load_authorities()
-    schema = package_vector_set_success_schema()
+    schema = package_vector_set_schema()
     pointer_schema = kernel["meta_format"]["json_pointer"]["schema"]
     projected_pointer_schemas = []
 
@@ -389,7 +392,9 @@ def test_authority_raw_resource_bounds_precede_json_decode(monkeypatch, data):
         def read_bytes(self):
             return data
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: BoundedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: BoundedResource()
+    )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
         authority_module.load_authorities()
@@ -418,7 +423,7 @@ def test_authority_decode_failure_is_a_typed_ingress_refusal(run_cli):
 
 
 def _authority_resource_bytes() -> dict[str, bytes]:
-    root = Path(authority_module.__file__).parent / "authorities"
+    root = _AUTHORITY_DIR
     return {
         str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*.json")
     }
@@ -448,7 +453,9 @@ def test_authority_loader_identity_is_independent_of_physical_member_location(
         def read_bytes(self):
             return relocated[self.logical_name].read_bytes()
 
-    monkeypatch.setattr(authority_module, "files", lambda _package: RelocatedResource())
+    monkeypatch.setattr(
+        package_resources_module, "files", lambda _package: RelocatedResource()
+    )
 
     kernel, ldb = authority_module.load_authorities()
 
@@ -490,7 +497,7 @@ def test_authority_loader_refuses_an_unreadable_declared_child(
             return logical_members[self.logical_name]
 
     monkeypatch.setattr(
-        authority_module, "files", lambda _package: UnreadableResource()
+        package_resources_module, "files", lambda _package: UnreadableResource()
     )
 
     with pytest.raises(authority_module.AuthorityLoadError) as caught:
