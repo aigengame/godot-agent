@@ -1,6 +1,6 @@
-"""Template release admission, validation, and packaged Adapters."""
+"""Template release admission, validation, instantiation, and built-in content."""
 
-from .core import (
+from ._release_semantics import (
     TemplateProvider,
     load_admitted_template,
     prepare_template_instantiation,

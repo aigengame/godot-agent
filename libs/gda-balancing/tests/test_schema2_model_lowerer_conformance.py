@@ -25,11 +25,11 @@ from gda_balancing.domain.diagnostics import (
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
-from gda_balancing.domain.model._resolution import (
+from gda_balancing.domain.model import (
     CheckedModel,
+    admit_resolved_model,
+    check_model_source,
 )
-from gda_balancing.domain.model._admission import admit_resolved_model
-from gda_balancing.domain.model._checking import check_model_source
 from gda_balancing.domain.model._compilation import lower_checked_model
 from schema2_authority_support import mutable_authorities
 

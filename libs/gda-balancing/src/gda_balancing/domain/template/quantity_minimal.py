@@ -1,4 +1,4 @@
-"""Concrete ``standard.quantity-minimal`` Template release Adapter."""
+"""Built-in ``standard.quantity-minimal`` template release."""
 
 from copy import deepcopy
 from typing import cast
@@ -6,7 +6,7 @@ from typing import cast
 from gda_balancing.domain.canonical import JsonValue, content_identity
 from gda_balancing.domain.model import model_source_identity_domain
 
-from .core import (
+from ._release_semantics import (
     _artifact_identity_domain,
     _member,
     _member_schema_identities,

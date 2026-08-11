@@ -1,4 +1,4 @@
-"""Model checking, compilation, admission, and inspection Interface."""
+"""Model checking, resolution, lowering, compilation, admission, and inspection."""
 
 from ._admission import admit_resolved_model
 from ._checking import check_model_source, check_model_source_value
