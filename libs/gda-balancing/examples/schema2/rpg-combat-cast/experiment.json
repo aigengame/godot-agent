@@ -3,11 +3,11 @@
   "id": "example.rpg-combat-cast.reciprocal",
   "version": "1.0.0",
   "kernel_identity": "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64",
-  "language_bundle_identity": "sha256:20abd2fc47d213296f6679b92a646cb3681b88b081bedcff37e79394449873bc",
+  "language_bundle_identity": "sha256:d2c6ab508b90c02e9603496c2eee8ed1327d4b1a871672a975c8432c10fea537",
   "model": {
     "source_identity": "sha256:9754a18e47b61d779dcafc6cc48dd174e2990cfc8de57589475992c7e0f31fea",
-    "build_receipt_identity": "sha256:2df5e1d639037fa8fa11a7685290c12562660539f17a92c121a4cca06db62646",
-    "resolved_model_identity": "sha256:e06e2cf23de5b4962919f3848f6812af953642f3479aec3780478eecda918a45",
+    "build_receipt_identity": "sha256:40e269d929ac44630d7fded21aecdb9f0eca4bfa8c7c60e83df91864b14ae3e4",
+    "resolved_model_identity": "sha256:e37d525270f888bef51427bea0ca614c99427f5937f858b3c0a969ee858b5e68",
     "package_lock_identity": "sha256:7851793035b484618c44a9d2b7a2906eb40caa954dc4180d4b06d78b8a8b52de",
     "rir_identity": "sha256:f002ff419af8a2f6333a5807c419a26284951502595bffdc8737f2acb219e07a"
   },

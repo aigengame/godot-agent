@@ -2234,6 +2234,54 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
     )
 
 
+def test_public_reward_selection_refuses_a_fallback_that_changes_policy_state(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["options"] = []
+    pool["no_reward_on_empty"] = [
+        {
+            "selected": {"key": "no_reward"},
+            "rarity": "common",
+            "disposition": "no-reward",
+            "selected_index": 0,
+            "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+            "policy_after": {"kind": "fixed-weight", "draw_count": 1},
+            "reward_score": 0,
+        }
+    ]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "invalid-no-reward-fallback.json"),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "game.generation.invalid_fallback"
+    ]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == ("game.generation.invalid_fallback")
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
 def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
     specification_path, specification = _write_built_roguelike_experiment(
         tmp_path, run_cli
@@ -2400,6 +2448,40 @@ def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
         row["logical_name"] == "runtime-terminal-audit"
         for row in receipt["member_locators"]
     )
+
+
+def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[1]["constraint"] = "conflict"
+    plans[1]["decision"]["selected"] = {"key": "steady_guard"}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "contradictory-build-conflict.json"),
+            "--invocation-key",
+            "0" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert [row["code"] for row in error["diagnostics"]] == ["game.build.invalid_plan"]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan")
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
 
 
 def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_cli):
@@ -7062,6 +7144,7 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.no-reward-outcome",
         "generation.select.empty-refusal",
         "generation.select.invalid-fallback-refusal",
+        "generation.select.invalid-fallback-policy-refusal",
         "generation.select.invalid-option-refusal",
     }
 
@@ -7077,6 +7160,7 @@ def test_build_operation_vectors_cover_success_alternatives_and_refusal():
         "build.replace.success",
         "build.replace.no-reward-outcome",
         "build.replace.conflict-outcome",
+        "build.replace.conflicting-invalid-plan-refusal",
         "build.replace.invalid-plan-refusal",
     }
 

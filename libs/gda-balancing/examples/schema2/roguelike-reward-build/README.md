@@ -340,8 +340,9 @@ The maintained tests drive these mutations through the public commands:
 |---|---|
 | Empty `options` and empty `no_reward_on_empty` | `game.generation.selection_exhausted`; the terminal audit proves rollback |
 | Empty `options` with one valid no-reward fallback | reward `no-reward` followed by build `no-reward`; neither Event consumes RNG |
+| A fallback disposition or policy state contradicts its pool | `game.generation.invalid_fallback`; the terminal audit proves rollback |
 | Candidate, selection, score, or policy fields in one option contradict each other | `game.generation.invalid_option`; the terminal audit proves rollback |
-| Build plan constraint `conflict` | `build-conflict` gameplay alternative; all provisional writes roll back |
+| A coherent build plan has constraint `conflict` | `build-conflict` gameplay alternative; all provisional writes roll back |
 | Build state, next state, decision, or score fields contradict each other | `game.build.invalid_plan`; the terminal audit proves rollback |
 | Unknown reward disposition or build constraint | `language.structured_value_unknown_enum` during `experiment check` |
 
