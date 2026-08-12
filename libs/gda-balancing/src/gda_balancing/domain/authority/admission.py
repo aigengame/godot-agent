@@ -16,6 +16,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueIndex,
     StructuredValueFault,
     equal_result_contract,
+    is_empty_result_contract,
     language_structured_value_index,
     lookup_type_contract,
 )
@@ -80,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:91dd766d4b95c2eb9586d9ac4ee69a2420bdcbba604323b3ba0cc37af2ac07ce"
+    "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3290,6 +3291,18 @@ def _declared_equal_result_contract(
         return None
 
 
+def _declared_is_empty_result_contract(
+    value_contract: dict[str, Any],
+    structured_authority: StructuredValueIndex,
+) -> str | None:
+    try:
+        return is_empty_result_contract(
+            value_contract.get("type"), authority=structured_authority
+        )
+    except StructuredValueFault:
+        return None
+
+
 def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
     inputs = operation.get("inputs")
     policy = operation.get("alias_policy")
@@ -3442,6 +3455,7 @@ def _operation_composition_diagnostic_subjects(
     ):
         return ("language.operations.alias-policy",)
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    guard_body_keys: set[tuple[str, str, str]] = set()
     found: set[str] = set()
 
     def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
@@ -3706,6 +3720,114 @@ def _operation_composition_diagnostic_subjects(
                     ):
                         refuse(owner, operation, str(instruction_index), "event")
                         return None
+                operator = node["semantics"]["operator"]
+                if operator == "typed-require":
+                    reason = instruction.get("reason")
+                    if (
+                        not isinstance(instruction.get("expected"), bool)
+                        or not isinstance(reason, str)
+                        or reason not in refusals
+                    ):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "refusals",
+                        )
+                        return None
+                if operator == "guarded-outcome-block":
+                    body = instruction.get("body")
+                    guarded_outcome = instruction.get("outcome")
+                    if (
+                        key in guard_body_keys
+                        or not isinstance(body, list)
+                        or not all(isinstance(item, dict) for item in body)
+                        or any(item.get("node") == "guard-block" for item in body)
+                        or guarded_outcome not in parent_outcomes
+                    ):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "body",
+                        )
+                        return None
+                    guard_key = (
+                        key[0],
+                        key[1],
+                        f"{key[2]}#guard-{instruction_index}",
+                    )
+                    unit_contract = cast(
+                        dict[str, Any], fixed_value_contracts["kernel-unit"]
+                    )
+                    synthetic_inputs = [
+                        {
+                            **candidates[0],
+                            "access": (
+                                parent_ports[name]["access"]
+                                if name in parent_ports
+                                else "read"
+                            ),
+                            "id": name,
+                        }
+                        for name, candidates in lexical_environment.items()
+                        if len(candidates) == 1
+                    ]
+                    if len(synthetic_inputs) != len(lexical_environment):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "typing",
+                        )
+                        return None
+                    synthetic = {
+                        "body": body,
+                        "default_outcome": guarded_outcome,
+                        "effects": list(effects),
+                        "id": guard_key[2],
+                        "inputs": synthetic_inputs,
+                        "outcomes": list(parent_outcome_definitions.values()),
+                        "refusals": list(refusals),
+                        "resource_bounds": {
+                            "max_steps": operation["resource_bounds"]["max_steps"]
+                        },
+                        "result": {
+                            **unit_contract,
+                            "access": "read",
+                            "discardable": True,
+                            "id": "result",
+                            "source": {"kind": "unit"},
+                        },
+                    }
+                    operations[guard_key] = (owner, synthetic)
+                    guard_body_keys.add(guard_key)
+                    try:
+                        guard_closure = close(guard_key, (*stack, key))
+                    finally:
+                        guard_body_keys.discard(guard_key)
+                        operations.pop(guard_key, None)
+                        cache.pop(guard_key, None)
+                    if guard_closure is None:
+                        return None
+                    body_effects, body_refusals, body_charge = guard_closure
+                    if not body_effects <= effects:
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "effects",
+                        )
+                        return None
+                    if not body_refusals <= refusals:
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "refusals",
+                        )
+                        return None
+                    charge += body_charge
                 result_definition = cast(dict[str, Any], node["result"])
                 if result_definition["kind"] in {"local", "draw"}:
                     if (
@@ -3718,12 +3840,32 @@ def _operation_composition_diagnostic_subjects(
                     typing = cast(dict[str, Any], result_definition["typing"])
                     typing_kind = typing["kind"]
                     if typing_kind == "fixed":
-                        result_candidates = (
-                            cast(
-                                dict[str, Any],
-                                fixed_value_contracts[typing["contract"]],
-                            ),
+                        expected_contract = cast(
+                            dict[str, Any],
+                            fixed_value_contracts[typing["contract"]],
                         )
+                        if operator == "collection-is-empty":
+                            value_name = instruction.get("value")
+                            value_candidates = (
+                                lexical_environment.get(value_name)
+                                if isinstance(value_name, str)
+                                else None
+                            )
+                            result_candidates = (
+                                (expected_contract,)
+                                if value_candidates
+                                and all(
+                                    _declared_is_empty_result_contract(
+                                        candidate,
+                                        structured_authority,
+                                    )
+                                    == typing["contract"]
+                                    for candidate in value_candidates
+                                )
+                                else ()
+                            )
+                        else:
+                            result_candidates = (expected_contract,)
                     elif typing_kind == "same-as-references":
                         referenced = referenced_candidates(
                             instruction,

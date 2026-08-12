@@ -904,7 +904,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:91dd766d4b95c2eb9586d9ac4ee69a2420bdcbba604323b3ba0cc37af2ac07ce",
+  "content_identity": "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3639,6 +3639,21 @@
                   "field_types": {
                     "operator": {
                       "const": "canonical-equal"
+                    },
+                    "result_contract": {
+                      "const": "kernel-boolean"
+                    }
+                  },
+                  "required_members": [
+                    "operator",
+                    "result_contract"
+                  ],
+                  "type": "closed-object"
+                },
+                "collection-is-empty": {
+                  "field_types": {
+                    "operator": {
+                      "const": "collection-is-empty"
                     },
                     "result_contract": {
                       "const": "kernel-boolean"

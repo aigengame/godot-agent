@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:91dd766d4b95c2eb9586d9ac4ee69a2420bdcbba604323b3ba0cc37af2ac07ce"
+    "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -7097,6 +7097,7 @@ def _consumer_b_operation_composition_subjects(
     }
     found: set[str] = set()
     closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    guard_body_coordinates: set[tuple[str, str, str]] = set()
 
     def subject(
         coordinate: tuple[str, str, str],
@@ -7346,6 +7347,20 @@ def _consumer_b_operation_composition_subjects(
         law = operation_law(constructor, "canonical-equal")
         result_contract = law.get("result_contract") if isinstance(law, dict) else None
         return result_contract if isinstance(result_contract, str) else None
+
+    def empty_contract(value_contract: dict[str, Any]) -> str | None:
+        resolved = structural_contract(value_contract.get("type"))
+        if resolved is None:
+            return None
+        _definition, constructor, rule = resolved
+        law = operation_law(constructor, "collection-is-empty")
+        result_contract = law.get("result_contract") if isinstance(law, dict) else None
+        return (
+            result_contract
+            if rule.get("operator") == "bounded-list"
+            and isinstance(result_contract, str)
+            else None
+        )
 
     def aliases_are_admitted(
         operation: dict[str, Any],
@@ -7651,6 +7666,111 @@ def _consumer_b_operation_composition_subjects(
                     ):
                         found.add(subject(coordinate, str(instruction_index), "typing"))
                         return None
+                operator = node.get("semantics", {}).get("operator")
+                if operator == "typed-require":
+                    if (
+                        not isinstance(instruction.get("expected"), bool)
+                        or instruction.get("reason") not in refusals
+                    ):
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "refusals",
+                            )
+                        )
+                        return None
+                if operator == "guarded-outcome-block":
+                    guard_body = instruction.get("body")
+                    guarded_outcome = instruction.get("outcome")
+                    if (
+                        coordinate in guard_body_coordinates
+                        or not isinstance(guard_body, list)
+                        or not all(isinstance(row, dict) for row in guard_body)
+                        or any(row.get("node") == "guard-block" for row in guard_body)
+                        or guarded_outcome not in parent_outcomes
+                    ):
+                        found.add(subject(coordinate, str(instruction_index), "body"))
+                        return None
+                    guard_coordinate = (
+                        coordinate[0],
+                        coordinate[1],
+                        f"{coordinate[2]}#guard-{instruction_index}",
+                    )
+                    synthetic_inputs = [
+                        {
+                            **candidates[0],
+                            "access": (
+                                parent_ports[name]["access"]
+                                if name in parent_ports
+                                else "read"
+                            ),
+                            "id": name,
+                        }
+                        for name, candidates in scope.items()
+                        if len(candidates) == 1
+                    ]
+                    if len(synthetic_inputs) != len(scope):
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "typing",
+                            )
+                        )
+                        return None
+                    unit_contract = cast(
+                        dict[str, Any], fixed_value_contracts["kernel-unit"]
+                    )
+                    synthetic = {
+                        "body": guard_body,
+                        "default_outcome": guarded_outcome,
+                        "effects": list(effects),
+                        "id": guard_coordinate[2],
+                        "inputs": synthetic_inputs,
+                        "outcomes": list(parent_outcome_definitions.values()),
+                        "refusals": list(refusals),
+                        "resource_bounds": {
+                            "max_steps": operation["resource_bounds"]["max_steps"]
+                        },
+                        "result": {
+                            **unit_contract,
+                            "access": "read",
+                            "discardable": True,
+                            "id": "result",
+                            "source": {"kind": "unit"},
+                        },
+                    }
+                    by_coordinate[guard_coordinate] = synthetic
+                    guard_body_coordinates.add(guard_coordinate)
+                    try:
+                        guard_closure = close(guard_coordinate, (*stack, coordinate))
+                    finally:
+                        guard_body_coordinates.discard(guard_coordinate)
+                        by_coordinate.pop(guard_coordinate, None)
+                        closed.pop(guard_coordinate, None)
+                    if guard_closure is None:
+                        return None
+                    body_effects, body_refusals, body_charge = guard_closure
+                    if not body_effects <= effects:
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "effects",
+                            )
+                        )
+                        return None
+                    if not body_refusals <= refusals:
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "refusals",
+                            )
+                        )
+                        return None
+                    charge += body_charge
                 result_definition = node.get("result")
                 if isinstance(result_definition, dict) and result_definition.get(
                     "kind"
@@ -7665,7 +7785,25 @@ def _consumer_b_operation_composition_subjects(
                     produced: tuple[dict[str, Any], ...]
                     if kind == "fixed":
                         contract = fixed_value_contracts.get(typing.get("contract"))
-                        produced = (contract,) if isinstance(contract, dict) else ()
+                        if operator == "collection-is-empty":
+                            value_name = instruction.get("value")
+                            candidates = (
+                                scope.get(value_name)
+                                if isinstance(value_name, str)
+                                else None
+                            )
+                            produced = (
+                                (contract,)
+                                if isinstance(contract, dict)
+                                and candidates
+                                and all(
+                                    empty_contract(candidate) == typing.get("contract")
+                                    for candidate in candidates
+                                )
+                                else ()
+                            )
+                        else:
+                            produced = (contract,) if isinstance(contract, dict) else ()
                     elif kind == "same-as-references":
                         members = typing.get("members")
                         resolved = (

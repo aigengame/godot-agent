@@ -23,7 +23,7 @@ def test_tagged_nominal_reference_is_canonicalized_by_the_selected_profile():
                 "id": "CandidateKind",
                 "kind": "nominal",
                 "package": "standard.conformance.structured",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "value": "primary",
         },
@@ -35,7 +35,7 @@ def test_tagged_nominal_reference_is_canonicalized_by_the_selected_profile():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "1.0.0",
+            "version": "1.1.0",
         },
         "value": "primary",
     }
@@ -49,7 +49,7 @@ def test_nominal_reference_refuses_members_outside_the_selected_profile():
                     "id": "CandidateKind",
                     "package": "standard.conformance.structured",
                     "scope": "unexpected",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                 },
                 "value": "primary",
             },
@@ -66,7 +66,7 @@ def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
             "type": {
                 "id": "SelectionResult",
                 "package": "standard.conformance.structured",
-                "version": "1.0.0",
+                "version": "1.1.0",
             },
             "value": {
                 "kind": "primary",
@@ -100,7 +100,7 @@ def test_record_lookup_consumes_the_declared_structured_operation_bound():
                 "type": {
                     "id": "SelectionResult",
                     "package": "standard.conformance.structured",
-                    "version": "1.0.0",
+                    "version": "1.1.0",
                 },
                 "value": {
                     "kind": "primary",

@@ -267,7 +267,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     }
     assert all(
         row["type_identity"]["package"] == "standard.conformance.structured"
-        and row["type_identity"]["version"] == "1.0.0"
+        and row["type_identity"]["version"] == "1.1.0"
         for row in structured_declarations
     )
     assert all(
@@ -285,9 +285,9 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
     assert {(row["id"], row["version"]) for row in lock["packages"]} >= {
         ("core.quantity", "2.1.0"),
-        ("standard.conformance.structured", "1.0.0"),
+        ("standard.conformance.structured", "1.1.0"),
         ("standard.runtime", "1.1.0"),
-        ("standard.schema", "2.3.0"),
+        ("standard.schema", "2.4.0"),
     }
     assert {
         (row["package"], row["definition"]["id"])
@@ -5542,7 +5542,7 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
     admission = admit_authorities(baseline.kernel, candidate_ldb)
 
     assert (
-        "language.operations.standard.conformance.structured@1.0.0."
+        "language.operations.standard.conformance.structured@1.1.0."
         "standard.conformance.structured.select-v1.body.3.typing"
         in composition_subjects
     )

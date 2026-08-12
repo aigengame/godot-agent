@@ -15,8 +15,8 @@ experiment check/run -> deterministic lookup and equality
 Event trace + committed Snapshots + numeric Metric
 ```
 
-`standard.schema@2.3.0` owns the generic structured-value rules. The
-`standard.conformance.structured@1.0.0` Package Release owns the nominal `CandidateKind`,
+`standard.schema@2.4.0` owns the generic structured-value rules. The
+`standard.conformance.structured@1.1.0` Package Release owns the nominal `CandidateKind`,
 `CandidateRef`, `Candidate`, `SelectionResult`, and `SelectionState` definitions. It also owns the
 bounded selection Operation. Host code does not define these types, Ref keys, lookup behavior,
 equality, or selection policy.
@@ -204,11 +204,40 @@ uv run gda-balancing experiment run \
 The RNG draw still selects index `0`. The authored order now maps that index to candidate B, and
 the authored result value makes the Metric `7`. The generic Runtime code is unchanged.
 
-## 6. Observe rollback after a declared failure
+## 6. Observe the guarded empty-list outcome
+
+Remove both ordered lists. Runtime detects the empty candidate list before the draw or lookup. The
+guard completes the Event with the declared gameplay outcome:
+
+```bash
+export EMPTY_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/empty-experiment.json"
+
+jq '
+  (.scenarios[0].assignments[]
+    | select(.target.name == "selection_state")
+    | .value.value.candidates) = []
+  | (.scenarios[0].assignments[]
+    | select(.target.name == "selection_state")
+    | .value.value.results) = []
+' "$STRUCTURED_EXPERIMENT" > "$EMPTY_EXPERIMENT"
+
+uv run gda-balancing experiment run \
+  "$EMPTY_EXPERIMENT" \
+  --out "$GDA_BALANCING_TUTORIAL_ROOT/empty-evaluation.json" \
+  --invocation-key "$(openssl rand -hex 32)" \
+  | tee "$GDA_BALANCING_TUTORIAL_ROOT/empty-receipt.json"
+```
+
+The Event outcome is `candidate-mismatch`. It consumes no RNG, publishes no Operation result, and
+leaves the state and Metric value unchanged. This neutral package uses that outcome only to prove
+the generic guard path. A product package owns its own gameplay vocabulary.
+
+## 7. Observe a typed refusal and rollback
 
 Keep the original list order but request candidate B. Runtime selects A, performs the Operation's
-provisional structured writes, and then reaches the declared mismatch outcome. The Event discards
-all writes:
+provisional structured writes, and then reaches the declared typed requirement. The requirement
+refuses because the selected candidate does not match the expected candidate. The Event discards
+all writes and the run publishes a terminal audit:
 
 ```bash
 export FAILURE_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/failure-experiment.json"
@@ -220,14 +249,19 @@ uv run gda-balancing experiment run \
   "$FAILURE_EXPERIMENT" \
   --out "$GDA_BALANCING_TUTORIAL_ROOT/failure-evaluation.json" \
   --invocation-key "$(openssl rand -hex 32)" \
-  | tee "$GDA_BALANCING_TUTORIAL_ROOT/failure-receipt.json"
+  > "$GDA_BALANCING_TUTORIAL_ROOT/failure-output.json" \
+  || test "$?" -eq 2
+
+jq . "$GDA_BALANCING_TUTORIAL_ROOT/failure-output.json"
 ```
 
-Inspect that receipt's Event Trace as in section 4. The Event outcome is `candidate-mismatch`,
-`state_after` equals `state_before`, no `selection_result` fact is published, and the Metric remains
-`9`. This is a declared gameplay alternative, not a Runtime refusal.
+The command exits with status `2`. The Diagnostic code is
+`standard.conformance.candidate_mismatch`. Resolve `runtime-terminal-audit` from
+`.error.terminal_audit.member_locators` in the captured output. The audit shows that
+`rollback.state_after` equals `rollback.state_before` and that the Runtime charged the executed
+nodes. The refused Event publishes no Event Trace, Snapshot, Metric, or Operation result.
 
-## 7. Validation scope
+## 8. Validation scope
 
 Automated tests validate:
 
@@ -235,7 +269,8 @@ Automated tests validate:
 - exact structured assignment Diagnostics and pointers;
 - fixed-RNG selection and order-sensitive data changes;
 - structured trace, Snapshot, and numeric Metric values;
-- rollback after a declared failure and after out-of-range lookup; and
+- the empty-list gameplay outcome with no draw or lookup;
+- typed-require refusal, terminal audit, rollback, and executed-node accounting; and
 - production/independent-consumer parity for positive, boundary, and refusal vectors.
 
 The [Structured selection entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)

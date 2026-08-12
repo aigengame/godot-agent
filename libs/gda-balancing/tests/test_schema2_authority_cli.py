@@ -671,7 +671,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         (release["id"], release["version"]): release
         for release in authority["package_releases"]
     }
-    schema = releases[("standard.schema", "2.3.0")]
+    schema = releases[("standard.schema", "2.4.0")]
     assert schema["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "Enum"},
         {"constructor": "standard.schema.list", "id": "List"},
@@ -683,6 +683,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         "standard.schema.list-at-v1",
         "standard.schema.record-field-v1",
         "standard.schema.ref-equal-v1",
+        "standard.schema.list-empty-v1",
     ]
     constructors = {
         definition["id"]: definition["parameters"]
@@ -692,11 +693,11 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     }
     assert constructors["standard.schema.ref"] == ["target", "key_pattern"]
 
-    conformance = releases[("standard.conformance.structured", "1.0.0")]
+    conformance = releases[("standard.conformance.structured", "1.1.0")]
     assert conformance["dependencies"]["required"] == [
         {"id": "core.quantity", "version": "2.1.0"},
         {"id": "standard.runtime", "version": "1.1.0"},
-        {"id": "standard.schema", "version": "2.3.0"},
+        {"id": "standard.schema", "version": "2.4.0"},
     ]
     assert conformance["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "CandidateKind"},

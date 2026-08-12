@@ -90,11 +90,19 @@ def _kernel_structured_value_contracts(
     for node in nodes:
         semantics = node.get("semantics") if isinstance(node, dict) else None
         operator = semantics.get("operator") if isinstance(semantics, dict) else None
-        if operator in {"bounded-lookup", "canonical-equal"}:
+        if operator in {
+            "bounded-lookup",
+            "canonical-equal",
+            "collection-is-empty",
+        }:
             if operator in value_nodes:
                 raise ValueError("Kernel structured-value operator is duplicated")
             value_nodes[cast(str, operator)] = node
-    if set(value_nodes) != {"bounded-lookup", "canonical-equal"}:
+    if set(value_nodes) != {
+        "bounded-lookup",
+        "canonical-equal",
+        "collection-is-empty",
+    }:
         raise ValueError("Kernel structured-value operator is unavailable")
     return (
         typed_profile,
@@ -584,6 +592,26 @@ def equal_result_contract(
     return result_contract
 
 
+def is_empty_result_contract(
+    type_expression: Any, *, authority: StructuredValueIndex
+) -> str:
+    """Return the fixed Kernel result contract for admitted List emptiness."""
+    _definition, constructor, rule = _structural_type_contract(
+        type_expression, authority, pointer="/type"
+    )
+    law = _structured_operation_law(
+        authority, constructor, "collection-is-empty", pointer="/type"
+    )
+    result_contract = law.get("result_contract")
+    if (
+        rule.get("operator") != "bounded-list"
+        or not isinstance(result_contract, str)
+        or not result_contract
+    ):
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    return result_contract
+
+
 def _validate(
     type_expression: Any,
     value: Any,
@@ -894,6 +922,39 @@ def equal_typed_values(
         type_member: cast(JsonValue, result_type),
         value_member: canonical_bytes(admitted_left[value_member])
         == canonical_bytes(admitted_right[value_member]),
+    }
+
+
+def is_empty_typed_value(
+    envelope: Any,
+    *,
+    authority: StructuredValueIndex,
+    resource_limit: int,
+) -> dict[str, JsonValue]:
+    """Apply the selected LDB List-emptiness law to one admitted typed value."""
+    admitted = admit_typed_value(
+        envelope, authority=authority, resource_limit=resource_limit
+    )
+    type_member, value_member = typed_envelope_members(authority)
+    node = authority.value_nodes["collection-is-empty"]
+    typing = cast(dict[str, Any], node["result"]).get("typing")
+    kernel_result_contract = (
+        typing.get("contract") if isinstance(typing, dict) else None
+    )
+    if (
+        not isinstance(kernel_result_contract, str)
+        or is_empty_result_contract(admitted[type_member], authority=authority)
+        != kernel_result_contract
+        or kernel_result_contract not in authority.fixed_value_contracts
+        or not isinstance(admitted[value_member], list)
+    ):
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    result_type = authority.fixed_value_contracts[kernel_result_contract].get("type")
+    if not isinstance(result_type, dict):
+        raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
+    return {
+        type_member: cast(JsonValue, result_type),
+        value_member: not admitted[value_member],
     }
 
 

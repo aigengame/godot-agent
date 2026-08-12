@@ -75,7 +75,7 @@ def test_two_consumers_require_declared_record_lookup_semantics(
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.standard.conformance.structured@1.0.0."
+        "language.operations.standard.conformance.structured@1.1.0."
         "standard.conformance.structured.select-v1.body.0."
         f"{diagnostic_member}",
     ) in first["diagnostics"]
@@ -517,7 +517,6 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
     assert set(runtime) == {
         "closed",
         "version",
-        "evaluation_order",
         "fixed_value_contracts",
         "expression_nodes",
         "effect_nodes",
