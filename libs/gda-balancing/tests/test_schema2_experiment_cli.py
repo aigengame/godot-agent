@@ -1660,6 +1660,63 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     assert metrics["samples"][0]["value"] == 80
 
 
+def test_public_reward_build_loop_exposes_the_atomic_replacement(
+    tmp_path, run_cli
+):
+    specification_path, _specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "reward-build-evaluation.json"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    metrics = _member(receipt, "metric-dataset")
+    transitions = [event for event in trace["events"] if event["operation"] is not None]
+    assert [event["outcome"] for event in transitions] == [
+        {"id": "selected", "kind": "success"},
+        {"id": "replaced", "kind": "success"},
+    ]
+    build_event = transitions[1]
+    result = next(
+        row for row in build_event["facts"] if row["name"] == "build_result"
+    )["value"]["value"]
+    assert result == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "volatile_crown"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 90,
+    }
+    state_before = {row["name"]: row["value"] for row in build_event["state_before"]}
+    state_after = {row["name"]: row["value"] for row in build_event["state_after"]}
+    assert state_before["build_state"]["value"] == {
+        "slot": {"key": "starter_blade"},
+        "power": 10,
+    }
+    assert state_after["build_state"]["value"] == {
+        "slot": {"key": "volatile_crown"},
+        "power": 90,
+    }
+    assert state_after["build_decision"]["value"] == result
+    assert state_after["build_score"] == 90
+    assert {
+        row["metric"]: row["value"] for row in metrics["samples"]
+    } == {"build_score": 90, "reward_score": 80}
+
+
 def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
     tmp_path, run_cli
 ):
@@ -1691,14 +1748,22 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         receipt = json.loads(stdout)
         trace = _member(receipt, "event-trace")
         metrics = _member(receipt, "metric-dataset")
-        result = next(
+        transitions = [
+            event for event in trace["events"] if event["operation"] is not None
+        ]
+        reward_result = next(
             row
-            for row in trace["events"][0]["facts"]
+            for row in transitions[0]["facts"]
             if row["name"] == "reward_result"
         )
-        return trace, metrics, result
+        build_result = next(
+            row
+            for row in transitions[1]["facts"]
+            if row["name"] == "build_result"
+        )
+        return trace, metrics, reward_result, build_result
 
-    baseline_trace, baseline_metrics, baseline_result = run(
+    baseline_trace, baseline_metrics, baseline_result, baseline_build = run(
         baseline,
         specification_path,
         tmp_path / "baseline-evaluation.json",
@@ -1712,7 +1777,7 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         if row["target"]["name"] == "rare_weight"
     )
     rare_weight["value"] = 2
-    tuned_trace, tuned_metrics, tuned_result = run(
+    tuned_trace, tuned_metrics, tuned_result, tuned_build = run(
         tuned,
         tmp_path / "tuned-experiment.json",
         tmp_path / "tuned-evaluation.json",
@@ -1740,8 +1805,28 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         tuned_value["selected_index"],
         tuned_value["reward_score"],
     ) == ({"key": "steady_guard"}, 0, 20)
-    assert baseline_metrics["samples"][0]["value"] == 80
-    assert tuned_metrics["samples"][0]["value"] == 20
+    assert baseline_build["value"]["value"] == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "volatile_crown"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 90,
+    }
+    assert tuned_build["value"]["value"] == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "steady_guard"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 30,
+    }
+    assert {
+        row["metric"]: row["value"] for row in baseline_metrics["samples"]
+    } == {"build_score": 90, "reward_score": 80}
+    assert {
+        row["metric"]: row["value"] for row in tuned_metrics["samples"]
+    } == {"build_score": 30, "reward_score": 20}
 
 
 def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
@@ -1832,13 +1917,26 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
 
     assert (exit_code, stderr) == (0, ""), (stdout, stderr)
     receipt = json.loads(stdout)
-    event = _member(receipt, "event-trace")["events"][0]
-    result = next(row for row in event["facts"] if row["name"] == "reward_result")
-    assert event["outcome"] == {"id": "selected", "kind": "success"}
+    transitions = [
+        event
+        for event in _member(receipt, "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    result = next(
+        row for row in transitions[0]["facts"] if row["name"] == "reward_result"
+    )
+    assert [event["outcome"] for event in transitions] == [
+        {"id": "selected", "kind": "success"},
+        {"id": "no-reward", "kind": "gameplay-alternative"},
+    ]
+    assert transitions[1]["state_after"] == transitions[1]["state_before"]
     assert result["value"]["value"]["selected"] == {"key": "no_reward"}
     assert result["value"]["value"]["disposition"] == "no-reward"
     assert result["value"]["value"]["policy_before"]["kind"] == "relaxed-pool"
-    assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 0
+    assert {
+        row["metric"]: row["value"]
+        for row in _member(receipt, "metric-dataset")["samples"]
+    } == {"build_score": 10, "reward_score": 0}
     assert not any(
         row["logical_name"] == "runtime-terminal-audit"
         for row in receipt["member_locators"]
@@ -1872,6 +1970,178 @@ def test_public_reward_configuration_reports_an_unknown_disposition(
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
     )
+
+
+def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[1]["constraint"] = "conflict"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "build-conflict.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    transitions = [
+        event
+        for event in _member(receipt, "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    conflict = transitions[1]
+    assert conflict["outcome"] == {
+        "id": "build-conflict",
+        "kind": "gameplay-alternative",
+    }
+    assert conflict["state_after"] == conflict["state_before"]
+    assert not any(row["name"] == "build_result" for row in conflict["facts"])
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
+
+
+def test_public_build_configuration_reports_an_unknown_constraint(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[0]["constraint"] = "host-default"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == (
+        "language.structured_value_unknown_enum"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/4/value/value/plans/0/constraint"
+    )
+
+
+def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
+    tmp_path, run_cli
+):
+    _baseline_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    edited_source = json.loads(
+        (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+    )
+    edited_source["manifest"]["version"] = "1.1.0"
+    formula = deepcopy(edited_source["modules"][0]["formulas"][0])
+    formula["id"] = "alternate-rare-threshold"
+    edited_source["modules"][0]["formulas"].append(formula)
+    edited_source["formula_bindings"][0]["formula"]["id"] = formula["id"]
+    edited_source_path = tmp_path / "edited-roguelike-model.json"
+    edited_source_path.write_text(json.dumps(edited_source), encoding="utf-8")
+
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(edited_source_path),
+            "--out",
+            str(tmp_path / "edited-roguelike-model"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    edited_receipt = json.loads(build_stdout)
+    edited_build = _member(edited_receipt, "build-receipt")
+    edited_rir = _member(edited_receipt, "rir-semantic-payload")
+
+    assert edited_build["kernel_identity"] == baseline["kernel_identity"]
+    assert (
+        edited_build["language_bundle_identity"]
+        == baseline["language_bundle_identity"]
+    )
+    assert edited_build["package_lock_identity"] == baseline["model"][
+        "package_lock_identity"
+    ]
+    assert edited_build["rir_identity"] != baseline["model"]["rir_identity"]
+    edited_formula = next(
+        row for row in edited_rir["formulas"] if row["id"] == formula["id"]
+    )
+    edited_binding = next(
+        row
+        for row in edited_rir["formula_bindings"]
+        if row["site"]["slot"] == "rare-threshold-policy"
+    )
+    assert edited_formula["expression"] == "rare_weight"
+    assert edited_binding["formula"]["id"] == formula["id"]
+
+    stale = deepcopy(baseline)
+    stale["model"]["source_identity"] = edited_build["source_identity"]
+    stale_path = tmp_path / "stale-formula-binding.json"
+    stale_path.write_text(json.dumps(stale), encoding="utf-8")
+    stale_exit, stale_stdout, stale_stderr = run_cli(
+        ["experiment", "check", str(stale_path)]
+    )
+    assert (stale_exit, stale_stderr) == (2, ""), (stale_stdout, stale_stderr)
+    stale_error = json.loads(stale_stdout)["error"]
+    assert stale_error["diagnostics"][0]["code"] == (
+        "language.resolved_authority_mismatch"
+    )
+    assert stale_error["diagnostics"][0]["primary"]["pointer"] == "/model"
+
+    rebound = deepcopy(baseline)
+    rebound["id"] = "roguelike.reward-build-feedback.identity-formula"
+    rebound["model"] = {
+        "source_identity": edited_build["source_identity"],
+        "build_receipt_identity": edited_build["content_identity"],
+        "resolved_model_identity": edited_build["resolved_model_identity"],
+        "package_lock_identity": edited_build["package_lock_identity"],
+        "rir_identity": edited_build["rir_identity"],
+    }
+    rebound_path = tmp_path / "rebound-formula.json"
+    rebound_path.write_text(json.dumps(rebound), encoding="utf-8")
+    run_exit, run_stdout, run_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(rebound_path),
+            "--out",
+            str(tmp_path / "rebound-formula-evaluation.json"),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+    assert (run_exit, run_stderr) == (0, ""), (run_stdout, run_stderr)
+    transitions = [
+        event
+        for event in _member(json.loads(run_stdout), "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    assert transitions[0]["formula_evaluations"][0]["result"] == 5
+    assert transitions[1]["outcome"] == {"id": "replaced", "kind": "success"}
 
 
 def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write(

@@ -417,6 +417,70 @@ def test_roguelike_model_build_publishes_the_reward_formula_boundary(
     )
 
 
+def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_ROGUELIKE_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-roguelike-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    artifact_dir = _artifact_directory(json.loads(build_stdout))
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "build.replace")
+    operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.build.replace-reward-v1"
+    )
+
+    assert entrypoint["operation"] == {
+        "package": "game.build",
+        "version": "1.0.0",
+        "id": "game.build.replace-reward-v1",
+    }
+    assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
+        "selected_reward",
+        "build_plans",
+        "expected_build_disposition",
+        "expected_rare_rarity",
+        "expected_replace_constraint",
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+    assert operation["outcomes"] == [
+        {"id": "replaced", "kind": "success", "state_policy": "commit"},
+        {
+            "id": "build-conflict",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+        {
+            "id": "no-reward",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+        {
+            "id": "plan-mismatch",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+    ]
+    writes = [row for row in operation["body"] if row["node"] == "write-state"]
+    assert [row["symbol"] for row in writes] == [
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+
+
 def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
     tmp_path, run_cli
 ):
