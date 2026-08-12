@@ -60,23 +60,22 @@ and add a step when its falsifier or risk requires it; do not generate full matr
 default. In `audit-only` mode, pin the baseline, evaluate the claimed scope, report gaps, and stop
 without redesign or edits unless the user requests them.
 
-For `full-design`, use the current design needs, constraints, and applicable artifacts from section 1
-as shared input to iterative research fan-out followed by primary-agent synthesis. Based on the
-research complexity, delegate the research to an appropriate number of subagents. Each subagent
-independently explores relevant theories, external systems, primary sources, counterevidence, and
-open questions. If subagents are unavailable, run separate sequential research passes and disclose
-the missing independence.
+For `full-design`, use the design contract from section 1 as shared input to iterative research
+fan-out followed by primary-agent synthesis. Based on the research complexity, delegate the research
+to an appropriate number of subagents. Each subagent independently explores relevant theories,
+external systems, primary sources, counterevidence, and open questions. If subagents are unavailable,
+run separate sequential research passes and disclose the missing independence.
 
 Treat subagent reports as research leads, not as evidence or authority. After each research wave,
 the primary agent must inspect the load-bearing primary sources, compare their provenance, reconcile
 agreements and conflicts, and identify evidence gaps. It must synthesize and report the results
-accurately, including unresolved conflicts and limitations, then recommend one or two design
-directions or next research steps with their evidence and trade-offs. Through a human-in-the-loop
-gate, the designated human decision owner decides whether to stop, update the design direction, or
+accurately, including unresolved conflicts and limitations, then recommend one or two architecture
+directions or next research steps with their evidence and trade-offs. At the human decision gate,
+the designated human decision owner decides whether to stop, update the architecture direction, or
 run another exploratory or targeted research wave. Keep unresolved gaps open.
 
 In `lightweight` mode, use research fan-out only when the selected falsifier requires independent
-evidence. In `audit-only` mode, use it only to verify evidence within the pinned scope. Do not let
+research. In `audit-only` mode, use it only to verify evidence within the pinned scope. Do not let
 research fan-out expand either mode or replace the independent adversarial review required by
 [REFERENCE.md §5](REFERENCE.md#5-validation-portfolio).
 
@@ -97,8 +96,6 @@ research fan-out expand either mode or replace the independent adversarial revie
 ### 2. Ground the abstractions
 
 - Select mature theory for the actual design question, not for prestige or vocabulary.
-- When research is fanned out, each subagent independently identifies theories relevant to the
-  current design needs.
 - State the mechanism, invariant, representation boundary, proof boundary, and a disconfirming case.
 - When semantics and execution differ, separate authoring form, typed/validated meaning, canonical
   public semantics, and implementation-private execution.
