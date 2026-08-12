@@ -19,7 +19,8 @@ Event trace + committed Snapshots + reward/build Metrics
 The `game.generation@1.0.0` Package Release owns the seeded reward policy. The
 `game.build@1.0.0` Package Release owns the atomic build replacement. The Model Source owns the
 `rare-threshold` Formula and its exact Operation-slot binding. The Experiment owns the seed,
-ordered candidates, authored policy state, build plans, initial state, and Metrics.
+ordered reward options, an explicit empty-pool fallback, authored policy state, build plans,
+initial state, and Metrics.
 The two Operations validate the relationships among those authored values before they commit
 state or publish a result.
 
@@ -51,8 +52,8 @@ The checked-in artifacts are:
 
 - `model-source.json` — exact package requirements, Symbols, two entrypoints, and the Formula
   binding;
-- `experiment.json` — seed `20260812`, stream `reward`, ordered reward candidates, build plans,
-  initial state, Event plan, and Metrics.
+- `experiment.json` — seed `20260812`, stream `reward`, ordered reward options, an optional
+  empty-pool fallback, build plans, initial state, Event plan, and Metrics.
 
 Inspect the Formula, binding, and entrypoints:
 
@@ -68,18 +69,18 @@ jq '.entrypoints[] | {id, operation, arguments, result}' \
   examples/schema2/roguelike-reward-build/model-source.json
 ```
 
-The reward pool has two eligible candidates in this order:
+The reward pool has two eligible options in this order:
 
 1. `steady_guard`, which has rarity `common`;
 2. `volatile_crown`, which has rarity `rare`.
 
-`RewardPool` can carry up to 16 candidate and selection entries. This Operation version is a
-binary selector: it considers only indexes `0` and `1`. A complete binary pool supplies a matching
-candidate and selection at both indexes; later entries do not participate.
+`RewardPool` can carry up to 16 `RewardOption` values. Each option pairs one candidate with its
+authored selection data. This Operation version is a binary selector: it considers only indexes
+`0` and `1`. Later options do not participate.
 
 The Runtime node vocabulary does not construct `RewardSelection` or `BuildDecision` Record values.
-The Experiment therefore authors the candidate-aligned selections, build decisions, and next
-states. The Operations validate these mirrored relationships before they commit.
+The Experiment therefore authors each paired selection, the build decisions, and the next states.
+The Operations validate these relationships before they commit.
 
 The Formula returns the authored `rare_weight`. The `game.generation.select-reward-v1` Operation
 uses that value as its rare threshold. The build Operation consumes the resulting typed
@@ -183,7 +184,7 @@ jq '{seed_algorithm, seed_value}' "$BASELINE_REPRODUCTION"
 jq '.events[0].facts[]
   | select(.name == "reward_pool")
   | .value.value
-  | {candidates, policy_before}' "$BASELINE_TRACE"
+  | {options, no_reward_on_empty, policy_before}' "$BASELINE_TRACE"
 
 jq '.events[]
   | select(.operation != null)
@@ -211,12 +212,12 @@ replaces `starter_blade` with `volatile_crown`. The public Metrics are:
 ## 5. Tune one authored value and rerun
 
 Change only `rare_weight` from `5` to `2`. The Model, Package Lock, RIR, evaluator, seed, stream,
-candidate order, and build plans stay unchanged.
+option order, and build plans stay unchanged.
 
-This one-field edit works because `rare_weight` is not repeated in the parallel candidate and
-selection entries. Editing a mirrored candidate field, such as `reward_score`, also requires a
-change to the corresponding selection. Otherwise, the reward Event rolls back with
-`candidate-mismatch`.
+This one-field edit works because `rare_weight` is not repeated in a `RewardOption`. Editing a
+candidate field, such as `reward_score`, also requires the same change in that option's selection.
+Otherwise, the reward Event returns the typed `game.generation.invalid_option` refusal and rolls
+back.
 
 Create and run the tuned Experiment:
 
@@ -337,11 +338,11 @@ The maintained tests drive these mutations through the public commands:
 
 | Case | Public result |
 |---|---|
-| Empty candidate and selection lists, with no fallback | `runtime.structured_lookup_out_of_range`; the terminal audit proves rollback |
-| Declared `no-reward` selection under `relaxed-pool` | reward success followed by build `no-reward` gameplay alternative |
-| Candidate, selection, score, or policy fields contradict each other | `candidate-mismatch` gameplay alternative; the reward Event rolls back |
+| Empty `options` and empty `no_reward_on_empty` | `game.generation.selection_exhausted`; the terminal audit proves rollback |
+| Empty `options` with one valid no-reward fallback | reward `no-reward` followed by build `no-reward`; neither Event consumes RNG |
+| Candidate, selection, score, or policy fields in one option contradict each other | `game.generation.invalid_option`; the terminal audit proves rollback |
 | Build plan constraint `conflict` | `build-conflict` gameplay alternative; all provisional writes roll back |
-| Build state, next state, decision, or score fields contradict each other | `plan-mismatch` gameplay alternative; the build Event rolls back |
+| Build state, next state, decision, or score fields contradict each other | `game.build.invalid_plan`; the terminal audit proves rollback |
 | Unknown reward disposition or build constraint | `language.structured_value_unknown_enum` during `experiment check` |
 
 Run the focused tests:
@@ -361,8 +362,9 @@ This maintained example preserves the stable facts that a reader needs to unders
 - Runtime applies the Kernel `same-value-contract` and `runtime-numeric` rules to the LDB-owned
   `core.quantity` exact-integer value rule;
 - Runtime cannot construct the result Records, so the Experiment authors mirrored results and the
-  Operations validate them with guard chains; and
-- `candidate-mismatch` and `plan-mismatch` currently use the `gameplay-alternative` outcome kind.
+  Operations validate them before they commit;
+- empty-pool and build-conflict paths are declared gameplay outcomes; and
+- contradictory option and plan data are typed runtime refusals with terminal rollback evidence.
 
 Issue #585 owns the detailed observations, their four feedback classifications, the narrowest
 owner and action for each observation, and the human accept, condition, or reopen decision. An

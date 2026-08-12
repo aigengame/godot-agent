@@ -2243,7 +2243,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"][0]["disposition"] = "host-default"
+    pool["options"][0]["candidate"]["disposition"] = "host-default"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
@@ -2255,7 +2255,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/disposition"
     )
 
 
@@ -2268,7 +2268,7 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"][0]["reward_score"] = "twenty"
+    pool["options"][0]["candidate"]["reward_score"] = "twenty"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
@@ -2282,7 +2282,7 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
         "language.structured_value_type_mismatch"
     )
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/scenarios/0/assignments/0/value/value/candidates/0/reward_score"
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/reward_score"
     )
 
 
@@ -2293,10 +2293,10 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
     contradictions = (
         "rarity",
         "disposition",
+        "selected-key",
         "selected-index",
         "reward-score",
         "policy-before",
-        "policy-kind",
         "draw-count",
     )
     for index, contradiction in enumerate(contradictions, start=1):
@@ -2306,20 +2306,21 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             for row in specification["scenarios"][0]["assignments"]
             if row["target"]["name"] == "reward_pool"
         )["value"]["value"]
-        candidate = pool["candidates"][1]
-        selection = pool["selections"][1]
+        option = pool["options"][1]
+        candidate = option["candidate"]
+        selection = option["selection"]
         if contradiction == "rarity":
             candidate["rarity"] = "common"
         elif contradiction == "disposition":
             candidate["disposition"] = "no-reward"
+        elif contradiction == "selected-key":
+            selection["selected"] = {"key": "steady_guard"}
         elif contradiction == "selected-index":
             selection["selected_index"] = 0
         elif contradiction == "reward-score":
             candidate["reward_score"] = 79
         elif contradiction == "policy-before":
             selection["policy_before"]["draw_count"] = 1
-        elif contradiction == "policy-kind":
-            selection["policy_after"]["kind"] = "relaxed-pool"
         else:
             selection["policy_after"]["draw_count"] = 2
         specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
@@ -2337,21 +2338,22 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             ]
         )
 
-        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
-        receipt = json.loads(stdout)
-        event = next(
-            row
-            for row in _member(receipt, "event-trace")["events"]
-            if row["operation"] == "game.generation.select-reward-v1"
-        )
-        assert event["outcome"] == {
-            "id": "candidate-mismatch",
-            "kind": "gameplay-alternative",
-        }, contradiction
-        assert event["state_after"] == event["state_before"], contradiction
-        assert not any(row["name"] == "reward_result" for row in event["facts"]), (
-            contradiction
-        )
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_option"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_option"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"][
+            "state_before"
+        ], contradiction
+        assert not any(
+            row["name"] == "reward_result" for row in audit["last_snapshot"]
+        ), contradiction
 
 
 def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
