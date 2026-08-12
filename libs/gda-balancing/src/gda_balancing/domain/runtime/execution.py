@@ -38,13 +38,14 @@ from gda_balancing.domain.experiment import (
     _scenario_root_events,
 )
 from gda_balancing.domain.structured_values import (
-    StructuredValueAuthority,
+    StructuredValueIndex,
     StructuredValueFault,
     admit_typed_value,
     equal_typed_values,
     lookup_selector_kind,
     lookup_typed_value,
-    selected_structured_value_authority,
+    selected_structured_value_index,
+    typed_envelope_members,
 )
 
 
@@ -678,7 +679,7 @@ def _admit_declared_value(
     numeric: dict[str, Any],
     declaration: dict[str, Any],
     *,
-    structured_authority: StructuredValueAuthority,
+    structured_authority: StructuredValueIndex,
     structured_resource_limit: int,
 ) -> JsonValue:
     type_identity = cast(dict[str, str], declaration["type_identity"])
@@ -688,33 +689,42 @@ def _admit_declared_value(
         "version": type_identity["version"],
     }
     if declaration.get("value_kind") == "nominal-structured":
+        type_member, _value_member = typed_envelope_members(structured_authority)
         admitted = admit_typed_value(
             value,
             authority=structured_authority,
             resource_limit=structured_resource_limit,
         )
-        if canonical_bytes(admitted["type"]) != canonical_bytes(
+        if canonical_bytes(admitted[type_member]) != canonical_bytes(
             cast(JsonValue, declared_type)
         ):
             raise StructuredValueFault(
                 "language.structured_value_type_mismatch", "/type"
             )
         return cast(JsonValue, admitted)
-    if isinstance(value, dict) and set(value) == {"type", "value"}:
-        admitted = admit_typed_value(
-            value,
-            authority=structured_authority,
-            resource_limit=structured_resource_limit,
-        )
-        if canonical_bytes(admitted["type"]) != canonical_bytes(
-            cast(JsonValue, declared_type)
-        ):
-            raise StructuredValueFault(
-                "language.structured_value_type_mismatch", "/type"
+    value_member = "value"
+    if (
+        isinstance(value, dict)
+        and structured_authority.typed_envelope_profile is not None
+    ):
+        type_member, value_member = typed_envelope_members(structured_authority)
+        if set(value) == {type_member, value_member}:
+            admitted = admit_typed_value(
+                value,
+                authority=structured_authority,
+                resource_limit=structured_resource_limit,
             )
-        value = admitted["value"]
+            if canonical_bytes(admitted[type_member]) != canonical_bytes(
+                cast(JsonValue, declared_type)
+            ):
+                raise StructuredValueFault(
+                    "language.structured_value_type_mismatch", f"/{type_member}"
+                )
+            value = admitted[value_member]
     if not isinstance(value, int) or isinstance(value, bool):
-        raise StructuredValueFault("language.structured_value_type_mismatch", "/value")
+        raise StructuredValueFault(
+            "language.structured_value_type_mismatch", f"/{value_member}"
+        )
     return _admit_declared_numeric(value, numeric, declaration)
 
 
@@ -821,7 +831,14 @@ class _NamedRng:
         return minimum + mixed % (maximum - minimum + 1), index, mixed, True
 
 
-def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
+def _value_rows(
+    values: dict[str, Any], structured_authority: StructuredValueIndex
+) -> list[dict[str, JsonValue]]:
+    envelope_members = (
+        set(typed_envelope_members(structured_authority))
+        if structured_authority.typed_envelope_profile is not None
+        else None
+    )
     rows: list[dict[str, JsonValue]] = []
     for name in sorted(values):
         value = values[name]
@@ -831,7 +848,11 @@ def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
             rows.append({"name": name, "kind": "integer", "integer": value})
         elif isinstance(value, str):
             rows.append({"name": name, "kind": "string", "string": value})
-        elif isinstance(value, dict) and set(value) == {"type", "value"}:
+        elif (
+            isinstance(value, dict)
+            and envelope_members is not None
+            and set(value) == envelope_members
+        ):
             rows.append(
                 {
                     "name": name,
@@ -883,9 +904,10 @@ def _resolved_state_rows(
 def _resolved_value_rows(
     values: dict[bytes, Any],
     display_names: dict[bytes, str],
+    structured_authority: StructuredValueIndex,
 ) -> list[dict[str, JsonValue]]:
     projected = {display_names[key]: value for key, value in values.items()}
-    return _value_rows(projected)
+    return _value_rows(projected, structured_authority)
 
 
 def _metric_definition_identity(metric: dict[str, Any]) -> str:
@@ -1209,7 +1231,7 @@ def _execute_value_instruction(
     numeric: dict[str, Any],
     node_contract: dict[str, Any],
     *,
-    structured_authority: StructuredValueAuthority | None = None,
+    structured_authority: StructuredValueIndex | None = None,
     structured_resource_limit: int | None = None,
 ) -> None:
     """Execute one value instruction through its Kernel-owned operator law."""
@@ -1271,7 +1293,8 @@ def _execute_value_instruction(
             authority=structured_authority,
             resource_limit=structured_resource_limit,
         )
-        variables[cast(str, instruction["target"])] = result["value"]
+        _type_member, value_member = typed_envelope_members(structured_authority)
+        variables[cast(str, instruction["target"])] = result[value_member]
         return
     elif operator == "select-value":
         value = variables[
@@ -1680,8 +1703,9 @@ def evaluate_experiment(
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
-    structured_authority = selected_structured_value_authority(
-        cast(dict[str, Any], checked.rir["selected_semantics"])
+    structured_authority = selected_structured_value_index(
+        cast(dict[str, Any], checked.rir["selected_semantics"]),
+        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
         int, checked.language_bundle["resources"]["max_rule_match_steps"]
@@ -2670,7 +2694,9 @@ def evaluate_experiment(
                     "schedules": schedule_trace,
                     "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
-                    "facts": _resolved_value_rows(event_actual_values, display_names),
+                    "facts": _resolved_value_rows(
+                        event_actual_values, display_names, structured_authority
+                    ),
                     "state_before": _resolved_state_rows(before, display_names),
                     "state_after": _resolved_state_rows(state, display_names),
                     "rng_draws": draws,
@@ -2962,7 +2988,9 @@ def evaluate_experiment(
                         "id": "observation-emitted",
                         "kind": "success",
                     },
-                    "facts": _resolved_value_rows(actual_values, display_names),
+                    "facts": _resolved_value_rows(
+                        actual_values, display_names, structured_authority
+                    ),
                     "state_before": resolved_state,
                     "state_after": resolved_state,
                     "rng_draws": [],

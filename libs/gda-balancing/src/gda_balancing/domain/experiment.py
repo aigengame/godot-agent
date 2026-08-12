@@ -33,10 +33,11 @@ from gda_balancing.domain.model import admit_resolved_model
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
-    StructuredValueAuthority,
+    StructuredValueIndex,
     StructuredValueFault,
     admit_typed_value,
-    package_structured_value_authority,
+    package_structured_value_index,
+    typed_envelope_members,
 )
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
@@ -126,7 +127,7 @@ def _declared_value_fault(
     value: Any,
     declaration: dict[str, Any],
     *,
-    structured_authority: StructuredValueAuthority,
+    structured_authority: StructuredValueIndex,
     resource_limit: int,
 ) -> StructuredValueFault | None:
     type_identity = cast(dict[str, str], declaration["type_identity"])
@@ -136,6 +137,7 @@ def _declared_value_fault(
         "version": type_identity["version"],
     }
     if declaration.get("value_kind") == "nominal-structured":
+        type_member, _value_member = typed_envelope_members(structured_authority)
         try:
             admitted = admit_typed_value(
                 value,
@@ -144,7 +146,7 @@ def _declared_value_fault(
             )
         except StructuredValueFault as fault:
             return fault
-        if canonical_bytes(admitted["type"]) != canonical_bytes(declared_type):
+        if canonical_bytes(admitted[type_member]) != canonical_bytes(declared_type):
             return StructuredValueFault(
                 "language.structured_value_type_mismatch", "/type"
             )
@@ -560,11 +562,12 @@ def check_experiment(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in rir["declarations"]
     }
-    structured_authority = package_structured_value_authority(
+    structured_authority = package_structured_value_index(
         cast(
             list[dict[str, Any]],
             context.language_bundle["language"]["packages"],
-        )
+        ),
+        kernel=context.kernel,
     )
     structured_resource_limit = cast(
         int, language_bundle["resources"]["max_rule_match_steps"]

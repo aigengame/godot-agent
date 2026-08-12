@@ -652,10 +652,10 @@ The initial language uses a closed constructor set:
 The list is closed for one Schema major. New convenience names do not become primitive types.
 The current `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
 constructors. A Domain package gives each use a nominal identity and exact definition. Record fields
-are closed, while Record object-member order is insignificant. Lists are invariant and bounded, and each Ref definition owns its nominal
-target and canonical key pattern. Public structured values use one `{type, value}` envelope. The
-LDB-selected type remains the authority; the envelope only carries that type across source,
-Experiment, Runtime, and artifact boundaries.
+are closed, while Record object-member order is insignificant. Lists are invariant and bounded.
+Each Ref definition owns its nominal target and canonical key pattern. Public structured values use
+one `{type, value}` envelope. The LDB-selected type remains the authority; the envelope only carries
+that type across source, Experiment, Runtime, and artifact boundaries.
 
 `Quantity` carries orthogonal facets instead:
 
@@ -879,10 +879,9 @@ value against the referenced nominal definition. Every profile closes against it
 LDB value inventories, and at least one Operation formal value contract. Overlapping profiles for
 the same match contract are invalid. Zero or multiple matches refuse before Typed HIR; successful
 lowering preserves the selected profile and canonical typed value in the RIR operand. The Symbol
-assignment policy therefore remains
-orthogonal: it owns only Symbol roles, access, initialization ownership, and Experiment
-cardinality. Under
-`operation-body-order`, writable aliases denote one runtime location for the complete invocation:
+assignment policy therefore remains orthogonal: it owns only Symbol roles, access, initialization
+ownership, and Experiment cardinality. Under `operation-body-order`, writable aliases denote one
+runtime location for the complete invocation:
 a write in one child call is visible to every later sibling call, while a propagated rollback
 restores the operation's entry snapshot.
 

@@ -30,7 +30,7 @@ from gda_balancing.infrastructure.input_bytes import (
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
-    package_structured_value_authority,
+    package_structured_value_index,
 )
 from gda_balancing.interfaces.cli.surface import (
     descriptor_identity,
@@ -68,11 +68,12 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
 
 def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
     authority_context = authority_module.packaged_authority_context()
-    structured_authority = package_structured_value_authority(
+    structured_authority = package_structured_value_index(
         cast(
             list[dict[str, Any]],
             authority_context.language_bundle["language"]["packages"],
-        )
+        ),
+        kernel=authority_context.kernel,
     )
     lookup_contract = next(
         row
@@ -117,11 +118,12 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
 
 def test_list_lookup_requires_the_statically_resolved_index_local():
     authority_context = authority_module.packaged_authority_context()
-    structured_authority = package_structured_value_authority(
+    structured_authority = package_structured_value_index(
         cast(
             list[dict[str, Any]],
             authority_context.language_bundle["language"]["packages"],
-        )
+        ),
+        kernel=authority_context.kernel,
     )
     lookup_contract = next(
         row
@@ -1575,7 +1577,13 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     )
     assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
 
-    def run(candidate: str, *, reordered: bool, invocation: str):
+    def run(
+        candidate: str,
+        *,
+        reordered: bool,
+        selected_rank: int | None = None,
+        invocation: str,
+    ):
         scenario = specification["scenarios"][0]
         assignments = {row["target"]["name"]: row for row in scenario["assignments"]}
         scenario["event_plan"][0]["entrypoint"] = (
@@ -1585,6 +1593,8 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
         if reordered:
             state["candidates"].reverse()
             state["results"].reverse()
+        if selected_rank is not None:
+            state["results"][0]["rank"] = selected_rank
         specification_path.write_text(json.dumps(specification), encoding="utf-8")
         exit_code, stdout, stderr = run_cli(
             [
@@ -1600,12 +1610,13 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
         assert (exit_code, stderr) == (0, ""), (stdout, stderr)
         receipt = json.loads(stdout)
         return (
+            receipt,
             _member(receipt, "event-trace"),
             _member(receipt, "snapshot-series"),
             _member(receipt, "metric-dataset"),
         )
 
-    success_trace, success_snapshots, success_metrics = run(
+    _success_receipt, success_trace, success_snapshots, success_metrics = run(
         "candidate_a", reordered=False, invocation="7"
     )
     success = success_trace["events"][0]
@@ -1643,7 +1654,7 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     assert success_metrics["samples"][0]["value"] == 3
     assert success_snapshots["snapshots"][-1]["values"] == success["state_after"]
 
-    failure_trace, failure_snapshots, failure_metrics = run(
+    failure_receipt, failure_trace, failure_snapshots, failure_metrics = run(
         "candidate_b", reordered=False, invocation="8"
     )
     failure = failure_trace["events"][0]
@@ -1655,9 +1666,13 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     assert failure_snapshots["snapshots"][1]["values"] == failure["state_before"]
     assert not any(row["name"] == "selection_result" for row in failure["facts"])
     assert failure_metrics["samples"][0]["value"] == 9
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in failure_receipt["member_locators"]
+    )
 
-    reordered_trace, _, reordered_metrics = run(
-        "candidate_b", reordered=True, invocation="9"
+    _reordered_receipt, reordered_trace, _, reordered_metrics = run(
+        "candidate_b", reordered=True, selected_rank=7, invocation="9"
     )
     reordered = reordered_trace["events"][0]
     assert reordered["outcome"] == {"id": "selected", "kind": "success"}
@@ -1666,7 +1681,11 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
         reordered["rng_draws"][0]["candidate_hex"]
         == success["rng_draws"][0]["candidate_hex"]
     )
-    assert reordered_metrics["samples"][0]["value"] == 9
+    reordered_output = next(
+        row for row in reordered["facts"] if row["name"] == "selection_result"
+    )
+    assert reordered_output["value"]["value"]["rank"] == 7
+    assert reordered_metrics["samples"][0]["value"] == 7
 
 
 def test_public_structured_assignment_reports_the_exact_nominal_value_failure(

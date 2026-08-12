@@ -6964,13 +6964,38 @@ def _consumer_b_operation_composition_subjects(
         constructor: dict[str, Any], operator: str
     ) -> dict[str, Any] | None:
         matches = [
-            operation["law"]
+            operation
             for operation in structured_operations
             if operation.get("owner_constructor") == constructor.get("id")
             and isinstance(operation.get("law"), dict)
             and operation["law"].get("operator") == operator
         ]
-        return cast(dict[str, Any], matches[0]) if len(matches) == 1 else None
+        nodes = [
+            node
+            for node in node_definitions.values()
+            if node.get("semantics", {}).get("operator") == operator
+        ]
+        charge = (
+            nodes[0].get("resource_charge", {}).get("amount")
+            if len(nodes) == 1
+            else None
+        )
+        bound = (
+            matches[0].get("resource_bounds", {}).get("max_steps")
+            if len(matches) == 1
+            else None
+        )
+        if (
+            len(matches) != 1
+            or len(nodes) != 1
+            or not isinstance(charge, int)
+            or isinstance(charge, bool)
+            or not isinstance(bound, int)
+            or isinstance(bound, bool)
+            or charge > bound
+        ):
+            return None
+        return cast(dict[str, Any], matches[0]["law"])
 
     def structured_contract(type_expression: Any) -> dict[str, Any] | None:
         if not isinstance(type_expression, dict):
@@ -7002,7 +7027,7 @@ def _consumer_b_operation_composition_subjects(
                 }
             return {"type": exact_type, "value_kind": "nominal-structured"}
         if type_expression.get("kind") in {"list", "ref"}:
-            return {"type": type_expression, "value_kind": "structured"}
+            return {"type": type_expression, "value_kind": "nominal-structured"}
         return None
 
     def lookup_contract(
@@ -9061,6 +9086,7 @@ def _consumer_b_evaluate_structured_value_vector(
     vector: dict[str, Any],
     *,
     nominal_types: list[dict[str, Any]],
+    kernel: dict[str, Any],
     resource_limit: int,
 ) -> dict[str, Any]:
     """Execute a structured-value vector without production value helpers."""
@@ -9109,18 +9135,23 @@ def _consumer_b_evaluate_structured_value_vector(
         if profile.get("source_kind") == "typed-envelope"
         and profile.get("value_kind") == "nominal-structured"
     ]
-    if len(typed_profiles) != 1 or typed_profiles[0].get("admission") != {
-        "envelope_members": ["type", "value"],
-        "nominal_type_reference": {
-            "coordinate_members": ["package", "version", "id"],
-            "optional_kind_member": "kind",
-            "optional_kind_value": "nominal",
-        },
-        "operator": "recursive-typed-envelope",
-        "resource_charge_per_node": 1,
-        "type_relation": "exact-selected-type",
+    runtime = kernel["meta_format"]["runtime_program"]
+    typed_contract = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
+    if len(typed_profiles) != 1 or typed_profiles[0] != {
+        "admission": typed_contract["admission"],
+        "id": typed_contract["id"],
+        "source_kind": "typed-envelope",
+        "value_kind": typed_contract["value_kind"],
     }:
         raise AssertionError("typed-envelope authority is incomplete")
+    type_member = typed_contract["type_member"]
+    value_member = typed_contract["value_member"]
+    envelope_members = set(typed_contract["admission"]["envelope_members"])
+    value_nodes = {
+        node["semantics"]["operator"]: node
+        for node in runtime["nodes"]
+        if node["semantics"]["operator"] in {"bounded-lookup", "canonical-equal"}
+    }
     inp = vector["input"]
     requested = inp.get("limit")
     remaining = [
@@ -9204,14 +9235,33 @@ def _consumer_b_evaluate_structured_value_vector(
 
     def operation_law(constructor, operator, pointer):
         matches = [
-            operation["law"]
+            operation
             for operation in structured_operations.values()
             if operation.get("owner_constructor") == constructor.get("id")
             and operation.get("law", {}).get("operator") == operator
         ]
-        if len(matches) != 1:
+        node = value_nodes.get(operator)
+        charge = (
+            node.get("resource_charge", {}).get("amount")
+            if isinstance(node, dict)
+            else None
+        )
+        bound = (
+            matches[0].get("resource_bounds", {}).get("max_steps")
+            if len(matches) == 1
+            else None
+        )
+        if (
+            len(matches) != 1
+            or not isinstance(node, dict)
+            or not isinstance(charge, int)
+            or isinstance(charge, bool)
+            or not isinstance(bound, int)
+            or isinstance(bound, bool)
+            or charge > bound
+        ):
             raise Refusal("language.structured_value_type_mismatch", pointer)
-        return matches[0]
+        return matches[0]["law"]
 
     def validate(type_expression, value, pointer):
         charge = typed_profiles[0]["admission"]["resource_charge_per_node"]
@@ -9329,11 +9379,13 @@ def _consumer_b_evaluate_structured_value_vector(
         raise Refusal("language.structured_value_type_mismatch", pointer)
 
     def admit(envelope):
-        if not isinstance(envelope, dict) or set(envelope) != {"type", "value"}:
+        if not isinstance(envelope, dict) or set(envelope) != envelope_members:
             raise Refusal("language.structured_value_type_mismatch", "")
         return {
-            "type": canonical_type(envelope["type"]),
-            "value": validate(envelope["type"], envelope["value"], "/value"),
+            type_member: canonical_type(envelope[type_member]),
+            value_member: validate(
+                envelope[type_member], envelope[value_member], f"/{value_member}"
+            ),
         }
 
     try:
@@ -9342,29 +9394,29 @@ def _consumer_b_evaluate_structured_value_vector(
             result = left
         elif inp["action"] == "equal":
             right = admit(inp["right"])
-            if _encoded(left["type"]) != _encoded(right["type"]):
+            if _encoded(left[type_member]) != _encoded(right[type_member]):
                 raise Refusal("language.structured_value_type_mismatch", "/right/type")
             _definition, constructor, _rule = structural_contract(
-                left["type"], "/left/type"
+                left[type_member], "/left/type"
             )
+            result_contract = value_nodes["canonical-equal"]["result"]["typing"][
+                "contract"
+            ]
             if (
                 operation_law(constructor, "canonical-equal", "/left/type").get(
                     "result_contract"
                 )
-                != "kernel-boolean"
+                != result_contract
             ):
                 raise Refusal("language.structured_value_type_mismatch", "/left/type")
             result = {
-                "type": {
-                    "id": "Boolean",
-                    "package": "kernel",
-                    "version": "2.0.0",
-                },
-                "value": _encoded(left["value"]) == _encoded(right["value"]),
+                type_member: runtime["fixed_value_contracts"][result_contract]["type"],
+                value_member: _encoded(left[value_member])
+                == _encoded(right[value_member]),
             }
         elif inp["action"] == "lookup":
             type_expression, constructor, lookup_rule = structural_contract(
-                left["type"], "/type"
+                left[type_member], "/type"
             )
             law = operation_law(constructor, "bounded-lookup", "/type")
             if law.get("refusal_signal") != "structured-lookup-out-of-range":
@@ -9372,7 +9424,7 @@ def _consumer_b_evaluate_structured_value_vector(
             if law.get("selector") == "static-field" and isinstance(inp["key"], str):
                 fields = type_expression[lookup_rule["fields_member"]]
                 name_member = lookup_rule["field_name_member"]
-                type_member = lookup_rule["field_type_member"]
+                field_type_member = lookup_rule["field_type_member"]
                 field = next(
                     (field for field in fields if field[name_member] == inp["key"]),
                     None,
@@ -9380,17 +9432,17 @@ def _consumer_b_evaluate_structured_value_vector(
                 if field is None:
                     raise Refusal("runtime.structured_lookup_out_of_range", "/key")
                 result = {
-                    "type": canonical_type(field[type_member]),
-                    "value": left["value"][inp["key"]],
+                    type_member: canonical_type(field[field_type_member]),
+                    value_member: left[value_member][inp["key"]],
                 }
             elif law.get("selector") == "local-index" and isinstance(inp["key"], int):
-                if not 0 <= inp["key"] < len(left["value"]):
+                if not 0 <= inp["key"] < len(left[value_member]):
                     raise Refusal("runtime.structured_lookup_out_of_range", "/key")
                 result = {
-                    "type": canonical_type(
+                    type_member: canonical_type(
                         type_expression[lookup_rule["element_member"]]
                     ),
-                    "value": left["value"][inp["key"]],
+                    value_member: left[value_member][inp["key"]],
                 }
             else:
                 raise Refusal("language.structured_value_type_mismatch", "/key")
@@ -9408,8 +9460,8 @@ def _consumer_b_evaluate_structured_value_vector(
         "code": None,
         "outcome": "admitted",
         "pointer": "",
-        "type": result["type"],
-        "value": result["value"],
+        "type": result[type_member],
+        "value": result[value_member],
     }
 
 

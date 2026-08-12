@@ -10,9 +10,10 @@ _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
 )
 
 
-def _operation_value_contract_matches(
+def operation_value_contract_matches(
     actual: dict[str, Any], formal: dict[str, Any]
 ) -> bool:
+    """Apply the shared closed Operation value-contract relation."""
     if actual.get("type") != formal.get("type"):
         return False
     if "value_kind" in actual or "value_kind" in formal:
@@ -501,38 +502,41 @@ def _runtime_authority_is_closed(
     }
     raw_nodes = runtime.get("nodes")
     fixed_value_contracts = runtime.get("fixed_value_contracts")
-    if fixed_value_contracts != {
-        "kernel-boolean": {
-            "type": {"package": "kernel", "version": "2.0.0", "id": "Boolean"},
-            "representation": "Bool",
-            "kind": "boolean",
-            "unit": "1",
-            "domain": {"kind": "boolean"},
-            "numeric_policy": "exact-bool",
-        },
-        "kernel-unit": {
-            "type": {"package": "kernel", "version": "2.0.0", "id": "Unit"},
-            "representation": "Unit",
-            "kind": "unit",
-            "unit": "1",
-            "domain": {"kind": "unit"},
-            "numeric_policy": "exact-unit",
-        },
-        "kernel-event-reference": {
-            "type": {
-                "package": "kernel",
-                "version": "2.0.0",
-                "id": "EventReference",
-            },
-            "representation": "EventRef",
-            "kind": "event-reference",
-            "unit": "1",
-            "domain": {"kind": "runtime-event"},
-            "numeric_policy": "exact-reference",
-        },
-    }:
+    fixed_contract_members = {
+        "domain",
+        "kind",
+        "numeric_policy",
+        "representation",
+        "type",
+        "unit",
+    }
+    if (
+        not isinstance(fixed_value_contracts, dict)
+        or not fixed_value_contracts
+        or any(
+            not isinstance(contract_id, str)
+            or not contract_id
+            or not isinstance(contract, dict)
+            or set(contract) != fixed_contract_members
+            or not isinstance(contract.get("type"), dict)
+            or set(contract["type"]) != {"id", "package", "version"}
+            or not all(
+                isinstance(contract["type"].get(member), str)
+                and contract["type"][member]
+                for member in ("id", "package", "version")
+            )
+            or not all(
+                isinstance(contract.get(member), str) and contract[member]
+                for member in ("kind", "numeric_policy", "representation", "unit")
+            )
+            or not isinstance(contract.get("domain"), dict)
+            or set(contract["domain"]) != {"kind"}
+            or not isinstance(contract["domain"].get("kind"), str)
+            or not contract["domain"]["kind"]
+            for contract_id, contract in fixed_value_contracts.items()
+        )
+    ):
         return False
-    assert isinstance(fixed_value_contracts, dict)
     if not isinstance(raw_nodes, list):
         return False
     nodes: dict[str, dict[str, Any]] = {}
@@ -858,12 +862,39 @@ def _runtime_authority_is_closed(
             not isinstance(producer_contract, dict)
             or not isinstance(result_contract, dict)
             or expect["admitted"]
-            is not _operation_value_contract_matches(
+            is not operation_value_contract_matches(
                 producer_contract,
                 result_contract,
             )
         ):
             return False
+    referenced_fixed_contracts = (
+        {
+            cast(str, typing["contract"])
+            for node in nodes.values()
+            if isinstance((result := node.get("result")), dict)
+            and isinstance((typing := result.get("typing")), dict)
+            and typing.get("kind") == "fixed"
+        }
+        | {
+            cast(str, constraint["contract"])
+            for node in nodes.values()
+            for constraint in cast(list[dict[str, Any]], node["operand_constraints"])
+            if constraint.get("kind") == "fixed-value-contract"
+        }
+        | {
+            cast(str, variant["value_contract"])
+            for variant in cast(list[dict[str, Any]], cancel_variants)
+            if variant.get("kind") == "port"
+        }
+        | {
+            cast(str, contract_id)
+            for vector in invocation_vectors.values()
+            for contract_id in cast(dict[str, Any], vector["input"]).values()
+        }
+    )
+    if set(fixed_value_contracts) != referenced_fixed_contracts:
+        return False
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         return False
@@ -947,7 +978,7 @@ def _runtime_authority_is_closed(
                         target_variant["kind"] == "port"
                         and (
                             target_value not in formal_ports
-                            or not _operation_value_contract_matches(
+                            or not operation_value_contract_matches(
                                 formal_ports[target_value],
                                 fixed_value_contracts[target_variant["value_contract"]],
                             )

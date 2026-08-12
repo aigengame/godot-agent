@@ -5582,6 +5582,27 @@ def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile()
     }
 
 
+def test_lookup_structured_result_uses_the_kernel_value_kind():
+    type_expression = {
+        "element": {
+            "id": "Candidate",
+            "package": "standard.conformance.structured",
+            "version": "1.0.0",
+        },
+        "kind": "list",
+        "maximum_length": 2,
+    }
+
+    result = bootstrap_module._operation_contract_for_structured_type(
+        type_expression, []
+    )
+
+    assert result == {
+        "type": type_expression,
+        "value_kind": "nominal-structured",
+    }
+
+
 @pytest.mark.parametrize(
     "mutation",
     (

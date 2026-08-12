@@ -22,10 +22,13 @@ from gda_balancing.domain.formula.types import (
     literal_context_contract as _literal_context_contract,
     resolve_formula_contract as _resolved_formula_contract,
 )
+from gda_balancing.domain.authority.runtime_validation import (
+    operation_value_contract_matches,
+)
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
-    language_structured_value_authority,
+    language_structured_value_index,
 )
 
 from gda_balancing.domain.model._resolution import (
@@ -2940,7 +2943,9 @@ def _resolved_entrypoints(
             "identity_domains"
         ],
     )
-    structured_authority = language_structured_value_authority(checked.language_bundle)
+    structured_authority = language_structured_value_index(
+        checked.language_bundle, kernel=checked.kernel
+    )
     structured_resource_limit = cast(
         int, checked.language_bundle["resources"]["max_rule_match_steps"]
     )
@@ -3430,29 +3435,6 @@ def _resolved_entrypoints(
     return sorted(entrypoints, key=lambda row: cast(str, row["id"]))
 
 
-def _operation_contract_matches(
-    actual: dict[str, Any],
-    formal: dict[str, Any],
-) -> bool:
-    if actual.get("type") != formal.get("type"):
-        return False
-    if (
-        actual.get("value_kind") == "nominal-structured"
-        or formal.get("value_kind") == "nominal-structured"
-    ):
-        return actual.get("value_kind") == formal.get("value_kind")
-    return all(
-        actual.get(member) == formal.get(member)
-        for member in (
-            "representation",
-            "kind",
-            "unit",
-            "domain",
-            "numeric_policy",
-        )
-    )
-
-
 def _resolved_event_reference_operand(
     operand: dict[str, Any],
     formal: dict[str, Any],
@@ -3467,7 +3449,7 @@ def _resolved_event_reference_operand(
         formal.get("access") != "read"
         or not isinstance(name, str)
         or not name
-        or not _operation_contract_matches(event_reference_contract, formal)
+        or not operation_value_contract_matches(event_reference_contract, formal)
     ):
         return None
     operand_body = cast(
@@ -3623,7 +3605,7 @@ def _resolved_call_sites(
                     parent_port = parent_ports.get(operand["port"])
                     if (
                         parent_port is None
-                        or not _operation_contract_matches(parent_port, formal)
+                        or not operation_value_contract_matches(parent_port, formal)
                         or (
                             formal["access"] in {"read-write", "write"}
                             and parent_port["access"] not in {"read-write", "write"}
@@ -3654,7 +3636,7 @@ def _resolved_call_sites(
                     if (
                         local_contract is None
                         or formal["access"] != "read"
-                        or not _operation_contract_matches(local_contract, formal)
+                        or not operation_value_contract_matches(local_contract, formal)
                     ):
                         raise ValueError("nested call local operand is incompatible")
                     operand_body = cast(
@@ -3740,7 +3722,7 @@ def _resolved_call_sites(
                     raise ValueError("nested call repeats a caller local result")
                 locals_[name] = cast(dict[str, Any], child["result"])
             elif authored_result["kind"] == "operation-result":
-                if not _operation_contract_matches(
+                if not operation_value_contract_matches(
                     cast(dict[str, Any], child["result"]),
                     cast(dict[str, Any], operation["result"]),
                 ):

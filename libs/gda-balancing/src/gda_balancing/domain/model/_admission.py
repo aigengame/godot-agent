@@ -35,7 +35,7 @@ from gda_balancing.domain.formula.types import (
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
-    language_structured_value_authority,
+    language_structured_value_index,
 )
 
 from gda_balancing.domain.model._resolution import (
@@ -255,7 +255,7 @@ def _resolved_entrypoint_graph_is_admitted(
             "identity_domains"
         ],
     )
-    structured_authority = language_structured_value_authority(ldb)
+    structured_authority = language_structured_value_index(ldb, kernel=kernel)
     structured_resource_limit = cast(int, ldb["resources"]["max_rule_match_steps"])
     if any(
         not isinstance(row, dict) or not isinstance(row.get("id"), str)

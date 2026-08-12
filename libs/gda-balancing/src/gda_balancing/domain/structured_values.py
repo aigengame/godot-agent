@@ -15,27 +15,17 @@ from gda_balancing.domain.canonical import JsonValue, canonical_bytes
 
 _TypeKey = tuple[str, str, str]
 
-TYPED_ENVELOPE_ADMISSION_LAW: dict[str, Any] = {
-    "envelope_members": ["type", "value"],
-    "nominal_type_reference": {
-        "coordinate_members": ["package", "version", "id"],
-        "optional_kind_member": "kind",
-        "optional_kind_value": "nominal",
-    },
-    "operator": "recursive-typed-envelope",
-    "resource_charge_per_node": 1,
-    "type_relation": "exact-selected-type",
-}
-
 
 @dataclass(frozen=True)
-class StructuredValueAuthority:
-    """The selected machine rules needed to admit structured values."""
+class StructuredValueIndex:
+    """Admitted language index for Kernel/LDB structured-value contracts."""
 
     constructors: dict[str, dict[str, Any]]
     operations: dict[str, dict[str, Any]]
     types: dict[_TypeKey, dict[str, Any]]
     typed_envelope_profile: dict[str, Any] | None
+    fixed_value_contracts: dict[str, dict[str, Any]]
+    value_nodes: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -71,38 +61,112 @@ def _semantic_definitions(
     return cast(list[dict[str, Any]], matches[0])
 
 
-def _typed_envelope_profile(profiles: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def _kernel_structured_value_contracts(
+    kernel: dict[str, Any],
+) -> tuple[
+    dict[str, Any],
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+]:
+    meta = kernel.get("meta_format")
+    literal_typing = meta.get("literal_typing") if isinstance(meta, dict) else None
+    runtime = meta.get("runtime_program") if isinstance(meta, dict) else None
+    typed_profile = (
+        literal_typing.get("typed_envelope_profile")
+        if isinstance(literal_typing, dict)
+        else None
+    )
+    fixed_contracts = (
+        runtime.get("fixed_value_contracts") if isinstance(runtime, dict) else None
+    )
+    nodes = runtime.get("nodes") if isinstance(runtime, dict) else None
+    if (
+        not isinstance(typed_profile, dict)
+        or not isinstance(fixed_contracts, dict)
+        or not isinstance(nodes, list)
+    ):
+        raise ValueError("Kernel structured-value contracts are unavailable")
+    value_nodes: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        semantics = node.get("semantics") if isinstance(node, dict) else None
+        operator = semantics.get("operator") if isinstance(semantics, dict) else None
+        if operator in {"bounded-lookup", "canonical-equal"}:
+            if operator in value_nodes:
+                raise ValueError("Kernel structured-value operator is duplicated")
+            value_nodes[cast(str, operator)] = node
+    if set(value_nodes) != {"bounded-lookup", "canonical-equal"}:
+        raise ValueError("Kernel structured-value operator is unavailable")
+    return (
+        typed_profile,
+        cast(dict[str, dict[str, Any]], fixed_contracts),
+        value_nodes,
+    )
+
+
+def _typed_envelope_profile(
+    profiles: Iterable[dict[str, Any]],
+    kernel_profile: dict[str, Any],
+) -> dict[str, Any]:
     matches = [
         profile
         for profile in profiles
         if profile.get("source_kind") == "typed-envelope"
-        and profile.get("value_kind") == "nominal-structured"
+        and profile.get("value_kind") == kernel_profile.get("value_kind")
     ]
     if len(matches) != 1:
         raise ValueError("admitted language has no unique typed-envelope profile")
-    admission = matches[0].get("admission")
-    if admission != TYPED_ENVELOPE_ADMISSION_LAW:
+    if matches[0] != {
+        "admission": kernel_profile.get("admission"),
+        "id": kernel_profile.get("id"),
+        "source_kind": "typed-envelope",
+        "value_kind": kernel_profile.get("value_kind"),
+    }:
         raise ValueError("typed-envelope admission law is unsupported")
-    return matches[0]
+    return kernel_profile
 
 
 def _selected_typed_envelope_profile(
     profiles: Iterable[dict[str, Any]],
+    kernel_profile: dict[str, Any],
 ) -> dict[str, Any] | None:
     selected = list(profiles)
     if not any(
         profile.get("source_kind") == "typed-envelope"
-        and profile.get("value_kind") == "nominal-structured"
+        and profile.get("value_kind") == kernel_profile.get("value_kind")
         for profile in selected
     ):
         return None
-    return _typed_envelope_profile(selected)
+    return _typed_envelope_profile(selected, kernel_profile)
 
 
-def package_structured_value_authority(
+def typed_envelope_members(authority: StructuredValueIndex) -> tuple[str, str]:
+    """Return the Kernel-declared type and value member names."""
+    profile = authority.typed_envelope_profile
+    admission = profile.get("admission") if isinstance(profile, dict) else None
+    envelope_members = (
+        admission.get("envelope_members") if isinstance(admission, dict) else None
+    )
+    type_member = profile.get("type_member") if isinstance(profile, dict) else None
+    value_member = profile.get("value_member") if isinstance(profile, dict) else None
+    if (
+        not isinstance(type_member, str)
+        or not isinstance(value_member, str)
+        or not isinstance(envelope_members, list)
+        or set(envelope_members) != {type_member, value_member}
+    ):
+        raise ValueError("Kernel typed-envelope members are unavailable")
+    return type_member, value_member
+
+
+def package_structured_value_index(
     package_releases: Iterable[dict[str, Any]],
-) -> StructuredValueAuthority:
+    *,
+    kernel: dict[str, Any],
+) -> StructuredValueIndex:
     """Project structured-value rules from admitted Package Releases."""
+    typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
+        kernel
+    )
     packages = list(package_releases)
     constructors: dict[str, dict[str, Any]] = {}
     operations: dict[str, dict[str, Any]] = {}
@@ -148,18 +212,25 @@ def package_structured_value_authority(
             if key not in definitions:
                 raise ValueError("nominal definition has no exported type")
             definitions[key] = definition
-    return StructuredValueAuthority(
+    return StructuredValueIndex(
         constructors=constructors,
         operations=operations,
         types=definitions,
-        typed_envelope_profile=_typed_envelope_profile(profiles),
+        typed_envelope_profile=_typed_envelope_profile(profiles, typed_profile),
+        fixed_value_contracts=fixed_contracts,
+        value_nodes=value_nodes,
     )
 
 
-def language_structured_value_authority(
+def language_structured_value_index(
     language_bundle: dict[str, Any],
-) -> StructuredValueAuthority:
+    *,
+    kernel: dict[str, Any],
+) -> StructuredValueIndex:
     """Index structured-value rules from an admitted Language Definition Bundle."""
+    typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
+        kernel
+    )
     language = language_bundle.get("language")
     if not isinstance(language, dict):
         raise ValueError("admitted language content is unavailable")
@@ -203,20 +274,28 @@ def language_structured_value_authority(
             list[dict[str, Any]], language.get("structured_operations")
         )
     }
-    return StructuredValueAuthority(
+    return StructuredValueIndex(
         constructors=constructors,
         operations=operations,
         types=definitions,
         typed_envelope_profile=_typed_envelope_profile(
-            cast(list[dict[str, Any]], language.get("literal_typing_profiles"))
+            cast(list[dict[str, Any]], language.get("literal_typing_profiles")),
+            typed_profile,
         ),
+        fixed_value_contracts=fixed_contracts,
+        value_nodes=value_nodes,
     )
 
 
-def selected_structured_value_authority(
+def selected_structured_value_index(
     selected_semantics: dict[str, Any],
-) -> StructuredValueAuthority:
+    *,
+    kernel: dict[str, Any],
+) -> StructuredValueIndex:
     """Index only the structured-value rules carried by admitted RIR semantics."""
+    typed_profile, fixed_contracts, value_nodes = _kernel_structured_value_contracts(
+        kernel
+    )
     package_versions = {
         cast(str, package["id"]): cast(str, package["version"])
         for package in cast(list[dict[str, Any]], selected_semantics["packages"])
@@ -256,11 +335,15 @@ def selected_structured_value_authority(
             list[dict[str, Any]], selected_semantics["literal_typing_profiles"]
         )
     ]
-    return StructuredValueAuthority(
+    return StructuredValueIndex(
         constructors=constructors,
         operations=operations,
         types=definitions,
-        typed_envelope_profile=_selected_typed_envelope_profile(profiles),
+        typed_envelope_profile=_selected_typed_envelope_profile(
+            profiles, typed_profile
+        ),
+        fixed_value_contracts=fixed_contracts,
+        value_nodes=value_nodes,
     )
 
 
@@ -299,7 +382,7 @@ def nominal_type_key(
 
 
 def _nominal_key(
-    type_expression: Any, authority: StructuredValueAuthority
+    type_expression: Any, authority: StructuredValueIndex
 ) -> tuple[str, str, str] | None:
     profile = authority.typed_envelope_profile
     admission = profile.get("admission") if isinstance(profile, dict) else None
@@ -316,7 +399,7 @@ def _member_pointer(pointer: str, member: str | int) -> str:
 
 
 def _canonical_type_expression(
-    type_expression: Any, authority: StructuredValueAuthority
+    type_expression: Any, authority: StructuredValueIndex
 ) -> JsonValue:
     """Normalize equivalent nominal spellings at public value boundaries."""
     nominal = _nominal_key(type_expression, authority)
@@ -344,7 +427,7 @@ def _canonical_type_expression(
 
 def _structural_type_contract(
     type_expression: Any,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     *,
     pointer: str,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -395,7 +478,7 @@ def _structural_type_contract(
 
 
 def _structured_operation_law(
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     constructor: dict[str, Any],
     operator: str,
     *,
@@ -403,7 +486,7 @@ def _structured_operation_law(
 ) -> dict[str, Any]:
     constructor_id = constructor.get("id")
     matches = [
-        cast(dict[str, Any], operation["law"])
+        operation
         for operation in authority.operations.values()
         if operation.get("owner_constructor") == constructor_id
         and isinstance(operation.get("law"), dict)
@@ -411,14 +494,28 @@ def _structured_operation_law(
     ]
     if len(matches) != 1:
         raise StructuredValueFault("language.structured_value_type_mismatch", pointer)
-    return matches[0]
+    operation = matches[0]
+    node = authority.value_nodes.get(operator)
+    resource_charge = node.get("resource_charge") if isinstance(node, dict) else None
+    resource_bounds = operation.get("resource_bounds")
+    if (
+        not isinstance(resource_charge, dict)
+        or not isinstance(resource_charge.get("amount"), int)
+        or isinstance(resource_charge["amount"], bool)
+        or not isinstance(resource_bounds, dict)
+        or not isinstance(resource_bounds.get("max_steps"), int)
+        or isinstance(resource_bounds["max_steps"], bool)
+        or resource_charge["amount"] > resource_bounds["max_steps"]
+    ):
+        raise StructuredValueFault("language.structured_value_type_mismatch", pointer)
+    return cast(dict[str, Any], operation["law"])
 
 
 def lookup_type_contract(
     type_expression: Any,
     key: Any,
     *,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
 ) -> tuple[str, JsonValue, str]:
     """Project one declared lookup selector and result type from authority."""
     definition, constructor, rule = _structural_type_contract(
@@ -472,7 +569,7 @@ def lookup_type_contract(
 
 
 def equal_result_contract(
-    type_expression: Any, *, authority: StructuredValueAuthority
+    type_expression: Any, *, authority: StructuredValueIndex
 ) -> str:
     """Return the fixed Kernel result contract for declared structured equality."""
     _definition, constructor, _rule = _structural_type_contract(
@@ -490,7 +587,7 @@ def equal_result_contract(
 def _validate(
     type_expression: Any,
     value: Any,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     budget: _Budget,
     pointer: str,
 ) -> JsonValue:
@@ -656,35 +753,41 @@ def _validate(
 def admit_typed_value(
     envelope: Any,
     *,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     resource_limit: int,
 ) -> dict[str, JsonValue]:
-    """Admit and normalize one ``{type, value}`` envelope."""
+    """Admit and normalize one authority-declared typed envelope."""
+    type_member, value_member = typed_envelope_members(authority)
+    profile = cast(dict[str, Any], authority.typed_envelope_profile)
+    envelope_members = cast(list[str], profile["admission"]["envelope_members"])
     if (
         not isinstance(envelope, dict)
-        or set(envelope) != {"type", "value"}
+        or set(envelope) != set(envelope_members)
         or not isinstance(resource_limit, int)
         or isinstance(resource_limit, bool)
         or resource_limit < 1
     ):
         raise StructuredValueFault("language.structured_value_type_mismatch", "")
     return {
-        "type": _canonical_type_expression(envelope["type"], authority),
-        "value": _validate(
-            envelope["type"],
-            envelope["value"],
+        type_member: _canonical_type_expression(envelope[type_member], authority),
+        value_member: _validate(
+            envelope[type_member],
+            envelope[value_member],
             authority,
             _Budget(resource_limit),
-            "/value",
+            _member_pointer("", value_member),
         ),
     }
 
 
-def lookup_selector_kind(envelope: Any, *, authority: StructuredValueAuthority) -> str:
+def lookup_selector_kind(envelope: Any, *, authority: StructuredValueIndex) -> str:
     """Return the authority-owned selector mode without consulting local names."""
-    if not isinstance(envelope, dict) or set(envelope) != {"type", "value"}:
+    type_member, _value_member = typed_envelope_members(authority)
+    profile = cast(dict[str, Any], authority.typed_envelope_profile)
+    envelope_members = cast(list[str], profile["admission"]["envelope_members"])
+    if not isinstance(envelope, dict) or set(envelope) != set(envelope_members):
         raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
-    type_expression = envelope["type"]
+    type_expression = envelope[type_member]
     _definition, constructor, _rule = _structural_type_contract(
         type_expression, authority, pointer="/type"
     )
@@ -701,19 +804,20 @@ def lookup_typed_value(
     envelope: Any,
     key: Any,
     *,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     resource_limit: int,
 ) -> dict[str, JsonValue]:
     """Apply the Kernel bounded lookup law to a typed Record or List."""
     admitted = admit_typed_value(
         envelope, authority=authority, resource_limit=resource_limit
     )
-    type_expression: Any = admitted["type"]
+    type_member, value_member = typed_envelope_members(authority)
+    type_expression: Any = admitted[type_member]
     type_expression, _constructor, rule = _structural_type_contract(
         type_expression, authority, pointer="/type"
     )
     selector, result_type, refusal_signal = lookup_type_contract(
-        admitted["type"], key, authority=authority
+        admitted[type_member], key, authority=authority
     )
     if refusal_signal != "structured-lookup-out-of-range":
         raise StructuredValueFault("language.structured_value_type_mismatch", "/type")
@@ -731,16 +835,16 @@ def lookup_typed_value(
         if field is None:
             raise StructuredValueFault("runtime.structured_lookup_out_of_range", "/key")
         return {
-            "type": result_type,
-            "value": cast(dict[str, Any], admitted["value"])[key],
+            type_member: result_type,
+            value_member: cast(dict[str, Any], admitted[value_member])[key],
         }
     if selector == "local-index" and isinstance(key, int) and not isinstance(key, bool):
-        value = cast(list[JsonValue], admitted["value"])
+        value = cast(list[JsonValue], admitted[value_member])
         if not 0 <= key < len(value):
             raise StructuredValueFault("runtime.structured_lookup_out_of_range", "/key")
         return {
-            "type": result_type,
-            "value": value[key],
+            type_member: result_type,
+            value_member: value[key],
         }
     raise StructuredValueFault("language.structured_value_type_mismatch", "/key")
 
@@ -749,7 +853,7 @@ def equal_typed_values(
     left: Any,
     right: Any,
     *,
-    authority: StructuredValueAuthority,
+    authority: StructuredValueIndex,
     resource_limit: int,
 ) -> dict[str, JsonValue]:
     """Apply exact-type canonical equality to two admitted typed values."""
@@ -759,23 +863,37 @@ def equal_typed_values(
     admitted_right = admit_typed_value(
         right, authority=authority, resource_limit=resource_limit
     )
-    if canonical_bytes(admitted_left["type"]) != canonical_bytes(
-        admitted_right["type"]
+    type_member, value_member = typed_envelope_members(authority)
+    if canonical_bytes(admitted_left[type_member]) != canonical_bytes(
+        admitted_right[type_member]
     ):
         raise StructuredValueFault(
             "language.structured_value_type_mismatch", "/right/type"
         )
+    equality_node = authority.value_nodes["canonical-equal"]
+    result = cast(dict[str, Any], equality_node["result"])
+    typing = result.get("typing")
+    kernel_result_contract = (
+        typing.get("contract") if isinstance(typing, dict) else None
+    )
     if (
-        equal_result_contract(admitted_left["type"], authority=authority)
-        != "kernel-boolean"
+        not isinstance(kernel_result_contract, str)
+        or equal_result_contract(admitted_left[type_member], authority=authority)
+        != kernel_result_contract
+        or kernel_result_contract not in authority.fixed_value_contracts
     ):
         raise StructuredValueFault(
             "language.structured_value_type_mismatch", "/left/type"
         )
+    result_type = authority.fixed_value_contracts[kernel_result_contract].get("type")
+    if not isinstance(result_type, dict):
+        raise StructuredValueFault(
+            "language.structured_value_type_mismatch", "/left/type"
+        )
     return {
-        "type": {"id": "Boolean", "package": "kernel", "version": "2.0.0"},
-        "value": canonical_bytes(admitted_left["value"])
-        == canonical_bytes(admitted_right["value"]),
+        type_member: cast(JsonValue, result_type),
+        value_member: canonical_bytes(admitted_left[value_member])
+        == canonical_bytes(admitted_right[value_member]),
     }
 
 
@@ -783,11 +901,12 @@ def evaluate_structured_value_vector(
     vector: dict[str, Any],
     *,
     nominal_types: Iterable[dict[str, Any]],
+    kernel: dict[str, Any],
     resource_limit: int,
 ) -> dict[str, JsonValue]:
     """Execute one authority-owned structured-value conformance vector."""
     inp = cast(dict[str, Any], vector["input"])
-    authority = package_structured_value_authority(nominal_types)
+    authority = package_structured_value_index(nominal_types, kernel=kernel)
     requested_limit = inp.get("limit")
     limit = (
         min(resource_limit, requested_limit)
@@ -826,6 +945,6 @@ def evaluate_structured_value_vector(
         "code": None,
         "outcome": "admitted",
         "pointer": "",
-        "type": result["type"],
-        "value": result["value"],
+        "type": result[typed_envelope_members(authority)[0]],
+        "value": result[typed_envelope_members(authority)[1]],
     }

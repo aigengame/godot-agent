@@ -762,17 +762,19 @@ def test_structured_value_vectors_run_in_production_and_independent_consumers(
         vector["id"] for vector in vectors
     }
     nominal_types = authority["package_releases"]
-    limit = authority["language_bundle"]["resources"]["max_runtime_projection_steps"]
+    limit = authority["language_bundle"]["resources"]["max_rule_match_steps"]
     for vector in vectors:
         assert (
             evaluate_structured_value_vector(
                 vector,
                 nominal_types=nominal_types,
+                kernel=authority["kernel"],
                 resource_limit=limit,
             )
             == _consumer_b_evaluate_structured_value_vector(
                 vector,
                 nominal_types=nominal_types,
+                kernel=authority["kernel"],
                 resource_limit=limit,
             )
             == vector["expect"]
@@ -794,11 +796,13 @@ def test_structured_value_vectors_run_in_production_and_independent_consumers(
         evaluate_structured_value_vector(
             reordered_record,
             nominal_types=nominal_types,
+            kernel=authority["kernel"],
             resource_limit=limit,
         )
         == _consumer_b_evaluate_structured_value_vector(
             reordered_record,
             nominal_types=nominal_types,
+            kernel=authority["kernel"],
             resource_limit=limit,
         )
         == reordered_record["expect"]
@@ -819,11 +823,13 @@ def test_structured_value_vectors_run_in_production_and_independent_consumers(
             evaluate_structured_value_vector(
                 extra_record,
                 nominal_types=nominal_types,
+                kernel=authority["kernel"],
                 resource_limit=limit,
             )
             == _consumer_b_evaluate_structured_value_vector(
                 extra_record,
                 nominal_types=nominal_types,
+                kernel=authority["kernel"],
                 resource_limit=limit,
             )
             == expected_refusal

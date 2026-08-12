@@ -511,10 +511,11 @@ An independently exported LDB definition that lets one package map a source-lite
 value shape to an exact type/value contract. Numeric profiles own bounded integer ranges and their
 representation, kind, unit, domain, and Numeric policy. A structured profile admits an explicit
 typed value envelope and validates its value against the referenced nominal definition. The
-exporting package must own that exact Type release; the profile must match at least one Operation
-formal value contract; and overlapping profiles for the same match contract are refused. Selected
-profiles enter RIR runtime semantics, while the Symbol assignment policy remains limited to Symbol
-roles, access, initialization ownership, and Experiment cardinality (bADR-0016/0022).
+exporting package must own that exact Type release. The profile must close against the LDB value
+inventories and match at least one Operation formal value contract. Overlapping profiles for the
+same match contract are refused. Selected profiles enter RIR runtime semantics, while the Symbol
+assignment policy remains limited to Symbol roles, access, initialization ownership, and
+Experiment cardinality (bADR-0016/0022).
 _Avoid_: host literal default, lowering-owned literal table, Symbol assignment rule
 
 **Operation call site**:

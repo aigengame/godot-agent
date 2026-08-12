@@ -6,14 +6,14 @@ from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
-    language_structured_value_authority,
+    language_structured_value_index,
     lookup_typed_value,
 )
 
 
 def _authority():
-    _kernel, language_bundle = packaged_authority_context().mutable_pair()
-    return language_structured_value_authority(language_bundle)
+    kernel, language_bundle = packaged_authority_context().mutable_pair()
+    return language_structured_value_index(language_bundle, kernel=kernel)
 
 
 def test_tagged_nominal_reference_is_canonicalized_by_the_selected_profile():
@@ -87,3 +87,31 @@ def test_record_lookup_returns_its_declared_fixed_nominal_field_type():
         },
         "value": 4,
     }
+
+
+def test_record_lookup_consumes_the_declared_structured_operation_bound():
+    index = _authority()
+    operation = index.operations["standard.schema.record-field-v1"]
+    operation["resource_bounds"]["max_steps"] = 0
+
+    with pytest.raises(StructuredValueFault) as fault:
+        lookup_typed_value(
+            {
+                "type": {
+                    "id": "SelectionResult",
+                    "package": "standard.conformance.structured",
+                    "version": "1.0.0",
+                },
+                "value": {
+                    "kind": "primary",
+                    "rank": 4,
+                    "selected": {"key": "candidate_a"},
+                },
+            },
+            "rank",
+            authority=index,
+            resource_limit=100,
+        )
+
+    assert fault.value.code == "language.structured_value_type_mismatch"
+    assert fault.value.pointer == "/type"

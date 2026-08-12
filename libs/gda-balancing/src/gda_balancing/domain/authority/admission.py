@@ -13,11 +13,10 @@ import jsonschema
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.structured_values import (
-    TYPED_ENVELOPE_ADMISSION_LAW,
-    StructuredValueAuthority,
+    StructuredValueIndex,
     StructuredValueFault,
     equal_result_contract,
-    language_structured_value_authority,
+    language_structured_value_index,
     lookup_type_contract,
     nominal_type_key,
 )
@@ -37,8 +36,8 @@ from gda_balancing.domain.authority.package_validation import (
 )
 from gda_balancing.domain.authority.runtime_validation import (
     _operation_result_source_shape_is_closed,
-    _operation_value_contract_matches,
     _runtime_authority_is_closed,
+    operation_value_contract_matches,
 )
 from gda_balancing.domain.authority.template_validation import (
     _template_admission_profiles_are_closed,
@@ -3014,7 +3013,17 @@ def _literal_typing_profiles_are_closed(
         "formal_closure": "at-least-one-exact-operation-value-contract",
         "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
         "typed_envelope_profile": {
-            "admission": TYPED_ENVELOPE_ADMISSION_LAW,
+            "admission": {
+                "envelope_members": ["type", "value"],
+                "nominal_type_reference": {
+                    "coordinate_members": ["package", "version", "id"],
+                    "optional_kind_member": "kind",
+                    "optional_kind_value": "nominal",
+                },
+                "operator": "recursive-typed-envelope",
+                "resource_charge_per_node": 1,
+                "type_relation": "exact-selected-type",
+            },
             "id": "standard.schema.nominal-structured",
             "required_constructors": [
                 "standard.schema.enum",
@@ -3173,6 +3182,7 @@ def _literal_matches_operation_contract(
     value: Any,
     formal: dict[str, Any],
     literal_profiles: Any,
+    typed_envelope_contract: Any,
 ) -> bool:
     return len(
         matches := [
@@ -3180,8 +3190,9 @@ def _literal_matches_operation_contract(
             for contract in _literal_operation_contracts(
                 value,
                 literal_profiles,
+                typed_envelope_contract,
             )
-            if _operation_value_contract_matches(contract, formal)
+            if operation_value_contract_matches(contract, formal)
         ]
     ) == 1 and bool(matches)
 
@@ -3189,11 +3200,37 @@ def _literal_matches_operation_contract(
 def _literal_operation_contracts(
     value: Any,
     literal_profiles: Any,
+    typed_envelope_contract: Any,
 ) -> tuple[dict[str, Any], ...]:
     if not isinstance(literal_profiles, list):
         return ()
-    if isinstance(value, dict) and set(value) == {"type", "value"}:
-        type_expression = value["type"]
+    admission = (
+        typed_envelope_contract.get("admission")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    envelope_members = (
+        admission.get("envelope_members") if isinstance(admission, dict) else None
+    )
+    type_member = (
+        typed_envelope_contract.get("type_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    value_member = (
+        typed_envelope_contract.get("value_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    if (
+        isinstance(value, dict)
+        and isinstance(envelope_members, list)
+        and isinstance(type_member, str)
+        and isinstance(value_member, str)
+        and set(envelope_members) == {type_member, value_member}
+        and set(value) == set(envelope_members)
+    ):
+        type_expression = value[type_member]
         typed_profiles = [
             profile
             for profile in literal_profiles
@@ -3274,14 +3311,14 @@ def _operation_contract_for_structured_type(
             }
         return {"type": exact_type, "value_kind": "nominal-structured"}
     if type_expression.get("kind") in {"list", "ref"}:
-        return {"type": type_expression, "value_kind": "structured"}
+        return {"type": type_expression, "value_kind": "nominal-structured"}
     return None
 
 
 def _declared_lookup_operation_contract(
     value_contract: dict[str, Any],
     key: Any,
-    structured_authority: StructuredValueAuthority,
+    structured_authority: StructuredValueIndex,
     literal_profiles: Any,
     key_candidates: tuple[dict[str, Any], ...] | None,
     runtime_numeric_policies: list[str],
@@ -3307,7 +3344,7 @@ def _declared_lookup_operation_contract(
         )
         if not key_candidates or any(
             not any(
-                _operation_value_contract_matches(candidate, profile)
+                operation_value_contract_matches(candidate, profile)
                 for profile in integer_profiles
             )
             for candidate in key_candidates
@@ -3319,7 +3356,7 @@ def _declared_lookup_operation_contract(
 
 def _declared_equal_result_contract(
     value_contract: dict[str, Any],
-    structured_authority: StructuredValueAuthority,
+    structured_authority: StructuredValueIndex,
 ) -> str | None:
     try:
         return equal_result_contract(
@@ -3435,7 +3472,9 @@ def _operation_composition_diagnostic_subjects(
     if len(node_definitions) != len(runtime_nodes):
         return ("kernel.meta-format.runtime-program.nodes",)
     try:
-        structured_authority = language_structured_value_authority(language_bundle)
+        structured_authority = language_structured_value_index(
+            language_bundle, kernel=kernel
+        )
     except (KeyError, TypeError, ValueError):
         return ("language.structured-operations",)
     reasons_by_signal: dict[str, list[str]] = {}
@@ -3540,7 +3579,7 @@ def _operation_composition_diagnostic_subjects(
                 for candidate in candidate_sets[0]
                 if all(
                     any(
-                        _operation_value_contract_matches(candidate, other)
+                        operation_value_contract_matches(candidate, other)
                         for other in candidates
                     )
                     for candidates in candidate_sets[1:]
@@ -3635,7 +3674,7 @@ def _operation_composition_diagnostic_subjects(
                                     candidate
                                     for candidate in candidates
                                     if any(
-                                        _operation_value_contract_matches(
+                                        operation_value_contract_matches(
                                             candidate,
                                             common,
                                         )
@@ -3653,7 +3692,7 @@ def _operation_composition_diagnostic_subjects(
                             narrowed = tuple(
                                 candidate
                                 for candidate in candidates
-                                if _operation_value_contract_matches(
+                                if operation_value_contract_matches(
                                     candidate,
                                     expected,
                                 )
@@ -3732,7 +3771,7 @@ def _operation_composition_diagnostic_subjects(
                             target_variant["kind"] == "port"
                             and (
                                 target_value not in parent_ports
-                                or not _operation_value_contract_matches(
+                                or not operation_value_contract_matches(
                                     parent_ports[target_value],
                                     fixed_value_contracts[
                                         target_variant["value_contract"]
@@ -3820,6 +3859,7 @@ def _operation_composition_diagnostic_subjects(
                             _literal_operation_contracts(
                                 instruction.get(member),
                                 literal_profiles,
+                                literal_contract["typed_envelope_profile"],
                             )
                             for member in cast(list[str], typing["members"])
                         ]
@@ -3874,7 +3914,7 @@ def _operation_composition_diagnostic_subjects(
                     )
                     if (
                         actual is None
-                        or not _operation_value_contract_matches(actual, formal)
+                        or not operation_value_contract_matches(actual, formal)
                         or (
                             formal["access"] in {"read-write", "write"}
                             and actual["access"] not in {"read-write", "write"}
@@ -3897,7 +3937,7 @@ def _operation_composition_diagnostic_subjects(
                             [
                                 actual
                                 for actual in actual_candidates
-                                if _operation_value_contract_matches(actual, formal)
+                                if operation_value_contract_matches(actual, formal)
                             ]
                         )
                         != 1
@@ -3913,6 +3953,7 @@ def _operation_composition_diagnostic_subjects(
                         literal,
                         formal,
                         literal_profiles,
+                        literal_contract["typed_envelope_profile"],
                     ):
                         refuse(owner, operation, site, "arguments")
                         return None
@@ -3944,7 +3985,7 @@ def _operation_composition_diagnostic_subjects(
                 lexical_environment[name] = (child_result,)
                 local_producers[name] = 1
             elif result.get("kind") == "operation-result":
-                if not _operation_value_contract_matches(
+                if not operation_value_contract_matches(
                     cast(dict[str, Any], child["result"]),
                     cast(dict[str, Any], operation["result"]),
                 ):
@@ -4041,7 +4082,7 @@ def _operation_composition_diagnostic_subjects(
             or (
                 source_kind == "port"
                 and isinstance(parent_ports.get(source.get("name")), dict)
-                and _operation_value_contract_matches(
+                and operation_value_contract_matches(
                     cast(dict[str, Any], parent_ports[source["name"]]),
                     result_contract,
                 )
@@ -4058,7 +4099,7 @@ def _operation_composition_diagnostic_subjects(
                             tuple[dict[str, Any], ...],
                             local_result_candidates,
                         )
-                        if _operation_value_contract_matches(
+                        if operation_value_contract_matches(
                             candidate,
                             result_contract,
                         )

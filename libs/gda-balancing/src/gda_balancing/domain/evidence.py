@@ -54,7 +54,7 @@ from gda_balancing.domain.runtime.execution import (
 )
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
-    selected_structured_value_authority,
+    selected_structured_value_index,
 )
 
 
@@ -678,8 +678,9 @@ def _replayed_event_evidence(
             return None
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     node_contracts = _runtime_nodes(checked)
-    structured_authority = selected_structured_value_authority(
-        cast(dict[str, Any], checked.rir["selected_semantics"])
+    structured_authority = selected_structured_value_index(
+        cast(dict[str, Any], checked.rir["selected_semantics"]),
+        kernel=checked.kernel,
     )
     structured_resource_limit = cast(
         int, checked.language_bundle["resources"]["max_rule_match_steps"]

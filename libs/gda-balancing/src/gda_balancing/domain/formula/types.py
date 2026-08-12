@@ -184,13 +184,35 @@ def literal_context_contract(
         for row in selected
         if isinstance(row, dict) and isinstance(row.get("definition"), dict)
     ]
+    typed_envelope_contract = literal_contract.get("typed_envelope_profile")
+    admission = (
+        typed_envelope_contract.get("admission")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    envelope_members = (
+        admission.get("envelope_members") if isinstance(admission, dict) else None
+    )
+    type_member = (
+        typed_envelope_contract.get("type_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    value_member = (
+        typed_envelope_contract.get("value_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
     if (
         isinstance(value, dict)
-        and set(value) == {"type", "value"}
-        and isinstance(value.get("type"), dict)
+        and isinstance(envelope_members, list)
+        and isinstance(type_member, str)
+        and isinstance(value_member, str)
+        and set(envelope_members) == {type_member, value_member}
+        and set(value) == set(envelope_members)
+        and isinstance(value.get(type_member), dict)
         and isinstance(formal.get("type"), dict)
     ):
-        typed_envelope_contract = literal_contract.get("typed_envelope_profile")
         matches = [
             profile
             for profile in profiles
@@ -200,7 +222,7 @@ def literal_context_contract(
             and profile.get("source_kind") == "typed-envelope"
             and profile.get("value_kind") == typed_envelope_contract.get("value_kind")
             and formal.get("value_kind") == profile.get("value_kind")
-            and canonical_bytes(cast(JsonValue, value["type"]))
+            and canonical_bytes(cast(JsonValue, value[type_member]))
             == canonical_bytes(cast(JsonValue, formal.get("type")))
         ]
         if len(matches) != 1:
@@ -208,7 +230,7 @@ def literal_context_contract(
         profile = cast(dict[str, JsonValue], matches[0])
         context = {
             **profile,
-            "type": cast(JsonValue, value["type"]),
+            "type": cast(JsonValue, value[type_member]),
         }
         return {
             member: context[member] for member in _STRUCTURED_LITERAL_CONTEXT_MEMBERS
