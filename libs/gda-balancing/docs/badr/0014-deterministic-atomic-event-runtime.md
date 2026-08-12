@@ -53,7 +53,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > Operation body. It reads one already produced Kernel Boolean. False charges only the guard step,
 > skips the body without RNG, writes, or effects, and continues the enclosing body. True executes
 > its non-nested body in authored order and, unless a node refuses, completes the Operation with one
-> declared outcome. The Kernel `require` node compares an already produced Kernel Boolean with its
+> declared outcome. Admission rejects body nodes and `invoke` mappings that can complete or propagate
+> another outcome, so only a typed refusal can stop the selected body early. The Kernel `require` node
+> compares an already produced Kernel Boolean with its
 > Boolean `expected` member. A mismatch raises one Operation-declared, LDB-resolved typed refusal;
 > a match continues. The refusal terminates the run and reuses the existing Event-refusal boundary:
 > state writes, RNG continuation, buffered child Events, Metrics, and Snapshot publication are

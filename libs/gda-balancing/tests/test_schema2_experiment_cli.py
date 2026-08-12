@@ -88,7 +88,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
             "type": {
                 "id": "Candidate",
                 "package": "standard.conformance.structured",
-                "version": "1.1.0",
+                "version": "2.0.0",
             },
             "value": {"key": {"key": "candidate_a"}, "kind": "primary"},
         },
@@ -113,7 +113,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "1.1.0",
+            "version": "2.0.0",
         },
         "value": "primary",
     }
@@ -140,7 +140,7 @@ def test_list_lookup_requires_the_statically_resolved_index_local():
                     "id": "Candidate",
                     "kind": "nominal",
                     "package": "standard.conformance.structured",
-                    "version": "1.1.0",
+                    "version": "2.0.0",
                 },
                 "kind": "list",
                 "maximum_length": 16,
@@ -6098,7 +6098,7 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     assert {vector["id"] for vector in vectors} == {
         "structured.select.success",
         "structured.select.empty-outcome",
-        "structured.select.empty-refusal",
+        "structured.select.mismatch-refusal",
     }
 
     for vector in vectors:

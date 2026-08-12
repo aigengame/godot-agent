@@ -89,9 +89,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 > `kernel-boolean`. Its fixed refusal set is empty, `result.kind=outcome`, its resource charge is one
 > `event-steps` unit, and `semantics.operator=guarded-outcome-block`. The node is allowed only in an
 > Operation's top-level body and produces no local. Its `body` is a possibly empty ordered list that
-> uses the closed Runtime-node grammar except `guard-block`; `outcome` resolves to one outcome in the
-> enclosing Operation. False skips the body and continues the outer authored sequence. True executes
-> the body in authored order and, unless a node refuses, completes the Operation with `outcome`.
+> uses the closed Runtime-node grammar except `guard-block`. A body node cannot complete an outcome,
+> and an `invoke` outcome mapping cannot propagate an outcome. Thus, only a typed refusal can stop the
+> body early. `outcome` resolves to one outcome in the enclosing Operation. False skips the body and
+> continues the outer authored sequence. True executes the body in authored order and, unless a node
+> refuses, completes the Operation with `outcome`.
 > The guard costs one step. A false condition charges no body steps, RNG, writes, or effects. A true
 > condition adds the actual body charge. Static resource closure includes the guard plus the complete
 > admitted body bound. Admission closes the body's effects and refusals, the terminal outcome, and
@@ -104,7 +106,7 @@ structured formal judgments, and an honest proof/conformance boundary.
 > writable operands and does not define instruction phases.
 
 > These primitives contain no reward, fallback, package, field, or genre dispatch. The neutral
-> `standard.conformance.structured@1.1.0` release proves them before mechanic packages consume
+> `standard.conformance.structured@2.0.0` release proves them before mechanic packages consume
 > them. Standard Schema 2.0 remains provisional until Gate 5 and Gate 6 complete and a maintainer
 > records `Kernel baseline frozen` in PRD #534. The demonstrated failure therefore reopens the
 > architecture gate and replaces the exact provisional Kernel identity. All affected authority and
@@ -497,7 +499,7 @@ structured formal judgments, and an honest proof/conformance boundary.
 - The 2026-08-11 structured-value amendment replaces the integer-only literal path with typed
   integer and structured envelopes. Its #640 follow-up adds generic List emptiness, typed
   requirements, single-level guard blocks, and structured Operation execution evidence through
-  `standard.schema@2.4.0` and the neutral `standard.conformance.structured@1.1.0` package. Neither
+  `standard.schema@2.4.0` and the neutral `standard.conformance.structured@2.0.0` package. Neither
   amendment adds game or reward semantics.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.

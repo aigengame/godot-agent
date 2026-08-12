@@ -4,7 +4,7 @@
   },
   "id": "standard.structured-selection",
   "kernel_identity": "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64",
-  "language_bundle_identity": "sha256:ff7722acc2f5aa19df5097ed80dc1f77a5182b51aaf8f544990d933ebc43008a",
+  "language_bundle_identity": "sha256:42199dad97ee9d0e2cb903b405280264a3682e850e9a41f525afac8119ddb74c",
   "metrics": [
     {
       "aggregation": "single",
@@ -33,11 +33,11 @@
     }
   ],
   "model": {
-    "source_identity": "sha256:d5212d3aae305d25adb6b307e365af33a240f593970a7dd4d7d6a6055f8de393",
-    "build_receipt_identity": "sha256:a1708fdf71a1ffa95924476fcb711517293bfb9e152a650ed33414b96a5443f5",
-    "resolved_model_identity": "sha256:cad35e114d4b6bfa21e8b065770290be0e1f5498accac555ecbef340364cdb81",
-    "package_lock_identity": "sha256:bd3bfb7784ecdc05219a002b377d3658fd610abedbe6a4bd0236dc8fa24fde65",
-    "rir_identity": "sha256:36b6e3389cb89fdccb5524d9ffa8f70afc2a1c991a7ce3645fdb16a50524244a"
+    "source_identity": "sha256:0d52ba5e64c754f665da82473d24a51744930146349a13c9cbc691d321cddf32",
+    "build_receipt_identity": "sha256:88c6b99be6353fdc31d5b775b716e04e909ab685c670aad2e22bff2d2ffa95c1",
+    "resolved_model_identity": "sha256:6d578a8069fa316f56b3121531abf3d1be8d2bb59e29f81852b7593d741f870b",
+    "package_lock_identity": "sha256:29112da4e1fa9d31969f27e211dd3c5952a6495b26b20dec51e9f51de7aa7d50",
+    "rir_identity": "sha256:7e91cfd40f79940a6a8dfae83bc21b85d065a3eef25a8918c503556923f40066"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -86,7 +86,7 @@
             "type": {
               "id": "SelectionState",
               "package": "standard.conformance.structured",
-              "version": "1.1.0"
+              "version": "2.0.0"
             },
             "value": {
               "candidates": [
@@ -135,7 +135,7 @@
             "type": {
               "id": "SelectionResult",
               "package": "standard.conformance.structured",
-              "version": "1.1.0"
+              "version": "2.0.0"
             },
             "value": {
               "kind": "secondary",

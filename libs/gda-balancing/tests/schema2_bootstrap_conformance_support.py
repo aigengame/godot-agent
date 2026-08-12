@@ -7539,6 +7539,12 @@ def _consumer_b_operation_composition_subjects(
         for instruction_index, instruction in enumerate(body):
             if not isinstance(instruction, dict):
                 return None
+            node = node_definitions.get(instruction.get("node"))
+            if not isinstance(node, dict) or set(instruction) != set(
+                node["required_members"]
+            ):
+                found.add(subject(coordinate, str(instruction_index), "members"))
+                return None
             target = instruction.get("target")
             if instruction.get("node") != "invoke":
                 if (
@@ -7547,10 +7553,6 @@ def _consumer_b_operation_composition_subjects(
                     and instruction.get("outcome") in parent_successes
                 ):
                     found.add(subject(coordinate, None, "result.source"))
-                    return None
-                node = node_definitions.get(instruction.get("node"))
-                if not isinstance(node, dict):
-                    found.add(subject(coordinate, str(instruction_index), "node"))
                     return None
                 for constraint in node.get("operand_constraints", []):
                     if not isinstance(constraint, dict):
@@ -7686,6 +7688,12 @@ def _consumer_b_operation_composition_subjects(
                         or not isinstance(guard_body, list)
                         or not all(isinstance(row, dict) for row in guard_body)
                         or any(row.get("node") == "guard-block" for row in guard_body)
+                        or any(
+                            isinstance(body_node, dict)
+                            and body_node.get("result", {}).get("kind") == "outcome"
+                            for row in guard_body
+                            if (body_node := node_definitions.get(row.get("node")))
+                        )
                         or guarded_outcome not in parent_outcomes
                     ):
                         found.add(subject(coordinate, str(instruction_index), "body"))
@@ -7996,6 +8004,13 @@ def _consumer_b_operation_composition_subjects(
             if (
                 not isinstance(mappings, list)
                 or [row.get("outcome") for row in mappings] != child_outcomes
+                or (
+                    coordinate in guard_body_coordinates
+                    and any(
+                        row.get("action", {}).get("kind") == "propagate"
+                        for row in mappings
+                    )
+                )
                 or any(
                     row.get("action", {}).get("kind") == "propagate"
                     and row["action"].get("outcome") not in parent_outcomes

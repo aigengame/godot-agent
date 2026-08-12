@@ -16,7 +16,7 @@ Event trace + committed Snapshots + numeric Metric
 ```
 
 `standard.schema@2.4.0` owns the generic structured-value rules. The
-`standard.conformance.structured@1.1.0` Package Release owns the nominal `CandidateKind`,
+`standard.conformance.structured@2.0.0` Package Release owns the nominal `CandidateKind`,
 `CandidateRef`, `Candidate`, `SelectionResult`, and `SelectionState` definitions. It also owns the
 bounded selection Operation. Host code does not define these types, Ref keys, lookup behavior,
 equality, or selection policy.

@@ -3553,6 +3553,12 @@ def _operation_composition_diagnostic_subjects(
             cast(list[dict[str, Any]], operation["body"])
         ):
             charge += 1
+            node = node_definitions.get(instruction.get("node"))
+            if not isinstance(node, dict) or set(instruction) != set(
+                node["required_members"]
+            ):
+                refuse(owner, operation, str(instruction_index), "members")
+                return None
             target = instruction.get("target")
             if instruction.get("node") != "invoke":
                 if (
@@ -3563,10 +3569,6 @@ def _operation_composition_diagnostic_subjects(
                     found.add(
                         f"language.operations.{owner}.{operation['id']}.result.source"
                     )
-                    return None
-                node = node_definitions.get(instruction.get("node"))
-                if not isinstance(node, dict):
-                    refuse(owner, operation, str(instruction_index), "node")
                     return None
                 for constraint in cast(
                     list[dict[str, Any]], node["operand_constraints"]
@@ -3743,6 +3745,12 @@ def _operation_composition_diagnostic_subjects(
                         or not isinstance(body, list)
                         or not all(isinstance(item, dict) for item in body)
                         or any(item.get("node") == "guard-block" for item in body)
+                        or any(
+                            isinstance(body_node, dict)
+                            and body_node.get("result", {}).get("kind") == "outcome"
+                            for item in body
+                            if (body_node := node_definitions.get(item.get("node")))
+                        )
                         or guarded_outcome not in parent_outcomes
                     ):
                         refuse(
@@ -4069,6 +4077,13 @@ def _operation_composition_diagnostic_subjects(
             if (
                 not isinstance(outcomes, list)
                 or [item.get("outcome") for item in outcomes] != child_outcomes
+                or (
+                    key in guard_body_keys
+                    and any(
+                        item.get("action", {}).get("kind") == "propagate"
+                        for item in outcomes
+                    )
+                )
                 or any(
                     item.get("action", {}).get("kind") == "propagate"
                     and item["action"].get("outcome") not in parent_outcomes

@@ -75,7 +75,7 @@ def test_two_consumers_require_declared_record_lookup_semantics(
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.standard.conformance.structured@1.1.0."
+        "language.operations.standard.conformance.structured@2.0.0."
         "standard.conformance.structured.select-v1.body.0."
         f"{diagnostic_member}",
     ) in first["diagnostics"]
@@ -89,6 +89,9 @@ def test_two_consumers_require_declared_record_lookup_semantics(
         "nested-guard",
         "undeclared-outcome",
         "guard-unbound-body-reference",
+        "guard-body-unknown-member",
+        "guard-body-early-outcome",
+        "guard-body-propagated-outcome",
         "undeclared-require-reason",
         "insufficient-resource-bound",
     ),
@@ -114,6 +117,49 @@ def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
         guard["outcome"] = "unknown-outcome"
     elif mutation == "guard-unbound-body-reference":
         guard["body"] = [{"node": "copy", "target": "copied", "value": "missing-value"}]
+    elif mutation == "guard-body-unknown-member":
+        guard["body"][0]["unexpected"] = True
+    elif mutation == "guard-body-early-outcome":
+        guard["body"] = [
+            {
+                "node": "precondition-greater-than-or-equal",
+                "left": "selection_metric",
+                "right": "selection_metric",
+                "outcome": "selected",
+            }
+        ]
+    elif mutation == "guard-body-propagated-outcome":
+        guard["body"] = [
+            {
+                "node": "invoke",
+                "site": "guarded-spend",
+                "operation": {
+                    "package": "game.resource",
+                    "version": "1.0.1",
+                    "id": "game.resource.spend-v1",
+                },
+                "arguments": [
+                    {
+                        "port": "resource",
+                        "operand": {"kind": "port", "port": "selection_metric"},
+                    },
+                    {"port": "cost", "operand": {"kind": "literal", "literal": 1}},
+                ],
+                "result": {"kind": "discard"},
+                "outcomes": [
+                    {"outcome": "spent", "action": {"kind": "continue"}},
+                    {
+                        "outcome": "insufficient-resource",
+                        "action": {
+                            "kind": "propagate",
+                            "outcome": "candidate-mismatch",
+                        },
+                    },
+                ],
+            }
+        ]
+        operation["resource_bounds"]["max_steps"] += 8
+        _owned_vector(ldb, "structured.select.resource-bound")["expect"] += 8
     elif mutation == "undeclared-require-reason":
         requirement["reason"] = "example.reason.not-declared"
     else:

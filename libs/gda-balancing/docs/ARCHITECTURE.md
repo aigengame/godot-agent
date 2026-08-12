@@ -707,10 +707,12 @@ and a single-level guard block. `is-empty` returns Kernel Boolean for one exact 
 continues execution; inequality raises one Operation-declared refusal. `guard-block` also consumes
 an already produced Kernel Boolean. False skips its body and continues the enclosing body. True
 executes the selected body in authored order and completes with one declared outcome unless an
-earlier node refuses. The node is allowed only in the top-level Operation body, produces no local,
-and cannot contain another guard block. It adds its own step and the selected body's actual charge;
-static closure includes the guard and the complete body bound. These nodes add no second arm,
-label jump, loop, Runtime phase, package dispatch, or evaluator callback.
+earlier node refuses. Admission rejects body nodes and `invoke` mappings that can complete or
+propagate an outcome, so only a typed refusal can stop the selected body early. The node is allowed
+only in the top-level Operation body, produces no local, and cannot contain another guard block. It
+adds its own step and the selected body's actual charge; static closure includes the guard and the
+complete body bound. These nodes add no second arm, label jump, loop, Runtime phase, package
+dispatch, or evaluator callback.
 
 Runtime executes each Operation body and selected guard body in authored array order. Node families
 do not reorder the body. The replacement Kernel removes the unused

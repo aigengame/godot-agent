@@ -693,7 +693,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     }
     assert constructors["standard.schema.ref"] == ["target", "key_pattern"]
 
-    conformance = releases[("standard.conformance.structured", "1.1.0")]
+    conformance = releases[("standard.conformance.structured", "2.0.0")]
     assert conformance["dependencies"]["required"] == [
         {"id": "core.quantity", "version": "2.1.0"},
         {"id": "standard.runtime", "version": "1.1.0"},
