@@ -1350,7 +1350,13 @@ def _execute_value_instruction(
         right = variables[cast(str, instruction["right"])]
         left_integer = _project_runtime_integer(left, structured_authority)
         right_integer = _project_runtime_integer(right, structured_authority)
-        if left_integer is not None and right_integer is not None:
+        if isinstance(left, bool) and isinstance(right, bool):
+            result = left == right
+        elif isinstance(left, bool) or isinstance(right, bool):
+            raise ValueError(
+                "admitted equality operands used different representations"
+            )
+        elif left_integer is not None and right_integer is not None:
             if isinstance(left, dict) and isinstance(right, dict):
                 type_member, _value_member = typed_envelope_members(
                     structured_authority

@@ -125,6 +125,39 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
     )
 
 
+def test_runtime_canonical_equality_compares_kernel_booleans():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_index(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        ),
+        kernel=authority_context.kernel,
+    )
+    equality_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "equal"
+    )
+    variables = {"left": True, "right": True}
+
+    experiment_runtime_module._execute_value_instruction(
+        {
+            "left": "left",
+            "node": "equal",
+            "right": "right",
+            "target": "result",
+        },
+        variables,
+        {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+        equality_contract,
+        structured_authority=structured_authority,
+        structured_resource_limit=1024,
+    )
+
+    assert variables["result"] is True
+
+
 def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = replace(
@@ -1078,7 +1111,13 @@ def _reference_execute_event(
                     right = cell(instruction["right"])["value"]
                     left_integer = project_integer(left)
                     right_integer = project_integer(right)
-                    if left_integer is not None and right_integer is not None:
+                    if isinstance(left, bool) and isinstance(right, bool):
+                        equal = left == right
+                    elif isinstance(left, bool) or isinstance(right, bool):
+                        raise AssertionError(
+                            "admitted equality operands used different representations"
+                        )
+                    elif left_integer is not None and right_integer is not None:
                         if isinstance(left, dict) and isinstance(right, dict):
                             assert left["type"] == right["type"]
                         equal = left_integer == right_integer
@@ -2234,52 +2273,66 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
     )
 
 
-def test_public_reward_selection_refuses_a_fallback_that_changes_policy_state(
+def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
     tmp_path, run_cli
 ):
-    specification_path, specification = _write_built_roguelike_experiment(
-        tmp_path, run_cli
-    )
-    pool = next(
-        row
-        for row in specification["scenarios"][0]["assignments"]
-        if row["target"]["name"] == "reward_pool"
-    )["value"]["value"]
-    pool["options"] = []
-    pool["no_reward_on_empty"] = [
-        {
-            "selected": {"key": "no_reward"},
-            "rarity": "common",
-            "disposition": "no-reward",
-            "selected_index": 0,
-            "policy_before": {"kind": "fixed-weight", "draw_count": 0},
-            "policy_after": {"kind": "fixed-weight", "draw_count": 1},
-            "reward_score": 0,
-        }
-    ]
-    specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-    exit_code, stdout, stderr = run_cli(
-        [
-            "experiment",
-            "run",
-            str(specification_path),
-            "--out",
-            str(tmp_path / "invalid-no-reward-fallback.json"),
-            "--invocation-key",
-            "f" * 64,
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    for invocation_digit, contradiction in (
+        ("a", "policy-before"),
+        ("b", "policy-after"),
+    ):
+        specification = deepcopy(baseline)
+        pool = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "reward_pool"
+        )["value"]["value"]
+        pool["options"] = []
+        pool["no_reward_on_empty"] = [
+            {
+                "selected": {"key": "no_reward"},
+                "rarity": "common",
+                "disposition": "no-reward",
+                "selected_index": 0,
+                "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+                "reward_score": 0,
+            }
         ]
-    )
+        fallback = pool["no_reward_on_empty"][0]
+        if contradiction == "policy-before":
+            fallback["policy_before"]["draw_count"] = 1
+            fallback["policy_after"]["draw_count"] = 1
+        else:
+            fallback["policy_after"]["draw_count"] = 1
+        specification_path = tmp_path / f"invalid-fallback-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
-    error = json.loads(stdout)["error"]
-    assert [row["code"] for row in error["diagnostics"]] == [
-        "game.generation.invalid_fallback"
-    ]
-    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["reason"] == ("game.generation.invalid_fallback")
-    assert audit["rollback"]["committed"] is False
-    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
+                "--invocation-key",
+                invocation_digit * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_fallback"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_fallback"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
 
 
 def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
@@ -6959,6 +7012,46 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         } == vector["expect"]
 
 
+def test_reference_runtime_canonical_equality_compares_kernel_booleans():
+    kernel, ldb = mutable_authorities()
+    operation = {
+        "body": [
+            {
+                "left": "left",
+                "node": "equal",
+                "right": "right",
+                "target": "same",
+            }
+        ],
+        "default_outcome": "equaled",
+        "id": "test.boolean-equality",
+        "inputs": [
+            {"access": "read", "id": "left"},
+            {"access": "read", "id": "right"},
+        ],
+        "outcomes": [{"id": "equaled", "kind": "success", "state_policy": "commit"}],
+        "result": {"source": {"kind": "local", "name": "same"}},
+    }
+
+    event = _reference_execute_event(
+        kernel,
+        operation,
+        {operation["id"]: operation},
+        {
+            "id": "boolean-equality",
+            "values": [
+                {"name": "left", "value": True},
+                {"name": "right", "value": True},
+            ],
+        },
+        seed=0,
+        state_names=set(),
+        language_bundle=ldb,
+    )
+
+    assert event["result"] is True
+
+
 def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
@@ -7144,7 +7237,8 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.no-reward-outcome",
         "generation.select.empty-refusal",
         "generation.select.invalid-fallback-refusal",
-        "generation.select.invalid-fallback-policy-refusal",
+        "generation.select.invalid-fallback-policy-before-refusal",
+        "generation.select.invalid-fallback-policy-after-refusal",
         "generation.select.invalid-option-refusal",
     }
 
