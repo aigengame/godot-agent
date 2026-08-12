@@ -594,7 +594,6 @@ def _runtime_authority_is_closed(
         != {
             "closed",
             "version",
-            "evaluation_order",
             "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",

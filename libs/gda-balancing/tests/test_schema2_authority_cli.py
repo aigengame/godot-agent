@@ -1549,6 +1549,65 @@ def test_operation_execution_evidence_replaces_runtime_scenario(run_cli):
     }
 
 
+def test_runtime_control_primitives_are_closed_and_body_order_is_authored(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    runtime = authority["kernel"]["meta_format"]["runtime_program"]
+    nodes = {item["id"]: item for item in runtime["nodes"]}
+
+    assert "evaluation_order" not in runtime
+    assert nodes["is-empty"] == {
+        "family": "expression",
+        "id": "is-empty",
+        "operand_constraints": [],
+        "refusals": [],
+        "required_members": ["node", "target", "value"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {"contract": "kernel-boolean", "kind": "fixed"},
+        },
+        "semantics": {"operator": "collection-is-empty"},
+    }
+    assert nodes["require"] == {
+        "family": "control",
+        "id": "require",
+        "operand_constraints": [
+            {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": ["condition"],
+            }
+        ],
+        "refusals": [],
+        "required_members": ["node", "condition", "expected", "reason"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {"kind": "refusal"},
+        "semantics": {
+            "operator": "typed-require",
+            "refusal_reference": {
+                "instruction_member": "reason",
+                "source": "enclosing-operation.refusals",
+            },
+        },
+    }
+    assert nodes["guard-block"] == {
+        "family": "control",
+        "id": "guard-block",
+        "operand_constraints": [
+            {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": ["condition"],
+            }
+        ],
+        "refusals": [],
+        "required_members": ["node", "condition", "body", "outcome"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {"kind": "outcome"},
+        "semantics": {"operator": "guarded-outcome-block"},
+    }
+
+
 def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     contract = authority["kernel"]["meta_format"]["package_vector"]

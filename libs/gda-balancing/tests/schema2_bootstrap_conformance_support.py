@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c95c2e1644f711584e531645ab0c59e7200f9014e5f88fe6950f8d80013a4310"
+    "sha256:91dd766d4b95c2eb9586d9ac4ee69a2420bdcbba604323b3ba0cc37af2ac07ce"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -6410,7 +6410,6 @@ def _consumer_b_runtime_authority_is_closed(
         != {
             "closed",
             "version",
-            "evaluation_order",
             "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",
