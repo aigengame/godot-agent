@@ -4,7 +4,7 @@
   },
   "id": "standard.structured-selection",
   "kernel_identity": "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64",
-  "language_bundle_identity": "sha256:42199dad97ee9d0e2cb903b405280264a3682e850e9a41f525afac8119ddb74c",
+  "language_bundle_identity": "sha256:4d89d1d6e9250bf3a77ca74ab999643faec241bb49d46d22bf60679b83a4c912",
   "metrics": [
     {
       "aggregation": "single",
@@ -34,9 +34,9 @@
   ],
   "model": {
     "source_identity": "sha256:0d52ba5e64c754f665da82473d24a51744930146349a13c9cbc691d321cddf32",
-    "build_receipt_identity": "sha256:88c6b99be6353fdc31d5b775b716e04e909ab685c670aad2e22bff2d2ffa95c1",
-    "resolved_model_identity": "sha256:6d578a8069fa316f56b3121531abf3d1be8d2bb59e29f81852b7593d741f870b",
-    "package_lock_identity": "sha256:29112da4e1fa9d31969f27e211dd3c5952a6495b26b20dec51e9f51de7aa7d50",
+    "build_receipt_identity": "sha256:12faca1dbdc0b3fd480fdbd897f196ef8e3252b3a3ed4c2e1a8e2a35074921f3",
+    "resolved_model_identity": "sha256:d84c7d43c3f978839352f5880497d16928d9a79e21565ecfad49652bd6597c18",
+    "package_lock_identity": "sha256:5d62f3de6266c6e0d059dc89e32815257980c314e6583d2dd5178ec87b1ec5d2",
     "rir_identity": "sha256:7e91cfd40f79940a6a8dfae83bc21b85d065a3eef25a8918c503556923f40066"
   },
   "runtime": {

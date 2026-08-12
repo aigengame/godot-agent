@@ -1989,6 +1989,53 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
 
+def test_structured_terminal_audit_preserves_a_committed_event_prefix(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "accepted-selection",
+            "entrypoint": "structured.select-candidate-a",
+        },
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "refused-selection",
+            "logical_time": 1,
+            "entrypoint": "structured.select-candidate-b",
+        },
+    ]
+    scenario["terminal_condition"]["maximum"] = 2
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "structured-terminal-audit"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    audit = _member(
+        json.loads(stdout)["error"]["terminal_audit"],
+        "runtime-terminal-audit",
+    )
+    assert len(audit["committed_trace_prefix"]) == 1
+    assert any(
+        fact["kind"] == "structured"
+        for fact in audit["committed_trace_prefix"][0]["facts"]
+    )
+
+
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
     tmp_path, run_cli
 ):
