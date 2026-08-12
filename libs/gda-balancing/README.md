@@ -15,8 +15,9 @@ extends `gda`; its CLI follows the family's interface conventions.
 - Status: Phase 1's permanent Schema 2.0 surface includes the Kernel/LDB authority, command
   discovery, one typed-Quantity Model build, one minimal Template release, and limited
   semantics-preserving 1.x source migration. Phase 2 now includes a bounded deterministic
-  multi-Event Experiment Runtime and RPG product-feedback examples; evidence and complete
-  RPG/Roguelike Template closure remain ahead. The package is **not published to PyPI yet**.
+  multi-Event Experiment Runtime and RPG and Roguelike product-feedback examples; evidence and
+  complete RPG/Roguelike Template closure remain ahead. The package is **not published to PyPI
+  yet**.
 
 ## Commands
 
@@ -56,7 +57,8 @@ refusal and publishes neither a partial Source nor a compatibility artifact.
 - [Periodic RPG Effect](examples/schema2/rpg-periodic-effect/README.md) — snapshot/live Formula
   timing, scheduled tick/tick/expire Events, same-time combat ordering and Formula rebinding.
 - [Seeded Roguelike reward and build tuning](examples/schema2/roguelike-reward-build/README.md) —
-  ordered reward selection, named RNG, one-value tuning, atomic replacement and typed alternatives.
+  ordered reward selection, a Named random stream, one-value tuning, atomic replacement, and
+  Discriminated gameplay outcomes.
 
 ## Development
 

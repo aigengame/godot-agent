@@ -134,7 +134,8 @@ contains the admitted reward and build Operations. It contains no host callback 
 
 ## 4. Run the baseline configuration
 
-The checked-in Experiment binds the exact checked-in Model build. Check and run it:
+The checked-in Experiment binds the exact Model build that section 3 produces from the checked-in
+Model Source. Check and run it:
 
 ```bash
 export BASELINE_EXPERIMENT=examples/schema2/roguelike-reward-build/experiment.json
@@ -339,14 +340,18 @@ These cases are typed refusals or declared gameplay outcomes. They are not inter
 
 ## 8. Dogfood observations
 
+The `Classification` column uses the four feedback classes from issue #585:
+`Confirms current design`, `Adopted contract refinement`,
+`Unresolved product/architecture gap`, and `Authored-example-only`.
+
 | Observation | Classification | Narrowest owner and action |
 |---|---|---|
 | The public Model and Experiment commands support seeded reward selection and a later build Event. | Confirms current design | Model, Experiment, and Runtime contracts; no host change |
-| Enum, Record, List, Ref, exact equality, bounded lookup, numeric relations, and transactional writes express the Roguelike slice. | Adopted contract realization | `game.generation@1.0.0` and `game.build@1.0.0` Package Releases in the LDB |
-| A Record lookup preserves the typed `Quantity` envelope. Runtime numeric nodes consume its admitted integer value. | Closed implementation gap | Runtime follows the admitted scalar contract; package Operations do not depend on field-specific host code |
-| The Formula slot has a one-step bound. An equivalent Formula can be rebound within that bound. | Confirms current boundary | `game.generation` keeps the bound; broader Formula cost needs separate evidence |
-| Reward and build Metrics distinguish the two configurations (`80/90` versus `20/30`). | Confirms Metric usefulness | Experiment Specification owns both Metrics |
-| Empty pools, contradictory authored values, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms diagnostic and outcome ownership | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results |
+| Enum, Record, List, Ref, exact equality, bounded lookup, numeric relations, and transactional writes express the Roguelike slice. | Confirms current design | The `game.generation@1.0.0` and `game.build@1.0.0` Package Releases realize the existing LDB package boundary. |
+| A Record lookup preserves the typed `Quantity` envelope. Runtime numeric nodes consume its admitted integer value. | Confirms current design | The Runtime implementation gap is closed: Runtime follows the admitted scalar contract, and package Operations do not depend on field-specific host code. |
+| The Formula slot has a one-step bound. An equivalent Formula can be rebound within that bound. | Confirms current design | `game.generation` keeps the bound; broader Formula cost needs separate evidence. |
+| Reward and build Metrics distinguish the two configurations (`80/90` versus `20/30`). | Confirms current design | The Experiment Specification owns both Metrics. |
+| Empty pools, contradictory authored values, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms current design | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results. |
 
 No unresolved Kernel, compiler, evaluator, or public-command gap was found in this bounded path.
 
