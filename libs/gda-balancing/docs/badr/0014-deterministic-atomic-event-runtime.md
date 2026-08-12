@@ -193,9 +193,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 - **Gameplay compensation is not Event rollback.** Package outcomes such as refund, release,
   reversal, or compensation are ordinary committed domain transitions and may occur in a later
-  Event. `rollback` is reserved for discarding the currently refusing Event's uncommitted buffers;
-  it never erases an earlier Snapshot. A terminal audit must distinguish prior committed state from
-  the refusing Event's discarded writes, events, cancellations, and RNG draws.
+  Event. `rollback` never erases an earlier Snapshot. For a refusing Event, it discards every
+  uncommitted buffer at the Event-refusal boundary. For a completed outcome whose state policy is
+  `rollback`, it discards the current Event's state writes but retains the declared outcome and any
+  RNG draws that led to it. A terminal audit must distinguish prior committed state from the
+  refusing Event's discarded writes, events, cancellations, and RNG draws.
 
 - **External input enters only at declared boundaries.** Each input carries a stable source identity
   and monotonically increasing source sequence. At an input boundary, the runtime admits inputs in

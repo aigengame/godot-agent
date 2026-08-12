@@ -123,12 +123,12 @@ _Avoid_: reference implementation as authority, host semantic kernel, implicit b
 
 **Semantic kernel**:
 The closed bootstrap operation set whose laws are fixed by the Schema-major Kernel Specification:
-literals, reads, calls, value selection, single-level guarded outcome blocks, local bindings,
-bounded aggregation, lookup, sampling, and transition/event primitives. Language Definition Bundle
-rules compose those primitives into language and domain behavior. Each addition requires formal
-laws, independent conforming implementations, normative vectors, and a replacement Kernel identity;
-the frozen-baseline rule determines whether it enters the current or next Schema major
-(bADR-0022).
+literals, reads, calls, value selection, typed requirements, single-level guard blocks, local
+bindings, bounded aggregation, lookup, sampling, and transition/event primitives. Language
+Definition Bundle rules compose those primitives into language and domain behavior. Each addition
+requires formal laws, independent conforming implementations, normative vectors, and a replacement
+Kernel identity; the frozen-baseline rule determines whether it enters the current or next Schema
+major (bADR-0022).
 _Avoid_: standard library, evaluator built-ins, host functions
 
 **Guard block**:

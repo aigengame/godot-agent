@@ -194,8 +194,8 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **The Semantic kernel is intentionally small and closed.** Its operation set and observable laws
   are fixed by the Kernel Specification. It contains literals, typed reads,
-  versioned calls with exact named port-to-operand bindings, value selection, single-level guarded
-  outcome blocks, non-shadowing lexical local bindings, statically bounded aggregates,
+  versioned calls with exact named port-to-operand bindings, value selection, typed requirements,
+  single-level guard blocks, non-shadowing lexical local bindings, statically bounded aggregates,
   lookup, named-stream sampling, and the transition/event primitives required by bADR-0014.
   Recursion, user-defined loops, unbounded collection traversal, reflection, dynamic operation
   lookup, host callbacks, ambient state, and same-name argument capture are not kernel features.
@@ -300,8 +300,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   An operation that cannot be reduced to existing kernel composition is an irreducible kernel
   operation: it requires a Kernel-Specification amendment, a machine-readable signature exposed by
   the bundle, independent conforming implementations, positive/negative/boundary vectors,
-  Runtime/Numeric-profile laws, and a Schema-major review. Merely registering or naming a
-  host-language function is never enough.
+  Runtime/Numeric-profile laws, and treatment under the frozen-baseline rule above. Before the
+  recorded freeze, it replaces the provisional Kernel baseline and identity. After the freeze, it
+  requires the next Schema major. Merely registering or naming a host-language function is never
+  enough.
 
 - **Operation admission is one closed judgment, not a collection of trusted declarations.** The
   Kernel closes every known node's exact fields. LDB rules validate signature and parameter use,
