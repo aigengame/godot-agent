@@ -1531,9 +1531,12 @@ issues own detailed observations, acceptance criteria, and live completion statu
     List emptiness, an Operation-declared typed requirement, and bounded effectful path control.
     Issue #640 replaces the provisional Kernel design with `is-empty`, `require`, and a single-level
     `guard-block`, plus the `operation-execution` conformance vector.
-  - Open boundary: This is an accepted design change, not implementation evidence. The replacement
-    Kernel/LDB artifacts, both consumers, affected identities, and #585 product path remain open.
-    Evidence bound to the superseded Kernel identity does not carry forward.
+  - Implementation evidence: The replacement Kernel and LDB export these generic capabilities as
+    `standard.schema@2.4.0` and `standard.conformance.structured@2.0.0`. Production and independent
+    consumers agree on the admitted Operation vectors, and affected authority and example identities
+    are rebuilt against the replacement Kernel.
+  - Open boundary: The #585 mechanic Package Releases, PR #639 product-path update, and HITL
+    acceptance remain open. Evidence bound to the superseded Kernel identity does not carry forward.
   - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
     [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md).
