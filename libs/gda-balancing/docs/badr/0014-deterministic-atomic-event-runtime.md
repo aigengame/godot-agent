@@ -60,7 +60,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > a match continues. The refusal terminates the run and reuses the existing Event-refusal boundary:
 > state writes, RNG continuation, buffered child Events, Metrics, and Snapshot publication are
 > rolled back, and later nodes do not execute. Executed node steps and the terminal audit remain
-> execution facts. This differs from a completed `gameplay-alternative`; that outcome follows its
+> execution facts. The terminal audit's `instruction_index` uses guard-expanded local Operation
+> order: the guard precedes its body, and the body precedes the remaining outer nodes. This differs
+> from a completed `gameplay-alternative`; that outcome follows its
 > declared state policy and retains any RNG draws that led to the completed Event. An
 > `operation-execution` refusal vector observes the post-rollback state and committed RNG projection,
 > not discarded attempt logs.

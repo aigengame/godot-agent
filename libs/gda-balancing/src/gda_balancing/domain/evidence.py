@@ -31,6 +31,7 @@ from gda_balancing.domain.runtime.execution import (
     _execute_value_instruction,
     _extend_runtime_journal_identity,
     _formula_programs_reachable_from_entrypoints,
+    _guard_expanded_instruction_indices,
     _instruction_evaluation_sites,
     _named_value_rows,
     _integer_compare,
@@ -1868,6 +1869,33 @@ def _attempted_operation_charge(
         )
         return operation_charge, breached
 
+    def completed_invocation(
+        instruction: dict[str, Any], parent_path: str
+    ) -> dict[str, Any] | None:
+        child_path = f"{parent_path}/{instruction['site']}"
+        child = operations.get(cast(str, instruction["operation"]["id"]))
+        call_rows = [
+            (index, row)
+            for index, row in enumerate(calls)
+            if row["site"] == child_path
+            and cast(dict[str, JsonValue], row["operation"])["id"]
+            == instruction["operation"]["id"]
+        ]
+        if child is None or len(call_rows) != 1:
+            return None
+        call_index, call = call_rows[0]
+        child_outcome = cast(str, cast(dict[str, JsonValue], call["outcome"])["id"])
+        if not completed_operation(child, child_path, child_outcome):
+            return None
+        mapping = next(
+            (row for row in instruction["outcomes"] if row["outcome"] == child_outcome),
+            None,
+        )
+        if mapping is None:
+            return None
+        used_calls.add(call_index)
+        return cast(dict[str, Any], mapping["action"])
+
     def completed_operation(
         operation: dict[str, Any],
         call_path: str,
@@ -1876,9 +1904,10 @@ def _attempted_operation_charge(
         operation_charge = 0
         outcome = cast(str, operation["default_outcome"])
         sites = evaluation_sites(operation)
-        for instruction_index, instruction in enumerate(
-            cast(list[dict[str, Any]], operation["body"])
-        ):
+        body = cast(list[dict[str, Any]], operation["body"])
+        expanded_indices = _guard_expanded_instruction_indices(body)
+        for body_index, instruction in enumerate(body):
+            instruction_index = expanded_indices[body_index]
             operation_charge, breached = charge_instruction(
                 operation,
                 operation_charge,
@@ -1888,39 +1917,35 @@ def _attempted_operation_charge(
                 return False
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "invoke-operation":
-                child_path = f"{call_path}/{instruction['site']}"
-                call_rows = [
-                    (index, row)
-                    for index, row in enumerate(calls)
-                    if row["site"] == child_path
-                    and cast(dict[str, JsonValue], row["operation"])["id"]
-                    == instruction["operation"]["id"]
-                ]
-                if len(call_rows) != 1:
+                action = completed_invocation(instruction, call_path)
+                if action is None:
                     return False
-                call_index, call = call_rows[0]
-                child = operations.get(cast(str, instruction["operation"]["id"]))
-                if child is None:
-                    return False
-                child_outcome = cast(
-                    str, cast(dict[str, JsonValue], call["outcome"])["id"]
-                )
-                if not completed_operation(child, child_path, child_outcome):
-                    return False
-                used_calls.add(call_index)
-                mapping = next(
-                    (
-                        row
-                        for row in instruction["outcomes"]
-                        if row["outcome"] == child_outcome
-                    ),
-                    None,
-                )
-                if mapping is None:
-                    return False
-                if mapping["action"]["kind"] == "propagate":
-                    outcome = cast(str, mapping["action"]["outcome"])
+                if action["kind"] == "propagate":
+                    outcome = cast(str, action["outcome"])
                     break
+            elif operator == "guarded-outcome-block":
+                if instruction["outcome"] != expected_outcome:
+                    continue
+                for guard_instruction in cast(
+                    list[dict[str, Any]], instruction["body"]
+                ):
+                    operation_charge, breached = charge_instruction(
+                        operation,
+                        operation_charge,
+                        guard_instruction,
+                    )
+                    if breached:
+                        return False
+                    guard_operator = node_contracts[guard_instruction["node"]][
+                        "semantics"
+                    ]["operator"]
+                    if guard_operator != "invoke-operation":
+                        continue
+                    action = completed_invocation(guard_instruction, call_path)
+                    if action is None or action["kind"] == "propagate":
+                        return False
+                outcome = expected_outcome
+                break
             elif (
                 operator == "gameplay-precondition"
                 and instruction["outcome"] == expected_outcome
@@ -1935,7 +1960,10 @@ def _attempted_operation_charge(
     ) -> bool:
         operation_charge = 0
         sites = evaluation_sites(operation)
-        for instruction_index, instruction in enumerate(operation["body"]):
+        body = cast(list[dict[str, Any]], operation["body"])
+        expanded_indices = _guard_expanded_instruction_indices(body)
+        for body_index, instruction in enumerate(body):
+            instruction_index = expanded_indices[body_index]
             operation_charge, breached = charge_instruction(
                 operation,
                 operation_charge,
@@ -1945,6 +1973,61 @@ def _attempted_operation_charge(
             if breached or target:
                 return target and (breached or not require_budget_breach)
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
+            if operator == "guarded-outcome-block":
+                guard_body = cast(list[dict[str, Any]], instruction["body"])
+                guard_start = instruction_index + 1
+                guard_stop = guard_start + len(guard_body)
+                target_is_directly_in_guard = (
+                    call_path == target_path
+                    and operation["id"] == refusing_event["operation"]
+                    and isinstance(target_instruction_index, int)
+                    and guard_start <= target_instruction_index < guard_stop
+                )
+                target_is_in_guard_call = any(
+                    node_contracts[guard_instruction["node"]]["semantics"]["operator"]
+                    == "invoke-operation"
+                    and (
+                        target_path == f"{call_path}/{guard_instruction['site']}"
+                        or target_path.startswith(
+                            f"{call_path}/{guard_instruction['site']}/"
+                        )
+                    )
+                    for guard_instruction in guard_body
+                )
+                target_is_in_guard = (
+                    target_is_directly_in_guard or target_is_in_guard_call
+                )
+                if not target_is_in_guard:
+                    continue
+                for guard_offset, guard_instruction in enumerate(guard_body):
+                    operation_charge, breached = charge_instruction(
+                        operation,
+                        operation_charge,
+                        guard_instruction,
+                    )
+                    guard_index = guard_start + guard_offset
+                    target = is_target(operation, call_path, guard_index, sites)
+                    if breached or target:
+                        return target and (breached or not require_budget_breach)
+                    guard_operator = node_contracts[guard_instruction["node"]][
+                        "semantics"
+                    ]["operator"]
+                    if guard_operator != "invoke-operation":
+                        continue
+                    child_path = f"{call_path}/{guard_instruction['site']}"
+                    child = operations.get(
+                        cast(str, guard_instruction["operation"]["id"])
+                    )
+                    if child is None:
+                        return False
+                    if target_path == child_path or target_path.startswith(
+                        f"{child_path}/"
+                    ):
+                        return charge_to_target(child, child_path)
+                    action = completed_invocation(guard_instruction, call_path)
+                    if action is None or action["kind"] == "propagate":
+                        return False
+                return False
             if operator != "invoke-operation":
                 continue
             child_path = f"{call_path}/{instruction['site']}"
@@ -1953,28 +2036,8 @@ def _attempted_operation_charge(
                 return False
             if target_path == child_path or target_path.startswith(f"{child_path}/"):
                 return charge_to_target(child, child_path)
-            call_rows = [
-                (index, row)
-                for index, row in enumerate(calls)
-                if row["site"] == child_path
-                and cast(dict[str, JsonValue], row["operation"])["id"] == child["id"]
-            ]
-            if len(call_rows) != 1:
-                return False
-            call_index, call = call_rows[0]
-            child_outcome = cast(str, cast(dict[str, JsonValue], call["outcome"])["id"])
-            if not completed_operation(child, child_path, child_outcome):
-                return False
-            used_calls.add(call_index)
-            mapping = next(
-                (
-                    row
-                    for row in instruction["outcomes"]
-                    if row["outcome"] == child_outcome
-                ),
-                None,
-            )
-            if mapping is None or mapping["action"]["kind"] == "propagate":
+            action = completed_invocation(instruction, call_path)
+            if action is None or action["kind"] == "propagate":
                 return False
         return False
 

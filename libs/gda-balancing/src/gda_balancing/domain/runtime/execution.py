@@ -220,6 +220,20 @@ def _instruction_evaluation_sites(
     }
 
 
+def _guard_expanded_instruction_indices(
+    body: list[dict[str, Any]], *, offset: int = 0
+) -> tuple[int, ...]:
+    """Map top-level positions to guard-expanded audit positions."""
+    indices: list[int] = []
+    next_index = offset
+    for instruction in body:
+        indices.append(next_index)
+        next_index += 1
+        if instruction["node"] == "guard-block":
+            next_index += len(cast(list[dict[str, Any]], instruction["body"]))
+    return tuple(indices)
+
+
 def _operation_formula_slot(
     operation: dict[str, Any], slot_id: str
 ) -> dict[str, Any] | None:
@@ -1970,6 +1984,7 @@ def evaluate_experiment(
             call_path: tuple[str, ...],
             call_site_identity: str | None,
             operation_step_counter: list[int] | None = None,
+            instruction_index_offset: int = 0,
         ) -> tuple[str, Any]:
             nonlocal admitted_event_count
             nonlocal event_steps, next_enqueue_sequence, total_steps
@@ -1994,8 +2009,13 @@ def evaluate_experiment(
                 operation_step_counter if operation_step_counter is not None else [0]
             )
             evaluation_sites = _instruction_evaluation_sites(selected_operation)
-            for instruction_index, instruction in enumerate(selected_operation["body"]):
-                evaluation_site_identity = evaluation_sites.get(instruction_index)
+            body = cast(list[dict[str, Any]], selected_operation["body"])
+            expanded_indices = _guard_expanded_instruction_indices(
+                body, offset=instruction_index_offset
+            )
+            for body_index, instruction in enumerate(body):
+                instruction_index = expanded_indices[body_index]
+                evaluation_site_identity = evaluation_sites.get(body_index)
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
                 total_steps += charge
@@ -2374,6 +2394,7 @@ def evaluate_experiment(
                             call_path,
                             call_site_identity,
                             operation_steps,
+                            instruction_index + 1,
                         )
                         for alias, actual in state_references.items():
                             variables[alias] = state[actual]
@@ -2467,8 +2488,7 @@ def evaluate_experiment(
                     )
                 if (
                     evaluation_site_identity is not None
-                    and evaluation_sites.get(instruction_index + 1)
-                    != evaluation_site_identity
+                    and evaluation_sites.get(body_index + 1) != evaluation_site_identity
                 ):
                     binding = formula_bindings_by_site[evaluation_site_identity]
                     evaluation = _operation_formula_evaluation_record(

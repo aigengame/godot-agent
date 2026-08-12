@@ -1952,6 +1952,43 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
     )
 
 
+def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
+    initial_state["candidates"] = []
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "standard.conformance.structured.select-v1"
+    )
+    guard = next(row for row in operation["body"] if row["node"] == "guard-block")
+    guard["body"][0]["expected"] = False
+    checked = replace(checked, rir=rir)
+
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    assert audit["refusing_event"]["instruction_index"] == 4
+    assert audit["budget_counters"]["event_steps"] == 5
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+
+
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
     tmp_path, run_cli
 ):

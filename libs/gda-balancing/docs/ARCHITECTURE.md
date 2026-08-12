@@ -715,7 +715,9 @@ complete body bound. These nodes add no second arm, label jump, loop, Runtime ph
 dispatch, or evaluator callback.
 
 Runtime executes each Operation body and selected guard body in authored array order. Node families
-do not reorder the body. The replacement Kernel removes the unused
+do not reorder the body. A terminal audit identifies the refusing node by its position in the
+guard-expanded local Operation body: the guard comes first, its body follows, and the remaining
+outer nodes come last. The replacement Kernel removes the unused
 `runtime_program.evaluation_order` phase list; `operation-body-order` remains an alias policy for
 writable operands, not an instruction-order setting.
 
