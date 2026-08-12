@@ -11,6 +11,15 @@ from schema2_bootstrap_conformance_support import *
 from schema2_bootstrap_production_support import *
 
 
+def _package_vector_subject(ldb, package_id):
+    index = next(
+        index
+        for index, package in enumerate(ldb["language"]["packages"])
+        if package["id"] == package_id
+    )
+    return f"language-bundle.language.packages.{index}.vectors"
+
+
 def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     authority = _authority_candidate()
     kernel = authority["kernel"]
@@ -259,7 +268,7 @@ def test_periodic_effect_invalid_duration_or_period_refuses_authority_admission(
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -294,7 +303,7 @@ def test_periodic_effect_tick_declaration_must_equal_the_scheduled_body():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -328,7 +337,7 @@ def test_periodic_effect_relation_role_inventory_is_mandatory():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -392,7 +401,7 @@ def test_periodic_effect_relation_policy_rejects_coherent_inventory_removal(scop
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -440,7 +449,7 @@ def test_operation_relation_policy_refuses_empty_vectors_without_host_error():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -563,7 +572,7 @@ def test_periodic_effect_schedule_targets_must_match_declared_roles(mutation):
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 
@@ -617,7 +626,7 @@ def test_periodic_effect_tick_times_must_equal_the_declared_integer_range():
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language-bundle.language.packages.3.vectors",
+        _package_vector_subject(ldb, "game.effect"),
     ) in first["diagnostics"]
 
 

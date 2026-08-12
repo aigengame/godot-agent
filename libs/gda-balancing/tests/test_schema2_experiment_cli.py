@@ -1661,9 +1661,7 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     assert metrics["samples"][0]["value"] == 80
 
 
-def test_public_reward_build_loop_exposes_the_atomic_replacement(
-    tmp_path, run_cli
-):
+def test_public_reward_build_loop_exposes_the_atomic_replacement(tmp_path, run_cli):
     specification_path, _specification = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
@@ -1690,9 +1688,9 @@ def test_public_reward_build_loop_exposes_the_atomic_replacement(
         {"id": "replaced", "kind": "success"},
     ]
     build_event = transitions[1]
-    result = next(
-        row for row in build_event["facts"] if row["name"] == "build_result"
-    )["value"]["value"]
+    result = next(row for row in build_event["facts"] if row["name"] == "build_result")[
+        "value"
+    ]["value"]
     assert result == {
         "kind": "replaced",
         "previous": {"key": "starter_blade"},
@@ -1713,17 +1711,16 @@ def test_public_reward_build_loop_exposes_the_atomic_replacement(
     }
     assert state_after["build_decision"]["value"] == result
     assert state_after["build_score"] == 90
-    assert {
-        row["metric"]: row["value"] for row in metrics["samples"]
-    } == {"build_score": 90, "reward_score": 80}
+    assert {row["metric"]: row["value"] for row in metrics["samples"]} == {
+        "build_score": 90,
+        "reward_score": 80,
+    }
 
 
 def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
     tmp_path, run_cli
 ):
-    specification_path, baseline = _write_built_roguelike_experiment(
-        tmp_path, run_cli
-    )
+    specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
 
     def run(specification, path, output, invocation_key):
         path.write_text(json.dumps(specification), encoding="utf-8")
@@ -1753,14 +1750,10 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
             event for event in trace["events"] if event["operation"] is not None
         ]
         reward_result = next(
-            row
-            for row in transitions[0]["facts"]
-            if row["name"] == "reward_result"
+            row for row in transitions[0]["facts"] if row["name"] == "reward_result"
         )
         build_result = next(
-            row
-            for row in transitions[1]["facts"]
-            if row["name"] == "build_result"
+            row for row in transitions[1]["facts"] if row["name"] == "build_result"
         )
         return trace, metrics, reward_result, build_result
 
@@ -1791,9 +1784,10 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
     assert tuned["runtime"] == baseline["runtime"]
     assert tuned_trace["experiment_identity"] != baseline_trace["experiment_identity"]
     assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
-    assert tuned_trace["events"][0]["rng_draws"] == baseline_trace["events"][0][
-        "rng_draws"
-    ]
+    assert (
+        tuned_trace["events"][0]["rng_draws"]
+        == baseline_trace["events"][0]["rng_draws"]
+    )
     baseline_value = baseline_result["value"]["value"]
     tuned_value = tuned_result["value"]["value"]
     assert (
@@ -1822,12 +1816,14 @@ def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
         "power_before": 10,
         "power_after": 30,
     }
-    assert {
-        row["metric"]: row["value"] for row in baseline_metrics["samples"]
-    } == {"build_score": 90, "reward_score": 80}
-    assert {
-        row["metric"]: row["value"] for row in tuned_metrics["samples"]
-    } == {"build_score": 30, "reward_score": 20}
+    assert {row["metric"]: row["value"] for row in baseline_metrics["samples"]} == {
+        "build_score": 90,
+        "reward_score": 80,
+    }
+    assert {row["metric"]: row["value"] for row in tuned_metrics["samples"]} == {
+        "build_score": 30,
+        "reward_score": 20,
+    }
 
 
 def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
@@ -1944,9 +1940,7 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
     )
 
 
-def test_public_reward_configuration_reports_an_unknown_disposition(
-    tmp_path, run_cli
-):
+def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
     specification_path, specification = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
@@ -1965,9 +1959,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["code"] == (
-        "language.structured_value_unknown_enum"
-    )
+    assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
     )
@@ -2019,9 +2011,7 @@ def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
     )
 
 
-def test_public_build_configuration_reports_an_unknown_constraint(
-    tmp_path, run_cli
-):
+def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_cli):
     specification_path, specification = _write_built_roguelike_experiment(
         tmp_path, run_cli
     )
@@ -2040,9 +2030,7 @@ def test_public_build_configuration_reports_an_unknown_constraint(
     assert (exit_code, stderr) == (2, ""), (stdout, stderr)
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["code"] == (
-        "language.structured_value_unknown_enum"
-    )
+    assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/scenarios/0/assignments/4/value/value/plans/0/constraint"
     )
@@ -2081,12 +2069,12 @@ def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
 
     assert edited_build["kernel_identity"] == baseline["kernel_identity"]
     assert (
-        edited_build["language_bundle_identity"]
-        == baseline["language_bundle_identity"]
+        edited_build["language_bundle_identity"] == baseline["language_bundle_identity"]
     )
-    assert edited_build["package_lock_identity"] == baseline["model"][
-        "package_lock_identity"
-    ]
+    assert (
+        edited_build["package_lock_identity"]
+        == baseline["model"]["package_lock_identity"]
+    )
     assert edited_build["rir_identity"] != baseline["model"]["rir_identity"]
     edited_formula = next(
         row for row in edited_rir["formulas"] if row["id"] == formula["id"]

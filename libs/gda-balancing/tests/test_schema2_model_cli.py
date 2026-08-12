@@ -370,9 +370,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     ]
 
 
-def test_roguelike_model_build_publishes_the_reward_formula_boundary(
-    tmp_path, run_cli
-):
+def test_roguelike_model_build_publishes_the_reward_formula_boundary(tmp_path, run_cli):
     source = _ROGUELIKE_EXAMPLE_DIR / "model-source.json"
 
     check_exit, check_stdout, check_stderr = run_cli(["model", "check", str(source)])
