@@ -446,7 +446,7 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
     assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
         "selected_reward",
         "build_plans",
-        "expected_build_disposition",
+        "expected_no_reward_disposition",
         "expected_rare_rarity",
         "expected_replace_constraint",
         "expected_replaced_kind",
@@ -463,11 +463,6 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
         },
         {
             "id": "no-reward",
-            "kind": "gameplay-alternative",
-            "state_policy": "rollback",
-        },
-        {
-            "id": "plan-mismatch",
             "kind": "gameplay-alternative",
             "state_policy": "rollback",
         },
@@ -5697,18 +5692,22 @@ def test_package_admission_rejects_canonical_equality_across_value_contracts():
             if operation["id"] == "game.generation.select-reward-v1"
         ),
     )
+    mutation_index = None
     for operation in operations:
-        equality = next(
-            instruction
-            for instruction in operation["body"]
+        instruction_index, equality = next(
+            (instruction_index, instruction)
+            for instruction_index, instruction in enumerate(operation["body"])
             if instruction.get("target") == "rarity_matches"
         )
+        assert mutation_index in (None, instruction_index)
+        mutation_index = instruction_index
         equality["right"] = "selected_key"
     _reidentify_language_bundle(candidate_ldb)
 
+    assert mutation_index is not None
     expected_subject = (
         "language.operations.game.generation@1.0.0."
-        "game.generation.select-reward-v1.body.17.typing"
+        f"game.generation.select-reward-v1.body.{mutation_index}.typing"
     )
     composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
         baseline.kernel, candidate_ldb
