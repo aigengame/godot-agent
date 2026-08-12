@@ -908,6 +908,22 @@ def _reference_execute_event(
         def write_local(name: str, value: Any) -> None:
             locals_[name] = {"value": value}
 
+        def project_integer(value: Any) -> int | None:
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+            if (
+                isinstance(value, dict)
+                and isinstance(value.get("value"), int)
+                and not isinstance(value["value"], bool)
+            ):
+                return value["value"]
+            return None
+
+        def integer(value: Any) -> int:
+            projected = project_integer(value)
+            assert projected is not None
+            return projected
+
         try:
             for instruction in selected["body"]:
                 node = nodes[instruction["node"]]
@@ -984,8 +1000,8 @@ def _reference_execute_event(
                 if operator == "gameplay-precondition":
                     if not _reference_compare(
                         semantics["comparison"],
-                        cell(instruction["left"])["value"],
-                        cell(instruction["right"])["value"],
+                        integer(cell(instruction["left"])["value"]),
+                        integer(cell(instruction["right"])["value"]),
                     ):
                         outcome = instruction["outcome"]
                         break
@@ -1060,24 +1076,8 @@ def _reference_execute_event(
                 elif operator == "canonical-equal":
                     left = cell(instruction["left"])["value"]
                     right = cell(instruction["right"])["value"]
-                    left_integer = (
-                        left
-                        if isinstance(left, int) and not isinstance(left, bool)
-                        else left.get("value")
-                        if isinstance(left, dict)
-                        and isinstance(left.get("value"), int)
-                        and not isinstance(left["value"], bool)
-                        else None
-                    )
-                    right_integer = (
-                        right
-                        if isinstance(right, int) and not isinstance(right, bool)
-                        else right.get("value")
-                        if isinstance(right, dict)
-                        and isinstance(right.get("value"), int)
-                        and not isinstance(right["value"], bool)
-                        else None
-                    )
+                    left_integer = project_integer(left)
+                    right_integer = project_integer(right)
                     if left_integer is not None and right_integer is not None:
                         if isinstance(left, dict) and isinstance(right, dict):
                             assert left["type"] == right["type"]
@@ -1101,8 +1101,8 @@ def _reference_execute_event(
                     "integer-multiply",
                     "integer-maximum",
                 }:
-                    left = cell(instruction["left"])["value"]
-                    right = cell(instruction["right"])["value"]
+                    left = integer(cell(instruction["left"])["value"])
+                    right = integer(cell(instruction["right"])["value"])
                     result = {
                         "integer-add": lambda: left + right,
                         "integer-subtract": lambda: left - right,
@@ -1115,8 +1115,8 @@ def _reference_execute_event(
                         instruction["target"],
                         _reference_compare(
                             semantics["comparison"],
-                            cell(instruction["left"])["value"],
-                            cell(instruction["right"])["value"],
+                            integer(cell(instruction["left"])["value"]),
+                            integer(cell(instruction["right"])["value"]),
                         ),
                     )
                 elif operator == "select-value":
@@ -1932,11 +1932,11 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
             "value": 3,
         }
     ]
-    assert [row["key"]["key"] for row in pool["candidates"]] == [
+    assert [row["candidate"]["key"]["key"] for row in pool["options"]] == [
         "steady_guard",
         "volatile_crown",
     ]
-    assert result["value"]["value"] == pool["selections"][1]
+    assert result["value"]["value"] == pool["options"][1]["selection"]
     assert result["value"]["value"]["disposition"] == "build"
     assert result["value"]["value"]["policy_before"] == pool["policy_before"]
     assert result["value"]["value"]["policy_after"]["draw_count"] == 1
@@ -2164,23 +2164,28 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["policy_before"]["kind"] = "relaxed-pool"
-    pool["candidates"][1] = {
-        "key": {"key": "no_reward"},
-        "rarity": "rare",
-        "disposition": "no-reward",
-        "reward_score": 0,
-    }
-    pool["selections"][1] = {
-        "selected": {"key": "no_reward"},
-        "rarity": "rare",
-        "disposition": "no-reward",
-        "selected_index": 1,
-        "policy_before": {"kind": "relaxed-pool", "draw_count": 0},
-        "policy_after": {"kind": "relaxed-pool", "draw_count": 1},
-        "reward_score": 0,
-    }
+    pool["options"] = []
+    pool["no_reward_on_empty"] = [
+        {
+            "selected": {"key": "no_reward"},
+            "rarity": "common",
+            "disposition": "no-reward",
+            "selected_index": 0,
+            "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+            "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+            "reward_score": 0,
+        }
+    ]
+    fallback = pool["no_reward_on_empty"][0]
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (
+        check_stdout,
+        check_stderr,
+    )
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -2201,17 +2206,18 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         for event in _member(receipt, "event-trace")["events"]
         if event["operation"] is not None
     ]
-    result = next(
-        row for row in transitions[0]["facts"] if row["name"] == "reward_result"
-    )
     assert [event["outcome"] for event in transitions] == [
-        {"id": "selected", "kind": "success"},
+        {"id": "no-reward", "kind": "gameplay-alternative"},
         {"id": "no-reward", "kind": "gameplay-alternative"},
     ]
+    assert transitions[0]["rng_draws"] == []
+    assert transitions[1]["rng_draws"] == []
     assert transitions[1]["state_after"] == transitions[1]["state_before"]
-    assert result["value"]["value"]["selected"] == {"key": "no_reward"}
-    assert result["value"]["value"]["disposition"] == "no-reward"
-    assert result["value"]["value"]["policy_before"]["kind"] == "relaxed-pool"
+    assert not any(row["name"] == "reward_result" for row in transitions[0]["facts"])
+    selected = next(
+        row for row in transitions[0]["state_after"] if row["name"] == "selected_reward"
+    )
+    assert selected["value"]["value"] == fallback
     assert {
         row["metric"]: row["value"]
         for row in _member(receipt, "metric-dataset")["samples"]
@@ -6988,6 +6994,22 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
             _reference_operation_execution_projection(kernel, ldb, operations, vector)
             == vector["expect"]
         )
+
+
+def test_generation_operation_vectors_cover_success_fallback_and_refusals():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "game.generation"
+    } == {
+        "generation.select.success",
+        "generation.select.no-reward-outcome",
+        "generation.select.empty-refusal",
+        "generation.select.invalid-fallback-refusal",
+        "generation.select.invalid-option-refusal",
+    }
 
 
 def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
