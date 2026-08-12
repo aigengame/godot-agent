@@ -49,6 +49,22 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > an ordinary Event observes only the latest previously committed Snapshot under the existing
 > phase/priority/enqueue order. No Effect loop or repeated Scenario becomes a second time authority.
 
+> **Amendment (2026-08-12, #640):** The Kernel `guard-block` node is allowed only in a top-level
+> Operation body. It reads one already produced Kernel Boolean. False charges only the guard step,
+> skips the body without RNG, writes, or effects, and continues the enclosing body. True executes
+> its non-nested body in authored order and, unless a node refuses, completes the Operation with one
+> declared outcome. Admission rejects body nodes and `invoke` mappings that can complete or propagate
+> another outcome, so only a typed refusal can stop the selected body early. The Kernel `require` node
+> compares an already produced Kernel Boolean with its
+> Boolean `expected` member. A mismatch raises one Operation-declared, LDB-resolved typed refusal;
+> a match continues. The refusal terminates the run and reuses the existing Event-refusal boundary:
+> state writes, RNG continuation, buffered child Events, Metrics, and Snapshot publication are
+> rolled back, and later nodes do not execute. Executed node steps and the terminal audit remain
+> execution facts. This differs from a completed `gameplay-alternative`; that outcome follows its
+> declared state policy and retains any RNG draws that led to the completed Event. An
+> `operation-execution` refusal vector observes the post-rollback state and committed RNG projection,
+> not discarded attempt logs.
+
 ## Decision
 
 - **The runtime is a sequential scheduler of atomic Event transactions.** It maintains immutable
@@ -179,9 +195,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 - **Gameplay compensation is not Event rollback.** Package outcomes such as refund, release,
   reversal, or compensation are ordinary committed domain transitions and may occur in a later
-  Event. `rollback` is reserved for discarding the currently refusing Event's uncommitted buffers;
-  it never erases an earlier Snapshot. A terminal audit must distinguish prior committed state from
-  the refusing Event's discarded writes, events, cancellations, and RNG draws.
+  Event. `rollback` never erases an earlier Snapshot. For a refusing Event, it discards every
+  uncommitted buffer at the Event-refusal boundary. For a completed outcome whose state policy is
+  `rollback`, it discards the current Event's state writes but retains the declared outcome and any
+  RNG draws that led to it. A terminal audit must distinguish prior committed state from the
+  refusing Event's discarded writes, events, cancellations, and RNG draws.
 
 - **External input enters only at declared boundaries.** Each input carries a stable source identity
   and monotonically increasing source sequence. At an input boundary, the runtime admits inputs in

@@ -42,6 +42,7 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
     equal_typed_values,
+    is_empty_typed_value,
     lookup_selector_kind,
     lookup_typed_value,
     selected_structured_value_index,
@@ -58,7 +59,9 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "cancel-event",
         "canonical-equal",
         "bounded-lookup",
+        "collection-is-empty",
         "gameplay-precondition",
+        "guarded-outcome-block",
         "integer-add",
         "integer-compare",
         "typed-literal",
@@ -71,6 +74,7 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "schedule-operation",
         "state-integer-subtract",
         "state-write",
+        "typed-require",
     }
 )
 
@@ -1358,6 +1362,17 @@ def _execute_value_instruction(
             )
         variables[cast(str, instruction["target"])] = result
         return
+    elif operator == "collection-is-empty":
+        if structured_authority is None or structured_resource_limit is None:
+            raise ValueError("structured authority is required for List emptiness")
+        result = is_empty_typed_value(
+            variables[cast(str, instruction["value"])],
+            authority=structured_authority,
+            resource_limit=structured_resource_limit,
+        )
+        _type_member, value_member = typed_envelope_members(structured_authority)
+        variables[cast(str, instruction["target"])] = result[value_member]
+        return
     elif operator == "select-value":
         value = variables[
             cast(
@@ -2016,6 +2031,7 @@ def evaluate_experiment(
             state_references: dict[str, bytes],
             call_path: tuple[str, ...],
             call_site_identity: str | None,
+            operation_step_counter: list[int] | None = None,
         ) -> tuple[str, Any]:
             nonlocal admitted_event_count
             nonlocal event_steps, next_enqueue_sequence, total_steps
@@ -2036,7 +2052,9 @@ def evaluate_experiment(
                     variables[cast(str, row["name"])] = actual_values[identity]
             operation_results: dict[str, Any] = {}
             outcome = selected_operation["default_outcome"]
-            operation_steps = 0
+            operation_steps = (
+                operation_step_counter if operation_step_counter is not None else [0]
+            )
             evaluation_sites = _instruction_evaluation_sites(selected_operation)
             for instruction_index, instruction in enumerate(selected_operation["body"]):
                 evaluation_site_identity = evaluation_sites.get(instruction_index)
@@ -2044,11 +2062,11 @@ def evaluate_experiment(
                 charge = node_contract["resource_charge"]["amount"]
                 total_steps += charge
                 event_steps += charge
-                operation_steps += charge
+                operation_steps[0] += charge
                 if (
                     total_steps > runtime_limit
                     or event_steps > root_step_limit
-                    or operation_steps
+                    or operation_steps[0]
                     > selected_operation["resource_bounds"]["max_steps"]
                 ):
                     raise _RuntimeExecutionFault(
@@ -2361,6 +2379,70 @@ def evaluate_experiment(
                             variables[instruction["right"]], structured_authority
                         ),
                     ):
+                        outcome = instruction["outcome"]
+                        break
+                elif operator == "typed-require":
+                    if variables[instruction["condition"]] != instruction["expected"]:
+                        reason = next(
+                            (
+                                item
+                                for item in checked.language_bundle["language"][
+                                    "reasons"
+                                ]
+                                if item.get("id") == instruction["reason"]
+                            ),
+                            None,
+                        )
+                        signal = (
+                            reason.get("signal") if isinstance(reason, dict) else None
+                        )
+                        if not isinstance(signal, str) or not signal:
+                            raise ValueError(
+                                "admitted Runtime requirement has no typed signal"
+                            )
+                        raise _RuntimeExecutionFault(
+                            signal=signal,
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
+                        )
+                elif operator == "guarded-outcome-block":
+                    if variables[instruction["condition"]]:
+                        unit_contract = runtime_contract["fixed_value_contracts"][
+                            "kernel-unit"
+                        ]
+                        guarded_operation = {
+                            "body": instruction["body"],
+                            "default_outcome": instruction["outcome"],
+                            "effects": selected_operation["effects"],
+                            "id": selected_operation["id"],
+                            "inputs": [],
+                            "outcomes": [
+                                {**definition, "state_policy": "commit"}
+                                for definition in selected_operation["outcomes"]
+                            ],
+                            "refusals": selected_operation["refusals"],
+                            "resource_bounds": selected_operation["resource_bounds"],
+                            "result": {
+                                **unit_contract,
+                                "access": "read",
+                                "discardable": True,
+                                "id": "result",
+                                "source": {"kind": "unit"},
+                            },
+                        }
+                        execute_operation(
+                            guarded_operation,
+                            dict(variables),
+                            state_references,
+                            call_path,
+                            call_site_identity,
+                            operation_steps,
+                        )
+                        for alias, actual in state_references.items():
+                            variables[alias] = state[actual]
                         outcome = instruction["outcome"]
                         break
                 elif operator == "named-integer-draw":

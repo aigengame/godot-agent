@@ -842,6 +842,34 @@ def _replayed_event_evidence(
                 ):
                     outcome = cast(str, instruction["outcome"])
                     break
+            elif operator == "typed-require":
+                if variables[instruction["condition"]] != instruction["expected"]:
+                    return "", None, None
+            elif operator == "guarded-outcome-block":
+                if variables[instruction["condition"]]:
+                    guarded_operation = {
+                        "body": instruction["body"],
+                        "default_outcome": instruction["outcome"],
+                        "extensions": {},
+                        "id": operation["id"],
+                        "outcomes": [
+                            {**definition, "state_policy": "commit"}
+                            for definition in operation["outcomes"]
+                        ],
+                        "result": {"source": {"kind": "unit"}},
+                    }
+                    guarded_outcome, _guarded_result, found = execute(
+                        guarded_operation,
+                        variables,
+                        state_references,
+                        call_path,
+                    )
+                    if found is not None:
+                        return "", None, found
+                    if guarded_outcome != instruction["outcome"]:
+                        return "", None, None
+                    outcome = cast(str, instruction["outcome"])
+                    break
             elif operator == "named-integer-draw":
                 if draw_index >= len(draws):
                     return "", None, None

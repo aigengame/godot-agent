@@ -75,10 +75,106 @@ def test_two_consumers_require_declared_record_lookup_semantics(
     assert (
         "static",
         "kernel.vector_mismatch",
-        "language.operations.standard.conformance.structured@1.0.0."
+        "language.operations.standard.conformance.structured@2.0.0."
         "standard.conformance.structured.select-v1.body.0."
         f"{diagnostic_member}",
     ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "guard-unbound-condition",
+        "guard-wrong-condition-type",
+        "nested-guard",
+        "undeclared-outcome",
+        "guard-unbound-body-reference",
+        "guard-body-unknown-member",
+        "guard-body-early-outcome",
+        "guard-body-propagated-outcome",
+        "undeclared-require-reason",
+        "insufficient-resource-bound",
+    ),
+)
+def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "standard.conformance.structured.select-v1"
+    )
+    guard = next(item for item in operation["body"] if item["node"] == "guard-block")
+    requirement = next(item for item in operation["body"] if item["node"] == "require")
+
+    if mutation == "guard-unbound-condition":
+        guard["condition"] = "missing-condition"
+    elif mutation == "guard-wrong-condition-type":
+        guard["condition"] = "candidates"
+    elif mutation == "nested-guard":
+        guard["body"] = [deepcopy(guard)]
+    elif mutation == "undeclared-outcome":
+        guard["outcome"] = "unknown-outcome"
+    elif mutation == "guard-unbound-body-reference":
+        guard["body"] = [{"node": "copy", "target": "copied", "value": "missing-value"}]
+    elif mutation == "guard-body-unknown-member":
+        guard["body"][0]["unexpected"] = True
+    elif mutation == "guard-body-early-outcome":
+        guard["body"] = [
+            {
+                "node": "precondition-greater-than-or-equal",
+                "left": "selection_metric",
+                "right": "selection_metric",
+                "outcome": "selected",
+            }
+        ]
+    elif mutation == "guard-body-propagated-outcome":
+        guard["body"] = [
+            {
+                "node": "invoke",
+                "site": "guarded-spend",
+                "operation": {
+                    "package": "game.resource",
+                    "version": "1.0.1",
+                    "id": "game.resource.spend-v1",
+                },
+                "arguments": [
+                    {
+                        "port": "resource",
+                        "operand": {"kind": "port", "port": "selection_metric"},
+                    },
+                    {"port": "cost", "operand": {"kind": "literal", "literal": 1}},
+                ],
+                "result": {"kind": "discard"},
+                "outcomes": [
+                    {"outcome": "spent", "action": {"kind": "continue"}},
+                    {
+                        "outcome": "insufficient-resource",
+                        "action": {
+                            "kind": "propagate",
+                            "outcome": "candidate-mismatch",
+                        },
+                    },
+                ],
+            }
+        ]
+        operation["resource_bounds"]["max_steps"] += 8
+        _owned_vector(ldb, "structured.select.resource-bound")["expect"] += 8
+    elif mutation == "undeclared-require-reason":
+        requirement["reason"] = "example.reason.not-declared"
+    else:
+        operation["resource_bounds"]["max_steps"] = 3
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        "standard.conformance.structured.select-v1" in subject
+        for _stage, _code, subject in first["diagnostics"]
+    )
 
 
 def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
@@ -517,7 +613,6 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
     assert set(runtime) == {
         "closed",
         "version",
-        "evaluation_order",
         "fixed_value_contracts",
         "expression_nodes",
         "effect_nodes",

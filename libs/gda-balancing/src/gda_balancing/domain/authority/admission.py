@@ -16,9 +16,9 @@ from gda_balancing.domain.structured_values import (
     StructuredValueIndex,
     StructuredValueFault,
     equal_result_contract,
+    is_empty_result_contract,
     language_structured_value_index,
     lookup_type_contract,
-    nominal_type_key,
 )
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
@@ -37,6 +37,7 @@ from gda_balancing.domain.authority.package_validation import (
 from gda_balancing.domain.authority.runtime_validation import (
     _operation_result_source_shape_is_closed,
     _runtime_authority_is_closed,
+    literal_operation_contracts,
     operation_value_contract_matches,
 )
 from gda_balancing.domain.authority.template_validation import (
@@ -80,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c"
+    "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3187,7 +3188,7 @@ def _literal_matches_operation_contract(
     return len(
         matches := [
             contract
-            for contract in _literal_operation_contracts(
+            for contract in literal_operation_contracts(
                 value,
                 literal_profiles,
                 typed_envelope_contract,
@@ -3195,82 +3196,6 @@ def _literal_matches_operation_contract(
             if operation_value_contract_matches(contract, formal)
         ]
     ) == 1 and bool(matches)
-
-
-def _literal_operation_contracts(
-    value: Any,
-    literal_profiles: Any,
-    typed_envelope_contract: Any,
-) -> tuple[dict[str, Any], ...]:
-    if not isinstance(literal_profiles, list):
-        return ()
-    admission = (
-        typed_envelope_contract.get("admission")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    envelope_members = (
-        admission.get("envelope_members") if isinstance(admission, dict) else None
-    )
-    type_member = (
-        typed_envelope_contract.get("type_member")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    value_member = (
-        typed_envelope_contract.get("value_member")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    if (
-        isinstance(value, dict)
-        and isinstance(envelope_members, list)
-        and isinstance(type_member, str)
-        and isinstance(value_member, str)
-        and set(envelope_members) == {type_member, value_member}
-        and set(value) == set(envelope_members)
-    ):
-        type_expression = value[type_member]
-        typed_profiles = [
-            profile
-            for profile in literal_profiles
-            if isinstance(profile, dict)
-            and profile.get("source_kind") == "typed-envelope"
-            and profile.get("value_kind") == "nominal-structured"
-        ]
-        if (
-            len(typed_profiles) == 1
-            and isinstance(typed_profiles[0].get("admission"), dict)
-            and (
-                coordinate := nominal_type_key(
-                    type_expression,
-                    cast(dict[str, Any], typed_profiles[0]["admission"]),
-                )
-            )
-            is not None
-        ):
-            package, version, type_id = coordinate
-            return (
-                {
-                    "type": {"id": type_id, "package": package, "version": version},
-                    "value_kind": "nominal-structured",
-                },
-            )
-        return ()
-    if not isinstance(value, int) or isinstance(value, bool):
-        return ()
-    matches = [
-        profile
-        for profile in literal_profiles
-        if isinstance(profile, dict)
-        and profile.get("source_kind") == "integer"
-        and isinstance(profile.get("minimum"), int)
-        and not isinstance(profile["minimum"], bool)
-        and isinstance(profile.get("maximum"), int)
-        and not isinstance(profile["maximum"], bool)
-        and profile["minimum"] <= value <= profile["maximum"]
-    ]
-    return tuple(cast(list[dict[str, Any]], matches))
 
 
 def _operation_contract_for_structured_type(
@@ -3360,6 +3285,18 @@ def _declared_equal_result_contract(
 ) -> str | None:
     try:
         return equal_result_contract(
+            value_contract.get("type"), authority=structured_authority
+        )
+    except StructuredValueFault:
+        return None
+
+
+def _declared_is_empty_result_contract(
+    value_contract: dict[str, Any],
+    structured_authority: StructuredValueIndex,
+) -> str | None:
+    try:
+        return is_empty_result_contract(
             value_contract.get("type"), authority=structured_authority
         )
     except StructuredValueFault:
@@ -3518,6 +3455,7 @@ def _operation_composition_diagnostic_subjects(
     ):
         return ("language.operations.alias-policy",)
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    guard_body_keys: set[tuple[str, str, str]] = set()
     found: set[str] = set()
 
     def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
@@ -3615,6 +3553,12 @@ def _operation_composition_diagnostic_subjects(
             cast(list[dict[str, Any]], operation["body"])
         ):
             charge += 1
+            node = node_definitions.get(instruction.get("node"))
+            if not isinstance(node, dict) or set(instruction) != set(
+                node["required_members"]
+            ):
+                refuse(owner, operation, str(instruction_index), "members")
+                return None
             target = instruction.get("target")
             if instruction.get("node") != "invoke":
                 if (
@@ -3625,10 +3569,6 @@ def _operation_composition_diagnostic_subjects(
                     found.add(
                         f"language.operations.{owner}.{operation['id']}.result.source"
                     )
-                    return None
-                node = node_definitions.get(instruction.get("node"))
-                if not isinstance(node, dict):
-                    refuse(owner, operation, str(instruction_index), "node")
                     return None
                 for constraint in cast(
                     list[dict[str, Any]], node["operand_constraints"]
@@ -3782,6 +3722,120 @@ def _operation_composition_diagnostic_subjects(
                     ):
                         refuse(owner, operation, str(instruction_index), "event")
                         return None
+                operator = node["semantics"]["operator"]
+                if operator == "typed-require":
+                    reason = instruction.get("reason")
+                    if (
+                        not isinstance(instruction.get("expected"), bool)
+                        or not isinstance(reason, str)
+                        or reason not in refusals
+                    ):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "refusals",
+                        )
+                        return None
+                if operator == "guarded-outcome-block":
+                    body = instruction.get("body")
+                    guarded_outcome = instruction.get("outcome")
+                    if (
+                        key in guard_body_keys
+                        or not isinstance(body, list)
+                        or not all(isinstance(item, dict) for item in body)
+                        or any(item.get("node") == "guard-block" for item in body)
+                        or any(
+                            isinstance(body_node, dict)
+                            and body_node.get("result", {}).get("kind") == "outcome"
+                            for item in body
+                            if (body_node := node_definitions.get(item.get("node")))
+                        )
+                        or guarded_outcome not in parent_outcomes
+                    ):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "body",
+                        )
+                        return None
+                    guard_key = (
+                        key[0],
+                        key[1],
+                        f"{key[2]}#guard-{instruction_index}",
+                    )
+                    unit_contract = cast(
+                        dict[str, Any], fixed_value_contracts["kernel-unit"]
+                    )
+                    synthetic_inputs = [
+                        {
+                            **candidates[0],
+                            "access": (
+                                parent_ports[name]["access"]
+                                if name in parent_ports
+                                else "read"
+                            ),
+                            "id": name,
+                        }
+                        for name, candidates in lexical_environment.items()
+                        if len(candidates) == 1
+                    ]
+                    if len(synthetic_inputs) != len(lexical_environment):
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "typing",
+                        )
+                        return None
+                    synthetic = {
+                        "body": body,
+                        "default_outcome": guarded_outcome,
+                        "effects": list(effects),
+                        "id": guard_key[2],
+                        "inputs": synthetic_inputs,
+                        "outcomes": list(parent_outcome_definitions.values()),
+                        "refusals": list(refusals),
+                        "resource_bounds": {
+                            "max_steps": operation["resource_bounds"]["max_steps"]
+                        },
+                        "result": {
+                            **unit_contract,
+                            "access": "read",
+                            "discardable": True,
+                            "id": "result",
+                            "source": {"kind": "unit"},
+                        },
+                    }
+                    operations[guard_key] = (owner, synthetic)
+                    guard_body_keys.add(guard_key)
+                    try:
+                        guard_closure = close(guard_key, (*stack, key))
+                    finally:
+                        guard_body_keys.discard(guard_key)
+                        operations.pop(guard_key, None)
+                        cache.pop(guard_key, None)
+                    if guard_closure is None:
+                        return None
+                    body_effects, body_refusals, body_charge = guard_closure
+                    if not body_effects <= effects:
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "effects",
+                        )
+                        return None
+                    if not body_refusals <= refusals:
+                        refuse(
+                            owner,
+                            operation,
+                            str(instruction_index),
+                            "refusals",
+                        )
+                        return None
+                    charge += body_charge
                 result_definition = cast(dict[str, Any], node["result"])
                 if result_definition["kind"] in {"local", "draw"}:
                     if (
@@ -3794,12 +3848,32 @@ def _operation_composition_diagnostic_subjects(
                     typing = cast(dict[str, Any], result_definition["typing"])
                     typing_kind = typing["kind"]
                     if typing_kind == "fixed":
-                        result_candidates = (
-                            cast(
-                                dict[str, Any],
-                                fixed_value_contracts[typing["contract"]],
-                            ),
+                        expected_contract = cast(
+                            dict[str, Any],
+                            fixed_value_contracts[typing["contract"]],
                         )
+                        if operator == "collection-is-empty":
+                            value_name = instruction.get("value")
+                            value_candidates = (
+                                lexical_environment.get(value_name)
+                                if isinstance(value_name, str)
+                                else None
+                            )
+                            result_candidates = (
+                                (expected_contract,)
+                                if value_candidates
+                                and all(
+                                    _declared_is_empty_result_contract(
+                                        candidate,
+                                        structured_authority,
+                                    )
+                                    == typing["contract"]
+                                    for candidate in value_candidates
+                                )
+                                else ()
+                            )
+                        else:
+                            result_candidates = (expected_contract,)
                     elif typing_kind == "same-as-references":
                         referenced = referenced_candidates(
                             instruction,
@@ -3856,7 +3930,7 @@ def _operation_composition_diagnostic_subjects(
                         )
                     else:
                         literal_candidates = [
-                            _literal_operation_contracts(
+                            literal_operation_contracts(
                                 instruction.get(member),
                                 literal_profiles,
                                 literal_contract["typed_envelope_profile"],
@@ -4003,6 +4077,13 @@ def _operation_composition_diagnostic_subjects(
             if (
                 not isinstance(outcomes, list)
                 or [item.get("outcome") for item in outcomes] != child_outcomes
+                or (
+                    key in guard_body_keys
+                    and any(
+                        item.get("action", {}).get("kind") == "propagate"
+                        for item in outcomes
+                    )
+                )
                 or any(
                     item.get("action", {}).get("kind") == "propagate"
                     and item["action"].get("outcome") not in parent_outcomes
@@ -4787,6 +4868,8 @@ def admit_authorities(
                         package_vector_contract,
                         candidate_encoding_contract,
                         runtime_program_contract,
+                        kernel,
+                        language_bundle,
                     )
                 )
             ):

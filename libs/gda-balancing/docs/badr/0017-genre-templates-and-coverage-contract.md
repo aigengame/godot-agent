@@ -15,6 +15,33 @@ A template also cannot become a fourth authority domain. Its model starter, expe
 support evidence have different owners under bADR-0012. PRD #534 therefore needs a template
 distribution contract and a falsifiable definition of genre completeness.
 
+> **Amendment (2026-08-12, #640):** The #585 Roguelike product-feedback slice falsified the
+> provisional claim that the current Kernel could express every required bounded selection path.
+> Under bADR-0022's provisional-baseline rule, #640 admits three generic primitives: `is-empty`,
+> `require`, and `guard-block`. It replaces the exact provisional Kernel identity. All later Core
+> Extension Invariance evidence must bind the replacement identity; evidence for the superseded
+> baseline does not carry forward.
+
+> `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
+> candidate and selection data. Its primary `RarityPolicyKind` remains a selection-policy axis. The
+> independent `no_reward_on_empty: List<RewardSelection, max=1>` field declares the exhaustion
+> fallback: an empty list declares none, and one value declares the exact no-reward selection.
+> Empty selection without that value raises `selection-exhausted`. Empty selection with it validates
+> the no-reward disposition, commits the selection and its score to the declared state ports,
+> preserves policy state and draw count, consumes no RNG, completes as the `no-reward`
+> `gameplay-alternative`, and produces no Operation result. Contradictory option or fallback data is
+> a typed configuration refusal. The former `relaxed-pool` claim is removed until a package declares
+> an actual excluded pool, eligibility predicate, and relaxation order. A subsequent `game.build`
+> Event observes the no-reward disposition, completes with its own rollback
+> `gameplay-alternative`, produces no Operation result, and does not change build state or consume
+> RNG.
+
+> One illustrative, non-normative lowering uses `is-empty` and a top-level `guard-block` to complete
+> the empty selection and no-reward build paths before the outer authored sequence can draw, look
+> up a plan, or write ordinary success state. This sketch demonstrates the observable contract
+> above; it does not define either Operation body. Issue #640 owns the exact implementation target
+> until the accepted Package Release manifests and their bound vectors become machine authority.
+
 ## Decision
 
 - **A Genre template is a versioned template release, not a Standard Schema instance or runtime
@@ -87,7 +114,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
   | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
-  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
+  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee rarity policies, separately declared exhaustion fallbacks, explicit selection exhaustion, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
   | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
   | `game.decision` | optional bounded candidate evaluation, selection of one admitted immutable Action plan, and policy-governed observable Intent projection | Action-plan schema/admission/identity, encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
@@ -253,8 +280,8 @@ distribution contract and a falsifiable definition of genre completeness.
   RPG/Roguelike support claim.
 
 - **The Roguelike minimum coverage adds:** seeded constrained reward generation; closed fixed,
-  pity, and guarantee/fallback rarity-policy behavior; generated effect pools that compose
-  generation with the ordinary Effect lifecycle;
+  pity, and guarantee rarity-policy behavior with separately declared exhaustion fallbacks;
+  generated effect pools that compose generation with the ordinary Effect lifecycle;
   build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown; explicit
   typed transfer into Meta-scope progression and its Model Source-derived projection into a
   subsequent run; and replay equality under identical model, experiment, Resolved Runtime profile,

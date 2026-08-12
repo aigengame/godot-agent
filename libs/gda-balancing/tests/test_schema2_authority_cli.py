@@ -671,7 +671,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         (release["id"], release["version"]): release
         for release in authority["package_releases"]
     }
-    schema = releases[("standard.schema", "2.3.0")]
+    schema = releases[("standard.schema", "2.4.0")]
     assert schema["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "Enum"},
         {"constructor": "standard.schema.list", "id": "List"},
@@ -683,6 +683,7 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
         "standard.schema.list-at-v1",
         "standard.schema.record-field-v1",
         "standard.schema.ref-equal-v1",
+        "standard.schema.list-empty-v1",
     ]
     constructors = {
         definition["id"]: definition["parameters"]
@@ -692,11 +693,11 @@ def test_public_authority_owns_structured_values_and_their_conformance_package(
     }
     assert constructors["standard.schema.ref"] == ["target", "key_pattern"]
 
-    conformance = releases[("standard.conformance.structured", "1.0.0")]
+    conformance = releases[("standard.conformance.structured", "2.0.0")]
     assert conformance["dependencies"]["required"] == [
         {"id": "core.quantity", "version": "2.1.0"},
         {"id": "standard.runtime", "version": "1.1.0"},
-        {"id": "standard.schema", "version": "2.3.0"},
+        {"id": "standard.schema", "version": "2.4.0"},
     ]
     assert conformance["exports"]["types"] == [
         {"constructor": "standard.schema.enum", "id": "CandidateKind"},
@@ -870,6 +871,39 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
         for item in cast(list[dict[str, Any]], vector_items["oneOf"])
         if "kind" in cast(dict[str, Any], item)["properties"]
     } == {item["id"] for item in kernel_meta["package_vector"]["kinds"]}
+    operation_vector = next(
+        item
+        for item in cast(list[dict[str, Any]], vector_items["oneOf"])
+        if "kind" in cast(dict[str, Any], item["properties"])
+        and cast(dict[str, Any], item["properties"])["kind"]["const"]
+        == "operation-execution"
+    )
+    operation_value = cast(
+        dict[str, Any],
+        operation_vector["properties"]["input"]["properties"]["values"]["items"][
+            "properties"
+        ]["value"]["oneOf"][4],
+    )
+    type_coordinate = operation_value["properties"]["type"]
+    coordinate_contracts = kernel_meta["language_bundle"]["package_descriptor"][
+        "field_types"
+    ]
+    assert set(type_coordinate["required"]) == {"id", "package", "version"}
+    assert type_coordinate["properties"] == {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"const": "nominal"},
+        "package": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": coordinate_contracts["id"]["pattern"],
+        },
+        "version": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": coordinate_contracts["version"]["pattern"],
+        },
+    }
+    assert type_coordinate["unevaluatedProperties"] is False
 
     list_schema = package_list_success_schema()
     list_properties = cast(dict[str, Any], list_schema["properties"])
@@ -1522,6 +1556,92 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     )
 
 
+def test_operation_execution_evidence_replaces_runtime_scenario(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    kinds = {
+        item["id"]: item
+        for item in authority["kernel"]["meta_format"]["package_vector"]["kinds"]
+    }
+
+    assert "runtime-scenario" not in kinds
+    assert kinds["operation-execution"] == {
+        "completion_members": ["id", "kind", "reason"],
+        "expect_members": ["completion", "result", "rng_draws", "state_after"],
+        "id": "operation-execution",
+        "input_members": ["seed", "values"],
+        "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "operation",
+        ],
+        "result_members": ["kind", "value"],
+        "rng_draw_members": ["candidate_hex", "index", "stream", "value"],
+        "state_value_members": ["name", "value"],
+    }
+
+
+def test_runtime_control_primitives_are_closed_and_body_order_is_authored(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    runtime = authority["kernel"]["meta_format"]["runtime_program"]
+    nodes = {item["id"]: item for item in runtime["nodes"]}
+
+    assert "evaluation_order" not in runtime
+    assert nodes["is-empty"] == {
+        "family": "expression",
+        "id": "is-empty",
+        "operand_constraints": [],
+        "refusals": [],
+        "required_members": ["node", "target", "value"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {
+            "kind": "local",
+            "typing": {"contract": "kernel-boolean", "kind": "fixed"},
+        },
+        "semantics": {"operator": "collection-is-empty"},
+    }
+    assert nodes["require"] == {
+        "family": "control",
+        "id": "require",
+        "operand_constraints": [
+            {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": ["condition"],
+            }
+        ],
+        "refusals": [],
+        "required_members": ["node", "condition", "expected", "reason"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {"kind": "refusal"},
+        "semantics": {
+            "operator": "typed-require",
+            "refusal_reference": {
+                "instruction_member": "reason",
+                "source": "enclosing-operation.refusals",
+            },
+        },
+    }
+    assert nodes["guard-block"] == {
+        "family": "control",
+        "id": "guard-block",
+        "operand_constraints": [
+            {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": ["condition"],
+            }
+        ],
+        "refusals": [],
+        "required_members": ["node", "condition", "body", "outcome"],
+        "resource_charge": {"amount": 1, "counter": "event-steps"},
+        "result": {"kind": "outcome"},
+        "semantics": {"operator": "guarded-outcome-block"},
+    }
+
+
 def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     contract = authority["kernel"]["meta_format"]["package_vector"]
@@ -1544,7 +1664,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "package-contract",
         "operation-contract",
         "operation-relation",
-        "runtime-scenario",
+        "operation-execution",
         "scheduler-scenario",
         "structured-value",
         "value-program",
@@ -1926,6 +2046,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.cancel_active", "runtime"),
         ("runtime.cancel_completed", "runtime"),
         ("runtime.cancel_unknown", "runtime"),
+        ("standard.conformance.candidate_mismatch", "runtime"),
         ("evaluation.observation_unavailable", "evaluation"),
     }
     expected = {

@@ -300,17 +300,26 @@ def _expanded_operation_body(
     if operation_id in visiting:
         raise ValueError("admitted Operation composition is cyclic")
     nested_visiting = visiting | {operation_id}
-    expanded: list[dict[str, Any]] = []
-    for instruction in cast(list[dict[str, Any]], operation["body"]):
-        expanded.append(instruction)
-        if instruction["node"] not in {"invoke", "schedule"}:
-            continue
-        operation_ref = cast(dict[str, Any], instruction["operation"])
-        invoked = operations.get(cast(str, operation_ref["id"]))
-        if invoked is None:
-            raise ValueError("admitted Operation composition target is absent")
-        expanded.extend(_expanded_operation_body(invoked, operations, nested_visiting))
-    return expanded
+
+    def expand(instructions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        expanded: list[dict[str, Any]] = []
+        for instruction in instructions:
+            expanded.append(instruction)
+            if instruction["node"] == "guard-block":
+                expanded.extend(expand(cast(list[dict[str, Any]], instruction["body"])))
+                continue
+            if instruction["node"] not in {"invoke", "schedule"}:
+                continue
+            operation_ref = cast(dict[str, Any], instruction["operation"])
+            invoked = operations.get(cast(str, operation_ref["id"]))
+            if invoked is None:
+                raise ValueError("admitted Operation composition target is absent")
+            expanded.extend(
+                _expanded_operation_body(invoked, operations, nested_visiting)
+            )
+        return expanded
+
+    return expand(cast(list[dict[str, Any]], operation["body"]))
 
 
 def derive_scenario_program_requirements(

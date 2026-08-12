@@ -756,7 +756,7 @@
     "tests/test_schema2_experiment_cli.py::test_optional_experiment_override_uses_the_model_default_or_exact_override",
     "tests/test_schema2_experiment_cli.py::test_ordered_writable_alias_write_is_visible_to_later_child_call",
     "tests/test_schema2_experiment_cli.py::test_ordered_writable_aliases_share_one_runtime_location",
-    "tests/test_schema2_experiment_cli.py::test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator",
+    "tests/test_schema2_experiment_cli.py::test_package_operation_execution_vectors_preserve_integer_runtime_behavior",
     "tests/test_schema2_experiment_cli.py::test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning[runtime]",
     "tests/test_schema2_experiment_cli.py::test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning[success]",
     "tests/test_schema2_experiment_cli.py::test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning[verdict]",

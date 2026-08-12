@@ -3,6 +3,12 @@
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, content_identity
+from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
+    StructuredValueIndex,
+    admit_typed_value,
+    nominal_type_key,
+)
 
 
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
@@ -28,6 +34,127 @@ def operation_value_contract_matches(
             "numeric_policy",
         )
     )
+
+
+def literal_operation_contracts(
+    value: Any,
+    literal_profiles: Any,
+    typed_envelope_contract: Any,
+    fixed_value_contracts: Any = None,
+) -> tuple[dict[str, Any], ...]:
+    """Project the admitted Operation contracts for one literal value."""
+    if not isinstance(literal_profiles, list):
+        return ()
+    if value is None:
+        unit = (
+            fixed_value_contracts.get("kernel-unit")
+            if isinstance(fixed_value_contracts, dict)
+            else None
+        )
+        return (unit,) if isinstance(unit, dict) else ()
+    if isinstance(value, bool):
+        boolean = (
+            fixed_value_contracts.get("kernel-boolean")
+            if isinstance(fixed_value_contracts, dict)
+            else None
+        )
+        return (boolean,) if isinstance(boolean, dict) else ()
+    admission = (
+        typed_envelope_contract.get("admission")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    envelope_members = (
+        admission.get("envelope_members") if isinstance(admission, dict) else None
+    )
+    type_member = (
+        typed_envelope_contract.get("type_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    value_member = (
+        typed_envelope_contract.get("value_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    if (
+        isinstance(value, dict)
+        and isinstance(envelope_members, list)
+        and isinstance(type_member, str)
+        and isinstance(value_member, str)
+        and set(envelope_members) == {type_member, value_member}
+        and set(value) == set(envelope_members)
+    ):
+        type_expression = value[type_member]
+        typed_profiles = [
+            profile
+            for profile in literal_profiles
+            if isinstance(profile, dict)
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == "nominal-structured"
+        ]
+        if (
+            len(typed_profiles) == 1
+            and isinstance(admission, dict)
+            and (coordinate := nominal_type_key(type_expression, admission)) is not None
+        ):
+            package, version, type_id = coordinate
+            return (
+                {
+                    "type": {"id": type_id, "package": package, "version": version},
+                    "value_kind": "nominal-structured",
+                },
+            )
+        return ()
+    if not isinstance(value, int) or isinstance(value, bool):
+        return ()
+    return tuple(
+        profile
+        for profile in literal_profiles
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "integer"
+        and isinstance(profile.get("minimum"), int)
+        and not isinstance(profile["minimum"], bool)
+        and isinstance(profile.get("maximum"), int)
+        and not isinstance(profile["maximum"], bool)
+        and profile["minimum"] <= value <= profile["maximum"]
+    )
+
+
+def operation_value_is_admitted(
+    value: Any,
+    formal: dict[str, Any],
+    *,
+    literal_profiles: Any,
+    typed_envelope_contract: Any,
+    fixed_value_contracts: Any,
+    structured_authority: StructuredValueIndex,
+    resource_limit: int,
+) -> bool:
+    """Validate one execution-vector value against an Operation port."""
+    matches = [
+        contract
+        for contract in literal_operation_contracts(
+            value,
+            literal_profiles,
+            typed_envelope_contract,
+            fixed_value_contracts,
+        )
+        if operation_value_contract_matches(contract, formal)
+    ]
+    if len(matches) != 1:
+        return False
+    if not isinstance(value, dict):
+        return True
+    try:
+        admit_typed_value(
+            value,
+            authority=structured_authority,
+            resource_limit=resource_limit,
+        )
+    except (StructuredValueFault, ValueError):
+        return False
+    return True
 
 
 def _operation_result_source_shape_is_closed(
@@ -467,7 +594,6 @@ def _runtime_authority_is_closed(
         != {
             "closed",
             "version",
-            "evaluation_order",
             "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",

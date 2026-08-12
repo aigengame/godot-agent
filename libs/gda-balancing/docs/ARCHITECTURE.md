@@ -248,6 +248,11 @@ packaged baseline. The host caches canonical Wire-Schema meta-validation only fo
 bytes and the actual Kernel schema-profile bytes. The test and CI contract for this lifecycle is in
 [`docs/agents/testing.md`](agents/testing.md).
 
+Checked-in LDB maintenance uses bADR-0016's development conformance harness. It admits one complete
+candidate graph and permits replacement authority publication only after the production and
+independent consumers agree on every manifest-bound vector. This is not a product layer or a public
+Runtime path; the resolver, public Runtime, and identity rebuild tool do not execute vectors.
+
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 not semantic authorities. Generated JSON Schema, help text, and SDK types project authoritative
 artifacts. These projections cannot add meaning.
@@ -650,12 +655,14 @@ The initial language uses a closed constructor set:
 `Ref<T>`, `Quantity`, and `Distribution`.
 
 The list is closed for one Schema major. New convenience names do not become primitive types.
-The current `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
-constructors. A Domain package gives each use a nominal identity and exact definition. Record fields
-are closed, while Record object-member order is insignificant. Lists are invariant and bounded.
-Each Ref definition owns its nominal target and canonical key pattern. Public structured values use
-one `{type, value}` envelope. The LDB-selected type remains the authority; the envelope only carries
-that type across source, Experiment, Runtime, and artifact boundaries.
+The `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
+constructors. The #640 baseline advances that release to `2.4.0` and adds generic List emptiness;
+it does not add a type constructor. A Domain package gives each use a nominal identity and exact
+definition. Record fields are closed, while Record object-member order is insignificant. Lists are
+invariant and bounded. Each Ref definition owns its nominal target and canonical key pattern.
+Public structured values use one `{type, value}` envelope. The LDB-selected type remains the
+authority; the envelope only carries that type across source, Experiment, Runtime, and artifact
+boundaries.
 
 `Quantity` carries orthogonal facets instead:
 
@@ -686,15 +693,33 @@ meta-format. They cover grammar, name resolution, typing, effects, lowering, eva
 steps, diagnostic construction, and resource exhaustion. Rule prose explains a rule; it does not
 replace its structured semantics.
 
-The pure-expression judgment is closed to literals, typed reads, pure calls, conditionals, local
+The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and
 unbounded iteration are forbidden. Unit conversion is explicit, and persistent mutation occurs only
 through declared transitions. Host callbacks, ambient RNG, implicit conversions, and
 implementation-defined iteration are outside the language.
 
-The Kernel's pure-expression vocabulary includes typed literals, bounded Record/List lookup, and
-exact-type canonical equality. Lookup returns a typed envelope for the selected field or element.
+The Kernel's Runtime-node vocabulary includes typed literals, bounded Record/List lookup, and
+exact-type canonical equality. The #640 baseline adds generic List emptiness, a typed requirement,
+and a single-level guard block. `is-empty` returns Kernel Boolean for one exact admitted List.
+`require` compares an already produced Kernel Boolean with its Boolean `expected` member. Equality
+continues execution; inequality raises one Operation-declared refusal. `guard-block` also consumes
+an already produced Kernel Boolean. False skips its body and continues the enclosing body. True
+executes the selected body in authored order and completes with one declared outcome unless an
+earlier node refuses. Admission rejects body nodes and `invoke` mappings that can complete or
+propagate an outcome, so only a typed refusal can stop the selected body early. The node is allowed
+only in the top-level Operation body, produces no local, and cannot contain another guard block. It
+adds its own step and the selected body's actual charge; static closure includes the guard and the
+complete body bound. These nodes add no second arm, label jump, loop, Runtime phase, package
+dispatch, or evaluator callback.
+
+Runtime executes each Operation body and selected guard body in authored array order. Node families
+do not reorder the body. The replacement Kernel removes the unused
+`runtime_program.evaluation_order` phase list; `operation-body-order` remains an alias policy for
+writable operands, not an instruction-order setting.
+
+Lookup returns a typed envelope for the selected field or element.
 The statically resolved container type determines the selector: a Record key is a field literal,
 and a List key is an exact integer local. Runtime never guesses from same-name locals. RIR carries
 the recursive nominal-type and constructor closure selected for those values; Runtime does not read
@@ -941,6 +966,12 @@ Only a genuinely irreducible primitive, judgment, core constructor, or bootstrap
 Kernel/Schema-major change. Neither a source attribute nor a Domain package may introduce implicit
 syntax, host callbacks, incomplete semantic stubs, or an escape hatch around the LDB.
 
+Standard Schema 2.0 is still under development. Its Kernel remains provisional until Gate 5 and
+Gate 6 complete and a maintainer records `Kernel baseline frozen` in PRD #534. Before that event, a
+demonstrated gap may reopen the architecture gate and replace the exact baseline. After that event,
+another irreducible Kernel addition requires the next Schema major. bADR-0022 owns this evolution
+rule; this section does not define a second policy.
+
 This three-level test—Model Source, Domain package, or Kernel change—is the architecture's main
 extensibility control. It permits new game concepts while keeping semantics closed and reviewable.
 
@@ -950,6 +981,13 @@ constructors, runtime phases, or host dispatch. A bounded deterministic mechanic
 that test falsifies Standard Schema 2.0's architecture and reopens its design gate; it is never
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
+
+Issue #640 records one provisional-baseline reopening. The #585 Roguelike product-feedback slice
+showed that the provisional Kernel could not observe empty admitted Lists, raise an
+Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path. The
+replacement baseline adds the generic `is-empty`, `require`, and `guard-block` primitives. Earlier
+invariance evidence does not carry across the new Kernel identity; Gate 5 and Gate 6 must validate
+the replacement baseline again. Section 12.2 records this dogfooding result and its open boundary.
 
 ### 7.2 Package ownership and boundaries
 
@@ -1385,14 +1423,15 @@ coverage from implementation proof.
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
-| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reaches Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset without core or host dispatch changes; the public Extension Invariance Receipt and broader mechanic breadth remain open |
+| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reached Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset under the superseded provisional Kernel. That result does not carry to the replacement Kernel identity; the public Extension Invariance Receipt and broader mechanic breadth remain open |
 | Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
 
 The current evidence supports these status statements:
 
 - The bounded Gate 1 authority probe passed.
-- Permanent Kernel/LDB authorities and selected vertical slices now replace part of the disposable
-  evidence, but Gate 2 remains open.
+- Permanent Kernel/LDB authorities and selected vertical slices replace part of the disposable
+  evidence. Evidence that binds the superseded Kernel identity does not carry to the replacement
+  baseline, and Gate 2 remains open.
 - Every genre coverage row remains open. Schema conformance and genre completeness are not proven.
 - Production conformance and readiness remain open until the remaining gates close with
   authoritative artifacts and independent evidence.
@@ -1448,7 +1487,8 @@ issues own detailed observations, acceptance criteria, and live completion statu
     conformance-vector children. Admission now completes before derived indexes become visible. A
     non-RPG economy witness uses the fixed compiler and evaluator.
   - Open boundary: The witness is not the public Extension Invariance Receipt and closes no genre
-    row.
+    row. It binds the superseded provisional Kernel identity, so it is not standing evidence for
+    the replacement baseline.
   - Evidence: [evidence record](standard-schema-2.0/README.md#permanent-delivered-slices-538-539-540-553-554-592)
     and [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md).
 - **Formula authoring ([#590](https://github.com/aigengame/godot-agent/issues/590))**
@@ -1485,16 +1525,21 @@ issues own detailed observations, acceptance criteria, and live completion statu
     identity, rewards, inventory, targeting, arbitrary collections, or a general query language.
   - Evidence: [structured-selection](../examples/schema2/structured-selection/),
     `standard.schema@2.3.0`, and `standard.conformance.structured@1.0.0`.
-- **Seeded Roguelike reward and build tuning
-  ([#585](https://github.com/aigengame/godot-agent/issues/585))**
-  - Architecture consequence: Added `game.generation@1.0.0` and `game.build@1.0.0` as complete
-    Package Releases. The maintained example uses public Model and Experiment commands for one
-    seeded reward Event followed by one atomic build replacement Event.
-  - Open boundary: This product-feedback slice closes no coverage, Evidence, template-support,
-    Core Extension Invariance, or cross-genre claim. The maintained example records the exact
-    non-claim set. Later coverage work must revalidate its artifacts and observations.
-  - Evidence: [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
-    `game.generation@1.0.0`, and `game.build@1.0.0`.
+- **Roguelike reward feedback ([#585](https://github.com/aigengame/godot-agent/issues/585),
+  [#640](https://github.com/aigengame/godot-agent/issues/640))**
+  - Architecture consequence: The product-feedback path exposed three missing generic capabilities:
+    List emptiness, an Operation-declared typed requirement, and bounded effectful path control.
+    Issue #640 replaces the provisional Kernel design with `is-empty`, `require`, and a single-level
+    `guard-block`, plus the `operation-execution` conformance vector.
+  - Implementation evidence: The replacement Kernel and LDB export these generic capabilities as
+    `standard.schema@2.4.0` and `standard.conformance.structured@2.0.0`. Production and independent
+    consumers agree on the admitted Operation vectors, and affected authority and example identities
+    are rebuilt against the replacement Kernel.
+  - Open boundary: The #585 mechanic Package Releases, PR #639 product-path update, and HITL
+    acceptance remain open. Evidence bound to the superseded Kernel identity does not carry forward.
+  - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
+    [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
+    [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md).
 
 ### 12.3 Architecture consequence
 
@@ -1563,6 +1608,11 @@ equality, diagnostic, and resource-bound cases. The maintained neutral selection
 those values through Model build, Experiment admission, Runtime execution, Snapshots, traces, and a
 numeric Metric. It does not close the broader type system or Genre coverage gates.
 
+Issue #640 replaces the provisional Kernel identity used by the earlier slices. Its implementation
+must rebuild the affected Kernel/LDB authorities, consumers, vectors, and downstream exact
+identities before that evidence can apply to the replacement baseline. The #592 non-RPG witness and
+other superseded-Kernel invariance evidence do not carry forward.
+
 Gate 2 follows bADR-0012's dependency order:
 
 1. Publish permanent Kernel/LDB and encoding/identity/schema authorities.
@@ -1613,7 +1663,8 @@ evidence contracts. If Roguelike support requires a second language or host disp
 orthogonality claim fails and the architecture must be revisited.
 An earlier Roguelike-shaped product-feedback slice may challenge these assumptions, but it neither
 advances this gate nor owns the cross-genre claim. Formal Gate 5 validation still begins only after
-Gate 4 closes.
+Gate 4 closes. Issue #640 is the architecture follow-up to one such challenge: it repairs the
+unreleased Kernel baseline but does not close a Roguelike coverage row or advance Gate 5.
 
 ### Gate 6 — adversarial non-RPG extension witness
 

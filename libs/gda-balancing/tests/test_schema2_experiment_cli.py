@@ -42,6 +42,9 @@ from schema2_scheduler_production_support import (
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
 )
+from schema2_operation_execution_production_support import (
+    evaluate_operation_execution_vector,
+)
 from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -163,7 +166,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
             "type": {
                 "id": "Candidate",
                 "package": "standard.conformance.structured",
-                "version": "1.0.0",
+                "version": "2.0.0",
             },
             "value": {"key": {"key": "candidate_a"}, "kind": "primary"},
         },
@@ -188,7 +191,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "1.0.0",
+            "version": "2.0.0",
         },
         "value": "primary",
     }
@@ -215,7 +218,7 @@ def test_list_lookup_requires_the_statically_resolved_index_local():
                     "id": "Candidate",
                     "kind": "nominal",
                     "package": "standard.conformance.structured",
-                    "version": "1.0.0",
+                    "version": "2.0.0",
                 },
                 "kind": "list",
                 "maximum_length": 16,
@@ -559,6 +562,8 @@ def _reference_fact_rows(values: dict[str, Any]) -> list[dict[str, Any]]:
         value = values[name]
         if isinstance(value, bool):
             rows.append({"name": name, "kind": "boolean", "boolean": value})
+        elif not isinstance(value, int):
+            rows.append({"name": name, "kind": "structured", "value": value})
         else:
             rows.append({"name": name, "kind": "integer", "integer": value})
     return rows
@@ -585,6 +590,7 @@ def _reference_execute_event(
     resolved_declarations: list[dict[str, Any]] | None = None,
     resolved_call_sites: list[dict[str, Any]] | None = None,
     resolved_initialization_programs: list[dict[str, Any]] | None = None,
+    language_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -768,6 +774,108 @@ def _reference_execute_event(
         (row["parent_operation"]["id"], row["site"]): row
         for row in (resolved_call_sites or [])
     }
+    language = (
+        language_bundle.get("language") if isinstance(language_bundle, dict) else None
+    )
+    nominal_types = {
+        (row["package"], row["version"], row["id"]): row
+        for row in (
+            language.get("nominal_types", []) if isinstance(language, dict) else []
+        )
+        if isinstance(row, dict)
+        and all(
+            isinstance(row.get(member), str) for member in ("package", "version", "id")
+        )
+    }
+    constructors = {
+        row["id"]: row
+        for row in (
+            language.get("constructors", []) if isinstance(language, dict) else []
+        )
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    structured_operations = [
+        row
+        for row in (
+            language.get("structured_operations", [])
+            if isinstance(language, dict)
+            else []
+        )
+        if isinstance(row, dict)
+    ]
+
+    def structural(type_expression: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        definition = type_expression
+        constructor = None
+        if isinstance(type_expression, dict) and set(type_expression) >= {
+            "id",
+            "package",
+            "version",
+        }:
+            nominal = nominal_types[
+                (
+                    type_expression["package"],
+                    type_expression["version"],
+                    type_expression["id"],
+                )
+            ]
+            definition = nominal["definition"]
+            constructor = constructors[nominal["constructor"]]
+        if not isinstance(definition, dict):
+            raise AssertionError("structured type is not admitted")
+        if constructor is None:
+            matches = [
+                candidate
+                for candidate in constructors.values()
+                if candidate.get("value_rule", {}).get("definition_kind")
+                == definition.get("kind")
+            ]
+            assert len(matches) == 1
+            constructor = matches[0]
+        return definition, constructor
+
+    def structured_law(type_expression: Any, operator: str) -> dict[str, Any]:
+        _definition, constructor = structural(type_expression)
+        matches = [
+            row["law"]
+            for row in structured_operations
+            if row.get("owner_constructor") == constructor["id"]
+            and row.get("law", {}).get("operator") == operator
+        ]
+        assert len(matches) == 1
+        return matches[0]
+
+    def structured_lookup(envelope: Any, key: Any) -> dict[str, Any]:
+        assert isinstance(envelope, dict) and set(envelope) == {"type", "value"}
+        definition, constructor = structural(envelope["type"])
+        selected_law = structured_law(envelope["type"], "bounded-lookup")
+        rule = constructor["value_rule"]
+        if selected_law["selector"] == "static-field":
+            field = next(
+                row
+                for row in definition[rule["fields_member"]]
+                if row[rule["field_name_member"]] == key
+            )
+            result_type = field[rule["field_type_member"]]
+            result_value = envelope["value"][key]
+        else:
+            assert selected_law["selector"] == "local-index"
+            result_type = definition[rule["element_member"]]
+            result_value = envelope["value"][key]
+        if isinstance(result_type, dict) and result_type.get("kind") == "nominal":
+            result_type = {
+                member: result_type[member] for member in ("id", "package", "version")
+            }
+        return {"type": result_type, "value": result_value}
+
+    def structured_is_empty(envelope: Any) -> bool:
+        assert isinstance(envelope, dict) and set(envelope) == {"type", "value"}
+        definition, constructor = structural(envelope["type"])
+        selected_law = structured_law(envelope["type"], "collection-is-empty")
+        assert constructor["value_rule"]["operator"] == "bounded-list"
+        assert selected_law["result_contract"] == "kernel-boolean"
+        assert definition["kind"] == "list"
+        return not envelope["value"]
 
     def exact(value: int, target: dict[str, Any] | None = None) -> int:
         if not numeric["minimum"] <= value <= numeric["maximum"]:
@@ -881,6 +989,43 @@ def _reference_execute_event(
                     ):
                         outcome = instruction["outcome"]
                         break
+                elif operator == "typed-require":
+                    if (
+                        cell(instruction["condition"])["value"]
+                        != instruction["expected"]
+                    ):
+                        raise _ReferenceRuntimeRefusal(instruction["reason"])
+                elif operator == "guarded-outcome-block":
+                    if cell(instruction["condition"])["value"]:
+                        unit_contract = runtime["fixed_value_contracts"]["kernel-unit"]
+                        guarded = {
+                            "body": instruction["body"],
+                            "default_outcome": instruction["outcome"],
+                            "effects": selected["effects"],
+                            "id": selected["id"],
+                            "inputs": [],
+                            "outcomes": [
+                                {**row, "state_policy": "commit"}
+                                for row in selected["outcomes"]
+                            ],
+                            "refusals": selected["refusals"],
+                            "resource_bounds": selected["resource_bounds"],
+                            "result": {
+                                **unit_contract,
+                                "access": "read",
+                                "discardable": True,
+                                "id": "result",
+                                "source": {"kind": "unit"},
+                            },
+                        }
+                        execute(
+                            guarded,
+                            {**arguments, **locals_},
+                            stack,
+                            path,
+                        )
+                        outcome = instruction["outcome"]
+                        break
                 elif operator == "named-integer-draw":
                     draw = _reference_rng_draw(
                         runtime["named_rng"],
@@ -899,6 +1044,27 @@ def _reference_execute_event(
                     write_local(
                         instruction["target"],
                         cell(instruction["value"])["value"],
+                    )
+                elif operator == "bounded-lookup":
+                    key = instruction["key"]
+                    if key in locals_:
+                        key = locals_[key]["value"]
+                    write_local(
+                        instruction["target"],
+                        structured_lookup(cell(instruction["value"])["value"], key),
+                    )
+                elif operator == "canonical-equal":
+                    left = cell(instruction["left"])["value"]
+                    right = cell(instruction["right"])["value"]
+                    assert left["type"] == right["type"]
+                    write_local(
+                        instruction["target"],
+                        left["value"] == right["value"],
+                    )
+                elif operator == "collection-is-empty":
+                    write_local(
+                        instruction["target"],
+                        structured_is_empty(cell(instruction["value"])["value"]),
                     )
                 elif operator in {
                     "integer-add",
@@ -939,9 +1105,18 @@ def _reference_execute_event(
                     )
                 elif operator == "state-write":
                     target = arguments[instruction["symbol"]]
-                    target["value"] = exact(
-                        cell(instruction["value"])["value"],
-                        target,
+                    value = cell(instruction["value"])["value"]
+                    if (
+                        isinstance(target["value"], int)
+                        and not isinstance(target["value"], bool)
+                        and isinstance(value, dict)
+                        and set(value) == {"type", "value"}
+                    ):
+                        value = value["value"]
+                    target["value"] = (
+                        exact(value, target)
+                        if isinstance(value, int) and not isinstance(value, bool)
+                        else value
                     )
                 else:
                     raise AssertionError(
@@ -1067,6 +1242,8 @@ def _reference_execute_event(
         "schedules": [],
         "cancellations": [],
     }
+    if resolved_entrypoint is None:
+        event["result"] = result
     if resolved_entrypoint is not None:
         event["entrypoint"] = {
             "id": resolved_entrypoint["id"],
@@ -2463,22 +2640,36 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     assert success_metrics["samples"][0]["value"] == 3
     assert success_snapshots["snapshots"][-1]["values"] == success["state_after"]
 
-    failure_receipt, failure_trace, failure_snapshots, failure_metrics = run(
-        "candidate_b", reordered=False, invocation="8"
+    specification["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+        "structured.select-candidate-b"
     )
-    failure = failure_trace["events"][0]
-    assert failure["outcome"] == {
-        "id": "candidate-mismatch",
-        "kind": "gameplay-alternative",
-    }
-    assert failure["state_after"] == failure["state_before"]
-    assert failure_snapshots["snapshots"][1]["values"] == failure["state_before"]
-    assert not any(row["name"] == "selection_result" for row in failure["facts"])
-    assert failure_metrics["samples"][0]["value"] == 9
-    assert not any(
-        row["logical_name"] == "runtime-terminal-audit"
-        for row in failure_receipt["member_locators"]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    failure_exit, failure_stdout, failure_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "evaluation-8.json"),
+            "--invocation-key",
+            "8" * 64,
+        ]
     )
+    assert (failure_exit, failure_stderr) == (2, ""), (
+        failure_stdout,
+        failure_stderr,
+    )
+    failure = json.loads(failure_stdout)["error"]
+    assert failure["diagnostics"][0]["code"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    audit = _member(failure["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert audit["budget_counters"]["event_steps"] == 19
 
     _reordered_receipt, reordered_trace, _, reordered_metrics = run(
         "candidate_b", reordered=True, selected_rank=7, invocation="9"
@@ -2520,7 +2711,7 @@ def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
     )
 
 
-def test_public_structured_lookup_refuses_and_rolls_back_the_event(tmp_path, run_cli):
+def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, run_cli):
     specification_path, specification = _write_built_structured_experiment(
         tmp_path, run_cli
     )
@@ -2542,24 +2733,32 @@ def test_public_structured_lookup_refuses_and_rolls_back_the_event(tmp_path, run
             "run",
             str(specification_path),
             "--out",
-            str(tmp_path / "lookup-refusal.json"),
+            str(tmp_path / "empty-selection.json"),
             "--invocation-key",
             "a" * 64,
         ]
     )
 
-    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
-    error = json.loads(stdout)["error"]
-    assert error["stage"] == "runtime"
-    assert [row["code"] for row in error["diagnostics"]] == [
-        "runtime.structured_lookup_out_of_range"
-    ]
-    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["reason"] == (
-        "runtime.structured_lookup_out_of_range"
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    event = trace["events"][0]
+    assert event["outcome"] == {
+        "id": "candidate-mismatch",
+        "kind": "gameplay-alternative",
+    }
+    assert event["rng_draws"] == []
+    assert event["state_after"] == event["state_before"]
+    assert not any(row["name"] == "selection_result" for row in event["facts"])
+    snapshots = _member(receipt, "snapshot-series")
+    assert (
+        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 5
     )
-    assert audit["rollback"]["committed"] is False
-    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 9
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
@@ -6553,7 +6752,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         } == vector["expect"]
 
 
-def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
+def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
@@ -6564,7 +6763,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             if vector_set["package_id"] == "game.combat"
             and vector_set["package_version"] == "2.1.0"
         )
-        if vector.get("kind") == "runtime-scenario"
+        if vector.get("kind") == "operation-execution"
     ]
     assert {vector["category"] for vector in vectors} == {
         "positive",
@@ -6587,10 +6786,19 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
         projection = {
-            "outcome": event["outcome"]["id"],
+            "completion": {"kind": "outcome", "id": event["outcome"]["id"]},
+            "result": (
+                {"kind": "value", "value": event["result"]}
+                if event["outcome"]["kind"] == "success"
+                else {"kind": "not-produced"}
+            ),
             "rng_draws": [
                 {
                     member: draw[member]
@@ -6607,7 +6815,11 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
         assert replay == event
         observed[vector["id"]] = projection
@@ -6624,6 +6836,133 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def _reference_operation_execution_projection(
+    kernel: dict[str, Any],
+    ldb: Any,
+    operations: dict[str, dict[str, Any]],
+    vector: dict[str, Any],
+) -> dict[str, Any]:
+    operation = operations[vector["operation"]]
+    event = _reference_execute_event(
+        kernel,
+        operation,
+        operations,
+        {"id": vector["id"], "values": vector["input"]["values"]},
+        seed=vector["input"]["seed"],
+        state_names={
+            row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+        },
+        language_bundle=ldb,
+    )
+    if "refusal" in event:
+        return {
+            "completion": {
+                "kind": "refusal",
+                "reason": event["refusal"]["reason"],
+            },
+            "result": {"kind": "not-produced"},
+            "rng_draws": [],
+            "state_after": event["state_after"],
+        }
+    return {
+        "completion": {
+            "kind": "outcome",
+            "id": event["outcome"]["id"],
+        },
+        "result": (
+            {"kind": "value", "value": event["result"]}
+            if event["outcome"]["kind"] == "success"
+            else {"kind": "not-produced"}
+        ),
+        "rng_draws": [
+            {
+                member: draw[member]
+                for member in ("candidate_hex", "index", "stream", "value")
+            }
+            for draw in event["rng_draws"]
+        ],
+        "state_after": event["state_after"],
+    }
+
+
+def _operation_execution_vectors(ldb: Any) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (vector_set["package_id"], vector)
+        for vector_set in ldb.package_conformance_vector_sets
+        for vector in vector_set["vector_definitions"]
+        if vector.get("kind") == "operation-execution"
+    ]
+
+
+def test_neutral_structured_operation_vectors_cover_control_paths():
+    kernel, ldb = mutable_authorities()
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    vectors = [
+        vector
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "standard.conformance.structured"
+    ]
+    assert {vector["id"] for vector in vectors} == {
+        "structured.select.success",
+        "structured.select.empty-outcome",
+        "structured.select.mismatch-refusal",
+    }
+
+    for vector in vectors:
+        assert (
+            _reference_operation_execution_projection(kernel, ldb, operations, vector)
+            == vector["expect"]
+        )
+
+
+def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    vectors = _operation_execution_vectors(ldb)
+    assert vectors
+
+    for package_id, vector in vectors:
+        production = evaluate_operation_execution_vector(context, vector)
+        reference = _reference_operation_execution_projection(
+            kernel, ldb, operations, vector
+        )
+        assert production == reference == vector["expect"], (
+            package_id,
+            vector["id"],
+            production,
+            reference,
+        )
+
+
+def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    package_id, vector = next(
+        (package_id, deepcopy(candidate))
+        for package_id, candidate in _operation_execution_vectors(ldb)
+        if candidate["id"] == "structured.select.empty-outcome"
+    )
+    vector["expect"]["completion"]["id"] = "mutated-outcome"
+
+    production = evaluate_operation_execution_vector(context, vector)
+    reference = _reference_operation_execution_projection(
+        kernel, ldb, operations, vector
+    )
+    with pytest.raises(AssertionError) as failure:
+        assert production == reference == vector["expect"], (
+            package_id,
+            vector["id"],
+            production,
+            reference,
+        )
+    assert package_id in str(failure.value)
+    assert vector["id"] in str(failure.value)
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
@@ -7318,6 +7657,47 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         != (first.value["implementation_identity"])
     )
     assert changed_build.content_identity != first.content_identity
+
+
+def test_operation_closure_includes_guard_body_nodes_and_invocations():
+    operations = {
+        "example.root": {
+            "id": "example.root",
+            "body": [
+                {
+                    "node": "guard-block",
+                    "condition": "enabled",
+                    "body": [
+                        {"node": "copy", "value": "input", "target": "copied"},
+                        {
+                            "node": "invoke",
+                            "operation": {
+                                "package": "example",
+                                "version": "1.0.0",
+                                "id": "example.child",
+                            },
+                        },
+                    ],
+                    "outcome": "complete",
+                }
+            ],
+        },
+        "example.child": {
+            "id": "example.child",
+            "body": [{"node": "constant", "literal": 1, "target": "one"}],
+        },
+    }
+
+    expanded = experiment_admission_module._expanded_operation_body(
+        operations["example.root"], operations
+    )
+
+    assert [instruction["node"] for instruction in expanded] == [
+        "guard-block",
+        "copy",
+        "invoke",
+        "constant",
+    ]
 
 
 def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):
