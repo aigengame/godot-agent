@@ -17,10 +17,10 @@ distribution contract and a falsifiable definition of genre completeness.
 
 > **Amendment (2026-08-12, #640):** The #585 Roguelike product-feedback slice falsified the
 > provisional claim that the current Kernel could express every required bounded selection path.
-> Under bADR-0022's pre-freeze rule, #640 admits the generic `is-empty`, `require`, and `branch`
-> primitives and replaces the exact provisional Kernel identity. All later Core Extension
-> Invariance evidence must bind the replacement identity; evidence for the superseded baseline does
-> not carry forward.
+> Under bADR-0022's provisional-baseline rule, #640 admits three generic primitives: `is-empty`,
+> `require`, and `guard-block`. It replaces the exact provisional Kernel identity. All later Core
+> Extension Invariance evidence must bind the replacement identity; evidence for the superseded
+> baseline does not carry forward.
 
 > `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
 > candidate and selection data. Its primary `RarityPolicyKind` remains a selection-policy axis. The
@@ -37,18 +37,19 @@ distribution contract and a falsifiable definition of genre completeness.
 > RNG.
 
 > The selection Operation has this closed control flow. It first evaluates `is-empty` under
-> `standard.schema.list-empty-v1` for the options and `no_reward_on_empty` lists. Its `branch` on
-> the options result executes exactly one arm. The empty arm compares the fallback-empty Boolean
-> with false and applies `require` with
-> `selection-exhausted`; it then reads index zero, validates the no-reward disposition, writes
-> `selected_reward` and `reward_score`, and completes with `no-reward`. The non-empty arm performs
-> the Named-stream draw, reads one paired `RewardOption`, validates its Package-owned relations,
-> writes the same state ports, and continues to the default `selected` outcome. The successful
-> Operation result reads `selected_reward` from its state port, so no branch-local value escapes.
-> The build Operation branches on the selected disposition: the no-reward arm completes before any
-> plan lookup or write; the build arm validates and writes the replacement, then continues to its
-> default success outcome. These traces use no label jump, loop, evaluator callback, or game-specific
-> dispatch.
+> `standard.schema.list-empty-v1` for the options and `no_reward_on_empty` lists. A top-level
+> `guard-block` reads the options-empty Boolean. If true, its body applies
+> `require(condition=fallback_empty, expected=false, reason=selection-exhausted)`, reads fallback
+> index zero, validates the no-reward disposition, writes `selected_reward` and `reward_score`, and
+> completes with `no-reward`. If false, the guard skips its body and the outer authored sequence
+> performs the Named-stream draw, reads one paired `RewardOption`, validates its Package-owned
+> relations, writes the same state ports, and reaches the default `selected` outcome. The successful
+> Operation result reads `selected_reward` from its state port; the guard produces no local value.
+> The build Operation first compares the selected disposition with no reward. Its top-level
+> `guard-block` completes with `no-reward` before any plan lookup or write when that Boolean is true.
+> False skips the guard body, after which the outer authored sequence validates and writes the
+> replacement before reaching its default success outcome. These traces use authored body order and
+> no second arm, nested guard, label jump, loop, evaluator callback, or game-specific dispatch.
 
 ## Decision
 

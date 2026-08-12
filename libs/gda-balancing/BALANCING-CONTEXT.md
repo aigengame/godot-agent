@@ -92,10 +92,12 @@ values exactly cover the Operation ports; `read-write` ports derive the state in
 expectation records an outcome or typed refusal, a produced value or `not-produced`, the stable
 Named-stream RNG projection, and final state. Nominal structured values use exact typed envelopes;
 scalar values follow their declared contracts. LDB admission closes its structure, identities,
-types, and bindings. During LDB maintenance, a development conformance harness admits the candidate
-release in an isolated complete LDB graph, enumerates its manifest-bound vectors, and compares the
-production and independent consumers before the maintained graph is rebuilt. Public Runtime does
-not discover or execute the vector (bADR-0016/0022).
+types, and bindings. During LDB maintenance, a development conformance harness admits one isolated
+complete candidate graph. It executes every vector bound by every Package Release manifest in that
+graph and compares the production and independent consumers. Only complete agreement permits the
+workflow to publish the replacement authority graph; otherwise the existing admitted graph remains
+authoritative. Public Runtime, the package resolver, and the identity rebuild tool do not execute
+vectors (bADR-0016/0022).
 _Avoid_: runtime scenario, Experiment scenario, package test script, full Event Trace
 
 **Admitted language index**:
@@ -109,9 +111,12 @@ _Avoid_: language registry, generated authority, cached peer catalog
 The versioned, non-self-hosted authority that defines bundle structure and interpretation,
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
-conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
-refusals, resource units, and canonical behavior. Its evolution follows the pre-freeze and
-post-freeze rule in bADR-0022.
+conformance interface. Each executable Kernel law closes its parameters, result, transitive
+effects, refusals, resource units, and canonical behavior. The Standard Schema 2.0 Kernel remains a
+provisional baseline until Gate 5 and Gate 6 complete and a maintainer records `Kernel baseline
+frozen` in PRD #534. Before that event, demonstrated gaps may reopen the architecture gate and
+replace the exact baseline. After it, another irreducible Kernel addition requires the next Schema
+major (bADR-0022).
 Its identity law also names every authority-artifact identity domain; package meta-format contracts
 own package id/version grammar. Every Language Definition Bundle binds one exact
 kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
@@ -120,12 +125,22 @@ _Avoid_: reference implementation as authority, host semantic kernel, implicit b
 
 **Semantic kernel**:
 The closed bootstrap operation set whose laws are fixed by the Schema-major Kernel Specification:
-literals, reads, calls, value conditionals, structured conditional branches, local bindings,
+literals, reads, calls, value conditionals, single-level guarded outcome blocks, local bindings,
 bounded aggregation, lookup, sampling, and transition/event primitives. Language Definition Bundle
-rules compose those primitives into language and domain behavior. An irreducible addition is a
-Schema-major kernel change with formal
-laws, independent conforming implementations, and normative vectors (bADR-0022).
+rules compose those primitives into language and domain behavior. Each addition requires formal
+laws, independent conforming implementations, normative vectors, and a replacement Kernel identity;
+the frozen-baseline rule determines whether it enters the current or next Schema major
+(bADR-0022).
 _Avoid_: standard library, evaluator built-ins, host functions
+
+**Guard block**:
+The Kernel `guard-block` control node with exact members `node`, `condition`, `body`, and `outcome`.
+Its condition refers to an already produced Kernel Boolean. False skips its body and continues the
+enclosing Operation body. True executes its body in authored order and, unless a node refuses,
+completes the Operation with the declared outcome. A guard block is allowed only in a top-level
+Operation body and cannot contain another guard block. It produces no local value and is not a
+general two-arm branch, expression conditional, label jump, or loop (bADR-0022).
+_Avoid_: two-arm branch node, if statement, nested control block, conditional expression
 
 **Language rule**:
 A stable-id, machine-readable rule in the Language Definition Bundle, represented as structured
@@ -761,10 +776,24 @@ exhaustion behavior is a separate declared fallback; a pity bound does not silen
 guarantee or fallback (bADR-0017).
 _Avoid_: luck curve, implicit pity, rarity callback
 
+**Rarity-policy state**:
+The `game.generation` state that records the selected `RarityPolicyKind` and its draw count at an
+Event boundary. A reward selection carries the state before and after the draw. A declared
+no-reward fallback preserves both values because it consumes no draw. Later policy variants may add
+state only through a new package contract; Runtime does not infer pity or guarantee progress
+(bADR-0017).
+_Avoid_: RNG state, implicit pity counter, evaluator policy state
+
+**Reward score**:
+The typed Quantity paired with one `RewardOption` and copied to the `reward_score` state port when
+that option or the declared no-reward fallback is selected. It is an explicit result observation,
+not an implicit weight, probability, or evaluator ranking rule (bADR-0017).
+_Avoid_: draw weight, hidden fitness, evaluator score
+
 **Selection exhaustion**:
 Selection exhaustion occurs when an already ordered eligible pool contains no selectable option.
 It is not contradictory option data, an invalid fallback value, or a later build conflict.
-Without a declared fallback it is a typed refusal; with an applicable declared fallback it enters
+Without a declared fallback it is a typed refusal; with the declared no-reward fallback it enters
 that fallback's gameplay outcome (bADR-0017).
 _Avoid_: empty candidate selected, invalid pool, build conflict
 

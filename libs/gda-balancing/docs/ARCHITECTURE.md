@@ -643,10 +643,12 @@ policy from domain-neutral storage mechanisms.
 Checked-in LDB maintenance also uses a development conformance harness. This harness is not a new
 product layer or public Runtime path. It constructs one isolated candidate graph from the exact
 Kernel, maintained releases, and proposed replacements. Domain admission closes that graph. The
-harness then enumerates the candidate manifests' bound vector children and compares the production
-evaluator adapter with an independent consumer. Only agreement permits the maintenance workflow to
-rebuild the checked-in LDB root. The package resolver and public Runtime never discover vectors;
-the identity rebuild tool does not execute them.
+harness then executes every vector bound by every Package Release manifest and compares the
+production evaluator adapter with an independent consumer. The workflow next rebuilds and validates
+all affected downstream identities against that admitted graph. It publishes the complete
+replacement set only after every check passes. On failure, the existing admitted graph remains
+authoritative. The package resolver and public Runtime never discover vectors; the identity rebuild
+tool does not execute them.
 
 ## 5. Language and semantic model
 
@@ -704,13 +706,21 @@ through declared transitions. Host callbacks, ambient RNG, implicit conversions,
 implementation-defined iteration are outside the language.
 
 The Kernel's Runtime-node vocabulary includes typed literals, bounded Record/List lookup, and
-exact-type canonical equality. The #640 baseline adds generic List emptiness, a typed refusal guard,
-and a structured conditional branch. `is-empty` returns Kernel Boolean for one exact admitted List.
-`require` continues on true and raises one Operation-declared refusal on false. `branch` executes
-only one recursively admitted inline arm; the other arm consumes no steps, RNG, writes, or effects.
-Arm locals do not escape, while state-port writes remain in the active Event transaction. A branch
-adds its own step and the selected arm's charge; static closure uses the larger arm bound. These
-nodes add no label jump, loop, Runtime phase, package dispatch, or evaluator callback.
+exact-type canonical equality. The #640 baseline adds generic List emptiness, a typed requirement,
+and a single-level guard block. `is-empty` returns Kernel Boolean for one exact admitted List.
+`require` compares an already produced Kernel Boolean with its Boolean `expected` member. Equality
+continues execution; inequality raises one Operation-declared refusal. `guard-block` also consumes
+an already produced Kernel Boolean. False skips its body and continues the enclosing body. True
+executes the selected body in authored order and completes with one declared outcome unless an
+earlier node refuses. The node is allowed only in the top-level Operation body, produces no local,
+and cannot contain another guard block. It adds its own step and the selected body's actual charge;
+static closure includes the guard and the complete body bound. These nodes add no second arm,
+label jump, loop, Runtime phase, package dispatch, or evaluator callback.
+
+Runtime executes each Operation body and selected guard body in authored array order. Node families
+do not reorder the body. The replacement Kernel removes the unused
+`runtime_program.evaluation_order` phase list; `operation-body-order` remains an alias policy for
+writable operands, not an instruction-order setting.
 
 Lookup returns a typed envelope for the selected field or element.
 The statically resolved container type determines the selector: a Record key is a field literal,
@@ -959,9 +969,11 @@ Only a genuinely irreducible primitive, judgment, core constructor, or bootstrap
 Kernel/Schema-major change. Neither a source attribute nor a Domain package may introduce implicit
 syntax, host callbacks, incomplete semantic stubs, or an escape hatch around the LDB.
 
-Standard Schema 2.0 is still under development. bADR-0022 owns the rule for refining the
-provisional Kernel before release freeze and for evolving it after freeze. This section applies
-that rule; it does not define a second evolution policy.
+Standard Schema 2.0 is still under development. Its Kernel remains provisional until Gate 5 and
+Gate 6 complete and a maintainer records `Kernel baseline frozen` in PRD #534. Before that event, a
+demonstrated gap may reopen the architecture gate and replace the exact baseline. After that event,
+another irreducible Kernel addition requires the next Schema major. bADR-0022 owns this evolution
+rule; this section does not define a second policy.
 
 This three-level test—Model Source, Domain package, or Kernel change—is the architecture's main
 extensibility control. It permits new game concepts while keeping semantics closed and reviewable.
@@ -973,12 +985,12 @@ that test falsifies Standard Schema 2.0's architecture and reopens its design ga
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
 
-Issue #640 records one pre-freeze reopening. The #585 Roguelike product-feedback slice showed that
-the provisional Kernel could not observe empty admitted Lists, raise an Operation-declared typed
-refusal, or skip RNG, lookup, and effect nodes on an unselected path. The replacement baseline adds
-the generic `is-empty`, `require`, and `branch` primitives. Earlier invariance evidence does not
-carry across the new Kernel identity; Gate 5 and Gate 6 must validate the replacement baseline
-again.
+Issue #640 records one provisional-baseline reopening. The #585 Roguelike product-feedback slice
+showed that the provisional Kernel could not observe empty admitted Lists, raise an
+Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path. The
+replacement baseline adds the generic `is-empty`, `require`, and `guard-block` primitives. Earlier
+invariance evidence does not carry across the new Kernel identity; Gate 5 and Gate 6 must validate
+the replacement baseline again.
 
 ### 7.2 Package ownership and boundaries
 

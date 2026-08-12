@@ -38,17 +38,6 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > roots remain sequential atomic transactions, and Runtime infers no defeat, interruption, or
 > eligibility policy from health-like state.
 
-> **Amendment (2026-08-12, #640):** The Kernel `branch` node executes exactly one admitted inline
-> arm in the active Event transaction. The unselected arm consumes no steps, RNG, state writes, or
-> effects. A selected arm can continue the enclosing Operation or complete it with one declared
-> outcome. The Kernel `require` node terminates the active Event with one Operation-declared,
-> LDB-resolved typed refusal when its Boolean condition is false. It reuses the existing
-> Event-refusal boundary: state writes, RNG continuation, buffered child Events, Metrics, and
-> Snapshot publication are rolled back, and later nodes do not execute. This differs from a
-> completed `gameplay-alternative`; that outcome follows its declared state policy and retains any
-> RNG draws that led to the completed Event. An `operation-execution` refusal vector observes only
-> the post-rollback state and committed RNG projection, not discarded attempt logs.
-
 > **Amendment (2026-08-04, #596):** A Domain-package Operation may implement one bounded periodic
 > lifecycle only by scheduling ordinary child Events through this same queue. The selected package
 > owns duration/period, tick/expiry times, capture/read policy, contribution and outcomes; Runtime
@@ -59,6 +48,20 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > so Formula, Numeric or schedule refusal publishes none of them. A tick sharing logical time with
 > an ordinary Event observes only the latest previously committed Snapshot under the existing
 > phase/priority/enqueue order. No Effect loop or repeated Scenario becomes a second time authority.
+
+> **Amendment (2026-08-12, #640):** The Kernel `guard-block` node is allowed only in a top-level
+> Operation body. It reads one already produced Kernel Boolean. False charges only the guard step,
+> skips the body without RNG, writes, or effects, and continues the enclosing body. True executes
+> its non-nested body in authored order and, unless a node refuses, completes the Operation with one
+> declared outcome. The Kernel `require` node compares an already produced Kernel Boolean with its
+> Boolean `expected` member. A mismatch raises one Operation-declared, LDB-resolved typed refusal;
+> a match continues. The refusal terminates the run and reuses the existing Event-refusal boundary:
+> state writes, RNG continuation, buffered child Events, Metrics, and Snapshot publication are
+> rolled back, and later nodes do not execute. Executed node steps and the terminal audit remain
+> execution facts. This differs from a completed `gameplay-alternative`; that outcome follows its
+> declared state policy and retains any RNG draws that led to the completed Event. An
+> `operation-execution` refusal vector observes the post-rollback state and committed RNG projection,
+> not discarded attempt logs.
 
 ## Decision
 
