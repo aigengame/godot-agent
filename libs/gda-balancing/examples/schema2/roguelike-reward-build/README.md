@@ -73,6 +73,14 @@ The reward pool has two eligible candidates in this order:
 1. `steady_guard`, which has rarity `common`;
 2. `volatile_crown`, which has rarity `rare`.
 
+`RewardPool` can carry up to 16 candidate and selection entries. This Operation version is a
+binary selector: it considers only indexes `0` and `1`. A complete binary pool supplies a matching
+candidate and selection at both indexes; later entries do not participate.
+
+The Runtime node vocabulary does not construct `RewardSelection` or `BuildDecision` Record values.
+The Experiment therefore authors the candidate-aligned selections, build decisions, and next
+states. The Operations validate these mirrored relationships before they commit.
+
 The Formula returns the authored `rare_weight`. The `game.generation.select-reward-v1` Operation
 uses that value as its rare threshold. The build Operation consumes the resulting typed
 `RewardSelection`; it does not sample again.
@@ -203,7 +211,14 @@ replaces `starter_blade` with `volatile_crown`. The public Metrics are:
 ## 5. Tune one authored value and rerun
 
 Change only `rare_weight` from `5` to `2`. The Model, Package Lock, RIR, evaluator, seed, stream,
-candidate order, and build plans stay unchanged:
+candidate order, and build plans stay unchanged.
+
+This one-field edit works because `rare_weight` is not repeated in the parallel candidate and
+selection entries. Editing a mirrored candidate field, such as `reward_score`, also requires a
+change to the corresponding selection. Otherwise, the reward Event rolls back with
+`candidate-mismatch`.
+
+Create and run the tuned Experiment:
 
 ```bash
 export TUNED_EXPERIMENT="$GDA_BALANCING_TUTORIAL_ROOT/tuned-experiment.json"
@@ -352,8 +367,11 @@ The `Classification` column uses the four feedback classes from issue #585:
 | The Formula slot has a one-step bound. An equivalent Formula can be rebound within that bound. | Confirms current design | `game.generation` keeps the bound; broader Formula cost needs separate evidence. |
 | Reward and build Metrics distinguish the two configurations (`80/90` versus `20/30`). | Confirms current design | The Experiment Specification owns both Metrics. |
 | Empty pools, contradictory authored values, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms current design | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results. |
+| The Runtime cannot construct the result Records, so the Experiment authors mirrored results and the Operations validate them with guard chains. The guard cost grows with mirrored fields and outcomes. | Unresolved product/architecture gap | Gate 5 must re-evaluate the mirror-and-guard cost before broader Roguelike reuse. This slice adds no new Kernel node, Runtime phase, compiler dispatch, or evaluator dispatch. |
+| `candidate-mismatch` and `plan-mismatch` classify authored-data contradictions as `gameplay-alternative`, the same outcome kind used for expected gameplay branches. | Unresolved product/architecture gap | Gate 5 must resolve the outcome classification with `game.generation`, `game.build`, and the shared outcome contract. The current trace remains explicit about the outcome and rollback. |
 
-No unresolved Kernel, compiler, evaluator, or public-command gap was found in this bounded path.
+Neither unresolved input blocks this bounded example. Both must be re-evaluated before Gate 5
+reuses the pattern or makes a cross-genre claim.
 
 ## 9. Human review checkpoint
 
@@ -365,8 +383,8 @@ Review these questions:
 - Is the reward and build configuration understandable without reading host code?
 - Is the one-value tuning loop practical?
 - Do the trace, Formula evidence, replacement decision, and two Metrics explain the result?
-- Are the empty-pool, no-reward, conflict, and invalid-configuration results assigned to the right
-  owner and stage?
+- Are the empty-pool, no-reward, conflict, authored-data contradiction, and invalid-configuration
+  results assigned to the right owner and stage?
 - Do the non-claims prevent this slice from being mistaken for Roguelike or cross-genre coverage?
 
 The pull request for issue #585 is the HITL decision point. Until that review records its result,
