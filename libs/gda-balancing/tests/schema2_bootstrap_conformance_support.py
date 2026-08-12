@@ -1198,9 +1198,7 @@ def _consumer_b_operation_value_is_admitted(
         return False
     if not isinstance(value, dict):
         return True
-    packages = getattr(ldb, "package_releases", None)
-    if packages is None and isinstance(language, dict):
-        packages = language.get("packages")
+    packages = language.get("packages") if isinstance(language, dict) else None
     if not isinstance(packages, list):
         return False
     observed = _consumer_b_evaluate_structured_value_vector(
