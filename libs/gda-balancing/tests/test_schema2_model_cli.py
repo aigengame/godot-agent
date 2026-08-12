@@ -449,6 +449,7 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
         "expected_build_disposition",
         "expected_rare_rarity",
         "expected_replace_constraint",
+        "expected_replaced_kind",
         "build_state",
         "build_decision",
         "build_score",

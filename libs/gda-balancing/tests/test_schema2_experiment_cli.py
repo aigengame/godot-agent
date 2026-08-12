@@ -1889,6 +1889,7 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         "key": {"key": "no_reward"},
         "rarity": "rare",
         "disposition": "no-reward",
+        "reward_score": 0,
     }
     pool["selections"][1] = {
         "selected": {"key": "no_reward"},
@@ -1966,6 +1967,74 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
     )
 
 
+def test_public_reward_selection_rejects_contradictory_authored_results(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    contradictions = (
+        "rarity",
+        "disposition",
+        "selected-index",
+        "reward-score",
+        "policy-before",
+        "policy-kind",
+        "draw-count",
+    )
+    for index, contradiction in enumerate(contradictions, start=1):
+        specification = deepcopy(baseline)
+        pool = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "reward_pool"
+        )["value"]["value"]
+        candidate = pool["candidates"][1]
+        selection = pool["selections"][1]
+        if contradiction == "rarity":
+            candidate["rarity"] = "common"
+        elif contradiction == "disposition":
+            candidate["disposition"] = "no-reward"
+        elif contradiction == "selected-index":
+            selection["selected_index"] = 0
+        elif contradiction == "reward-score":
+            candidate["reward_score"] = 79
+        elif contradiction == "policy-before":
+            selection["policy_before"]["draw_count"] = 1
+        elif contradiction == "policy-kind":
+            selection["policy_after"]["kind"] = "relaxed-pool"
+        else:
+            selection["policy_after"]["draw_count"] = 2
+        specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"contradictory-reward-{contradiction}-artifacts"),
+                "--invocation-key",
+                str(index) * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
+        receipt = json.loads(stdout)
+        event = next(
+            row
+            for row in _member(receipt, "event-trace")["events"]
+            if row["operation"] == "game.generation.select-reward-v1"
+        )
+        assert event["outcome"] == {
+            "id": "candidate-mismatch",
+            "kind": "gameplay-alternative",
+        }, contradiction
+        assert event["state_after"] == event["state_before"], contradiction
+        assert not any(row["name"] == "reward_result" for row in event["facts"]), (
+            contradiction
+        )
+
+
 def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
     tmp_path, run_cli
 ):
@@ -2035,6 +2104,75 @@ def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/scenarios/0/assignments/4/value/value/plans/0/constraint"
     )
+
+
+def test_public_build_replacement_rejects_contradictory_authored_plans(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    contradictions = (
+        "next-slot",
+        "decision-kind",
+        "decision-previous",
+        "decision-selected",
+        "decision-disposition",
+        "power-before",
+        "power-after",
+        "score",
+    )
+    for index, contradiction in enumerate(contradictions, start=8):
+        specification = deepcopy(baseline)
+        plan = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "build_plans"
+        )["value"]["value"]["plans"][1]
+        if contradiction == "next-slot":
+            plan["next_state"]["slot"] = {"key": "steady_guard"}
+        elif contradiction == "decision-kind":
+            plan["decision"]["kind"] = "no-reward"
+        elif contradiction == "decision-previous":
+            plan["decision"]["previous"] = {"key": "steady_guard"}
+        elif contradiction == "decision-selected":
+            plan["decision"]["selected"] = {"key": "steady_guard"}
+        elif contradiction == "decision-disposition":
+            plan["decision"]["disposition"] = "no-reward"
+        elif contradiction == "power-before":
+            plan["decision"]["power_before"] = 11
+        elif contradiction == "power-after":
+            plan["decision"]["power_after"] = 89
+        else:
+            plan["score"] = 89
+        specification_path = tmp_path / f"contradictory-build-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
+                "--invocation-key",
+                f"{index:x}" * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
+        receipt = json.loads(stdout)
+        event = next(
+            row
+            for row in _member(receipt, "event-trace")["events"]
+            if row["operation"] == "game.build.replace-reward-v1"
+        )
+        assert event["outcome"] == {
+            "id": "plan-mismatch",
+            "kind": "gameplay-alternative",
+        }, contradiction
+        assert event["state_after"] == event["state_before"], contradiction
+        assert not any(row["name"] == "build_result" for row in event["facts"]), (
+            contradiction
+        )
 
 
 def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(

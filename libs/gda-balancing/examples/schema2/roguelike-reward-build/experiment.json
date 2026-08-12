@@ -3,19 +3,20 @@
   "id": "roguelike.reward-build-feedback.baseline",
   "version": "1.0.0",
   "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
-  "language_bundle_identity": "sha256:bef1a3331f2ebb17c17c07fb56b28ec870ce1eae7950f197453cd0e1d34a7f95",
+  "language_bundle_identity": "sha256:02050310832c5068eb65a35887c6f601ad46e01272e709530ce5b4b1ea1aa9f2",
   "model": {
-    "source_identity": "sha256:8d3588d6f9233071b66e33f8f8db81ac9544ad38c16fed044c463d2cbe18f2f3",
-    "build_receipt_identity": "sha256:67a54ebc1ed779d06ed90b650cd1e483ae87223ed9cb3cbb4acf48bd8408f77b",
-    "resolved_model_identity": "sha256:25bea0b0cb1044cfbf17748ed2448a1aea1c0bb4f782f3a5e505a77d4e06d2b3",
-    "package_lock_identity": "sha256:14385f8d2d58215d50e9e9953a235dc89b60febf4e9f9c4d3f039ed785a82396",
-    "rir_identity": "sha256:1e0407bb16c46876dd4e3b62b7a11610c84eae31c0ef42c30b650c7cc6902c54"
+    "source_identity": "sha256:60fd44068b2b03fb6482d7e0db8682bba30cb6e2349ff9d13092cea83bcb4323",
+    "build_receipt_identity": "sha256:56e1a97088871ec7486455e7f8fe9d3ae9ca7f3293b25686465afa51bc5e37f0",
+    "resolved_model_identity": "sha256:01c86b8bd298fb5302fe7342f950f36eaea1d6afa1af960143ba65ce1c853931",
+    "package_lock_identity": "sha256:87a6d562b8bf030690e3adb5277d0e1d8fda0b90c8748909b3da1e93a589cb32",
+    "rir_identity": "sha256:6e73d1ace4882d6320f78544f62cf1643c5c26734ec01e07a2273e378fae35f1"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
     "required_evaluator": {
       "effects": ["event.commit", "metric.observe", "rng.named-stream", "snapshot.commit"],
       "instruction_nodes": [
+        "add",
         "constant",
         "copy",
         "draw",
@@ -43,8 +44,8 @@
             "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardPool"},
             "value": {
               "candidates": [
-                {"key": {"key": "steady_guard"}, "rarity": "common", "disposition": "build"},
-                {"key": {"key": "volatile_crown"}, "rarity": "rare", "disposition": "build"}
+                {"key": {"key": "steady_guard"}, "rarity": "common", "disposition": "build", "reward_score": 20},
+                {"key": {"key": "volatile_crown"}, "rarity": "rare", "disposition": "build", "reward_score": 80}
               ],
               "selections": [
                 {

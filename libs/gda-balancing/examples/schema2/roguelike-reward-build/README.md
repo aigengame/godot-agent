@@ -20,6 +20,8 @@ The `game.generation@1.0.0` Package Release owns the seeded reward policy. The
 `game.build@1.0.0` Package Release owns the atomic build replacement. The Model Source owns the
 `rare-threshold` Formula and its exact Operation-slot binding. The Experiment owns the seed,
 ordered candidates, authored policy state, build plans, initial state, and Metrics.
+The two Operations validate the relationships among those authored values before they commit
+state or publish a result.
 
 Host code does not select rewards, resolve conflicts, supply a fallback, or dispatch by genre.
 This example does not close a Roguelike coverage row, Replay, Evidence, template support, Core
@@ -321,7 +323,9 @@ The maintained tests drive these mutations through the public commands:
 |---|---|
 | Empty candidate and selection lists, with no fallback | `runtime.structured_lookup_out_of_range`; the terminal audit proves rollback |
 | Declared `no-reward` selection under `relaxed-pool` | reward success followed by build `no-reward` gameplay alternative |
+| Candidate, selection, score, or policy fields contradict each other | `candidate-mismatch` gameplay alternative; the reward Event rolls back |
 | Build plan constraint `conflict` | `build-conflict` gameplay alternative; all provisional writes roll back |
+| Build state, next state, decision, or score fields contradict each other | `plan-mismatch` gameplay alternative; the build Event rolls back |
 | Unknown reward disposition or build constraint | `language.structured_value_unknown_enum` during `experiment check` |
 
 Run the focused tests:
@@ -338,11 +342,11 @@ These cases are typed refusals or declared gameplay outcomes. They are not inter
 | Observation | Classification | Narrowest owner and action |
 |---|---|---|
 | The public Model and Experiment commands support seeded reward selection and a later build Event. | Confirms current design | Model, Experiment, and Runtime contracts; no host change |
-| Enum, Record, List, Ref, exact equality, bounded lookup, and transactional writes express the Roguelike slice. | Adopted contract realization | `game.generation@1.0.0` and `game.build@1.0.0` Package Releases in the LDB |
-| List lookup needs an Int local. A Record lookup returns a typed value. | Authored-package concern | `game.build` derives the index from typed rarity; no runtime unwrap rule was added |
+| Enum, Record, List, Ref, exact equality, bounded lookup, numeric relations, and transactional writes express the Roguelike slice. | Adopted contract realization | `game.generation@1.0.0` and `game.build@1.0.0` Package Releases in the LDB |
+| A Record lookup preserves the typed `Quantity` envelope. Runtime numeric nodes consume its admitted integer value. | Closed implementation gap | Runtime follows the admitted scalar contract; package Operations do not depend on field-specific host code |
 | The Formula slot has a one-step bound. An equivalent Formula can be rebound within that bound. | Confirms current boundary | `game.generation` keeps the bound; broader Formula cost needs separate evidence |
 | Reward and build Metrics distinguish the two configurations (`80/90` versus `20/30`). | Confirms Metric usefulness | Experiment Specification owns both Metrics |
-| Empty pools, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms diagnostic and outcome ownership | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results |
+| Empty pools, contradictory authored values, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms diagnostic and outcome ownership | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results |
 
 No unresolved Kernel, compiler, evaluator, or public-command gap was found in this bounded path.
 

@@ -3,11 +3,11 @@
   "id": "example.rpg-periodic-effect.snapshot",
   "version": "1.0.0",
   "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
-  "language_bundle_identity": "sha256:bef1a3331f2ebb17c17c07fb56b28ec870ce1eae7950f197453cd0e1d34a7f95",
+  "language_bundle_identity": "sha256:02050310832c5068eb65a35887c6f601ad46e01272e709530ce5b4b1ea1aa9f2",
   "model": {
     "source_identity": "sha256:8925004e32bab21428c8a1a971e3e91269a394f92f26b7ef1637fe6156351f83",
-    "build_receipt_identity": "sha256:42d1077060fe6c8152e17199ff11fb8cd77e0a7615f6a13049fa6cdbd0e62390",
-    "resolved_model_identity": "sha256:96f162232e0771695fdd20cdaedc7cf6b535aefbf69f203f8b368ad88aaf7dbd",
+    "build_receipt_identity": "sha256:eab4c160b389677c767389853b9b3a0198b1112cf4de79752b093f1998eab4f8",
+    "resolved_model_identity": "sha256:b7bb1f846614dfa04bcb9d931ad4a954576638cedcacf0dcba0795e22dc2f5c7",
     "package_lock_identity": "sha256:22b79b37e08a2143662b55b4aa780f8d025240a702c1cf2a9757041a24cab4bd",
     "rir_identity": "sha256:8c263cb18daeaf320b19cf932e0da6bcdbb89020e81dc9549323858ce0b331a4"
   },

@@ -83,6 +83,16 @@
             }
           }
         },
+        {
+          "port": "expected_replaced_kind",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {"package": "game.build", "version": "1.0.0", "id": "BuildDecisionKind"},
+              "value": "replaced"
+            }
+          }
+        },
         {"port": "build_state", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_state"}},
         {"port": "build_decision", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_decision"}},
         {"port": "build_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_score"}}
