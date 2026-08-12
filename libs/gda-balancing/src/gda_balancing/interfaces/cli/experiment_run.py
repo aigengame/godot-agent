@@ -70,6 +70,7 @@ _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
     "runtime.reason.capability-unsupported",
     "runtime.reason.step-limit",
     "runtime.reason.numeric-overflow",
+    "structured.reason.lookup-out-of-range",
     "runtime.reason.schedule-backward",
     "runtime.reason.schedule-hidden-input",
     "runtime.reason.schedule-illegal-same-time-priority",

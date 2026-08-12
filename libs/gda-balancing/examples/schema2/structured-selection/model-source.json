@@ -1,0 +1,226 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "standard.structured-selection-model",
+    "version": "1.0.0",
+    "entry_module": "selection"
+  },
+  "package_requirements": [
+    {
+      "id": "core.quantity",
+      "version": "2.1.0"
+    },
+    {
+      "id": "standard.conformance.structured",
+      "version": "1.0.0"
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "structured.select-candidate-a",
+      "operation": {
+        "package": "standard.conformance.structured",
+        "version": "1.0.0",
+        "id": "standard.conformance.structured.select-v1"
+      },
+      "arguments": [
+        {
+          "port": "selection_state",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selection_state"
+          }
+        },
+        {
+          "port": "expected_kind",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {
+                "package": "standard.conformance.structured",
+                "version": "1.0.0",
+                "id": "CandidateKind"
+              },
+              "value": "primary"
+            }
+          }
+        },
+        {
+          "port": "expected_key",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {
+                "package": "standard.conformance.structured",
+                "version": "1.0.0",
+                "id": "CandidateRef"
+              },
+              "value": {
+                "key": "candidate_a"
+              }
+            }
+          }
+        },
+        {
+          "port": "selected_result",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selected_result"
+          }
+        },
+        {
+          "port": "selection_metric",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selection_metric"
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "selection",
+        "symbol": "selection_result"
+      }
+    },
+    {
+      "id": "structured.select-candidate-b",
+      "operation": {
+        "package": "standard.conformance.structured",
+        "version": "1.0.0",
+        "id": "standard.conformance.structured.select-v1"
+      },
+      "arguments": [
+        {
+          "port": "selection_state",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selection_state"
+          }
+        },
+        {
+          "port": "expected_kind",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {
+                "package": "standard.conformance.structured",
+                "version": "1.0.0",
+                "id": "CandidateKind"
+              },
+              "value": "secondary"
+            }
+          }
+        },
+        {
+          "port": "expected_key",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {
+                "package": "standard.conformance.structured",
+                "version": "1.0.0",
+                "id": "CandidateRef"
+              },
+              "value": {
+                "key": "candidate_b"
+              }
+            }
+          }
+        },
+        {
+          "port": "selected_result",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selected_result"
+          }
+        },
+        {
+          "port": "selection_metric",
+          "operand": {
+            "kind": "symbol",
+            "module": "selection",
+            "symbol": "selection_metric"
+          }
+        }
+      ],
+      "result": {
+        "kind": "symbol",
+        "module": "selection",
+        "symbol": "selection_result"
+      }
+    }
+  ],
+  "modules": [
+    {
+      "id": "selection",
+      "imports": [
+        {
+          "alias": "selection-state",
+          "package": "standard.conformance.structured",
+          "version": "1.0.0",
+          "symbol": "SelectionState"
+        },
+        {
+          "alias": "selection-result",
+          "package": "standard.conformance.structured",
+          "version": "1.0.0",
+          "symbol": "SelectionResult"
+        },
+        {
+          "alias": "quantity",
+          "package": "core.quantity",
+          "version": "2.1.0",
+          "symbol": "Quantity"
+        }
+      ],
+      "symbols": [
+        {
+          "symbol": "selection_state",
+          "type": "selection-state",
+          "role": "state",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "selected_result",
+          "type": "selection-result",
+          "role": "state",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "selection_metric",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 15
+          },
+          "numeric_policy": "exact-int64",
+          "value_policy": {
+            "mode": "experiment-required"
+          }
+        },
+        {
+          "symbol": "selection_result",
+          "type": "selection-result",
+          "role": "output",
+          "value_policy": {
+            "mode": "none"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -44,6 +44,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "language": (
         "test_schema2_bootstrap_language.py",
         "test_schema2_formula_cli.py",
+        "test_structured_values.py",
     ),
     "model": (
         "test_schema2_model_cli.py",

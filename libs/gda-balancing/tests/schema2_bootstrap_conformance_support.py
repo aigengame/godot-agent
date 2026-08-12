@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9abf77ed89498fc35c8cc8b9e408fe9a5b35ce065d53486ad5cba020d6358d7c"
+    "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -495,6 +495,13 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "state_value_members",
         "target_states",
     },
+    "structured-value": {
+        "actions",
+        "expect_members",
+        "id",
+        "input_members",
+        "required_members",
+    },
 }
 
 
@@ -574,6 +581,13 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         "scheduler-scenario": {
             "category",
             "detects_mutation",
+            "expect",
+            "id",
+            "input",
+            "kind",
+        },
+        "structured-value": {
+            "category",
             "expect",
             "id",
             "input",
@@ -690,6 +704,11 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         == ["scenario", "value"]
         and kinds["scheduler-scenario"].get("target_states")
         == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
+        and kinds["structured-value"].get("actions") == ["admit", "equal", "lookup"]
+        and kinds["structured-value"].get("input_members")
+        == ["action", "key", "left", "limit", "right"]
+        and kinds["structured-value"].get("expect_members")
+        == ["code", "outcome", "pointer", "type", "value"]
     )
 
 
@@ -1226,6 +1245,36 @@ def _consumer_b_package_evidence_vectors_are_closed(
         if kind_id == "scheduler-scenario":
             if not _consumer_b_scheduler_scenario_vector_is_closed(
                 vector, kind, phases
+            ):
+                return False
+            continue
+        if kind_id == "structured-value":
+            inp = vector.get("input")
+            expect = vector.get("expect")
+            if (
+                not isinstance(inp, dict)
+                or set(inp) != set(kind["input_members"])
+                or inp.get("action") not in kind["actions"]
+                or not (
+                    inp.get("limit") is None
+                    or (
+                        isinstance(inp["limit"], int)
+                        and not isinstance(inp["limit"], bool)
+                        and inp["limit"] > 0
+                    )
+                )
+                or not isinstance(expect, dict)
+                or set(expect) != set(kind["expect_members"])
+                or expect.get("outcome") not in {"admitted", "refused"}
+                or not (
+                    (expect["outcome"] == "admitted" and expect.get("code") is None)
+                    or (
+                        expect["outcome"] == "refused"
+                        and isinstance(expect.get("code"), str)
+                        and bool(expect["code"])
+                        and isinstance(expect.get("pointer"), str)
+                    )
+                )
             ):
                 return False
             continue
@@ -2285,6 +2334,21 @@ def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) ->
                 for name in required
             )
         )
+    if kind == "closed-discriminated-object":
+        discriminator = contract.get("discriminator")
+        variants = contract.get("variants")
+        if (
+            not isinstance(value, dict)
+            or not isinstance(discriminator, str)
+            or not discriminator
+            or not isinstance(variants, dict)
+            or not variants
+        ):
+            return False
+        variant = variants.get(value.get(discriminator))
+        return isinstance(variant, dict) and _consumer_b_value_matches(
+            value, variant, ldb
+        )
     if kind == "list-of":
         item_contract = contract.get("items")
         return (
@@ -3034,6 +3098,35 @@ def _consumer_b_contract_path(
 ) -> dict[str, Any] | None:
     current = contract
     for segment in path:
+        if current.get("type") == "closed-discriminated-object":
+            variants = current.get("variants")
+            children = (
+                [
+                    child
+                    for variant in variants.values()
+                    if isinstance(variant, dict)
+                    and isinstance(variant.get("field_types"), dict)
+                    and isinstance(child := variant["field_types"].get(segment), dict)
+                ]
+                if isinstance(variants, dict)
+                else []
+            )
+            kinds = {_consumer_b_contract_kind(child) for child in children}
+            if not children or len(kinds) != 1 or None in kinds:
+                return None
+            if all(child == children[0] for child in children[1:]):
+                current = children[0]
+            else:
+                current = {
+                    "type": {
+                        "array": "list",
+                        "boolean": "boolean",
+                        "integer": "signed-int64",
+                        "object": "object",
+                        "string": "non-empty-string",
+                    }[cast(str, next(iter(kinds)))]
+                }
+            continue
         members = current.get("field_types")
         selected = members.get(segment) if isinstance(members, dict) else None
         if not isinstance(selected, dict):
@@ -3050,7 +3143,11 @@ def _consumer_b_contract_kind(contract: Any) -> str | None:
         return "string"
     if kind in {"list", "list-of", "string-list"}:
         return "array"
-    if kind in {"closed-object", "closed-int64-interval"} or (
+    if kind in {
+        "closed-discriminated-object",
+        "closed-int64-interval",
+        "closed-object",
+    } or (
         isinstance(contract.get("required_members"), list)
         and isinstance(contract.get("field_types"), dict)
     ):
@@ -3104,6 +3201,8 @@ def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> b
         )
     if kind == "canonical-value":
         return True
+    if kind == "closed-discriminated-object":
+        return schema == {}
     if kind == "list-of":
         return (
             schema.get("type") == "array"
@@ -3148,7 +3247,8 @@ def _consumer_b_runtime_projection_is_closed(
 ) -> bool:
     if (
         not isinstance(profile, dict)
-        or set(profile) != {"outputs", "collections", "seeds", "edges"}
+        or set(profile)
+        != {"outputs", "collections", "seeds", "edges", "type_reference_closure"}
         or not isinstance(contract, dict)
         or set(contract)
         != {
@@ -3161,6 +3261,7 @@ def _consumer_b_runtime_projection_is_closed(
             "collection",
             "seed",
             "edge",
+            "type_reference_closure",
             "path_typing",
             "output_typing",
             "resource_accounting",
@@ -3200,9 +3301,15 @@ def _consumer_b_runtime_projection_is_closed(
                 "declaration_package_path",
                 "target_path",
                 "same_package",
+                "missing_declaration_path",
+                "applicability_member",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
+            "missing_declaration_path": "not-applicable",
+            "applicability": "declared-member-present",
+            "optional_members": ["missing_target"],
+            "missing_target_modes": ["not-applicable", "refuse"],
         }
         or contract.get("edge")
         != {
@@ -3213,9 +3320,25 @@ def _consumer_b_runtime_projection_is_closed(
                 "target_collection",
                 "target_path",
                 "same_package",
+                "missing_target",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
+            "missing_target_modes": ["not-applicable", "refuse"],
+        }
+        or contract.get("type_reference_closure")
+        != {
+            "required_members": [
+                "source_collection",
+                "source_definition_path",
+                "target_type_collection",
+                "target_constructor_collection",
+                "coordinate_members",
+                "structural_kind_member",
+                "constructor_kind_path",
+            ],
+            "coordinate_match": "exact-package-version-type-id",
+            "structural_match": "definition-kind-to-constructor-kind",
         }
         or contract.get("path_typing")
         != {
@@ -3244,6 +3367,9 @@ def _consumer_b_runtime_projection_is_closed(
                 "seed-candidate",
                 "edge-source",
                 "edge-target",
+                "type-reference-term",
+                "type-reference-target",
+                "constructor-kind-target",
                 "collection-output-row",
                 "explicit-output-row",
             ],
@@ -3267,11 +3393,22 @@ def _consumer_b_runtime_projection_is_closed(
     collections = profile.get("collections")
     seeds = profile.get("seeds")
     edges = profile.get("edges")
+    type_reference_closure = profile.get("type_reference_closure")
     if (
         not isinstance(outputs, list)
         or not isinstance(collections, list)
         or not isinstance(seeds, list)
         or not isinstance(edges, list)
+        or type_reference_closure
+        != {
+            "constructor_kind_path": ["value_rule", "definition_kind"],
+            "coordinate_members": ["package", "version", "id"],
+            "source_collection": "nominal_types",
+            "source_definition_path": ["definition"],
+            "structural_kind_member": "kind",
+            "target_constructor_collection": "constructors",
+            "target_type_collection": "types",
+        }
     ):
         return False
     projected_members = []
@@ -3374,13 +3511,25 @@ def _consumer_b_runtime_projection_is_closed(
     for seed in seeds:
         if not isinstance(seed, dict) or seed.get("operator") not in seeds_allowed:
             return False
-        expected = {"operator", "collection", "declaration_package_path"}
+        expected = {
+            "operator",
+            "collection",
+            "declaration_package_path",
+            "missing_declaration_path",
+            "applicability_member",
+        }
         expected |= {"declaration_path", "target_path", "same_package"}
+        if "missing_target" in seed:
+            expected.add("missing_target")
         if (
             set(seed) != expected
             or seed.get("collection") not in collection_set
             or not valid_path(seed.get("declaration_package_path"))
             or not isinstance(seed.get("same_package"), bool)
+            or seed.get("missing_declaration_path") != "not-applicable"
+            or not isinstance(seed.get("applicability_member"), str)
+            or not seed["applicability_member"]
+            or seed.get("missing_target", "refuse") not in {"not-applicable", "refuse"}
         ):
             return False
         if not valid_path(seed.get("declaration_path")) or not valid_path(
@@ -3397,6 +3546,7 @@ def _consumer_b_runtime_projection_is_closed(
             "target_collection",
             "target_path",
             "same_package",
+            "missing_target",
         }
         or edge.get("operator") not in edges_allowed
         or edge.get("source_collection") not in collection_set
@@ -3404,6 +3554,7 @@ def _consumer_b_runtime_projection_is_closed(
         or not valid_path(edge.get("source_path"), True)
         or not valid_path(edge.get("target_path"), True)
         or not isinstance(edge.get("same_package"), bool)
+        or edge.get("missing_target") not in {"not-applicable", "refuse"}
         for edge in edges
     ):
         return False
@@ -3518,17 +3669,19 @@ def _consumer_b_runtime_projection_is_closed(
         return _consumer_b_contract_kind(_consumer_b_contract_path(payload, path))
 
     for seed in seeds:
+        if seed["applicability_member"] not in declaration_fields:
+            continue
         declaration_kind = fact_kind(fact_value(seed["declaration_path"]))
         package_kind = fact_kind(fact_value(seed["declaration_package_path"]))
+        if declaration_kind is None:
+            if seed["missing_declaration_path"] != "not-applicable":
+                return False
+            continue
         target_kind = selected_kind(
             shapes[seed["collection"]],
             seed["target_path"],
         )
-        if (
-            declaration_kind is None
-            or declaration_kind != target_kind
-            or package_kind != "string"
-        ):
+        if declaration_kind != target_kind or package_kind != "string":
             return False
     for edge in edges:
         source_kind = selected_kind(
@@ -4491,68 +4644,84 @@ def _consumer_b_language_definitions_are_closed(
     for lowering in lowerings:
         if not isinstance(lowering, dict):
             return False
-        chain = lowering.get("rule_chain")
         equalities = lowering.get("output_equalities")
         profile_id = lowering.get("resolution_profile")
-        initial_kind = lowering.get("initial_fact_kind")
-        if not isinstance(profile_id, str) or not isinstance(initial_kind, str):
+        paths = [
+            (lowering.get("rule_chain"), lowering.get("initial_fact_kind")),
+            (
+                lowering.get("structured_rule_chain"),
+                lowering.get("structured_initial_fact_kind"),
+            ),
+        ]
+        if not isinstance(profile_id, str):
             return False
         profile = profiles_by_id.get(profile_id)
-        initial_fields = fact_schemas.get(initial_kind)
         if (
-            not isinstance(chain, list)
-            or not chain
-            or not isinstance(equalities, list)
+            not isinstance(equalities, list)
             or not all(isinstance(item, dict) for item in equalities)
             or not isinstance(profile, dict)
-            or not isinstance(initial_fields, dict)
-            or profile.get("symbol_fact_member") not in initial_fields
         ):
             return False
-        terminal = chain[-1]
-        rule = (
-            rules_by_id.get(terminal.get("rule"))
-            if isinstance(terminal, dict)
-            else None
-        )
-        conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
-        kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
-        fields = fact_schemas.get(kind) if isinstance(kind, str) else None
-        pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
-        if not isinstance(fields, dict) or not _consumer_b_runtime_projection_is_closed(
-            lowering.get("runtime_projection"),
-            runtime_projection_contract,
-            ldb,
-            fields,
-            meta["language_definitions"],
-        ):
-            return False
-        for equality in equalities:
-            left = equality.get("left")
-            right = equality.get("right")
+        for chain, initial_kind in paths:
+            initial_fields = (
+                fact_schemas.get(initial_kind)
+                if isinstance(initial_kind, str)
+                else None
+            )
             if (
-                not _consumer_b_fact_contract_path_is_declared(fields, left)
-                or not _consumer_b_fact_contract_path_is_declared(fields, right)
-                or left == right
+                not isinstance(chain, list)
+                or not chain
+                or not isinstance(initial_fields, dict)
+                or profile.get("symbol_fact_member") not in initial_fields
             ):
                 return False
-            left_contract = _consumer_b_fact_contract_at_path(fields, left)
-            right_contract = _consumer_b_fact_contract_at_path(fields, right)
-            left_kind = _consumer_b_contract_kind(left_contract)
-            right_kind = _consumer_b_contract_kind(right_contract)
-            if (
-                left_kind is None
-                or left_kind != right_kind
-                or (
-                    left_kind in {"array", "object"} and left_contract != right_contract
-                )
+            terminal = chain[-1]
+            rule = (
+                rules_by_id.get(terminal.get("rule"))
+                if isinstance(terminal, dict)
+                else None
+            )
+            conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
+            kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
+            fields = fact_schemas.get(kind) if isinstance(kind, str) else None
+            pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+            if not isinstance(
+                fields, dict
+            ) or not _consumer_b_runtime_projection_is_closed(
+                lowering.get("runtime_projection"),
+                runtime_projection_contract,
+                ldb,
+                fields,
+                meta["language_definitions"],
             ):
                 return False
-            pairs.append((tuple(left), tuple(right)))
-        if len(pairs) != len(set(pairs)):
-            return False
-        if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
-            return False
+            for equality in equalities:
+                left = equality.get("left")
+                right = equality.get("right")
+                if (
+                    not _consumer_b_fact_contract_path_is_declared(fields, left)
+                    or not _consumer_b_fact_contract_path_is_declared(fields, right)
+                    or left == right
+                ):
+                    return False
+                left_contract = _consumer_b_fact_contract_at_path(fields, left)
+                right_contract = _consumer_b_fact_contract_at_path(fields, right)
+                left_kind = _consumer_b_contract_kind(left_contract)
+                right_kind = _consumer_b_contract_kind(right_contract)
+                if (
+                    left_kind is None
+                    or left_kind != right_kind
+                    or (
+                        left_kind in {"array", "object"}
+                        and left_contract != right_contract
+                    )
+                ):
+                    return False
+                pairs.append((tuple(left), tuple(right)))
+            if len(pairs) != len(set(pairs)):
+                return False
+            if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
+                return False
     return True
 
 
@@ -4818,7 +4987,7 @@ def _consumer_b_literal_typing_profiles_are_closed(
         "closed": True,
         "collection": "language.literal_typing_profiles",
         "selection": "unique-formal-match",
-        "source_kinds": ["integer"],
+        "source_kinds": ["integer", "typed-envelope"],
         "match_members": [
             "type",
             "representation",
@@ -4828,9 +4997,36 @@ def _consumer_b_literal_typing_profiles_are_closed(
             "numeric_policy",
         ],
         "range_members": {"maximum": "maximum", "minimum": "minimum"},
-        "ownership": "profile-owner-must-own-exact-type-export",
+        "ownership": {
+            "integer": "profile-owner-must-own-exact-type-export",
+            "typed-envelope": "profile-owner-must-own-structured-constructors",
+        },
         "formal_closure": "at-least-one-exact-operation-value-contract",
         "overlap_policy": "refuse-overlapping-ranges-per-source-and-match-contract",
+        "typed_envelope_profile": {
+            "admission": {
+                "envelope_members": ["type", "value"],
+                "nominal_type_reference": {
+                    "coordinate_members": ["package", "version", "id"],
+                    "optional_kind_member": "kind",
+                    "optional_kind_value": "nominal",
+                },
+                "operator": "recursive-typed-envelope",
+                "resource_charge_per_node": 1,
+                "type_relation": "exact-selected-type",
+            },
+            "id": "standard.schema.nominal-structured",
+            "required_constructors": [
+                "standard.schema.enum",
+                "standard.schema.list",
+                "standard.schema.record",
+                "standard.schema.ref",
+            ],
+            "selection": "exact-envelope-type",
+            "type_member": "type",
+            "value_kind": "nominal-structured",
+            "value_member": "value",
+        },
     }
     language = ldb.get("language")
     if contract != expected or not isinstance(language, dict):
@@ -4884,7 +5080,32 @@ def _consumer_b_literal_typing_profiles_are_closed(
         formals.extend(item for item in inputs if isinstance(item, dict))
         formals.append(result)
     match_members = cast(list[str], expected["match_members"])
+    typed_profile_contract = cast(dict[str, Any], expected["typed_envelope_profile"])
+    numeric_profiles: list[dict[str, Any]] = []
     for profile in profiles:
+        if not isinstance(profile, dict):
+            return False
+        if profile.get("source_kind") == "typed-envelope":
+            profile_id = profile.get("id")
+            owner_rows = owners.get(cast(str, profile_id), [])
+            owner = owner_rows[0] if len(owner_rows) == 1 else None
+            owner_exports = owner.get("exports") if isinstance(owner, dict) else None
+            if (
+                set(profile) != {"admission", "id", "source_kind", "value_kind"}
+                or profile.get("admission") != typed_profile_contract["admission"]
+                or profile_id != typed_profile_contract["id"]
+                or profile.get("value_kind") != typed_profile_contract["value_kind"]
+                or not isinstance(owner_exports, dict)
+                or set(owner_exports.get("constructors", []))
+                != set(typed_profile_contract["required_constructors"])
+                or not any(
+                    formal.get("value_kind") == typed_profile_contract["value_kind"]
+                    and isinstance(formal.get("type"), dict)
+                    for formal in formals
+                )
+            ):
+                return False
+            continue
         if (
             not isinstance(profile, dict)
             or profile.get("source_kind") != "integer"
@@ -4900,6 +5121,7 @@ def _consumer_b_literal_typing_profiles_are_closed(
             or not isinstance(profile.get("type"), dict)
         ):
             return False
+        numeric_profiles.append(profile)
         owner = owners[cast(str, profile["id"])][0]
         type_ref = cast(dict[str, Any], profile["type"])
         exported_types = cast(dict[str, Any], owner["exports"]).get("types")
@@ -4923,8 +5145,8 @@ def _consumer_b_literal_typing_profiles_are_closed(
             )
         ):
             return False
-    for index, left in enumerate(cast(list[dict[str, Any]], profiles)):
-        for right in cast(list[dict[str, Any]], profiles)[index + 1 :]:
+    for index, left in enumerate(numeric_profiles):
+        for right in numeric_profiles[index + 1 :]:
             if (
                 left["source_kind"] == right["source_kind"]
                 and all(
@@ -6062,7 +6284,11 @@ def _consumer_b_runtime_authority_is_closed(
                     )
                     or (
                         node["result"]["typing"].get("kind")
-                        in {"same-as-references", "literal-profile"}
+                        in {
+                            "declared-result",
+                            "same-as-references",
+                            "literal-profile",
+                        }
                         and (
                             not isinstance(
                                 node["result"]["typing"].get("members"), list
@@ -6071,7 +6297,12 @@ def _consumer_b_runtime_authority_is_closed(
                         )
                     )
                     or node["result"]["typing"].get("kind")
-                    not in {"fixed", "same-as-references", "literal-profile"}
+                    not in {
+                        "declared-result",
+                        "fixed",
+                        "same-as-references",
+                        "literal-profile",
+                    }
                 )
             )
             or (
@@ -6567,6 +6798,47 @@ def _consumer_b_operation_composition_subjects(
     }
     if len(node_definitions) != len(runtime_nodes):
         return ("kernel.meta-format.runtime-program.nodes",)
+    constructors = {
+        constructor["id"]: constructor
+        for constructor in cast(list[dict[str, Any]], language.get("constructors", []))
+        if isinstance(constructor, dict) and isinstance(constructor.get("id"), str)
+    }
+    structured_operations = [
+        operation
+        for operation in cast(
+            list[dict[str, Any]], language.get("structured_operations", [])
+        )
+        if isinstance(operation, dict)
+    ]
+    typed_profiles = [
+        profile
+        for profile in literal_profiles
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "typed-envelope"
+        and profile.get("value_kind") == "nominal-structured"
+        and isinstance(profile.get("admission"), dict)
+    ]
+    if len(typed_profiles) != 1:
+        return ("language.literal-typing-profiles",)
+    reasons_by_signal: dict[str, list[str]] = {}
+    for reason in cast(list[dict[str, Any]], language.get("reasons", [])):
+        signal = reason.get("signal") if isinstance(reason, dict) else None
+        reason_id = reason.get("id") if isinstance(reason, dict) else None
+        if isinstance(signal, str) and isinstance(reason_id, str):
+            reasons_by_signal.setdefault(signal, []).append(reason_id)
+    nominal_type_definitions = {
+        (
+            cast(str, definition["package"]),
+            cast(str, definition["version"]),
+            cast(str, definition["id"]),
+        ): definition
+        for definition in cast(list[dict[str, Any]], language.get("nominal_types", []))
+        if isinstance(definition, dict)
+        and all(
+            isinstance(definition.get(member), str)
+            for member in ("package", "version", "id")
+        )
+    }
     owners: dict[str, tuple[str, str]] = {}
     for package in packages:
         if not isinstance(package, dict):
@@ -6610,7 +6882,11 @@ def _consumer_b_operation_composition_subjects(
             except (TypeError, ValueError, UnicodeEncodeError):
                 return False
 
-        return actual.get("type") == formal.get("type") and all(
+        if actual.get("type") != formal.get("type"):
+            return False
+        if "value_kind" in actual or "value_kind" in formal:
+            return actual.get("value_kind") == formal.get("value_kind")
+        return all(
             canonically_equal(actual.get(member), formal.get(member))
             for member in (
                 "representation",
@@ -6620,6 +6896,222 @@ def _consumer_b_operation_composition_subjects(
                 "numeric_policy",
             )
         )
+
+    def type_key(type_expression: Any) -> tuple[str, str, str] | None:
+        if not isinstance(type_expression, dict):
+            return None
+        contract = typed_profiles[0]["admission"].get("nominal_type_reference")
+        if not isinstance(contract, dict):
+            return None
+        coordinate_members = contract.get("coordinate_members")
+        kind_member = contract.get("optional_kind_member")
+        kind_value = contract.get("optional_kind_value")
+        if (
+            not isinstance(coordinate_members, list)
+            or coordinate_members != ["package", "version", "id"]
+            or not isinstance(kind_member, str)
+            or not isinstance(kind_value, str)
+        ):
+            return None
+        expected = set(coordinate_members)
+        if kind_member in type_expression:
+            expected.add(kind_member)
+            if type_expression[kind_member] != kind_value:
+                return None
+        values = tuple(type_expression.get(member) for member in coordinate_members)
+        return (
+            cast(tuple[str, str, str], values)
+            if set(type_expression) == expected
+            and all(isinstance(value, str) and value for value in values)
+            else None
+        )
+
+    def structural_contract(
+        type_expression: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+        constructor = None
+        coordinate = type_key(type_expression)
+        if coordinate is not None:
+            nominal = nominal_type_definitions.get(coordinate)
+            constructor = (
+                constructors.get(nominal.get("constructor"))
+                if isinstance(nominal, dict)
+                else None
+            )
+            if (
+                not isinstance(nominal, dict)
+                or constructor is None
+                or "definition" not in nominal
+            ):
+                return None
+            type_expression = nominal["definition"]
+        if not isinstance(type_expression, dict):
+            return None
+        if constructor is None:
+            matches = [
+                candidate
+                for candidate in constructors.values()
+                if candidate.get("value_rule", {}).get("definition_kind")
+                == type_expression.get("kind")
+            ]
+            if len(matches) != 1:
+                return None
+            constructor = matches[0]
+        rule = constructor.get("value_rule")
+        return (type_expression, constructor, rule) if isinstance(rule, dict) else None
+
+    def operation_law(
+        constructor: dict[str, Any], operator: str
+    ) -> dict[str, Any] | None:
+        matches = [
+            operation
+            for operation in structured_operations
+            if operation.get("owner_constructor") == constructor.get("id")
+            and isinstance(operation.get("law"), dict)
+            and operation["law"].get("operator") == operator
+        ]
+        nodes = [
+            node
+            for node in node_definitions.values()
+            if node.get("semantics", {}).get("operator") == operator
+        ]
+        charge = (
+            nodes[0].get("resource_charge", {}).get("amount")
+            if len(nodes) == 1
+            else None
+        )
+        bound = (
+            matches[0].get("resource_bounds", {}).get("max_steps")
+            if len(matches) == 1
+            else None
+        )
+        if (
+            len(matches) != 1
+            or len(nodes) != 1
+            or not isinstance(charge, int)
+            or isinstance(charge, bool)
+            or not isinstance(bound, int)
+            or isinstance(bound, bool)
+            or charge > bound
+        ):
+            return None
+        return cast(dict[str, Any], matches[0]["law"])
+
+    def structured_contract(type_expression: Any) -> dict[str, Any] | None:
+        if not isinstance(type_expression, dict):
+            return None
+        coordinate = type_key(type_expression)
+        if coordinate is not None:
+            package, version, type_id = coordinate
+            exact_type = {"id": type_id, "package": package, "version": version}
+            scalar_profiles = [
+                profile
+                for profile in literal_profiles
+                if isinstance(profile, dict)
+                and profile.get("source_kind") == "integer"
+                and profile.get("type") == exact_type
+            ]
+            if len(scalar_profiles) == 1:
+                profile = scalar_profiles[0]
+                return {
+                    member: profile[member]
+                    for member in (
+                        "domain",
+                        "kind",
+                        "numeric_policy",
+                        "representation",
+                        "unit",
+                    )
+                } | {
+                    "type": exact_type,
+                }
+            return {"type": exact_type, "value_kind": "nominal-structured"}
+        if type_expression.get("kind") in {"list", "ref"}:
+            return {"type": type_expression, "value_kind": "nominal-structured"}
+        return None
+
+    def lookup_contract(
+        value_contract: dict[str, Any],
+        key: Any,
+        key_candidates: tuple[dict[str, Any], ...] | None,
+    ) -> tuple[dict[str, Any], str] | None:
+        type_expression = value_contract.get("type")
+        resolved = structural_contract(type_expression)
+        if resolved is None:
+            return None
+        type_expression, constructor, rule = resolved
+        law = operation_law(constructor, "bounded-lookup")
+        if not isinstance(law, dict):
+            return None
+        refusal_signal = law.get("refusal_signal")
+        if not isinstance(refusal_signal, str) or not refusal_signal:
+            return None
+        if (
+            law.get("selector") == "static-field"
+            and law.get("result_projection") == "record-field-type"
+            and rule.get("operator") == "closed-record"
+            and isinstance(key, str)
+        ):
+            fields_member = rule.get("fields_member")
+            name_member = rule.get("field_name_member")
+            type_member = rule.get("field_type_member")
+            fields = (
+                type_expression.get(fields_member)
+                if isinstance(fields_member, str)
+                else None
+            )
+            matches = (
+                [
+                    field
+                    for field in fields
+                    if isinstance(field, dict) and field.get(name_member) == key
+                ]
+                if isinstance(fields, list)
+                else []
+            )
+            result = (
+                structured_contract(matches[0].get(type_member))
+                if len(matches) == 1 and isinstance(type_member, str)
+                else None
+            )
+            return (result, refusal_signal) if result is not None else None
+        if (
+            law.get("selector") == "local-index"
+            and law.get("result_projection") == "list-element-type"
+            and rule.get("operator") == "bounded-list"
+        ):
+            integer_profiles = [
+                profile
+                for profile in literal_profiles
+                if isinstance(profile, dict)
+                and profile.get("source_kind") == "integer"
+                and profile.get("numeric_policy") in runtime_numeric_policies
+            ]
+            if not key_candidates or any(
+                not any(
+                    value_contract_matches(candidate, profile)
+                    for profile in integer_profiles
+                )
+                for candidate in key_candidates
+            ):
+                return None
+            element_member = rule.get("element_member")
+            result = (
+                structured_contract(type_expression.get(element_member))
+                if isinstance(element_member, str)
+                else None
+            )
+            return (result, refusal_signal) if result is not None else None
+        return None
+
+    def equal_contract(value_contract: dict[str, Any]) -> str | None:
+        resolved = structural_contract(value_contract.get("type"))
+        if resolved is None:
+            return None
+        _definition, constructor, _rule = resolved
+        law = operation_law(constructor, "canonical-equal")
+        result_contract = law.get("result_contract") if isinstance(law, dict) else None
+        return result_contract if isinstance(result_contract, str) else None
 
     def aliases_are_admitted(
         operation: dict[str, Any],
@@ -6654,6 +7146,31 @@ def _consumer_b_operation_composition_subjects(
         return len(matches) == 1
 
     def literal_contracts(value: Any) -> tuple[dict[str, Any], ...]:
+        if isinstance(value, dict) and set(value) == {"type", "value"}:
+            type_expression = value["type"]
+            typed_profiles = [
+                profile
+                for profile in literal_profiles
+                if isinstance(profile, dict)
+                and profile.get("source_kind") == "typed-envelope"
+                and profile.get("value_kind") == "nominal-structured"
+            ]
+            if (
+                len(typed_profiles) == 1
+                and (coordinate := type_key(type_expression)) is not None
+            ):
+                package, version, type_id = coordinate
+                return (
+                    {
+                        "type": {
+                            "id": type_id,
+                            "package": package,
+                            "version": version,
+                        },
+                        "value_kind": "nominal-structured",
+                    },
+                )
+            return ()
         if type(value) is not int:
             return ()
         return tuple(
@@ -6801,6 +7318,20 @@ def _consumer_b_operation_composition_subjects(
                     kind = constraint.get("kind")
                     if kind == "same-value-contract":
                         shared = shared_contracts(resolved)
+                        if (
+                            node.get("semantics", {}).get("operator")
+                            == "canonical-equal"
+                        ):
+                            expected_result_contract = (
+                                node.get("result", {}).get("typing", {}).get("contract")
+                            )
+                            shared = tuple(
+                                candidate
+                                for candidate in shared
+                                if candidate.get("value_kind")
+                                not in {"nominal-structured", "structured"}
+                                or equal_contract(candidate) == expected_result_contract
+                            )
                         if not shared:
                             found.add(
                                 subject(coordinate, str(instruction_index), "typing")
@@ -6897,6 +7428,7 @@ def _consumer_b_operation_composition_subjects(
                     if not isinstance(typing, dict):
                         return None
                     kind = typing.get("kind")
+                    produced: tuple[dict[str, Any], ...]
                     if kind == "fixed":
                         contract = fixed_value_contracts.get(typing.get("contract"))
                         produced = (contract,) if isinstance(contract, dict) else ()
@@ -6910,6 +7442,46 @@ def _consumer_b_operation_composition_subjects(
                         produced = (
                             shared_contracts(resolved) if resolved is not None else ()
                         )
+                    elif kind == "declared-result":
+                        value_name = instruction.get("value")
+                        value_candidates = (
+                            scope.get(value_name)
+                            if isinstance(value_name, str)
+                            else None
+                        )
+                        declared_results: tuple[tuple[dict[str, Any], str], ...]
+                        if value_candidates is None:
+                            declared_results = ()
+                        else:
+                            declared_results = tuple(
+                                result
+                                for candidate in value_candidates
+                                if (
+                                    result := lookup_contract(
+                                        candidate,
+                                        instruction.get("key"),
+                                        locals_.get(cast(str, instruction.get("key")))
+                                        if isinstance(instruction.get("key"), str)
+                                        else None,
+                                    )
+                                )
+                                is not None
+                            )
+                        if any(
+                            signal not in node.get("refusals", [])
+                            or len(reasons_by_signal.get(signal, [])) != 1
+                            or reasons_by_signal[signal][0] not in refusals
+                            for _result, signal in declared_results
+                        ):
+                            found.add(
+                                subject(
+                                    coordinate,
+                                    str(instruction_index),
+                                    "refusals",
+                                )
+                            )
+                            return None
+                        produced = tuple(result for result, _signal in declared_results)
                     else:
                         members = typing.get("members")
                         produced = (
@@ -8510,6 +9082,389 @@ def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
     }
 
 
+def _consumer_b_evaluate_structured_value_vector(
+    vector: dict[str, Any],
+    *,
+    nominal_types: list[dict[str, Any]],
+    kernel: dict[str, Any],
+    resource_limit: int,
+) -> dict[str, Any]:
+    """Execute a structured-value vector without production value helpers."""
+    constructors = {
+        constructor["id"]: constructor
+        for package in nominal_types
+        for entry in package.get("semantic_closure", [])
+        if entry.get("authority_path") == "language.constructors"
+        for constructor in entry.get("definitions", [])
+    }
+    definitions = {
+        (package["id"], package["version"], exported["id"]): {
+            **exported,
+            "package": package["id"],
+            "version": package["version"],
+        }
+        for package in nominal_types
+        for exported in package.get("exports", {}).get("types", [])
+    }
+    for package in nominal_types:
+        for entry in package.get("semantic_closure", []):
+            if entry.get("authority_path") != "language.nominal_types":
+                continue
+            for definition in entry.get("definitions", []):
+                key = (
+                    definition["package"],
+                    definition["version"],
+                    definition["id"],
+                )
+                if key not in definitions:
+                    raise AssertionError("nominal definition has no exported type")
+                definitions[key] = definition
+    structured_operations = {
+        operation["id"]: operation
+        for package in nominal_types
+        for entry in package.get("semantic_closure", [])
+        if entry.get("authority_path") == "language.structured_operations"
+        for operation in entry.get("definitions", [])
+    }
+    typed_profiles = [
+        profile
+        for package in nominal_types
+        for entry in package.get("semantic_closure", [])
+        if entry.get("authority_path") == "language.literal_typing_profiles"
+        for profile in entry.get("definitions", [])
+        if profile.get("source_kind") == "typed-envelope"
+        and profile.get("value_kind") == "nominal-structured"
+    ]
+    runtime = kernel["meta_format"]["runtime_program"]
+    typed_contract = kernel["meta_format"]["literal_typing"]["typed_envelope_profile"]
+    if len(typed_profiles) != 1 or typed_profiles[0] != {
+        "admission": typed_contract["admission"],
+        "id": typed_contract["id"],
+        "source_kind": "typed-envelope",
+        "value_kind": typed_contract["value_kind"],
+    }:
+        raise AssertionError("typed-envelope authority is incomplete")
+    type_member = typed_contract["type_member"]
+    value_member = typed_contract["value_member"]
+    envelope_members = set(typed_contract["admission"]["envelope_members"])
+    value_nodes = {
+        node["semantics"]["operator"]: node
+        for node in runtime["nodes"]
+        if node["semantics"]["operator"] in {"bounded-lookup", "canonical-equal"}
+    }
+    inp = vector["input"]
+    requested = inp.get("limit")
+    remaining = [
+        min(resource_limit, requested)
+        if isinstance(requested, int)
+        and not isinstance(requested, bool)
+        and requested > 0
+        else resource_limit
+    ]
+
+    class Refusal(Exception):
+        def __init__(self, code: str, pointer: str):
+            self.code = code
+            self.pointer = pointer
+
+    def type_key(type_expression: Any) -> tuple[str, str, str] | None:
+        if not isinstance(type_expression, dict):
+            return None
+        contract = typed_profiles[0]["admission"]["nominal_type_reference"]
+        coordinate_members = contract["coordinate_members"]
+        kind_member = contract["optional_kind_member"]
+        expected = set(coordinate_members)
+        if kind_member in type_expression:
+            expected.add(kind_member)
+            if type_expression[kind_member] != contract["optional_kind_value"]:
+                return None
+        values = tuple(type_expression.get(name) for name in coordinate_members)
+        if set(type_expression) == expected and all(
+            isinstance(value, str) and value for value in values
+        ):
+            return cast(tuple[str, str, str], values)
+        return None
+
+    def child(pointer, member):
+        encoded = str(member).replace("~", "~0").replace("/", "~1")
+        return f"{pointer}/{encoded}"
+
+    def canonical_type(type_expression):
+        nominal = type_key(type_expression)
+        if nominal is not None:
+            package, version, type_id = nominal
+            return {"id": type_id, "package": package, "version": version}
+        if not isinstance(type_expression, dict):
+            if isinstance(type_expression, list):
+                return [canonical_type(item) for item in type_expression]
+            return type_expression
+        return {
+            member: canonical_type(value) for member, value in type_expression.items()
+        }
+
+    def structural_contract(type_expression, pointer):
+        constructor = None
+        nominal = type_key(type_expression)
+        if nominal is not None:
+            definition = definitions.get(nominal)
+            constructor = (
+                constructors.get(definition.get("constructor"))
+                if isinstance(definition, dict)
+                else None
+            )
+            if (
+                not isinstance(definition, dict)
+                or constructor is None
+                or "definition" not in definition
+            ):
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            type_expression = definition["definition"]
+        if not isinstance(type_expression, dict):
+            raise Refusal("language.structured_value_type_mismatch", pointer)
+        if constructor is None:
+            matches = [
+                candidate
+                for candidate in constructors.values()
+                if candidate.get("value_rule", {}).get("definition_kind")
+                == type_expression.get("kind")
+            ]
+            if len(matches) != 1:
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            constructor = matches[0]
+        return type_expression, constructor, constructor["value_rule"]
+
+    def operation_law(constructor, operator, pointer):
+        matches = [
+            operation
+            for operation in structured_operations.values()
+            if operation.get("owner_constructor") == constructor.get("id")
+            and operation.get("law", {}).get("operator") == operator
+        ]
+        node = value_nodes.get(operator)
+        charge = (
+            node.get("resource_charge", {}).get("amount")
+            if isinstance(node, dict)
+            else None
+        )
+        bound = (
+            matches[0].get("resource_bounds", {}).get("max_steps")
+            if len(matches) == 1
+            else None
+        )
+        if (
+            len(matches) != 1
+            or not isinstance(node, dict)
+            or not isinstance(charge, int)
+            or isinstance(charge, bool)
+            or not isinstance(bound, int)
+            or isinstance(bound, bool)
+            or charge > bound
+        ):
+            raise Refusal("language.structured_value_type_mismatch", pointer)
+        return matches[0]["law"]
+
+    def validate(type_expression, value, pointer):
+        charge = typed_profiles[0]["admission"]["resource_charge_per_node"]
+        for _ in range(charge):
+            if remaining[0] < 1:
+                raise Refusal("language.structured_value_resource_exhausted", pointer)
+            remaining[0] -= 1
+        nominal = type_key(type_expression)
+        if nominal is not None:
+            definition = definitions.get(nominal)
+            if definition is None:
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            constructor = constructors.get(definition.get("constructor"))
+            if constructor is None:
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            if "definition" in definition:
+                return validate(definition["definition"], value, pointer)
+            value_rule = constructor.get("value_rule", {})
+            if (
+                value_rule.get("operator") != "exact-integer"
+                or not isinstance(value, int)
+                or isinstance(value, bool)
+                or not value_rule["minimum"] <= value <= value_rule["maximum"]
+            ):
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            return value
+        if not isinstance(type_expression, dict):
+            raise Refusal("language.structured_value_type_mismatch", pointer)
+        kind = type_expression.get("kind")
+        rules = [
+            constructor["value_rule"]
+            for constructor in constructors.values()
+            if constructor.get("value_rule", {}).get("definition_kind") == kind
+        ]
+        if len(rules) != 1:
+            raise Refusal("language.structured_value_type_mismatch", pointer)
+        rule = rules[0]
+        operator = rule.get("operator")
+        if operator == "enum-member":
+            if not isinstance(value, str) or value not in type_expression.get(
+                rule["members_member"], []
+            ):
+                raise Refusal("language.structured_value_unknown_enum", pointer)
+            return value
+        if operator == "closed-record":
+            fields = type_expression.get(rule["fields_member"])
+            if not isinstance(fields, list) or not isinstance(value, dict):
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            name_member = rule["field_name_member"]
+            type_member = rule["field_type_member"]
+            names = [
+                field.get(name_member) for field in fields if isinstance(field, dict)
+            ]
+            missing = [name for name in names if name not in value]
+            extra = sorted(
+                (name for name in value if name not in names),
+                key=lambda name: str(name).encode("utf-8"),
+            )
+            if missing or extra:
+                raise Refusal(
+                    "language.structured_value_record_member_mismatch",
+                    child(pointer, (missing or extra)[0]),
+                )
+            return {
+                field[name_member]: validate(
+                    field[type_member],
+                    value[field[name_member]],
+                    child(pointer, field[name_member]),
+                )
+                for field in fields
+            }
+        if operator == "bounded-list":
+            maximum = type_expression.get(rule["maximum_length_member"])
+            if (
+                not isinstance(value, list)
+                or not isinstance(maximum, int)
+                or isinstance(maximum, bool)
+                or len(value) > maximum
+            ):
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            return [
+                validate(
+                    type_expression.get(rule["element_member"]),
+                    item,
+                    child(pointer, index),
+                )
+                for index, item in enumerate(value)
+            ]
+        if operator == "canonical-ref-key":
+            target_member = rule["target_member"]
+            pattern_member = rule["key_pattern_member"]
+            value_members = rule["value_members"]
+            if (
+                type_key(type_expression.get(target_member)) is None
+                or not isinstance(type_expression.get(pattern_member), str)
+                or not type_expression[pattern_member]
+                or not isinstance(value, dict)
+                or set(value) != set(value_members)
+                or len(value_members) != 1
+                or not isinstance(value.get(value_members[0]), str)
+            ):
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            try:
+                key_matches = (
+                    re.fullmatch(
+                        type_expression[pattern_member], value[value_members[0]]
+                    )
+                    is not None
+                )
+            except re.error as error:
+                raise AssertionError("admitted Ref key pattern is invalid") from error
+            if not key_matches:
+                raise Refusal("language.structured_value_type_mismatch", pointer)
+            return {value_members[0]: value[value_members[0]]}
+        raise Refusal("language.structured_value_type_mismatch", pointer)
+
+    def admit(envelope):
+        if not isinstance(envelope, dict) or set(envelope) != envelope_members:
+            raise Refusal("language.structured_value_type_mismatch", "")
+        return {
+            type_member: canonical_type(envelope[type_member]),
+            value_member: validate(
+                envelope[type_member], envelope[value_member], f"/{value_member}"
+            ),
+        }
+
+    try:
+        left = admit(inp["left"])
+        if inp["action"] == "admit":
+            result = left
+        elif inp["action"] == "equal":
+            right = admit(inp["right"])
+            if _encoded(left[type_member]) != _encoded(right[type_member]):
+                raise Refusal("language.structured_value_type_mismatch", "/right/type")
+            _definition, constructor, _rule = structural_contract(
+                left[type_member], "/left/type"
+            )
+            result_contract = value_nodes["canonical-equal"]["result"]["typing"][
+                "contract"
+            ]
+            if (
+                operation_law(constructor, "canonical-equal", "/left/type").get(
+                    "result_contract"
+                )
+                != result_contract
+            ):
+                raise Refusal("language.structured_value_type_mismatch", "/left/type")
+            result = {
+                type_member: runtime["fixed_value_contracts"][result_contract]["type"],
+                value_member: _encoded(left[value_member])
+                == _encoded(right[value_member]),
+            }
+        elif inp["action"] == "lookup":
+            type_expression, constructor, lookup_rule = structural_contract(
+                left[type_member], "/type"
+            )
+            law = operation_law(constructor, "bounded-lookup", "/type")
+            if law.get("refusal_signal") != "structured-lookup-out-of-range":
+                raise Refusal("language.structured_value_type_mismatch", "/type")
+            if law.get("selector") == "static-field" and isinstance(inp["key"], str):
+                fields = type_expression[lookup_rule["fields_member"]]
+                name_member = lookup_rule["field_name_member"]
+                field_type_member = lookup_rule["field_type_member"]
+                field = next(
+                    (field for field in fields if field[name_member] == inp["key"]),
+                    None,
+                )
+                if field is None:
+                    raise Refusal("runtime.structured_lookup_out_of_range", "/key")
+                result = {
+                    type_member: canonical_type(field[field_type_member]),
+                    value_member: left[value_member][inp["key"]],
+                }
+            elif law.get("selector") == "local-index" and isinstance(inp["key"], int):
+                if not 0 <= inp["key"] < len(left[value_member]):
+                    raise Refusal("runtime.structured_lookup_out_of_range", "/key")
+                result = {
+                    type_member: canonical_type(
+                        type_expression[lookup_rule["element_member"]]
+                    ),
+                    value_member: left[value_member][inp["key"]],
+                }
+            else:
+                raise Refusal("language.structured_value_type_mismatch", "/key")
+        else:
+            raise AssertionError("unknown structured vector action")
+    except Refusal as refusal:
+        return {
+            "code": refusal.code,
+            "outcome": "refused",
+            "pointer": refusal.pointer,
+            "type": None,
+            "value": None,
+        }
+    return {
+        "code": None,
+        "outcome": "admitted",
+        "pointer": "",
+        "type": result[type_member],
+        "value": result[value_member],
+    }
+
+
 __all__ = [
     "_consumer_b_meta_validate_schema",
     "Any",
@@ -8530,6 +9485,7 @@ __all__ = [
     "_consumer_b_definition_is_closed",
     "_consumer_b_duplicate_subjects",
     "_consumer_b_embedded_artifact_bindings_are_closed",
+    "_consumer_b_evaluate_structured_value_vector",
     "_consumer_b_exact_path",
     "_consumer_b_fact_contract_at_path",
     "_consumer_b_fact_contract_path_is_declared",

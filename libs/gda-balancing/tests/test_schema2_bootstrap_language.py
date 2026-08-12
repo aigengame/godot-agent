@@ -359,6 +359,8 @@ def test_bootstrap_executes_every_rule_vector_into_a_stable_projection():
     assert dict(admission.rule_projections).keys() == {
         "quantity.declare.valid",
         "quantity.lower.valid",
+        "structured.declare.valid",
+        "structured.lower.valid",
     }
     assert all(
         identity.startswith("sha256:") for _, identity in admission.rule_projections

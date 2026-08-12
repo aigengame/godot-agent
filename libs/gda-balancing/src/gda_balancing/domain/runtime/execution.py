@@ -37,6 +37,16 @@ from gda_balancing.domain.experiment import (
     _refusal,
     _scenario_root_events,
 )
+from gda_balancing.domain.structured_values import (
+    StructuredValueIndex,
+    StructuredValueFault,
+    admit_typed_value,
+    equal_typed_values,
+    lookup_selector_kind,
+    lookup_typed_value,
+    selected_structured_value_index,
+    typed_envelope_members,
+)
 
 
 _EVALUATOR_IMPLEMENTATION = "gda-balancing.deterministic-event-evaluator-v1"
@@ -46,10 +56,12 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
     {
         "copy-value",
         "cancel-event",
+        "canonical-equal",
+        "bounded-lookup",
         "gameplay-precondition",
         "integer-add",
         "integer-compare",
-        "integer-literal",
+        "typed-literal",
         "integer-maximum",
         "integer-multiply",
         "integer-subtract",
@@ -82,7 +94,7 @@ class RuntimeRefusalOutcome:
     last_snapshot_identity: str
     last_snapshot_record: dict[str, JsonValue]
     budget_counters: dict[str, int]
-    last_state: dict[str, int]
+    last_state: dict[str, Any]
     refusing_event_index: int
     refusing_event_id: str
     refusing_event_spec: dict[str, JsonValue]
@@ -96,8 +108,8 @@ class RuntimeRefusalOutcome:
     refusing_call_site_identity: str | None
     refusing_evaluation_site_identity: str | None
     refusing_instruction_index: int | None
-    state_before: dict[str, int]
-    state_after: dict[str, int]
+    state_before: dict[str, Any]
+    state_after: dict[str, Any]
 
 
 class _RuntimeExecutionFault(Exception):
@@ -662,6 +674,60 @@ def _admit_declared_numeric(
     return admitted
 
 
+def _admit_declared_value(
+    value: Any,
+    numeric: dict[str, Any],
+    declaration: dict[str, Any],
+    *,
+    structured_authority: StructuredValueIndex,
+    structured_resource_limit: int,
+) -> JsonValue:
+    type_identity = cast(dict[str, str], declaration["type_identity"])
+    declared_type: JsonValue = {
+        "id": type_identity["symbol"],
+        "package": type_identity["package"],
+        "version": type_identity["version"],
+    }
+    if declaration.get("value_kind") == "nominal-structured":
+        type_member, _value_member = typed_envelope_members(structured_authority)
+        admitted = admit_typed_value(
+            value,
+            authority=structured_authority,
+            resource_limit=structured_resource_limit,
+        )
+        if canonical_bytes(admitted[type_member]) != canonical_bytes(
+            cast(JsonValue, declared_type)
+        ):
+            raise StructuredValueFault(
+                "language.structured_value_type_mismatch", "/type"
+            )
+        return cast(JsonValue, admitted)
+    value_member = "value"
+    if (
+        isinstance(value, dict)
+        and structured_authority.typed_envelope_profile is not None
+    ):
+        type_member, value_member = typed_envelope_members(structured_authority)
+        if set(value) == {type_member, value_member}:
+            admitted = admit_typed_value(
+                value,
+                authority=structured_authority,
+                resource_limit=structured_resource_limit,
+            )
+            if canonical_bytes(admitted[type_member]) != canonical_bytes(
+                cast(JsonValue, declared_type)
+            ):
+                raise StructuredValueFault(
+                    "language.structured_value_type_mismatch", f"/{type_member}"
+                )
+            value = admitted[value_member]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise StructuredValueFault(
+            "language.structured_value_type_mismatch", f"/{value_member}"
+        )
+    return _admit_declared_numeric(value, numeric, declaration)
+
+
 def _integer_compare(comparison: str, left: int, right: int) -> bool:
     if comparison == "greater-than-or-equal":
         return left >= right
@@ -765,7 +831,14 @@ class _NamedRng:
         return minimum + mixed % (maximum - minimum + 1), index, mixed, True
 
 
-def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
+def _value_rows(
+    values: dict[str, Any], structured_authority: StructuredValueIndex
+) -> list[dict[str, JsonValue]]:
+    envelope_members = (
+        set(typed_envelope_members(structured_authority))
+        if structured_authority.typed_envelope_profile is not None
+        else None
+    )
     rows: list[dict[str, JsonValue]] = []
     for name in sorted(values):
         value = values[name]
@@ -775,13 +848,28 @@ def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
             rows.append({"name": name, "kind": "integer", "integer": value})
         elif isinstance(value, str):
             rows.append({"name": name, "kind": "string", "string": value})
+        elif (
+            isinstance(value, dict)
+            and envelope_members is not None
+            and set(value) == envelope_members
+        ):
+            rows.append(
+                {
+                    "name": name,
+                    "kind": "structured",
+                    "value": cast(JsonValue, value),
+                }
+            )
         else:
             raise TypeError("runtime fact is not canonically representable")
     return rows
 
 
-def _int_rows(values: dict[str, int]) -> list[dict[str, JsonValue]]:
-    return [{"name": name, "value": values[name]} for name in sorted(values)]
+def _named_value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
+    return [
+        {"name": name, "value": cast(JsonValue, values[name])}
+        for name in sorted(values)
+    ]
 
 
 def _resolved_display_names(
@@ -803,20 +891,23 @@ def _resolved_display_names(
     return result
 
 
-def _resolved_int_rows(
-    values: dict[bytes, int],
+def _resolved_state_rows(
+    values: dict[bytes, Any],
     display_names: dict[bytes, str],
 ) -> list[dict[str, JsonValue]]:
-    projected = {display_names[key]: value for key, value in values.items()}
-    return _int_rows(projected)
+    return [
+        {"name": display_names[key], "value": cast(JsonValue, values[key])}
+        for key in sorted(values, key=lambda item: display_names[item])
+    ]
 
 
 def _resolved_value_rows(
     values: dict[bytes, Any],
     display_names: dict[bytes, str],
+    structured_authority: StructuredValueIndex,
 ) -> list[dict[str, JsonValue]]:
     projected = {display_names[key]: value for key, value in values.items()}
-    return _value_rows(projected)
+    return _value_rows(projected, structured_authority)
 
 
 def _metric_definition_identity(metric: dict[str, Any]) -> str:
@@ -1134,28 +1225,20 @@ def _reproduction_receipt(
     )
 
 
-def _scenario_state(
-    scenario: dict[str, Any],
-    declarations: dict[str, dict[str, Any]],
-) -> dict[str, int]:
-    return {
-        row["name"]: row["value"]
-        for row in scenario["values"]
-        if declarations[row["name"]]["role"] == "state"
-    }
-
-
 def _execute_value_instruction(
     instruction: dict[str, Any],
     variables: dict[str, Any],
     numeric: dict[str, Any],
     node_contract: dict[str, Any],
+    *,
+    structured_authority: StructuredValueIndex | None = None,
+    structured_resource_limit: int | None = None,
 ) -> None:
     """Execute one value instruction through its Kernel-owned operator law."""
     semantics = cast(dict[str, Any], node_contract["semantics"])
     operator = cast(str, semantics["operator"])
-    if operator == "integer-literal":
-        value = cast(int, instruction["literal"])
+    if operator == "typed-literal":
+        value = instruction["literal"]
     elif operator == "copy-value":
         value = variables[cast(str, instruction["value"])]
     elif operator in {
@@ -1182,6 +1265,37 @@ def _execute_value_instruction(
             variables[cast(str, instruction["right"])],
         )
         return
+    elif operator == "bounded-lookup":
+        if structured_authority is None or structured_resource_limit is None:
+            raise ValueError("structured authority is required for bounded lookup")
+        key_name = instruction["key"]
+        envelope = variables[cast(str, instruction["value"])]
+        selector_kind = lookup_selector_kind(envelope, authority=structured_authority)
+        if selector_kind == "static-field":
+            key = key_name
+        elif key_name in variables:
+            key = variables[key_name]
+        else:
+            raise ValueError("admitted List lookup index local is unavailable")
+        variables[cast(str, instruction["target"])] = lookup_typed_value(
+            envelope,
+            key,
+            authority=structured_authority,
+            resource_limit=structured_resource_limit,
+        )
+        return
+    elif operator == "canonical-equal":
+        if structured_authority is None or structured_resource_limit is None:
+            raise ValueError("structured authority is required for canonical equality")
+        result = equal_typed_values(
+            variables[cast(str, instruction["left"])],
+            variables[cast(str, instruction["right"])],
+            authority=structured_authority,
+            resource_limit=structured_resource_limit,
+        )
+        _type_member, value_member = typed_envelope_members(structured_authority)
+        variables[cast(str, instruction["target"])] = result[value_member]
+        return
     elif operator == "select-value":
         value = variables[
             cast(
@@ -1195,7 +1309,9 @@ def _execute_value_instruction(
         ]
     else:
         raise ValueError(f"Kernel operator is not a value instruction: {operator}")
-    variables[cast(str, instruction["target"])] = _admit_numeric(value, numeric)
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = _admit_numeric(value, numeric)
+    variables[cast(str, instruction["target"])] = value
 
 
 def _evaluate_value_program_vector(
@@ -1503,7 +1619,7 @@ def _runtime_refusal_outcome(
     refusing_attempted_calls: list[dict[str, JsonValue]],
     refusing_ordering_key: dict[str, JsonValue],
     refusing_snapshot_before_identity: str,
-    state_before: dict[str, int],
+    state_before: dict[str, Any],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
         stage="runtime",
@@ -1587,6 +1703,13 @@ def evaluate_experiment(
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
+    structured_authority = selected_structured_value_index(
+        cast(dict[str, Any], checked.rir["selected_semantics"]),
+        kernel=checked.kernel,
+    )
+    structured_resource_limit = cast(
+        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+    )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
     event_catalog: list[dict[str, JsonValue]] = []
@@ -1594,9 +1717,9 @@ def evaluate_experiment(
     terminal_statuses: list[dict[str, JsonValue]] = []
     scenario_observation_evidence: dict[tuple[str, str], tuple[str, str, int]] = {}
     scenario_event_outputs: dict[
-        str, list[tuple[dict[str, Any], dict[str, int], str]]
+        str, list[tuple[dict[str, Any], dict[str, Any], str]]
     ] = {}
-    scenario_terminal_states: dict[str, dict[str, int]] = {}
+    scenario_terminal_states: dict[str, dict[str, Any]] = {}
     total_steps = 0
     runtime_limit = runtime_bounds["max_node_steps"]
     initialization_cache: dict[bytes, int] = {}
@@ -1758,12 +1881,12 @@ def evaluate_experiment(
                     ),
                 ),
             )
-        state: dict[bytes, int] = {
-            identity: cast(int, actual_values[identity])
+        state: dict[bytes, Any] = {
+            identity: actual_values[identity]
             for identity, declaration in declarations.items()
             if declaration["role"] == "state" and identity in actual_values
         }
-        initial_values = _resolved_int_rows(state, display_names)
+        initial_values = _resolved_state_rows(state, display_names)
         initial_snapshot = cast(
             dict[str, JsonValue],
             {
@@ -1834,7 +1957,7 @@ def evaluate_experiment(
         ) -> tuple[str, Any]:
             nonlocal admitted_event_count
             nonlocal event_steps, next_enqueue_sequence, total_steps
-            operation_before: dict[bytes, int] = dict(state)
+            operation_before: dict[bytes, Any] = dict(state)
             variables: dict[str, Any] = dict(arguments)
             extensions = selected_operation.get("extensions", {})
             snapshot_operands = (
@@ -2199,10 +2322,25 @@ def evaluate_experiment(
                             variables,
                             numeric,
                             node_contract,
+                            structured_authority=structured_authority,
+                            structured_resource_limit=structured_resource_limit,
                         )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
                             signal="numeric-overflow",
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                            evaluation_site_identity=evaluation_site_identity,
+                            instruction_index=instruction_index,
+                        ) from error
+                    except StructuredValueFault as error:
+                        if error.code != "runtime.structured_lookup_out_of_range":
+                            raise ValueError(
+                                "admitted structured expression violated its type contract"
+                            ) from error
+                        raise _RuntimeExecutionFault(
+                            signal="structured-lookup-out-of-range",
                             operation=selected_operation["id"],
                             call_path=call_path,
                             call_site_identity=call_site_identity,
@@ -2218,10 +2356,12 @@ def evaluate_experiment(
                         else variables[instruction["value"]]
                     )
                     try:
-                        state[actual] = _admit_declared_numeric(
+                        state[actual] = _admit_declared_value(
                             value,
                             numeric,
                             declarations[actual],
+                            structured_authority=structured_authority,
+                            structured_resource_limit=structured_resource_limit,
                         )
                     except OverflowError as error:
                         raise _RuntimeExecutionFault(
@@ -2231,6 +2371,10 @@ def evaluate_experiment(
                             call_site_identity=call_site_identity,
                             evaluation_site_identity=evaluation_site_identity,
                             instruction_index=instruction_index,
+                        ) from error
+                    except StructuredValueFault as error:
+                        raise ValueError(
+                            "admitted structured state write violated its type contract"
                         ) from error
                     for alias, alias_actual in state_references.items():
                         if alias_actual == actual:
@@ -2550,9 +2694,11 @@ def evaluate_experiment(
                     "schedules": schedule_trace,
                     "cancellations": cancellation_trace,
                     "outcome": typed_outcome,
-                    "facts": _resolved_value_rows(event_actual_values, display_names),
-                    "state_before": _resolved_int_rows(before, display_names),
-                    "state_after": _resolved_int_rows(state, display_names),
+                    "facts": _resolved_value_rows(
+                        event_actual_values, display_names, structured_authority
+                    ),
+                    "state_before": _resolved_state_rows(before, display_names),
+                    "state_after": _resolved_state_rows(state, display_names),
                     "rng_draws": draws,
                     "snapshot_before_identity": current_snapshot_identity,
                     "observation": None,
@@ -2619,7 +2765,7 @@ def evaluate_experiment(
                     "scenario": scenario["id"],
                     "event_id": event_id,
                     "logical_time": event_spec["logical_time"],
-                    "values": _resolved_int_rows(state, display_names),
+                    "values": _resolved_state_rows(state, display_names),
                     "continuation": continuation,
                 },
             )
@@ -2825,7 +2971,7 @@ def evaluate_experiment(
                 event_catalog_identity,
                 observation_catalog_record,
             )
-            resolved_state = _resolved_int_rows(state, display_names)
+            resolved_state = _resolved_state_rows(state, display_names)
             observation_event = cast(
                 dict[str, JsonValue],
                 {
@@ -2842,7 +2988,9 @@ def evaluate_experiment(
                         "id": "observation-emitted",
                         "kind": "success",
                     },
-                    "facts": _resolved_value_rows(actual_values, display_names),
+                    "facts": _resolved_value_rows(
+                        actual_values, display_names, structured_authority
+                    ),
                     "state_before": resolved_state,
                     "state_after": resolved_state,
                     "rng_draws": [],

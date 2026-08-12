@@ -460,25 +460,113 @@ def _reference_check_source(
     )
     reasons = {item["id"]: item for item in language["reasons"]}
     if schema_errors:
-        path = tuple(str(part) for part in schema_errors[0].absolute_path)
-        for check in language["model_checks"]:
-            selector = tuple([*check.get("scope_selector", []), *check["selector"]])
-            if len(selector) == len(path) and all(
-                expected == "*" or expected == actual
-                for expected, actual in zip(selector, path, strict=True)
-            ):
-                return (
-                    (
-                        reasons[check["reason"]]["diagnostic"],
-                        _reference_pointer(list(path)),
-                    ),
+
+        def pointer_count(error: jsonschema.ValidationError) -> int:
+            if error.validator == "required" and isinstance(error.instance, dict):
+                required = cast(list[Any], error.validator_value)
+                return max(
+                    1,
+                    len(set(required) - set(error.instance)),
                 )
-        return (
-            (
-                reasons[profile["structural_reason"]]["diagnostic"],
-                _reference_pointer(list(path)),
-            ),
-        )
+            if error.validator in {
+                "additionalProperties",
+                "unevaluatedProperties",
+            } and isinstance(error.instance, dict):
+                properties = (
+                    error.schema.get("properties", {})
+                    if isinstance(error.schema, dict)
+                    else {}
+                )
+                if isinstance(properties, dict):
+                    return max(1, len(set(error.instance) - set(properties)))
+            return 1
+
+        def preferred_errors(
+            error: jsonschema.ValidationError,
+        ) -> list[jsonschema.ValidationError]:
+            if error.validator not in {"oneOf", "anyOf"} or not error.context:
+                return [error]
+            branches: dict[object, list[jsonschema.ValidationError]] = {}
+            for child in error.context:
+                schema_path = list(child.schema_path)
+                markers = [
+                    index
+                    for index, segment in enumerate(schema_path)
+                    if segment == error.validator
+                ]
+                branch = (
+                    schema_path[markers[-1] + 1]
+                    if markers and markers[-1] + 1 < len(schema_path)
+                    else schema_path[0]
+                    if schema_path and isinstance(schema_path[0], int)
+                    else None
+                )
+                branches.setdefault(branch, []).append(child)
+            selected = min(
+                branches.values(),
+                key=lambda items: (
+                    sum(pointer_count(item) for item in items),
+                    tuple(str(item.schema_path) for item in items),
+                ),
+            )
+            return [
+                preferred for child in selected for preferred in preferred_errors(child)
+            ]
+
+        diagnostics = []
+        for schema_error in schema_errors:
+            schema_path = tuple(schema_error.absolute_path)
+            selected_errors = (
+                preferred_errors(schema_error)
+                if len(schema_path) >= 2 and schema_path[-2] == "symbols"
+                else [schema_error]
+            )
+            for preferred in selected_errors:
+                paths = [tuple(str(part) for part in preferred.absolute_path)]
+                if preferred.validator == "required" and isinstance(
+                    preferred.instance, dict
+                ):
+                    required = cast(list[Any], preferred.validator_value)
+                    paths = [
+                        (*paths[0], member)
+                        for member in sorted(set(required) - set(preferred.instance))
+                    ]
+                elif preferred.validator in {
+                    "additionalProperties",
+                    "unevaluatedProperties",
+                } and isinstance(preferred.instance, dict):
+                    properties = (
+                        preferred.schema.get("properties", {})
+                        if isinstance(preferred.schema, dict)
+                        else {}
+                    )
+                    if isinstance(properties, dict):
+                        paths = [
+                            (*paths[0], member)
+                            for member in sorted(
+                                set(preferred.instance) - set(properties)
+                            )
+                        ]
+                for path in paths:
+                    diagnostic = reasons[profile["structural_reason"]]["diagnostic"]
+                    if preferred.validator not in {
+                        "additionalProperties",
+                        "required",
+                        "type",
+                        "unevaluatedProperties",
+                    }:
+                        for check in language["model_checks"]:
+                            selector = tuple(
+                                [*check.get("scope_selector", []), *check["selector"]]
+                            )
+                            if len(selector) == len(path) and all(
+                                expected == "*" or expected == actual
+                                for expected, actual in zip(selector, path, strict=True)
+                            ):
+                                diagnostic = reasons[check["reason"]]["diagnostic"]
+                                break
+                    diagnostics.append((diagnostic, _reference_pointer(list(path))))
+        return tuple(dict.fromkeys(diagnostics))
 
     diagnostics_by_stage: dict[str, list[tuple[str, str]]] = {}
     for check in language["model_checks"]:
@@ -1536,7 +1624,8 @@ def _reference_formulas_and_bindings(
                         profile_matches = [
                             item
                             for item in language["literal_typing_profiles"]
-                            if item["minimum"]
+                            if item.get("source_kind") == "integer"
+                            and item["minimum"]
                             <= source_operand["value"]
                             <= item["maximum"]
                             and item["type"] == formal["type"]
@@ -3451,16 +3540,29 @@ def _reference_runtime_projection(
     selected = {name: set() for name in catalogs}
     for seed in profile["seeds"]:
         for declaration in declarations:
-            package = descend(declaration, seed["declaration_package_path"])
+            if seed["applicability_member"] not in declaration:
+                continue
+            try:
+                package = descend(declaration, seed["declaration_package_path"])
+                expected = descend(declaration, seed["declaration_path"])
+            except (KeyError, TypeError):
+                assert seed["missing_declaration_path"] == "not-applicable"
+                continue
+            matched = False
             for index, row in enumerate(catalogs[seed["collection"]]):
                 consume()
-                if row[0] != package:
+                if seed["same_package"] and row[0] != package:
                     continue
                 assert seed["operator"] == "declaration-field"
-                if descend(row[2], seed["target_path"]) == descend(
-                    declaration, seed["declaration_path"]
-                ):
+                try:
+                    target = descend(row[2], seed["target_path"])
+                except (KeyError, TypeError):
+                    assert seed.get("missing_target") == "not-applicable"
+                    continue
+                if target == expected:
                     selected[seed["collection"]].add(index)
+                    matched = True
+            assert matched
 
     previous = None
     while previous != selected:
@@ -4608,6 +4710,13 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         {"symbol": "name", "type": "type_ref"}.get(item, item)
         for item in declaration_schema["required"]
     ]
+    for branch in declaration_schema["oneOf"]:
+        branch["properties"]["name"] = branch["properties"].pop("symbol")
+        branch["properties"]["type_ref"] = branch["properties"].pop("type")
+        branch["required"] = [
+            {"symbol": "name", "type": "type_ref"}.get(item, item)
+            for item in branch["required"]
+        ]
     for vector in candidate_ldb["vectors"]:
         if (
             vector.get("kind") == "package-contract"
@@ -4755,11 +4864,12 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     for capability in language["capabilities"]:
         capability["rule"] = renames[capability["rule"]]
     for lowering in language["model_lowerings"]:
-        for invocation in lowering["rule_chain"]:
-            invocation["rule"] = renames[invocation["rule"]]
-            phase, judgment = invocation_tokens[invocation["rule"]]
-            invocation["phase"] = phase
-            invocation["judgment"] = judgment
+        for chain_member in ("rule_chain", "structured_rule_chain"):
+            for invocation in lowering[chain_member]:
+                invocation["rule"] = renames[invocation["rule"]]
+                phase, judgment = invocation_tokens[invocation["rule"]]
+                invocation["phase"] = phase
+                invocation["judgment"] = judgment
     for operation in language["operations"]:
         operation["rule"] = renames[operation["rule"]]
     for package in language["packages"]:

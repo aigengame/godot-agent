@@ -652,6 +652,190 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
         jsonschema.validate(vector_set, get_success_schema)
 
 
+def test_public_authority_owns_structured_values_and_their_conformance_package(
+    run_cli,
+):
+    exit_code, stdout, stderr = run_cli(["schema", "get", "language-bundle"])
+
+    assert (exit_code, stderr) == (0, "")
+    authority = json.loads(stdout)
+    nodes = {
+        node["id"]: node
+        for node in authority["kernel"]["meta_format"]["runtime_program"]["nodes"]
+    }
+    assert nodes["constant"]["semantics"]["operator"] == "typed-literal"
+    assert nodes["lookup"]["semantics"] == {"operator": "bounded-lookup"}
+    assert nodes["equal"]["semantics"] == {"operator": "canonical-equal"}
+
+    releases = {
+        (release["id"], release["version"]): release
+        for release in authority["package_releases"]
+    }
+    schema = releases[("standard.schema", "2.3.0")]
+    assert schema["exports"]["types"] == [
+        {"constructor": "standard.schema.enum", "id": "Enum"},
+        {"constructor": "standard.schema.list", "id": "List"},
+        {"constructor": "standard.schema.record", "id": "Record"},
+        {"constructor": "standard.schema.ref", "id": "Ref"},
+    ]
+    assert schema["exports"]["structured_operations"] == [
+        "standard.schema.enum-equal-v1",
+        "standard.schema.list-at-v1",
+        "standard.schema.record-field-v1",
+        "standard.schema.ref-equal-v1",
+    ]
+    constructors = {
+        definition["id"]: definition["parameters"]
+        for entry in schema["semantic_closure"]
+        if entry["authority_path"] == "language.constructors"
+        for definition in entry["definitions"]
+    }
+    assert constructors["standard.schema.ref"] == ["target", "key_pattern"]
+
+    conformance = releases[("standard.conformance.structured", "1.0.0")]
+    assert conformance["dependencies"]["required"] == [
+        {"id": "core.quantity", "version": "2.1.0"},
+        {"id": "standard.runtime", "version": "1.1.0"},
+        {"id": "standard.schema", "version": "2.3.0"},
+    ]
+    assert conformance["exports"]["types"] == [
+        {"constructor": "standard.schema.enum", "id": "CandidateKind"},
+        {"constructor": "standard.schema.ref", "id": "CandidateRef"},
+        {"constructor": "standard.schema.record", "id": "Candidate"},
+        {"constructor": "standard.schema.record", "id": "SelectionResult"},
+        {"constructor": "standard.schema.record", "id": "SelectionState"},
+    ]
+    definitions = next(
+        entry["definitions"]
+        for entry in conformance["semantic_closure"]
+        if entry["authority_path"] == "language.nominal_types"
+    )
+    assert {definition["id"] for definition in definitions} == {
+        "Candidate",
+        "CandidateKind",
+        "CandidateRef",
+        "SelectionResult",
+        "SelectionState",
+    }
+
+
+def test_structured_value_vectors_run_in_production_and_independent_consumers(
+    run_cli,
+):
+    from gda_balancing.domain.structured_values import (
+        evaluate_structured_value_vector,
+    )
+    from schema2_bootstrap_conformance_support import (
+        _consumer_b_evaluate_structured_value_vector,
+    )
+
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    vector_set = next(
+        vector_set
+        for vector_set in authority["package_conformance_vector_sets"]
+        if vector_set["package_id"] == "standard.conformance.structured"
+    )
+    vectors = [
+        vector
+        for vector in vector_set["vector_definitions"]
+        if vector.get("kind") == "structured-value"
+    ]
+    assert {vector["category"] for vector in vectors} == {
+        "boundary",
+        "negative",
+        "positive",
+    }
+    assert {
+        vector["id"] for vector in vectors if vector["expect"]["outcome"] == "refused"
+    } >= {
+        "structured.refuse.empty-list-lookup",
+        "structured.refuse.invalid-ref-key",
+        "structured.refuse.list-index-out-of-range",
+        "structured.refuse.record-extra-field",
+        "structured.refuse.record-missing-field",
+        "structured.refuse.resource-bound",
+        "structured.refuse.unknown-enum-member",
+        "structured.refuse.wrong-list-element",
+        "structured.refuse.wrong-ref-target",
+    }
+    assert "structured.accept.authority-ref-key-pattern" in {
+        vector["id"] for vector in vectors
+    }
+    nominal_types = authority["package_releases"]
+    limit = authority["language_bundle"]["resources"]["max_rule_match_steps"]
+    for vector in vectors:
+        assert (
+            evaluate_structured_value_vector(
+                vector,
+                nominal_types=nominal_types,
+                kernel=authority["kernel"],
+                resource_limit=limit,
+            )
+            == _consumer_b_evaluate_structured_value_vector(
+                vector,
+                nominal_types=nominal_types,
+                kernel=authority["kernel"],
+                resource_limit=limit,
+            )
+            == vector["expect"]
+        )
+
+    reordered_record = deepcopy(
+        next(
+            vector
+            for vector in vectors
+            if vector["id"] == "structured.accept.candidate"
+        )
+    )
+    original_value = reordered_record["input"]["left"]["value"]
+    reordered_record["input"]["left"]["value"] = {
+        "kind": original_value["kind"],
+        "key": original_value["key"],
+    }
+    assert (
+        evaluate_structured_value_vector(
+            reordered_record,
+            nominal_types=nominal_types,
+            kernel=authority["kernel"],
+            resource_limit=limit,
+        )
+        == _consumer_b_evaluate_structured_value_vector(
+            reordered_record,
+            nominal_types=nominal_types,
+            kernel=authority["kernel"],
+            resource_limit=limit,
+        )
+        == reordered_record["expect"]
+    )
+
+    for extra_names in (("z", "a"), ("a", "z")):
+        extra_record = deepcopy(reordered_record)
+        extra_value = extra_record["input"]["left"]["value"]
+        extra_value.update({name: 0 for name in extra_names})
+        expected_refusal = {
+            "code": "language.structured_value_record_member_mismatch",
+            "outcome": "refused",
+            "pointer": "/value/a",
+            "type": None,
+            "value": None,
+        }
+        assert (
+            evaluate_structured_value_vector(
+                extra_record,
+                nominal_types=nominal_types,
+                kernel=authority["kernel"],
+                resource_limit=limit,
+            )
+            == _consumer_b_evaluate_structured_value_vector(
+                extra_record,
+                nominal_types=nominal_types,
+                kernel=authority["kernel"],
+                resource_limit=limit,
+            )
+            == expected_refusal
+        )
+
+
 def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     kernel_meta = authority["kernel"]["meta_format"]
@@ -1362,6 +1546,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "operation-relation",
         "runtime-scenario",
         "scheduler-scenario",
+        "structured-value",
         "value-program",
     }
 
@@ -1719,6 +1904,10 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("language.source_parse_failure", "parse"),
         ("language.source_contract_mismatch", "static"),
         ("language.invalid_domain", "static"),
+        ("language.structured_value_resource_exhausted", "static"),
+        ("language.structured_value_type_mismatch", "static"),
+        ("language.structured_value_unknown_enum", "static"),
+        ("language.structured_value_record_member_mismatch", "static"),
         ("language.resolved_authority_mismatch", "resolution"),
         ("language.resolution_binding_mismatch", "resolution"),
     }
@@ -1726,6 +1915,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.capability_unsupported", "resolution"),
         ("runtime.step_limit_exceeded", "runtime"),
         ("runtime.numeric_overflow", "runtime"),
+        ("runtime.structured_lookup_out_of_range", "runtime"),
         ("runtime.schedule_backward", "runtime"),
         ("runtime.schedule_hidden_input", "runtime"),
         ("runtime.schedule_illegal_same_time_priority", "runtime"),

@@ -250,13 +250,14 @@ structured formal judgments, and an honest proof/conformance boundary.
   External-fact cardinality is a separate member of that same assignment mode rather than a host
   inference from Symbol role: only read-only, Experiment-initialized operands may be exposed, and
   result, writable, fixed, derived, and internal modes remain forbidden.
-  Literal typing is a separate package-owned LDB authority: a root
-  or nested literal must select exactly one reachable Literal Typing Profile whose source kind,
-  type, representation, kind, unit, domain, Numeric policy, and bounds match the formal port. The
-  exporting package owns the exact Type release, referenced value inventories and an Operation
-  formal close the profile, and overlapping ranges for one match contract are invalid. Zero or
-  multiple matches refuse before HIR; RIR preserves the selected profile as part of the
-  actual-operand identity. A declared writable
+  Literal typing is a separate package-owned LDB authority: a root or nested literal must select
+  exactly one reachable Literal Typing Profile. A numeric profile matches source kind, type,
+  representation, kind, unit, domain, Numeric policy, and bounds. A structured profile matches an
+  explicit `{type, value}` envelope and validates its value against the referenced nominal
+  definition. The exporting package owns the exact Type release, referenced value inventories and
+  an Operation formal close the profile, and overlapping profiles for one match contract are
+  invalid. Zero or multiple matches refuse before HIR; RIR preserves the selected profile and
+  canonical typed value as part of the actual-operand identity. A declared writable
   alias denotes one location for the whole invocation, so a child write is visible through every
   later sibling alias and operation rollback restores the entry snapshot.
 
@@ -296,6 +297,16 @@ structured formal judgments, and an honest proof/conformance boundary.
   selected Numeric profile. Sampling is not mislabeled pure: its separate judgment consumes and
   returns one Named-random-stream state/value under the selected Runtime profile definition.
   Aggregate evaluation order and bounds are explicit rules, never host-container order.
+
+- **Structured values use closed authority-owned laws.** `standard.schema@2.3.0` defines generic
+  Enum, Record, List, and Ref constructors. Record fields are exact, Lists are invariant and
+  bounded, and each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node
+  vocabulary admits typed literals, bounded Record/List lookup, and exact-type canonical equality.
+  Each constructor carries a machine-readable value rule. The selected typed-envelope profile owns
+  recursive resource charging and exact type resolution. Record lookup always uses a static field
+  literal; List lookup always uses a resolved integer local. RIR closes recursive nominal type and
+  constructor references before Runtime, so Runtime does not consult ambient authority. Hosts do
+  not own parallel constructors, Ref key rules, lookup behavior, or equality rules.
 
 - **Runtime behavior uses small-step transition semantics.** The runtime configuration contains the
   committed snapshot, ordered event queue, named RNG-stream states, Resolved Runtime profile,
@@ -398,6 +409,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   aliases could retain stale values across sibling calls. Literal typing is now independently
   package-owned, reference-closed, ambiguity-refusing, runtime-selected, and identity-bearing;
   `operation-body-order` aliasing spans the complete invocation rather than one child frame.
+- The 2026-08-11 structured-value amendment replaces the integer-only literal path with typed
+  integer and structured envelopes. It adds generic structured constructors and operations through
+  `standard.schema@2.3.0`, plus the neutral `standard.conformance.structured@1.0.0` package and its
+  independent conformance vectors. This amendment does not add game or reward semantics.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample
@@ -438,6 +453,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone
   cannot keep the Operation executable.
+- Execute authority-owned positive, boundary, and refusal vectors for Enum, Record, List, and Ref
+  admission; bounded lookup; exact-type equality; invalid Ref keys; unknown Enum members; exact
+  Record fields; list bounds; and resource exhaustion in production and independent consumers.
+  Carry one neutral structured Model through public build, inspect, Experiment check/run, Snapshot,
+  trace, Metric, and rollback paths without host-owned type or selection tables.
 - At least two evaluators that share no host primitive implementation execute each other's RIR and
   agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, and refusal vectors under the
   same Runtime profile definition and their honestly distinct evaluator-bound Resolved Runtime

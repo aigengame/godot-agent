@@ -21,7 +21,7 @@ from gda_balancing.domain.runtime.execution import (
     RuntimeRefusalOutcome,
     _InitializationProgramFault,
     _NamedRng,
-    _admit_declared_numeric,
+    _admit_declared_value,
     _artifact,
     _committed_event_projection,
     _empty_runtime_journal_identity,
@@ -32,7 +32,7 @@ from gda_balancing.domain.runtime.execution import (
     _extend_runtime_journal_identity,
     _formula_programs_reachable_from_entrypoints,
     _instruction_evaluation_sites,
-    _int_rows,
+    _named_value_rows,
     _integer_compare,
     _metric_definition_identity,
     _observation_event_id,
@@ -51,6 +51,10 @@ from gda_balancing.domain.runtime.execution import (
     _scenario_transition_events,
     _scheduled_event_id,
     _scheduler_contract,
+)
+from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
+    selected_structured_value_index,
 )
 
 
@@ -376,7 +380,7 @@ def _authoritative_event_actual_values(
     scenario_id: str,
     catalog_by_id: dict[str, dict[str, JsonValue]],
     events_by_id: dict[str, dict[str, JsonValue]],
-) -> dict[bytes, int] | None:
+) -> dict[bytes, Any] | None:
     declarations = _resolved_declarations(checked)
     display_names = _resolved_display_names(declarations)
     scenario = next(
@@ -387,7 +391,7 @@ def _authoritative_event_actual_values(
         return None
     entrypoints = {cast(str, row["id"]): row for row in checked.rir["entrypoints"]}
     scenario_entrypoints: list[dict[str, Any]] = []
-    actual_values: dict[bytes, int] = {}
+    actual_values: dict[bytes, Any] = {}
     try:
         for root_event in _scenario_transition_events(scenario):
             selected_entrypoint = entrypoints[cast(str, root_event["entrypoint"])]
@@ -397,13 +401,13 @@ def _authoritative_event_actual_values(
             )
             for initializer in cast(list[dict[str, Any]], contract["initializers"]):
                 identity = canonical_bytes(cast(JsonValue, initializer["target"]))
-                value = cast(int, initializer["value"])
+                value = initializer["value"]
                 if identity in actual_values and actual_values[identity] != value:
                     return None
                 actual_values[identity] = value
         for assignment in scenario["assignments"]:
             actual_values[canonical_bytes(cast(JsonValue, assignment["target"]))] = (
-                cast(int, assignment["value"])
+                assignment["value"]
             )
         _evaluate_initialization_programs(
             checked,
@@ -428,11 +432,11 @@ def _authoritative_event_actual_values(
             if prior_spec["kind"] != "external-input":
                 continue
             for fact in cast(list[dict[str, JsonValue]], prior_spec["facts"]):
-                actual_values[canonical_bytes(cast(JsonValue, fact["target"]))] = cast(
-                    int, fact["value"]
-                )
+                actual_values[canonical_bytes(cast(JsonValue, fact["target"]))] = fact[
+                    "value"
+                ]
         state_before = {
-            cast(str, row["name"]): cast(int, row["value"])
+            cast(str, row["name"]): row["value"]
             for row in cast(list[dict[str, JsonValue]], event["state_before"])
         }
         for identity, display_name in display_names.items():
@@ -444,7 +448,7 @@ def _authoritative_event_actual_values(
         if event_spec["kind"] == "transition-invocation":
             for payload in cast(list[dict[str, JsonValue]], event_spec["payload"]):
                 actual_values[canonical_bytes(cast(JsonValue, payload["target"]))] = (
-                    cast(int, payload["value"])
+                    payload["value"]
                 )
         _evaluate_initialization_programs(
             checked,
@@ -479,7 +483,7 @@ def _committed_event_arguments(
     tuple[
         dict[str, JsonValue],
         dict[str, dict[str, JsonValue]],
-        dict[bytes, int],
+        dict[bytes, Any],
     ]
     | None
 ):
@@ -611,8 +615,8 @@ def _replayed_event_evidence(
         return None
     declarations = _resolved_declarations(checked)
     display_names = _resolved_display_names(declarations)
-    state = {
-        identity: cast(int, values_by_name[display_name])
+    state: dict[bytes, JsonValue] = {
+        identity: values_by_name[display_name]
         for identity, display_name in display_names.items()
         if display_name
         in (
@@ -674,6 +678,13 @@ def _replayed_event_evidence(
             return None
     numeric = cast(dict[str, Any], _runtime_contract(checked)["numeric"])
     node_contracts = _runtime_nodes(checked)
+    structured_authority = selected_structured_value_index(
+        cast(dict[str, Any], checked.rir["selected_semantics"]),
+        kernel=checked.kernel,
+    )
+    structured_resource_limit = cast(
+        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+    )
     schedule_identity = _scheduler_contract(checked)["call_site_identity"]["schedule"]
 
     def execute(
@@ -852,6 +863,8 @@ def _replayed_event_evidence(
                     variables,
                     numeric,
                     node_contract,
+                    structured_authority=structured_authority,
+                    structured_resource_limit=structured_resource_limit,
                 )
             elif operator in {"state-integer-subtract", "state-write"}:
                 formal = cast(str, instruction["symbol"])
@@ -859,12 +872,15 @@ def _replayed_event_evidence(
                 declaration = declarations.get(target)
                 if declaration is None:
                     return "", None, None
-                state[target] = _admit_declared_numeric(
-                    state[target] - cast(int, variables[instruction["value"]])
+                state[target] = _admit_declared_value(
+                    cast(int, state[target])
+                    - cast(int, variables[instruction["value"]])
                     if operator == "state-integer-subtract"
-                    else cast(int, variables[instruction["value"]]),
+                    else variables[instruction["value"]],
                     numeric,
                     declaration,
+                    structured_authority=structured_authority,
+                    structured_resource_limit=structured_resource_limit,
                 )
                 for alias, alias_target in state_references.items():
                     if canonical_bytes(cast(JsonValue, alias_target)) == target:
@@ -922,7 +938,14 @@ def _replayed_event_evidence(
             root_state_references,
             root_path,
         )
-    except (KeyError, OverflowError, StopIteration, TypeError, ValueError):
+    except (
+        KeyError,
+        OverflowError,
+        StopIteration,
+        StructuredValueFault,
+        TypeError,
+        ValueError,
+    ):
         return None
     if not replayed_outcome and found is None:
         return None
@@ -1283,7 +1306,7 @@ def runtime_terminal_audit_members(
                 "last_snapshot_identity": outcome.last_snapshot_identity,
                 "last_snapshot_record": outcome.last_snapshot_record,
                 "budget_counters": cast(JsonValue, outcome.budget_counters),
-                "last_snapshot": _int_rows(outcome.last_state),
+                "last_snapshot": _named_value_rows(outcome.last_state),
                 "refusing_event": {
                     "index": outcome.refusing_event_index,
                     "event_id": outcome.refusing_event_id,
@@ -1308,8 +1331,8 @@ def runtime_terminal_audit_members(
                 },
                 "rollback": {
                     "committed": False,
-                    "state_before": _int_rows(outcome.state_before),
-                    "state_after": _int_rows(outcome.state_after),
+                    "state_before": _named_value_rows(outcome.state_before),
+                    "state_after": _named_value_rows(outcome.state_after),
                 },
                 "diagnostic": {
                     **diagnostic.model_dump(mode="json"),

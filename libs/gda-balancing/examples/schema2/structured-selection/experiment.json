@@ -1,0 +1,182 @@
+{
+  "acceptance": {
+    "policy": "all-metrics-within-target"
+  },
+  "id": "standard.structured-selection",
+  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "language_bundle_identity": "sha256:fc0441807b1d9d1ea4ff554351ba75c8ae6b0d404219711257b4c10731951d94",
+  "metrics": [
+    {
+      "aggregation": "single",
+      "censoring": "none",
+      "dimensions": [],
+      "id": "selected_rank",
+      "kind": "scalar",
+      "missing": "refuse",
+      "observation": {
+        "member": "selection_metric",
+        "name": "terminal",
+        "source": "snapshot"
+      },
+      "replication": {
+        "unit": "scenario"
+      },
+      "target": {
+        "maximum": 15,
+        "minimum": 0
+      },
+      "unit": "1",
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      }
+    }
+  ],
+  "model": {
+    "build_receipt_identity": "sha256:fc9c2a9125c13f8cdc5329f39a3992cd0faa92518860f15c23070ad241dd6222",
+    "package_lock_identity": "sha256:15b97e447538a184c9ad4a8385dd3d262ef04530f02ad139d70dc7acbb86d468",
+    "resolved_model_identity": "sha256:85acbb00f6534c140a14f8a77df517562545d2804b9d547f64ddbbe05449d4c6",
+    "rir_identity": "sha256:0d83cbb1d943144291c083e3e8fd7dcc55ebe12d2c9e015175ba7ae94222ee12",
+    "source_identity": "sha256:8fe4f1f3e35b11746513522f0b1364eaab4068c2cf5c2a5cf7f1ab9b1856b5a3"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "effects": [
+        "event.commit",
+        "metric.observe",
+        "rng.named-stream",
+        "snapshot.commit"
+      ],
+      "instruction_nodes": [
+        "constant",
+        "draw",
+        "equal",
+        "if",
+        "lookup",
+        "precondition-greater-than-or-equal",
+        "write-state"
+      ],
+      "numeric_policies": [
+        "exact-int64"
+      ],
+      "operation_kinds": [
+        "event-program"
+      ],
+      "rng_algorithms": [
+        "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "standard.exact-int64-event-v1"
+      ]
+    }
+  },
+  "scenarios": [
+    {
+      "assignments": [
+        {
+          "target": {
+            "model": "standard.structured-selection-model",
+            "module": "selection",
+            "name": "selection_state"
+          },
+          "value": {
+            "type": {
+              "id": "SelectionState",
+              "package": "standard.conformance.structured",
+              "version": "1.0.0"
+            },
+            "value": {
+              "candidates": [
+                {
+                  "key": {
+                    "key": "candidate_a"
+                  },
+                  "kind": "primary"
+                },
+                {
+                  "key": {
+                    "key": "candidate_b"
+                  },
+                  "kind": "secondary"
+                }
+              ],
+              "results": [
+                {
+                  "kind": "primary",
+                  "rank": 3,
+                  "selected": {
+                    "key": "candidate_a"
+                  }
+                },
+                {
+                  "kind": "secondary",
+                  "rank": 9,
+                  "selected": {
+                    "key": "candidate_b"
+                  }
+                }
+              ],
+              "selected": {
+                "key": "candidate_a"
+              }
+            }
+          }
+        },
+        {
+          "target": {
+            "model": "standard.structured-selection-model",
+            "module": "selection",
+            "name": "selected_result"
+          },
+          "value": {
+            "type": {
+              "id": "SelectionResult",
+              "package": "standard.conformance.structured",
+              "version": "1.0.0"
+            },
+            "value": {
+              "kind": "secondary",
+              "rank": 9,
+              "selected": {
+                "key": "candidate_b"
+              }
+            }
+          }
+        },
+        {
+          "target": {
+            "model": "standard.structured-selection-model",
+            "module": "selection",
+            "name": "selection_metric"
+          },
+          "value": 9
+        }
+      ],
+      "event_plan": [
+        {
+          "entrypoint": "structured.select-candidate-a",
+          "kind": "transition-invocation",
+          "logical_time": 0,
+          "payload": [],
+          "priority": 0,
+          "root_event_ref": "select"
+        }
+      ],
+      "id": "select-one",
+      "named_streams": [
+        "selection"
+      ],
+      "terminal_condition": {
+        "kind": "event-count",
+        "maximum": 1
+      }
+    }
+  ],
+  "schema_version": "2.0.0",
+  "seed": {
+    "algorithm": "splitmix64-v1",
+    "value": 20260811
+  },
+  "version": "1.0.0"
+}

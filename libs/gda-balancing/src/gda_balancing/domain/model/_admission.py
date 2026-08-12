@@ -32,6 +32,11 @@ from gda_balancing.domain.formula.types import (
     formula_contract_matches_operation as _formula_contract_matches_operation,
     literal_context_contract as _literal_context_contract,
 )
+from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
+    admit_typed_value,
+    language_structured_value_index,
+)
 
 from gda_balancing.domain.model._resolution import (
     CheckedModel,
@@ -250,6 +255,8 @@ def _resolved_entrypoint_graph_is_admitted(
             "identity_domains"
         ],
     )
+    structured_authority = language_structured_value_index(ldb, kernel=kernel)
+    structured_resource_limit = cast(int, ldb["resources"]["max_rule_match_steps"])
     if any(
         not isinstance(row, dict) or not isinstance(row.get("id"), str)
         for row in entrypoints
@@ -484,6 +491,17 @@ def _resolved_entrypoint_graph_is_admitted(
                             return False
             elif operand.get("kind") == "literal":
                 value = operand.get("value")
+                if isinstance(value, dict):
+                    try:
+                        admitted_value = admit_typed_value(
+                            value,
+                            authority=structured_authority,
+                            resource_limit=structured_resource_limit,
+                        )
+                    except StructuredValueFault:
+                        return False
+                    if admitted_value != value:
+                        return False
                 context_type = _literal_context_contract(
                     value,
                     formal,
@@ -1830,8 +1848,14 @@ def admit_resolved_model(
     language = _language(ldb)
     rules = {rule["id"]: rule for rule in cast(list[dict[str, Any]], language["rules"])}
     try:
-        terminal_rule = lowering["rule_chain"][-1]["rule"]
-        terminal_kind = rules[terminal_rule]["conclusion"]["fact_kind"]
+        terminal_kinds = {
+            "quantity": rules[lowering["rule_chain"][-1]["rule"]]["conclusion"][
+                "fact_kind"
+            ],
+            "nominal-structured": rules[lowering["structured_rule_chain"][-1]["rule"]][
+                "conclusion"
+            ]["fact_kind"],
+        }
     except (KeyError, IndexError, TypeError):
         return ResolvedModelAdmission(False, diagnostic)
     resolved_keys: list[tuple[str, str, str]] = []
@@ -1844,6 +1868,11 @@ def admit_resolved_model(
         for item in cast(list[dict[str, Any]], lock["types"])
     }
     for item in declarations:
+        terminal_kind = terminal_kinds[
+            "nominal-structured"
+            if isinstance(item, dict) and item.get("value_kind") == "nominal-structured"
+            else "quantity"
+        ]
         if not isinstance(item, dict) or not _fact_is_admitted(
             {"kind": terminal_kind, "fields": item}, kernel, ldb
         ):
