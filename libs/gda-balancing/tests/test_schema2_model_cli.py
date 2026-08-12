@@ -53,6 +53,11 @@ from gda_balancing.domain.authority.package_semantics import (
 from schema2_authority_support import mutable_authorities
 
 
+_ROGUELIKE_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
+
+
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
     context = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
@@ -363,6 +368,53 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
         }
         for row in structured_declarations
     ]
+
+
+def test_roguelike_model_build_publishes_the_reward_formula_boundary(
+    tmp_path, run_cli
+):
+    source = _ROGUELIKE_EXAMPLE_DIR / "model-source.json"
+
+    check_exit, check_stdout, check_stderr = run_cli(["model", "check", str(source)])
+
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+    assert json.loads(check_stdout)["checked"] is True
+
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    artifact_dir = _artifact_directory(json.loads(build_stdout))
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    explanation = json.loads((artifact_dir / "model-explanation.json").read_text())
+    formula = next(row for row in rir["formulas"] if row["id"] == "rare-threshold")
+    binding = next(
+        row
+        for row in rir["formula_bindings"]
+        if row["site"].get("operation", {}).get("id")
+        == "game.generation.select-reward-v1"
+    )
+
+    assert formula["expression"] == "rare_weight"
+    assert binding["site"] == {
+        **binding["site"],
+        "context": {"frame": "pre-event-snapshot", "phase": "event"},
+        "slot": "rare-threshold-policy",
+    }
+    assert any(
+        row["id"] == "rare-threshold"
+        and row["evaluation_sites"][0]["binding_identity"] == binding["identity"]
+        for row in explanation["formula_explanations"]
+    )
 
 
 def test_model_build_lowers_a_named_formula_bound_to_a_derived_symbol(
