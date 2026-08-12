@@ -45,7 +45,8 @@ conformance case and its minimum fields.
 
 1. Choose `lightweight`, `full-design`, or `audit-only` mode; name the artifact owners and human decision owner.
 2. Write goals, non-goals, invariants, quality attributes, and production constraints. Keep artifact and decision lifecycle status separate from claim evidence state.
-3. Map load-bearing mechanisms to mature theory and external systems; record adoption and proof gaps.
+3. Map load-bearing mechanisms to mature theory and external systems; fan out independent research
+   when justified, then verify, synthesize, and record adoption and proof gaps.
 4. Rank architecture uncertainties and run only the smallest discriminating validation.
 5. Feed dogfooding back into requirements, decisions, terms, specifications, executable conformance cases, and gates.
 6. Audit the four design axes and cross-cutting quality attributes; keep non-claims explicit.
@@ -58,6 +59,22 @@ The sections below define the `full-design` route. In `lightweight` mode, execut
 and add a step when its falsifier or risk requires it; do not generate full matrices or portfolios by
 default. In `audit-only` mode, pin the baseline, evaluate the claimed scope, report gaps, and stop
 without redesign or edits unless the user requests them.
+
+For `full-design`, run steps 2 and 3 as a bounded research fan-out followed by primary-agent
+synthesis when subagents are available and the research questions can be separated. Derive
+non-overlapping research charters from the design contract. For each load-bearing question, include
+one charter that seeks counterevidence or a credible alternative.
+
+Treat subagent reports as research leads, not as evidence or authority. The primary agent must
+inspect the cited primary sources, reconcile duplicate findings and conflicts, and own the integrated
+conclusion. Keep unresolved conflicts open; do not settle them by vote. If subagents are unavailable
+or the questions cannot be separated, run separate sequential research passes and disclose the
+missing independence.
+
+In `lightweight` mode, use research fan-out only when the selected falsifier requires independent
+evidence. In `audit-only` mode, use it only to verify evidence within the pinned scope. Do not let
+research fan-out expand either mode or replace the independent adversarial review required by
+[REFERENCE.md §5](REFERENCE.md#5-validation-portfolio).
 
 ### 1. Establish the design contract
 
@@ -76,6 +93,8 @@ without redesign or edits unless the user requests them.
 ### 2. Ground the abstractions
 
 - Select mature theory for the actual design question, not for prestige or vocabulary.
+- When research is fanned out, give each subagent a distinct theory candidate or design question. Do
+  not assign the same general survey to every subagent.
 - State the mechanism, invariant, representation boundary, proof boundary, and a disconfirming case.
 - When semantics and execution differ, separate authoring form, typed/validated meaning, canonical
   public semantics, and implementation-private execution.
@@ -83,6 +102,8 @@ without redesign or edits unless the user requests them.
 ### 3. Research external systems
 
 - Prefer pinned primary specifications and mature implementations.
+- When research is fanned out, give each subagent a distinct external system or source family.
+  Require pinned primary sources and explicit counterevidence or exclusions.
 - Record each influence's problem, adoption, owner, exclusions, dependency, evidence, and upgrade.
 - External systems are provenance unless the local contract explicitly makes one normative. Never
   create peer authorities or unsupported “compatible with” claims.
