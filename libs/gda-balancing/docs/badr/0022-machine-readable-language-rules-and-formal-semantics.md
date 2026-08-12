@@ -38,6 +38,28 @@ structured formal judgments, and an honest proof/conformance boundary.
 > entrypoints evaluates their union. Closed cycles remain invariant violations rather than being
 > silently pruned as unavailable input branches.
 
+> **Amendment (2026-08-12, #640):** The unreleased Standard Schema 2.0 Kernel replaces the
+> provisional `runtime-scenario` package-vector kind with `operation-execution`. The vector executes
+> one exact admitted Operation; it is a Kernel-owned bootstrap conformance form, not a public
+> Runtime primitive or a generic scenario language. Its inputs exactly cover the Operation ports,
+> and `read-write` access derives the initial and expected state inventory without a duplicate
+> `state_names` list. Exact typed envelopes carry nominal structured values; numeric scalars retain
+> their declared scalar encoding. A closed completion distinguishes a declared outcome from a
+> declared typed refusal, while a closed result distinguishes a produced value from
+> `not-produced`. Expected values compare their exact type contract and canonical value. The stable
+> RNG projection remains stream, index, `candidate_hex`, and value; full Event Trace and
+> resource-report fields are not copied into package evidence.
+
+> This amendment also adds two generic primitives demonstrated by #585: `is-empty` applies the
+> LDB-owned `bounded-list-empty` law to one admitted List and returns Kernel Boolean; `require`
+> continues on true or raises one Operation-declared, LDB-resolved typed refusal on false. Both cost
+> one Runtime step and contain no reward, fallback, package, field, or genre dispatch. LDB
+> `standard.schema@2.4.0` exports `standard.schema.list-empty-v1`; the neutral
+> `standard.conformance.structured@1.1.0` release proves structured execution before mechanic
+> packages consume it. These additions refine the still-developing 2.0 baseline and produce a new
+> exact Kernel identity. Once that baseline freezes for release, a further irreducible primitive
+> requires the next Schema major.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -107,8 +129,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   Implementations may compile rules for speed, but independently implemented bootstrap interpreters
   must have the same observable behavior. Unknown facts or premise operators, ill-typed terms or
   substitutions, missing required facts, and ambiguous rule selection are bundle-admission
-  refusals. Adding a fact kind, term type, premise operator, or judgment construct changes the
-  Kernel Specification and Schema major rather than entering as an evaluator special case.
+  refusals. After a Schema-major baseline freezes for release, adding a fact kind, term type,
+  premise operator, or judgment construct changes the Kernel Specification and Schema major rather
+  than entering as an evaluator special case. Before freeze, an explicitly reopened architecture
+  gate may refine the unreleased baseline, reidentify it, and invalidate evidence for its
+  superseded provisional Kernel.
   “Bundle admission” does not rename the bADR-0015 pipeline stages: identity/version/Kernel-binding
   and safe format admission are `ingress`, while rule/fact structural or semantic illegality after
   safe format admission is `static`; the exact admission meta-diagnostic code-to-stage mapping is
@@ -299,9 +324,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   Aggregate evaluation order and bounds are explicit rules, never host-container order.
 
 - **Structured values use closed authority-owned laws.** `standard.schema@2.3.0` defines generic
-  Enum, Record, List, and Ref constructors. Record fields are exact, Lists are invariant and
-  bounded, and each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node
-  vocabulary admits typed literals, bounded Record/List lookup, and exact-type canonical equality.
+  Enum, Record, List, and Ref constructors; the #640 `2.4.0` baseline retains those constructors
+  and adds generic List emptiness. Record fields are exact, Lists are invariant and bounded, and
+  each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node vocabulary
+  admits typed literals, bounded Record/List lookup, List emptiness, and exact-type canonical
+  equality.
   Each constructor carries a machine-readable value rule. The selected typed-envelope profile owns
   recursive resource charging and exact type resolution. Record lookup always uses a static field
   literal; List lookup always uses a resolved integer local. RIR closes recursive nominal type and
@@ -410,9 +437,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   package-owned, reference-closed, ambiguity-refusing, runtime-selected, and identity-bearing;
   `operation-body-order` aliasing spans the complete invocation rather than one child frame.
 - The 2026-08-11 structured-value amendment replaces the integer-only literal path with typed
-  integer and structured envelopes. It adds generic structured constructors and operations through
-  `standard.schema@2.3.0`, plus the neutral `standard.conformance.structured@1.0.0` package and its
-  independent conformance vectors. This amendment does not add game or reward semantics.
+  integer and structured envelopes. Its #640 follow-up adds generic List emptiness and structured
+  Operation execution evidence through `standard.schema@2.4.0` and the neutral
+  `standard.conformance.structured@1.1.0` package. Neither amendment adds game or reward semantics.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample

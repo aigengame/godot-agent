@@ -15,6 +15,24 @@ A template also cannot become a fourth authority domain. Its model starter, expe
 support evidence have different owners under bADR-0012. PRD #534 therefore needs a template
 distribution contract and a falsifiable definition of genre completeness.
 
+> **Amendment (2026-08-12, #640):** The #585 Roguelike product-feedback slice falsified the
+> provisional claim that the current Kernel could express every required bounded selection path.
+> Because Standard Schema 2.0 remains under development and is not release-frozen, the architecture
+> gate reopens and admits the generic `is-empty` and `require` primitives under bADR-0022. All later
+> Core Extension Invariance evidence must bind the resulting exact Kernel identity; evidence for the
+> superseded provisional baseline does not carry forward.
+
+> `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
+> candidate and selection data, plus a bounded zero-or-one fallback list. `fixed-weight` with no
+> fallback refuses an empty pool as selection exhaustion. `no-reward-on-empty` with exactly one
+> declared no-reward fallback completes as a committed `gameplay-alternative`, publishes the
+> fallback selection, preserves policy state and draw count, and consumes no RNG. Other
+> policy/fallback pairings and contradictory option data are typed configuration refusals. The
+> former `relaxed-pool` claim is removed until a package declares an actual excluded pool,
+> eligibility predicate, and relaxation order. A subsequent `game.build` Event observes the
+> no-reward disposition, completes with its own rollback `gameplay-alternative`, and does not change
+> build state or consume RNG.
+
 ## Decision
 
 - **A Genre template is a versioned template release, not a Standard Schema instance or runtime
@@ -87,7 +105,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
   | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
-  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
+  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, explicit selection exhaustion, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
   | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
   | `game.decision` | optional bounded candidate evaluation, selection of one admitted immutable Action plan, and policy-governed observable Intent projection | Action-plan schema/admission/identity, encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |

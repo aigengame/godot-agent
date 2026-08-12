@@ -97,7 +97,7 @@ admission boundary.
   executions expose byte-identical members. A build fails if either declared member is absent or an
   undeclared JSON file appears in a package directory. Command success schemas close every vector
   definition's top-level shape as the Kernel-declared rule, Diagnostic, package-contract,
-  operation-contract, runtime-scenario, or model-program variant; an invented child object cannot
+  operation-contract, operation-execution, or model-program variant; an invented child object cannot
   pass a public success schema merely because the enclosing vector set is closed.
 
 - **The initial RPG tracer uses mechanic packages, not a genre umbrella.** `game.resource`,

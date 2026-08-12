@@ -650,12 +650,14 @@ The initial language uses a closed constructor set:
 `Ref<T>`, `Quantity`, and `Distribution`.
 
 The list is closed for one Schema major. New convenience names do not become primitive types.
-The current `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
-constructors. A Domain package gives each use a nominal identity and exact definition. Record fields
-are closed, while Record object-member order is insignificant. Lists are invariant and bounded.
-Each Ref definition owns its nominal target and canonical key pattern. Public structured values use
-one `{type, value}` envelope. The LDB-selected type remains the authority; the envelope only carries
-that type across source, Experiment, Runtime, and artifact boundaries.
+The `standard.schema@2.3.0` slice supplies the generic `Enum`, `Record`, `List`, and `Ref`
+constructors. The #640 baseline advances that release to `2.4.0` and adds generic List emptiness;
+it does not add a type constructor. A Domain package gives each use a nominal identity and exact
+definition. Record fields are closed, while Record object-member order is insignificant. Lists are
+invariant and bounded. Each Ref definition owns its nominal target and canonical key pattern.
+Public structured values use one `{type, value}` envelope. The LDB-selected type remains the
+authority; the envelope only carries that type across source, Experiment, Runtime, and artifact
+boundaries.
 
 `Quantity` carries orthogonal facets instead:
 
@@ -941,6 +943,12 @@ Only a genuinely irreducible primitive, judgment, core constructor, or bootstrap
 Kernel/Schema-major change. Neither a source attribute nor a Domain package may introduce implicit
 syntax, host callbacks, incomplete semantic stubs, or an escape hatch around the LDB.
 
+Standard Schema 2.0 is still under development and is not release-frozen. A generic failing
+product-feedback path may therefore reopen an architecture gate and add a necessary primitive to
+the provisional 2.0 Kernel. The change must replace the exact Kernel identity and revalidate all
+affected authority and evidence. After the baseline freezes for release, another irreducible
+primitive requires the next Schema major.
+
 This three-level test—Model Source, Domain package, or Kernel change—is the architecture's main
 extensibility control. It permits new game concepts while keeping semantics closed and reviewable.
 
@@ -950,6 +958,12 @@ constructors, runtime phases, or host dispatch. A bounded deterministic mechanic
 that test falsifies Standard Schema 2.0's architecture and reopens its design gate; it is never
 papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
 but preserving this extension route for every later genre is not.
+
+Issue #640 records one pre-freeze reopening. The #585 Roguelike product-feedback slice showed that
+the provisional Kernel could neither observe empty admitted Lists nor raise an
+Operation-declared typed refusal. The replacement baseline adds only the generic `is-empty` and
+`require` primitives. Earlier invariance evidence does not carry across the new Kernel identity;
+Gate 5 and Gate 6 must validate the replacement baseline again.
 
 ### 7.2 Package ownership and boundaries
 
@@ -1603,7 +1617,8 @@ evidence contracts. If Roguelike support requires a second language or host disp
 orthogonality claim fails and the architecture must be revisited.
 An earlier Roguelike-shaped product-feedback slice may challenge these assumptions, but it neither
 advances this gate nor owns the cross-genre claim. Formal Gate 5 validation still begins only after
-Gate 4 closes.
+Gate 4 closes. Issue #640 is the architecture follow-up to one such challenge: it repairs the
+unreleased Kernel baseline but does not close a Roguelike coverage row or advance Gate 5.
 
 ### Gate 6 — adversarial non-RPG extension witness
 

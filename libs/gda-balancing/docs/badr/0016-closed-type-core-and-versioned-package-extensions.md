@@ -33,6 +33,23 @@ therefore requires a small closed type language and a constrained package extens
 > Immunity, stacking, dispel, buildup, multiple contributors and same-Event request precedence are
 > absent rather than partially interpreted and require their later owning package decisions.
 
+> **Amendment (2026-08-12, #640):** Package execution evidence uses the Kernel
+> `operation-execution` vector kind. It binds one exact Operation, supplies every declared input,
+> derives mutable state from `read-write` ports, and compares a closed completion, result, named-RNG
+> draw projection, and final state. Scalar values follow their declared contracts; nominal Enum,
+> Record, List, and Ref values use exact typed envelopes and recursive LDB value admission. LDB
+> admission closes vector structure, identity, references, types, and manifest binding. The
+> production conformance path and one independent consumer execute the manifest-bound vectors
+> before a maintained release enters the LDB. Public Runtime does not discover or execute these
+> package evidence children.
+
+> The unreleased Standard Schema 2.0 baseline may still add an irreducible primitive when a failing
+> generic product-feedback scenario proves it necessary and the architecture gate explicitly
+> reopens. Such a change replaces the provisional exact Kernel identity and requires all affected
+> authority and evidence to be rebuilt. After the Schema-major baseline freezes for release, an
+> irreducible addition requires the next Schema major. Issue #640 applies the pre-freeze rule; it
+> does not preserve the earlier provisional Core Extension Invariance claim.
+
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,
@@ -258,8 +275,10 @@ therefore requires a small closed type language and a constrained package extens
   compatibility, deterministic replay, and declared-effect vectors are required before a package
   enters the Language Definition Bundle. The Package Release manifest binds exactly one
   package-owned conformance-vector set, including a closed empty set when no vectors are currently
-  required. The resolver and reference evaluator derive vectors from admitted vector children, not
-  from inline manifest fields or a parallel test registry.
+  required. Execution vectors use the Kernel-declared `operation-execution` form; malformed typed
+  values, incompatible port or state contracts, undeclared completions, and mismatched expected
+  results or state refuse. The resolver and reference evaluator derive vectors from admitted vector
+  children, not from inline manifest fields or a parallel test registry.
 
 - **This decision supersedes the conflicting 2.x portions of bADR-0001, bADR-0002, and
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core

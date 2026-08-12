@@ -86,6 +86,17 @@ decoded value, and its public schema closes every admitted top-level vector vari
 (bADR-0016/0023).
 _Avoid_: test fixture registry, vector package, independently publishable evidence package
 
+**Operation execution vector**:
+A Kernel-owned Package conformance vector that executes one exact admitted Operation. Its input
+values exactly cover the Operation ports; `read-write` ports derive the state inventory. Its closed
+expectation records an outcome or typed refusal, a produced value or `not-produced`, the stable
+Named-stream RNG projection, and final state. Nominal structured values use exact typed envelopes;
+scalar values follow their declared contracts. LDB admission closes its structure, identities,
+types, and bindings, while production and independent conformance consumers execute it before the
+maintained Package Release enters the LDB. Public Runtime does not discover or execute the vector
+(bADR-0016/0022).
+_Avoid_: runtime scenario, Experiment scenario, package test script, full Event Trace
+
 **Admitted language index**:
 A read-only in-memory projection constructed only after the complete LDB graph is admitted. It
 provides efficient lookup of package-owned types, operations, Diagnostics, profiles, rules, schemas,
@@ -98,7 +109,9 @@ The versioned, non-self-hosted authority that defines bundle structure and inter
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
 conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
-refusals, resource units, and canonical behavior; adding a primitive changes the Schema major.
+refusals, resource units, and canonical behavior. Before an unreleased Schema-major baseline
+freezes, an explicitly reopened architecture gate may add a demonstrated primitive and reidentify
+the provisional Kernel. After freeze, adding a primitive requires the next Schema major.
 Its identity law also names every authority-artifact identity domain; package meta-format contracts
 own package id/version grammar. Every Language Definition Bundle binds one exact
 kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
@@ -746,6 +759,22 @@ guarantee, or fallback composition. Each variant specifies its state, reset, eli
 exhaustion, and refusal laws; a pity bound does not silently imply a guarantee
 (bADR-0017).
 _Avoid_: luck curve, implicit pity, rarity callback
+
+**Selection exhaustion**:
+The `game.generation` result when an already ordered eligible pool contains no selectable option.
+It is not a candidate/result length mismatch, contradictory option data, or a later build conflict.
+Without a declared fallback it is a typed refusal; with an applicable declared fallback it enters
+that fallback's gameplay outcome (bADR-0017).
+_Avoid_: empty candidate selected, invalid pool, build conflict
+
+**Declared fallback**:
+A `game.generation` policy branch that names its trigger and exact bounded fallback value before
+Runtime execution. `no-reward-on-empty` applies only to selection exhaustion, consumes no RNG,
+preserves the policy draw count, and publishes its no-reward selection as a committed gameplay
+outcome. A normally selectable no-reward option is not fallback. Relaxed-pool behavior requires an
+actual excluded pool, eligibility predicate, and relaxation order; the term alone declares no
+semantics (bADR-0017).
+_Avoid_: sentinel candidate, evaluator default, implicit retry, relaxed-pool label without a pool
 
 **Action plan**:
 An immutable, fully bound `game.action` input containing the selected action and execution inputs.

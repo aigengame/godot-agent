@@ -38,6 +38,14 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > roots remain sequential atomic transactions, and Runtime infers no defeat, interruption, or
 > eligibility policy from health-like state.
 
+> **Amendment (2026-08-12, #640):** The Kernel `require` node terminates the active Event with one
+> Operation-declared, LDB-resolved typed refusal when its Boolean condition is false. It reuses the
+> existing Event-refusal boundary: state writes, RNG continuation, buffered child Events, Metrics,
+> and Snapshot publication are rolled back, and later nodes do not execute. This differs from a
+> completed `gameplay-alternative`; that outcome follows its declared state policy and retains any
+> RNG draws that led to the completed Event. An `operation-execution` refusal vector observes only
+> the post-rollback state and committed RNG projection, not discarded attempt logs.
+
 > **Amendment (2026-08-04, #596):** A Domain-package Operation may implement one bounded periodic
 > lifecycle only by scheduling ordinary child Events through this same queue. The selected package
 > owns duration/period, tick/expiry times, capture/read policy, contribution and outcomes; Runtime
