@@ -30,6 +30,7 @@ from gda_balancing.infrastructure.input_bytes import (
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
     package_structured_value_index,
 )
 from gda_balancing.interfaces.cli.surface import (
@@ -67,6 +68,80 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "external_input_identity",
     "observation",
 }
+
+
+def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_index(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        ),
+        kernel=authority_context.kernel,
+    )
+    equality_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "equal"
+    )
+    variables = {
+        "left": {
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.1.0",
+            },
+            "value": 1,
+        },
+        "right": {
+            "type": {
+                "id": "RewardRarity",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": 1,
+        },
+    }
+
+    with pytest.raises(StructuredValueFault) as fault:
+        experiment_runtime_module._execute_value_instruction(
+            {
+                "left": "left",
+                "node": "equal",
+                "right": "right",
+                "target": "result",
+            },
+            variables,
+            {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+            equality_contract,
+            structured_authority=structured_authority,
+            structured_resource_limit=1024,
+        )
+    assert fault.value == StructuredValueFault(
+        "language.structured_value_type_mismatch", "/type"
+    )
+
+
+def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = replace(
+        package_structured_value_index(
+            cast(
+                list[dict[str, Any]],
+                authority_context.language_bundle["language"]["packages"],
+            ),
+            kernel=authority_context.kernel,
+        ),
+        typed_envelope_profile=None,
+    )
+
+    assert (
+        experiment_runtime_module._project_runtime_integer(
+            {"type": "not-an-admitted-envelope", "value": 1},
+            structured_authority,
+        )
+        is None
+    )
 
 
 def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
@@ -1964,6 +2039,33 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
     assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
         "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
+    )
+
+
+def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["candidates"][0]["reward_score"] = "twenty"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == (
+        "language.structured_value_type_mismatch"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/candidates/0/reward_score"
     )
 
 

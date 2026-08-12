@@ -5664,6 +5664,61 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
     assert admission.admitted is False
 
 
+def test_package_admission_rejects_canonical_equality_across_value_contracts():
+    baseline = model_checking_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/roguelike-reward-build/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    package = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "game.generation"
+    )
+    owned_operations = next(
+        entry["definitions"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operations = (
+        next(
+            operation
+            for operation in candidate_ldb["language"]["operations"]
+            if operation["id"] == "game.generation.select-reward-v1"
+        ),
+        next(
+            operation
+            for operation in owned_operations
+            if operation["id"] == "game.generation.select-reward-v1"
+        ),
+    )
+    for operation in operations:
+        equality = next(
+            instruction
+            for instruction in operation["body"]
+            if instruction.get("target") == "rarity_matches"
+        )
+        equality["right"] = "selected_key"
+    _reidentify_language_bundle(candidate_ldb)
+
+    expected_subject = (
+        "language.operations.game.generation@1.0.0."
+        "game.generation.select-reward-v1.body.17.typing"
+    )
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        baseline.kernel, candidate_ldb
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert expected_subject in composition_subjects
+    assert admission.admitted is False
+
+
 def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile():
     exact_type = {
         "id": "Amount",

@@ -24,8 +24,8 @@ The two Operations validate the relationships among those authored values before
 state or publish a result.
 
 Host code does not select rewards, resolve conflicts, supply a fallback, or dispatch by genre.
-This example does not close a Roguelike coverage row, Replay, Evidence, template support, Core
-Extension Invariance, or a cross-genre claim.
+This example closes no Tracer, RPG, Roguelike, Variant, Extension, Replay, Evidence,
+template-support, Core Extension Invariance, or cross-genre claim.
 
 ## 1. Prepare an isolated run
 
@@ -353,39 +353,23 @@ uv run pytest tests/test_schema2_experiment_cli.py \
 
 These cases are typed refusals or declared gameplay outcomes. They are not internal failures.
 
-## 8. Dogfood observations
+## 8. Product-feedback boundary
 
-The `Classification` column uses the four feedback classes from issue #585:
-`Confirms current design`, `Adopted contract refinement`,
-`Unresolved product/architecture gap`, and `Authored-example-only`.
+This maintained example preserves the stable facts that a reader needs to understand its design:
 
-| Observation | Classification | Narrowest owner and action |
-|---|---|---|
-| The public Model and Experiment commands support seeded reward selection and a later build Event. | Confirms current design | Model, Experiment, and Runtime contracts; no host change |
-| Enum, Record, List, Ref, exact equality, bounded lookup, numeric relations, and transactional writes express the Roguelike slice. | Confirms current design | The `game.generation@1.0.0` and `game.build@1.0.0` Package Releases realize the existing LDB package boundary. |
-| A Record lookup preserves the typed `Quantity` envelope. Runtime numeric nodes consume its admitted integer value. | Confirms current design | The Runtime implementation gap is closed: Runtime follows the admitted scalar contract, and package Operations do not depend on field-specific host code. |
-| The Formula slot has a one-step bound. An equivalent Formula can be rebound within that bound. | Confirms current design | `game.generation` keeps the bound; broader Formula cost needs separate evidence. |
-| Reward and build Metrics distinguish the two configurations (`80/90` versus `20/30`). | Confirms current design | The Experiment Specification owns both Metrics. |
-| Empty pools, contradictory authored values, no-reward, conflict, and invalid Enum values keep distinct public semantics. | Confirms current design | `standard.schema`, `game.generation`, `game.build`, and Runtime own their respective results. |
-| The Runtime cannot construct the result Records, so the Experiment authors mirrored results and the Operations validate them with guard chains. The guard cost grows with mirrored fields and outcomes. | Unresolved product/architecture gap | Gate 5 must re-evaluate the mirror-and-guard cost before broader Roguelike reuse. This slice adds no new Kernel node, Runtime phase, compiler dispatch, or evaluator dispatch. |
-| `candidate-mismatch` and `plan-mismatch` classify authored-data contradictions as `gameplay-alternative`, the same outcome kind used for expected gameplay branches. | Unresolved product/architecture gap | Gate 5 must resolve the outcome classification with `game.generation`, `game.build`, and the shared outcome contract. The current trace remains explicit about the outcome and rollback. |
+- the public Model and Experiment paths support the seeded reward and build flow;
+- Runtime applies the Kernel `same-value-contract` and `runtime-numeric` rules to the LDB-owned
+  `core.quantity` exact-integer value rule;
+- Runtime cannot construct the result Records, so the Experiment authors mirrored results and the
+  Operations validate them with guard chains; and
+- `candidate-mismatch` and `plan-mismatch` currently use the `gameplay-alternative` outcome kind.
 
-Neither unresolved input blocks this bounded example. Both must be re-evaluated before Gate 5
-reuses the pattern or makes a cross-genre claim.
+Issue #585 owns the detailed observations, their four feedback classifications, the narrowest
+owner and action for each observation, and the human accept, condition, or reopen decision. An
+accepted example remains bounded implementation evidence; it does not close any claim listed
+above.
 
-## 9. Human review checkpoint
-
-The product and architecture owner reviews this maintained example before dependent coverage work
-uses it. The review must record one result: accept, accept with conditions, or reopen.
-
-Review these questions:
-
-- Is the reward and build configuration understandable without reading host code?
-- Is the one-value tuning loop practical?
-- Do the trace, Formula evidence, replacement decision, and two Metrics explain the result?
-- Are the empty-pool, no-reward, conflict, authored-data contradiction, and invalid-configuration
-  results assigned to the right owner and stage?
-- Do the non-claims prevent this slice from being mistaken for Roguelike or cross-genre coverage?
-
-The pull request for issue #585 is the HITL decision point. Until that review records its result,
-the example is implementation evidence, not an accepted coverage claim.
+The [Seeded Roguelike reward and build tuning entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)
+summarizes the macro architecture consequence and open boundary. This README explains how to run
+and inspect the example and preserves its permanent observations. It does not define language
+authority or live completion status.

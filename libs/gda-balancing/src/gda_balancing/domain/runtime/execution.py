@@ -738,14 +738,17 @@ def _integer_compare(comparison: str, left: int, right: int) -> bool:
     raise ValueError("unsupported admitted integer comparison")
 
 
-def _runtime_integer_value(
+def _project_runtime_integer(
     value: Any,
     structured_authority: StructuredValueIndex | None,
 ) -> int | None:
     """Project an integer from either admitted scalar runtime representation."""
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if structured_authority is None:
+    if (
+        structured_authority is None
+        or structured_authority.typed_envelope_profile is None
+    ):
         return None
     type_member, value_member = typed_envelope_members(structured_authority)
     if (
@@ -758,11 +761,11 @@ def _runtime_integer_value(
     return None
 
 
-def _runtime_integer_operand(
+def _require_runtime_integer(
     value: Any,
     structured_authority: StructuredValueIndex | None,
 ) -> int:
-    integer = _runtime_integer_value(value, structured_authority)
+    integer = _project_runtime_integer(value, structured_authority)
     if integer is not None:
         return integer
     raise ValueError("admitted numeric expression did not carry an integer")
@@ -1277,10 +1280,10 @@ def _execute_value_instruction(
         "integer-multiply",
         "integer-maximum",
     }:
-        left = _runtime_integer_operand(
+        left = _require_runtime_integer(
             variables[cast(str, instruction["left"])], structured_authority
         )
-        right = _runtime_integer_operand(
+        right = _require_runtime_integer(
             variables[cast(str, instruction["right"])], structured_authority
         )
         value = (
@@ -1295,10 +1298,10 @@ def _execute_value_instruction(
     elif operator == "integer-compare":
         variables[cast(str, instruction["target"])] = _integer_compare(
             cast(str, semantics["comparison"]),
-            _runtime_integer_operand(
+            _require_runtime_integer(
                 variables[cast(str, instruction["left"])], structured_authority
             ),
-            _runtime_integer_operand(
+            _require_runtime_integer(
                 variables[cast(str, instruction["right"])], structured_authority
             ),
         )
@@ -1327,9 +1330,21 @@ def _execute_value_instruction(
             raise ValueError("structured authority is required for canonical equality")
         left = variables[cast(str, instruction["left"])]
         right = variables[cast(str, instruction["right"])]
-        left_integer = _runtime_integer_value(left, structured_authority)
-        right_integer = _runtime_integer_value(right, structured_authority)
-        if left_integer is None and right_integer is None:
+        left_integer = _project_runtime_integer(left, structured_authority)
+        right_integer = _project_runtime_integer(right, structured_authority)
+        if left_integer is not None and right_integer is not None:
+            if isinstance(left, dict) and isinstance(right, dict):
+                type_member, _value_member = typed_envelope_members(
+                    structured_authority
+                )
+                if canonical_bytes(left[type_member]) != canonical_bytes(
+                    right[type_member]
+                ):
+                    raise StructuredValueFault(
+                        "language.structured_value_type_mismatch", f"/{type_member}"
+                    )
+            result = left_integer == right_integer
+        elif left_integer is None and right_integer is None:
             _type_member, value_member = typed_envelope_members(structured_authority)
             result = equal_typed_values(
                 left,
@@ -1337,12 +1352,10 @@ def _execute_value_instruction(
                 authority=structured_authority,
                 resource_limit=structured_resource_limit,
             )[value_member]
-        elif left_integer is None or right_integer is None:
+        else:
             raise ValueError(
                 "admitted equality operands used different representations"
             )
-        else:
-            result = left_integer == right_integer
         variables[cast(str, instruction["target"])] = result
         return
     elif operator == "select-value":
@@ -2341,10 +2354,10 @@ def evaluate_experiment(
                 if operator == "gameplay-precondition":
                     if not _integer_compare(
                         semantics["comparison"],
-                        _runtime_integer_operand(
+                        _require_runtime_integer(
                             variables[instruction["left"]], structured_authority
                         ),
-                        _runtime_integer_operand(
+                        _require_runtime_integer(
                             variables[instruction["right"]], structured_authority
                         ),
                     ):
