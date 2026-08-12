@@ -92,11 +92,9 @@ values exactly cover the Operation ports; `read-write` ports derive the state in
 expectation records an outcome or typed refusal, a produced value or `not-produced`, the stable
 Named-stream RNG projection, and final state. Nominal structured values use exact typed envelopes;
 scalar values follow their declared contracts. LDB admission closes its structure, identities,
-types, and bindings. During LDB maintenance, a development conformance harness admits one isolated
-complete candidate graph. It executes every vector bound by every Package Release manifest in that
-graph and compares the production and independent consumers. Only complete agreement permits the
-workflow to publish the replacement authority graph; otherwise the existing admitted graph remains
-authoritative. Public Runtime, the package resolver, and the identity rebuild tool do not execute
+types, and bindings. During LDB maintenance, bADR-0016's development conformance harness compares
+all manifest-bound vectors in one complete candidate graph before replacement authority is
+published. Public Runtime, the package resolver, and the identity rebuild tool do not execute
 vectors (bADR-0016/0022).
 _Avoid_: runtime scenario, Experiment scenario, package test script, full Event Trace
 
@@ -125,7 +123,7 @@ _Avoid_: reference implementation as authority, host semantic kernel, implicit b
 
 **Semantic kernel**:
 The closed bootstrap operation set whose laws are fixed by the Schema-major Kernel Specification:
-literals, reads, calls, value conditionals, single-level guarded outcome blocks, local bindings,
+literals, reads, calls, value selection, single-level guarded outcome blocks, local bindings,
 bounded aggregation, lookup, sampling, and transition/event primitives. Language Definition Bundle
 rules compose those primitives into language and domain behavior. Each addition requires formal
 laws, independent conforming implementations, normative vectors, and a replacement Kernel identity;
@@ -791,8 +789,9 @@ not an implicit weight, probability, or evaluator ranking rule (bADR-0017).
 _Avoid_: draw weight, hidden fitness, evaluator score
 
 **Selection exhaustion**:
-Selection exhaustion occurs when an already ordered eligible pool contains no selectable option.
-It is not contradictory option data, an invalid fallback value, or a later build conflict.
+Selection exhaustion occurs when an already ordered eligible pool is empty. It is not a nonempty
+but unselectable pool, contradictory option data, an invalid fallback value, or a later build
+conflict.
 Without a declared fallback it is a typed refusal; with the declared no-reward fallback it enters
 that fallback's gameplay outcome (bADR-0017).
 _Avoid_: empty candidate selected, invalid pool, build conflict
@@ -800,11 +799,12 @@ _Avoid_: empty candidate selected, invalid pool, build conflict
 **Declared fallback**:
 A `game.generation` exhaustion declaration that names its trigger and exact bounded fallback value
 before Runtime execution. The zero-or-one `no_reward_on_empty` field is independent of the primary rarity
-policy. When it applies, the Operation commits the exact fallback selection to its declared
-`selected_reward` state, completes with the `no-reward` gameplay outcome, produces no Operation
-result, preserves the policy draw count, and consumes no RNG. A normally selectable no-reward
-option is not fallback. Relaxed-pool behavior requires an actual excluded pool, eligibility
-predicate, and relaxation order; the term alone declares no semantics (bADR-0017).
+policy. When it applies, the Operation commits the exact fallback selection and its score to the
+declared `selected_reward` and `reward_score` state ports, completes with the `no-reward` gameplay
+outcome, produces no Operation result, preserves policy state and draw count, and consumes no RNG.
+A normally selectable no-reward option is not fallback. Relaxed-pool behavior requires an actual
+excluded pool, eligibility predicate, and relaxation order; the term alone declares no semantics
+(bADR-0017).
 _Avoid_: sentinel candidate, evaluator default, implicit retry, relaxed-pool label without a pool
 
 **Action plan**:

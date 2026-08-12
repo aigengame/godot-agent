@@ -61,7 +61,7 @@ structured formal judgments, and an honest proof/conformance boundary.
 > This amendment also adds three generic primitives demonstrated by #585. The `is-empty` node has
 > `family=expression`, exact required members `node`, `target`, and `value`, no fixed operand
 > constraint, `result.kind=local`, and
-> `result.typing={"kind": "declared-result", "members": ["value"]}`. Its fixed refusal set is
+> `result.typing={"kind": "fixed", "contract": "kernel-boolean"}`. Its fixed refusal set is
 > empty, its resource charge is one `event-steps` unit, and
 > `semantics.operator=collection-is-empty`. The selected structured-operation law must resolve the
 > operand as one exact admitted List and the result as Kernel Boolean. The operator returns true

@@ -36,20 +36,11 @@ distribution contract and a falsifiable definition of genre completeness.
 > `gameplay-alternative`, produces no Operation result, and does not change build state or consume
 > RNG.
 
-> The selection Operation has this closed control flow. It first evaluates `is-empty` under
-> `standard.schema.list-empty-v1` for the options and `no_reward_on_empty` lists. A top-level
-> `guard-block` reads the options-empty Boolean. If true, its body applies
-> `require(condition=fallback_empty, expected=false, reason=selection-exhausted)`, reads fallback
-> index zero, validates the no-reward disposition, writes `selected_reward` and `reward_score`, and
-> completes with `no-reward`. If false, the guard skips its body and the outer authored sequence
-> performs the Named-stream draw, reads one paired `RewardOption`, validates its Package-owned
-> relations, writes the same state ports, and reaches the default `selected` outcome. The successful
-> Operation result reads `selected_reward` from its state port; the guard produces no local value.
-> The build Operation first compares the selected disposition with no reward. Its top-level
-> `guard-block` completes with `no-reward` before any plan lookup or write when that Boolean is true.
-> False skips the guard body, after which the outer authored sequence validates and writes the
-> replacement before reaching its default success outcome. These traces use authored body order and
-> no second arm, nested guard, label jump, loop, evaluator callback, or game-specific dispatch.
+> One illustrative, non-normative lowering uses `is-empty` and a top-level `guard-block` to complete
+> the empty selection and no-reward build paths before the outer authored sequence can draw, look
+> up a plan, or write ordinary success state. This sketch demonstrates the observable contract
+> above; it does not define either Operation body. Issue #640 owns the exact implementation target
+> until the accepted Package Release manifests and their bound vectors become machine authority.
 
 ## Decision
 

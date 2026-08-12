@@ -248,6 +248,11 @@ packaged baseline. The host caches canonical Wire-Schema meta-validation only fo
 bytes and the actual Kernel schema-profile bytes. The test and CI contract for this lifecycle is in
 [`docs/agents/testing.md`](agents/testing.md).
 
+Checked-in LDB maintenance uses bADR-0016's development conformance harness. It admits one complete
+candidate graph and permits replacement authority publication only after the production and
+independent consumers agree on every manifest-bound vector. This is not a product layer or a public
+Runtime path; the resolver, public Runtime, and identity rebuild tool do not execute vectors.
+
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 not semantic authorities. Generated JSON Schema, help text, and SDK types project authoritative
 artifacts. These projections cannot add meaning.
@@ -640,16 +645,6 @@ policy from domain-neutral storage mechanisms.
 | Infrastructure | Input and resource access | Read bounded input, packaged resources, and distribution metadata | Bytes, technical metadata, or explicit I/O failures |
 | Infrastructure | Atomic filesystem mechanisms | Lock, stage, materialize, and atomically commit files | Atomic file-operation outcomes |
 
-Checked-in LDB maintenance also uses a development conformance harness. This harness is not a new
-product layer or public Runtime path. It constructs one isolated candidate graph from the exact
-Kernel, maintained releases, and proposed replacements. Domain admission closes that graph. The
-harness then executes every vector bound by every Package Release manifest and compares the
-production evaluator adapter with an independent consumer. The workflow next rebuilds and validates
-all affected downstream identities against that admitted graph. It publishes the complete
-replacement set only after every check passes. On failure, the existing admitted graph remains
-authoritative. The package resolver and public Runtime never discover vectors; the identity rebuild
-tool does not execute them.
-
 ## 5. Language and semantic model
 
 ### 5.1 Closed value and quantity core
@@ -698,7 +693,7 @@ meta-format. They cover grammar, name resolution, typing, effects, lowering, eva
 steps, diagnostic construction, and resource exhaustion. Rule prose explains a rule; it does not
 replace its structured semantics.
 
-The pure-expression judgment is closed to literals, typed reads, pure calls, conditionals, local
+The pure-expression judgment is closed to literals, typed reads, pure calls, value selection, local
 bindings, statically bounded aggregation, and lookup. Named-stream sampling is a separate judgment
 with a statically declared random-stream effect; it is never reclassified as pure. Recursion and
 unbounded iteration are forbidden. Unit conversion is explicit, and persistent mutation occurs only
@@ -990,7 +985,7 @@ showed that the provisional Kernel could not observe empty admitted Lists, raise
 Operation-declared typed refusal, or skip RNG, lookup, and effect nodes on an unselected path. The
 replacement baseline adds the generic `is-empty`, `require`, and `guard-block` primitives. Earlier
 invariance evidence does not carry across the new Kernel identity; Gate 5 and Gate 6 must validate
-the replacement baseline again.
+the replacement baseline again. Section 12.2 records this dogfooding result and its open boundary.
 
 ### 7.2 Package ownership and boundaries
 
@@ -1426,14 +1421,15 @@ coverage from implementation proof.
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
-| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reaches Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset without core or host dispatch changes; the public Extension Invariance Receipt and broader mechanic breadth remain open |
+| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reached Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset under the superseded provisional Kernel. That result does not carry to the replacement Kernel identity; the public Extension Invariance Receipt and broader mechanic breadth remain open |
 | Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
 
 The current evidence supports these status statements:
 
 - The bounded Gate 1 authority probe passed.
-- Permanent Kernel/LDB authorities and selected vertical slices now replace part of the disposable
-  evidence, but Gate 2 remains open.
+- Permanent Kernel/LDB authorities and selected vertical slices replace part of the disposable
+  evidence. Evidence that binds the superseded Kernel identity does not carry to the replacement
+  baseline, and Gate 2 remains open.
 - Every genre coverage row remains open. Schema conformance and genre completeness are not proven.
 - Production conformance and readiness remain open until the remaining gates close with
   authoritative artifacts and independent evidence.
@@ -1489,7 +1485,8 @@ issues own detailed observations, acceptance criteria, and live completion statu
     conformance-vector children. Admission now completes before derived indexes become visible. A
     non-RPG economy witness uses the fixed compiler and evaluator.
   - Open boundary: The witness is not the public Extension Invariance Receipt and closes no genre
-    row.
+    row. It binds the superseded provisional Kernel identity, so it is not standing evidence for
+    the replacement baseline.
   - Evidence: [evidence record](standard-schema-2.0/README.md#permanent-delivered-slices-538-539-540-553-554-592)
     and [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md).
 - **Formula authoring ([#590](https://github.com/aigengame/godot-agent/issues/590))**
@@ -1526,6 +1523,18 @@ issues own detailed observations, acceptance criteria, and live completion statu
     identity, rewards, inventory, targeting, arbitrary collections, or a general query language.
   - Evidence: [structured-selection](../examples/schema2/structured-selection/),
     `standard.schema@2.3.0`, and `standard.conformance.structured@1.0.0`.
+- **Roguelike reward feedback ([#585](https://github.com/aigengame/godot-agent/issues/585),
+  [#640](https://github.com/aigengame/godot-agent/issues/640))**
+  - Architecture consequence: The product-feedback path exposed three missing generic capabilities:
+    List emptiness, an Operation-declared typed requirement, and bounded effectful path control.
+    Issue #640 replaces the provisional Kernel design with `is-empty`, `require`, and a single-level
+    `guard-block`, plus the `operation-execution` conformance vector.
+  - Open boundary: This is an accepted design change, not implementation evidence. The replacement
+    Kernel/LDB artifacts, both consumers, affected identities, and #585 product path remain open.
+    Evidence bound to the superseded Kernel identity does not carry forward.
+  - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
+    [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
+    [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md).
 
 ### 12.3 Architecture consequence
 
@@ -1593,6 +1602,11 @@ vectors. Production and independent consumers execute the same Enum, Record, Lis
 equality, diagnostic, and resource-bound cases. The maintained neutral selection example carries
 those values through Model build, Experiment admission, Runtime execution, Snapshots, traces, and a
 numeric Metric. It does not close the broader type system or Genre coverage gates.
+
+Issue #640 replaces the provisional Kernel identity used by the earlier slices. Its implementation
+must rebuild the affected Kernel/LDB authorities, consumers, vectors, and downstream exact
+identities before that evidence can apply to the replacement baseline. The #592 non-RPG witness and
+other superseded-Kernel invariance evidence do not carry forward.
 
 Gate 2 follows bADR-0012's dependency order:
 
