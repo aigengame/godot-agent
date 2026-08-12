@@ -2348,9 +2348,9 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             "game.generation.invalid_option"
         ), contradiction
         assert audit["rollback"]["committed"] is False, contradiction
-        assert audit["rollback"]["state_after"] == audit["rollback"][
-            "state_before"
-        ], contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
         assert not any(
             row["name"] == "reward_result" for row in audit["last_snapshot"]
         ), contradiction
@@ -2485,17 +2485,14 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
             "game.build.invalid_plan"
         ], contradiction
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-        assert audit["refusing_event"]["reason"] == (
-            "game.build.invalid_plan"
-        ), contradiction
-        assert audit["rollback"]["committed"] is False, contradiction
-        assert audit["rollback"]["state_after"] == audit["rollback"][
-            "state_before"
-        ], contradiction
-        assert not any(
-            row["name"] == "build_result"
-            for row in audit["last_snapshot"]
+        assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan"), (
+            contradiction
         )
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
+        assert not any(row["name"] == "build_result" for row in audit["last_snapshot"])
 
 
 def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
