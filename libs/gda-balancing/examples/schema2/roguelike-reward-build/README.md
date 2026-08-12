@@ -158,11 +158,22 @@ export BASELINE_METRICS="$(
   jq -r '.member_locators[] | select(.logical_name == "metric-dataset") | .locator' \
     "$BASELINE_SET_RECEIPT"
 )"
+export BASELINE_REPRODUCTION="$(
+  jq -r '.member_locators[] | select(.logical_name == "reproduction-receipt") | .locator' \
+    "$BASELINE_SET_RECEIPT"
+)"
 ```
 
 Inspect the RNG draw, policy, reward disposition, and build replacement:
 
 ```bash
+jq '{seed_algorithm, seed_value}' "$BASELINE_REPRODUCTION"
+
+jq '.events[0].facts[]
+  | select(.name == "reward_pool")
+  | .value.value
+  | {candidates, policy_before}' "$BASELINE_TRACE"
+
 jq '.events[]
   | select(.operation != null)
   | {

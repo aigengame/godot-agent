@@ -1631,14 +1631,15 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
     receipt = json.loads(stdout)
     event = _member(receipt, "event-trace")["events"][0]
     metrics = _member(receipt, "metric-dataset")
-    assignments = {
-        row["target"]["name"]: row["value"]
-        for row in specification["scenarios"][0]["assignments"]
-    }
-    pool = assignments["reward_pool"]["value"]
+    reproduction = _member(receipt, "reproduction-receipt")
+    pool = next(row for row in event["facts"] if row["name"] == "reward_pool")["value"][
+        "value"
+    ]
     result = next(row for row in event["facts"] if row["name"] == "reward_result")
 
     assert event["outcome"] == {"id": "selected", "kind": "success"}
+    assert reproduction["seed_algorithm"] == specification["seed"]["algorithm"]
+    assert reproduction["seed_value"] == specification["seed"]["value"] == 20260812
     assert event["rng_draws"] == [
         {
             "stream": "reward",
