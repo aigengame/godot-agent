@@ -62,14 +62,18 @@ without redesign or edits unless the user requests them.
 
 For `full-design`, run steps 2 and 3 as a bounded research fan-out followed by primary-agent
 synthesis when subagents are available and the research questions can be separated. Derive
-non-overlapping research charters from the design contract. For each load-bearing question, include
-one charter that seeks counterevidence or a credible alternative.
+non-overlapping research charters from the design contract. Define a distinct design question,
+hypothesis, or evidence angle for each charter. For each load-bearing question, include one charter
+that seeks counterevidence or a credible alternative.
 
-Treat subagent reports as research leads, not as evidence or authority. The primary agent must
-inspect the cited primary sources, reconcile duplicate findings and conflicts, and own the integrated
-conclusion. Keep unresolved conflicts open; do not settle them by vote. If subagents are unavailable
-or the questions cannot be separated, run separate sequential research passes and disclose the
-missing independence.
+Treat subagent reports as research leads, not as evidence or authority. Let subagents identify
+candidate theories, external systems, and primary sources within their charters unless the design
+contract or pinned scope names the research target. The primary agent must inspect the load-bearing
+primary sources, compare their provenance, identify shared upstream sources and coverage gaps, and
+run targeted follow-up research when needed. It must reconcile duplicate findings and conflicts and
+own the integrated conclusion. Keep unresolved conflicts open; do not settle them by vote. If
+subagents are unavailable or the questions cannot be separated, run separate sequential research
+passes and disclose the missing independence.
 
 In `lightweight` mode, use research fan-out only when the selected falsifier requires independent
 evidence. In `audit-only` mode, use it only to verify evidence within the pinned scope. Do not let
@@ -93,8 +97,8 @@ research fan-out expand either mode or replace the independent adversarial revie
 ### 2. Ground the abstractions
 
 - Select mature theory for the actual design question, not for prestige or vocabulary.
-- When research is fanned out, give each subagent a distinct theory candidate or design question. Do
-  not assign the same general survey to every subagent.
+- When research is fanned out, divide theory research by design question, hypothesis, or evidence
+  angle. Assign a theory only when it is already in scope.
 - State the mechanism, invariant, representation boundary, proof boundary, and a disconfirming case.
 - When semantics and execution differ, separate authoring form, typed/validated meaning, canonical
   public semantics, and implementation-private execution.
@@ -102,8 +106,9 @@ research fan-out expand either mode or replace the independent adversarial revie
 ### 3. Research external systems
 
 - Prefer pinned primary specifications and mature implementations.
-- When research is fanned out, give each subagent a distinct external system or source family.
-  Require pinned primary sources and explicit counterevidence or exclusions.
+- When research is fanned out, divide external-system research by problem, mechanism, or evidence
+  angle. Assign a specific system or source family only when it is already in scope or synthesis
+  reveals a coverage gap. Require pinned primary sources and explicit counterevidence or exclusions.
 - Record each influence's problem, adoption, owner, exclusions, dependency, evidence, and upgrade.
 - External systems are provenance unless the local contract explicitly makes one normative. Never
   create peer authorities or unsupported “compatible with” claims.
