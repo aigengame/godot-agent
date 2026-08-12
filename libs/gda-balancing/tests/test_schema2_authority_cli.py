@@ -2046,6 +2046,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         ("runtime.cancel_active", "runtime"),
         ("runtime.cancel_completed", "runtime"),
         ("runtime.cancel_unknown", "runtime"),
+        ("standard.conformance.candidate_mismatch", "runtime"),
         ("evaluation.observation_unavailable", "evaluation"),
     }
     expected = {
