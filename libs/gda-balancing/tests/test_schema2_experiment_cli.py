@@ -41,6 +41,9 @@ from schema2_scheduler_production_support import (
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
 )
+from schema2_operation_execution_production_support import (
+    evaluate_operation_execution_vector,
+)
 from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -6026,23 +6029,71 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
     ]
 
 
+def _reference_operation_execution_projection(
+    kernel: dict[str, Any],
+    ldb: Any,
+    operations: dict[str, dict[str, Any]],
+    vector: dict[str, Any],
+) -> dict[str, Any]:
+    operation = operations[vector["operation"]]
+    event = _reference_execute_event(
+        kernel,
+        operation,
+        operations,
+        {"id": vector["id"], "values": vector["input"]["values"]},
+        seed=vector["input"]["seed"],
+        state_names={
+            row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+        },
+        language_bundle=ldb,
+    )
+    if "refusal" in event:
+        return {
+            "completion": {
+                "kind": "refusal",
+                "reason": event["refusal"]["reason"],
+            },
+            "result": {"kind": "not-produced"},
+            "rng_draws": [],
+            "state_after": event["state_after"],
+        }
+    return {
+        "completion": {
+            "kind": "outcome",
+            "id": event["outcome"]["id"],
+        },
+        "result": (
+            {"kind": "value", "value": event["result"]}
+            if event["outcome"]["kind"] == "success"
+            else {"kind": "not-produced"}
+        ),
+        "rng_draws": [
+            {
+                member: draw[member]
+                for member in ("candidate_hex", "index", "stream", "value")
+            }
+            for draw in event["rng_draws"]
+        ],
+        "state_after": event["state_after"],
+    }
+
+
+def _operation_execution_vectors(ldb: Any) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (vector_set["package_id"], vector)
+        for vector_set in ldb.package_conformance_vector_sets
+        for vector in vector_set["vector_definitions"]
+        if vector.get("kind") == "operation-execution"
+    ]
+
+
 def test_neutral_structured_operation_vectors_cover_control_paths():
     kernel, ldb = mutable_authorities()
-    operation = next(
-        row
-        for row in ldb["language"]["operations"]
-        if row["id"] == "standard.conformance.structured.select-v1"
-    )
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
         vector
-        for vector in next(
-            vector_set["vector_definitions"]
-            for vector_set in ldb.package_conformance_vector_sets
-            if vector_set["package_id"] == "standard.conformance.structured"
-            and vector_set["package_version"] == "1.1.0"
-        )
-        if vector.get("kind") == "operation-execution"
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "standard.conformance.structured"
     ]
     assert {vector["id"] for vector in vectors} == {
         "structured.select.success",
@@ -6051,50 +6102,58 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     }
 
     for vector in vectors:
-        event = _reference_execute_event(
-            kernel,
-            operation,
-            operations,
-            {"id": vector["id"], "values": vector["input"]["values"]},
-            seed=vector["input"]["seed"],
-            state_names={
-                row["id"]
-                for row in operation["inputs"]
-                if row["access"] == "read-write"
-            },
-            language_bundle=ldb,
+        assert (
+            _reference_operation_execution_projection(kernel, ldb, operations, vector)
+            == vector["expect"]
         )
-        if "refusal" in event:
-            projection = {
-                "completion": {
-                    "kind": "refusal",
-                    "reason": event["refusal"]["reason"],
-                },
-                "result": {"kind": "not-produced"},
-                "rng_draws": [],
-                "state_after": event["state_after"],
-            }
-        else:
-            projection = {
-                "completion": {
-                    "kind": "outcome",
-                    "id": event["outcome"]["id"],
-                },
-                "result": (
-                    {"kind": "value", "value": event["result"]}
-                    if event["outcome"]["kind"] == "success"
-                    else {"kind": "not-produced"}
-                ),
-                "rng_draws": [
-                    {
-                        member: draw[member]
-                        for member in ("candidate_hex", "index", "stream", "value")
-                    }
-                    for draw in event["rng_draws"]
-                ],
-                "state_after": event["state_after"],
-            }
-        assert projection == vector["expect"]
+
+
+def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    vectors = _operation_execution_vectors(ldb)
+    assert vectors
+
+    for package_id, vector in vectors:
+        production = evaluate_operation_execution_vector(context, vector)
+        reference = _reference_operation_execution_projection(
+            kernel, ldb, operations, vector
+        )
+        assert production == reference == vector["expect"], (
+            package_id,
+            vector["id"],
+            production,
+            reference,
+        )
+
+
+def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    package_id, vector = next(
+        (package_id, deepcopy(candidate))
+        for package_id, candidate in _operation_execution_vectors(ldb)
+        if candidate["id"] == "structured.select.empty-outcome"
+    )
+    vector["expect"]["completion"]["id"] = "mutated-outcome"
+
+    production = evaluate_operation_execution_vector(context, vector)
+    reference = _reference_operation_execution_projection(
+        kernel, ldb, operations, vector
+    )
+    with pytest.raises(AssertionError) as failure:
+        assert production == reference == vector["expect"], (
+            package_id,
+            vector["id"],
+            production,
+            reference,
+        )
+    assert package_id in str(failure.value)
+    assert vector["id"] in str(failure.value)
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
