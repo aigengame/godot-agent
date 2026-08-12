@@ -81,6 +81,56 @@ def test_two_consumers_require_declared_record_lookup_semantics(
     ) in first["diagnostics"]
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "guard-unbound-condition",
+        "guard-wrong-condition-type",
+        "nested-guard",
+        "undeclared-outcome",
+        "guard-unbound-body-reference",
+        "undeclared-require-reason",
+        "insufficient-resource-bound",
+    ),
+)
+def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    operation = next(
+        item
+        for item in ldb["language"]["operations"]
+        if item["id"] == "standard.conformance.structured.select-v1"
+    )
+    guard = next(item for item in operation["body"] if item["node"] == "guard-block")
+    requirement = next(item for item in operation["body"] if item["node"] == "require")
+
+    if mutation == "guard-unbound-condition":
+        guard["condition"] = "missing-condition"
+    elif mutation == "guard-wrong-condition-type":
+        guard["condition"] = "candidates"
+    elif mutation == "nested-guard":
+        guard["body"] = [deepcopy(guard)]
+    elif mutation == "undeclared-outcome":
+        guard["outcome"] = "unknown-outcome"
+    elif mutation == "guard-unbound-body-reference":
+        guard["body"] = [{"node": "copy", "target": "copied", "value": "missing-value"}]
+    elif mutation == "undeclared-require-reason":
+        requirement["reason"] = "example.reason.not-declared"
+    else:
+        operation["resource_bounds"]["max_steps"] = 3
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        "standard.conformance.structured.select-v1" in subject
+        for _stage, _code, subject in first["diagnostics"]
+    )
+
+
 def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
     language = ldb["language"]
     source = next(

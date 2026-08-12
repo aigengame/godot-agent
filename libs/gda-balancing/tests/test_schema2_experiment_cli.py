@@ -1943,7 +1943,7 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
     assert not any(row["name"] == "selection_result" for row in event["facts"])
     snapshots = _member(receipt, "snapshot-series")
     assert (
-        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 4
+        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 5
     )
     assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 9
     assert not any(
