@@ -1047,19 +1047,48 @@ def _reference_execute_event(
                     )
                 elif operator == "bounded-lookup":
                     key = instruction["key"]
-                    if key in locals_:
+                    container = cell(instruction["value"])["value"]
+                    selector = structured_law(container["type"], "bounded-lookup")[
+                        "selector"
+                    ]
+                    if selector == "local-index":
                         key = locals_[key]["value"]
                     write_local(
                         instruction["target"],
-                        structured_lookup(cell(instruction["value"])["value"], key),
+                        structured_lookup(container, key),
                     )
                 elif operator == "canonical-equal":
                     left = cell(instruction["left"])["value"]
                     right = cell(instruction["right"])["value"]
-                    assert left["type"] == right["type"]
+                    left_integer = (
+                        left
+                        if isinstance(left, int) and not isinstance(left, bool)
+                        else left.get("value")
+                        if isinstance(left, dict)
+                        and isinstance(left.get("value"), int)
+                        and not isinstance(left["value"], bool)
+                        else None
+                    )
+                    right_integer = (
+                        right
+                        if isinstance(right, int) and not isinstance(right, bool)
+                        else right.get("value")
+                        if isinstance(right, dict)
+                        and isinstance(right.get("value"), int)
+                        and not isinstance(right["value"], bool)
+                        else None
+                    )
+                    if left_integer is not None and right_integer is not None:
+                        if isinstance(left, dict) and isinstance(right, dict):
+                            assert left["type"] == right["type"]
+                        equal = left_integer == right_integer
+                    else:
+                        assert isinstance(left, dict) and isinstance(right, dict)
+                        assert left["type"] == right["type"]
+                        equal = left["value"] == right["value"]
                     write_local(
                         instruction["target"],
-                        left["value"] == right["value"],
+                        equal,
                     )
                 elif operator == "collection-is-empty":
                     write_local(
@@ -2090,8 +2119,8 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"] = []
-    pool["selections"] = []
+    pool["options"] = []
+    pool["no_reward_on_empty"] = []
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -2115,14 +2144,13 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "runtime"
     assert [row["code"] for row in error["diagnostics"]] == [
-        "runtime.structured_lookup_out_of_range"
+        "game.generation.selection_exhausted"
     ]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["reason"] == (
-        "runtime.structured_lookup_out_of_range"
-    )
+    assert audit["refusing_event"]["reason"] == ("game.generation.selection_exhausted")
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert audit["budget_counters"]["event_steps"] == 6
 
 
 def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
@@ -6893,6 +6921,10 @@ def _reference_operation_execution_projection(
         },
         language_bundle=ldb,
     )
+    state_after = {row["name"]: row["value"] for row in event["state_after"]}
+    state_names = [
+        row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+    ]
     if "refusal" in event:
         return {
             "completion": {
@@ -6901,7 +6933,9 @@ def _reference_operation_execution_projection(
             },
             "result": {"kind": "not-produced"},
             "rng_draws": [],
-            "state_after": event["state_after"],
+            "state_after": [
+                {"name": name, "value": state_after[name]} for name in state_names
+            ],
         }
     return {
         "completion": {
@@ -6920,7 +6954,9 @@ def _reference_operation_execution_projection(
             }
             for draw in event["rng_draws"]
         ],
-        "state_after": event["state_after"],
+        "state_after": [
+            {"name": name, "value": state_after[name]} for name in state_names
+        ],
     }
 
 

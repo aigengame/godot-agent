@@ -272,10 +272,16 @@ def _formula_sources(
                     }
                 )
                 position += len(expression_operation["body"])
-            body = {
-                "nodes": nodes,
-                "result": {"kind": "local", "local": slot["target"]},
-            }
+            body = (
+                {"node": "parameter", "parameter": placeholder[0]["value"]}
+                if len(placeholder) == 1
+                and placeholder[0]["node"] == "copy"
+                and placeholder[0]["value"] in parameters
+                else {
+                    "nodes": nodes,
+                    "result": {"kind": "local", "local": slot["target"]},
+                }
+            )
             formula_id = f"{operation['id']}.{slot['id']}"
             formulas.append(
                 {
@@ -612,9 +618,9 @@ def evaluate_operation_execution_vector(
         raise ValueError("operation execution vector target is unavailable")
     checked, result_name = _checked_vector_experiment(context, operation, vector)
     evaluation = evaluate_experiment(checked)
-    state_names = {
+    state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
-    }
+    ]
     if isinstance(evaluation, RuntimeRefusalOutcome):
         diagnostic = evaluation.report.diagnostics[0].code
         reasons = [
@@ -631,7 +637,7 @@ def evaluate_operation_execution_vector(
             "rng_draws": [],
             "state_after": [
                 {"name": name, "value": evaluation.state_after[name]}
-                for name in sorted(state_names, key=lambda value: value.encode("utf-8"))
+                for name in state_names
             ],
         }
     if isinstance(evaluation, Schema2RefusalReport):
@@ -657,7 +663,6 @@ def evaluate_operation_execution_vector(
             for draw in event["rng_draws"]
         ],
         "state_after": [
-            {"name": name, "value": state_after[name]}
-            for name in sorted(state_names, key=lambda value: value.encode("utf-8"))
+            {"name": name, "value": state_after[name]} for name in state_names
         ],
     }

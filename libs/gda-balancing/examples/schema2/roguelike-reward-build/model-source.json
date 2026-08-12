@@ -38,6 +38,16 @@
       "arguments": [
         {"port": "reward_pool", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_pool"}},
         {"port": "rare_weight", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "rare_weight"}},
+        {
+          "port": "expected_no_reward_disposition",
+          "operand": {
+            "kind": "literal",
+            "value": {
+              "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardDisposition"},
+              "value": "no-reward"
+            }
+          }
+        },
         {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
         {"port": "reward_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_score"}}
       ],
