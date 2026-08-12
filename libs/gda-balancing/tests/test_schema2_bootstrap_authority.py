@@ -1522,6 +1522,10 @@ def test_two_consumers_follow_an_expanded_kernel_coordinate_pattern(monkeypatch)
     (
         "contract-expectation",
         "missing-mutation-detector",
+        "old-kind",
+        "operation-result-shape",
+        "operation-state-inventory",
+        "operation-value-type",
         "runtime-operation",
         "unknown-mutation-detector",
         "unknown-kind",
@@ -1558,8 +1562,16 @@ def test_reidentified_package_evidence_vector_mutations_refuse_in_both_consumers
         vector = _owned_vector(ldb, "game.combat.cast.positive")
         if mutation == "runtime-operation":
             vector["operation"] = "game.combat.damage-v1"
+        elif mutation == "old-kind":
+            vector["kind"] = "runtime-scenario"
+        elif mutation == "operation-result-shape":
+            vector["expect"]["result"] = {"kind": "not-produced"}
+        elif mutation == "operation-state-inventory":
+            vector["expect"]["state_after"].pop()
+        elif mutation == "operation-value-type":
+            vector["input"]["values"][0]["value"] = True
         else:
-            vector["kind"] = "host-runtime-scenario"
+            vector["kind"] = "host-operation-execution"
     _bind_package_vector_set(package, _package_vector_set(ldb, package))
     _reidentify_graph_root(ldb)
 

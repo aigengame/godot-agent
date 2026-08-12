@@ -989,6 +989,8 @@ def _reference_execute_event(
         "schedules": [],
         "cancellations": [],
     }
+    if resolved_entrypoint is None:
+        event["result"] = result
     if resolved_entrypoint is not None:
         event["entrypoint"] = {
             "id": resolved_entrypoint["id"],
@@ -5744,7 +5746,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         } == vector["expect"]
 
 
-def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
+def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
@@ -5755,7 +5757,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             if vector_set["package_id"] == "game.combat"
             and vector_set["package_version"] == "2.1.0"
         )
-        if vector.get("kind") == "runtime-scenario"
+        if vector.get("kind") == "operation-execution"
     ]
     assert {vector["category"] for vector in vectors} == {
         "positive",
@@ -5778,10 +5780,19 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
         projection = {
-            "outcome": event["outcome"]["id"],
+            "completion": {"kind": "outcome", "id": event["outcome"]["id"]},
+            "result": (
+                {"kind": "value", "value": event["result"]}
+                if event["outcome"]["kind"] == "success"
+                else {"kind": "not-produced"}
+            ),
             "rng_draws": [
                 {
                     member: draw[member]
@@ -5798,7 +5809,11 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
         assert replay == event
         observed[vector["id"]] = projection

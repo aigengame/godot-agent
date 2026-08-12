@@ -904,7 +904,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "content_identity": "sha256:c95c2e1644f711584e531645ab0c59e7200f9014e5f88fe6950f8d80013a4310",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -4246,17 +4246,7 @@
           ]
         },
         {
-          "expect_members": [
-            "outcome",
-            "rng_draws",
-            "state_after"
-          ],
-          "id": "runtime-scenario",
-          "input_members": [
-            "seed",
-            "state_names",
-            "values"
-          ],
+          "id": "operation-execution",
           "required_members": [
             "category",
             "expect",
@@ -4264,6 +4254,25 @@
             "input",
             "kind",
             "operation"
+          ],
+          "input_members": [
+            "seed",
+            "values"
+          ],
+          "expect_members": [
+            "completion",
+            "result",
+            "rng_draws",
+            "state_after"
+          ],
+          "completion_members": [
+            "id",
+            "kind",
+            "reason"
+          ],
+          "result_members": [
+            "kind",
+            "value"
           ],
           "rng_draw_members": [
             "candidate_hex",

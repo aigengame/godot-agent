@@ -18,7 +18,6 @@ from gda_balancing.domain.structured_values import (
     equal_result_contract,
     language_structured_value_index,
     lookup_type_contract,
-    nominal_type_key,
 )
 from gda_balancing.domain.authority.graph import (
     LanguageBundleGraph,
@@ -37,6 +36,7 @@ from gda_balancing.domain.authority.package_validation import (
 from gda_balancing.domain.authority.runtime_validation import (
     _operation_result_source_shape_is_closed,
     _runtime_authority_is_closed,
+    literal_operation_contracts,
     operation_value_contract_matches,
 )
 from gda_balancing.domain.authority.template_validation import (
@@ -80,7 +80,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c"
+    "sha256:c95c2e1644f711584e531645ab0c59e7200f9014e5f88fe6950f8d80013a4310"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3187,7 +3187,7 @@ def _literal_matches_operation_contract(
     return len(
         matches := [
             contract
-            for contract in _literal_operation_contracts(
+            for contract in literal_operation_contracts(
                 value,
                 literal_profiles,
                 typed_envelope_contract,
@@ -3195,82 +3195,6 @@ def _literal_matches_operation_contract(
             if operation_value_contract_matches(contract, formal)
         ]
     ) == 1 and bool(matches)
-
-
-def _literal_operation_contracts(
-    value: Any,
-    literal_profiles: Any,
-    typed_envelope_contract: Any,
-) -> tuple[dict[str, Any], ...]:
-    if not isinstance(literal_profiles, list):
-        return ()
-    admission = (
-        typed_envelope_contract.get("admission")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    envelope_members = (
-        admission.get("envelope_members") if isinstance(admission, dict) else None
-    )
-    type_member = (
-        typed_envelope_contract.get("type_member")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    value_member = (
-        typed_envelope_contract.get("value_member")
-        if isinstance(typed_envelope_contract, dict)
-        else None
-    )
-    if (
-        isinstance(value, dict)
-        and isinstance(envelope_members, list)
-        and isinstance(type_member, str)
-        and isinstance(value_member, str)
-        and set(envelope_members) == {type_member, value_member}
-        and set(value) == set(envelope_members)
-    ):
-        type_expression = value[type_member]
-        typed_profiles = [
-            profile
-            for profile in literal_profiles
-            if isinstance(profile, dict)
-            and profile.get("source_kind") == "typed-envelope"
-            and profile.get("value_kind") == "nominal-structured"
-        ]
-        if (
-            len(typed_profiles) == 1
-            and isinstance(typed_profiles[0].get("admission"), dict)
-            and (
-                coordinate := nominal_type_key(
-                    type_expression,
-                    cast(dict[str, Any], typed_profiles[0]["admission"]),
-                )
-            )
-            is not None
-        ):
-            package, version, type_id = coordinate
-            return (
-                {
-                    "type": {"id": type_id, "package": package, "version": version},
-                    "value_kind": "nominal-structured",
-                },
-            )
-        return ()
-    if not isinstance(value, int) or isinstance(value, bool):
-        return ()
-    matches = [
-        profile
-        for profile in literal_profiles
-        if isinstance(profile, dict)
-        and profile.get("source_kind") == "integer"
-        and isinstance(profile.get("minimum"), int)
-        and not isinstance(profile["minimum"], bool)
-        and isinstance(profile.get("maximum"), int)
-        and not isinstance(profile["maximum"], bool)
-        and profile["minimum"] <= value <= profile["maximum"]
-    ]
-    return tuple(cast(list[dict[str, Any]], matches))
 
 
 def _operation_contract_for_structured_type(
@@ -3856,7 +3780,7 @@ def _operation_composition_diagnostic_subjects(
                         )
                     else:
                         literal_candidates = [
-                            _literal_operation_contracts(
+                            literal_operation_contracts(
                                 instruction.get(member),
                                 literal_profiles,
                                 literal_contract["typed_envelope_profile"],
@@ -4787,6 +4711,8 @@ def admit_authorities(
                         package_vector_contract,
                         candidate_encoding_contract,
                         runtime_program_contract,
+                        kernel,
+                        language_bundle,
                     )
                 )
             ):

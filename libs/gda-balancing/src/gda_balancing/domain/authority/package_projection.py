@@ -204,6 +204,39 @@ def _closed_named_value_schema(members: list[str]) -> dict[str, object]:
     }
 
 
+def _operation_value_schema() -> dict[str, object]:
+    return {
+        "oneOf": [
+            {"type": "integer", "minimum": -(2**63), "maximum": 2**63 - 1},
+            {"type": "boolean"},
+            {"type": "string"},
+            {"type": "null"},
+            {
+                "type": "object",
+                "properties": {"type": {"type": "object"}, "value": {}},
+                "required": ["type", "value"],
+                "unevaluatedProperties": False,
+            },
+        ]
+    }
+
+
+def _closed_named_operation_value_schema(members: list[str]) -> dict[str, object]:
+    return {
+        "type": "object",
+        "properties": {
+            member: (
+                _non_empty_string_schema()
+                if member == "name"
+                else _operation_value_schema()
+            )
+            for member in members
+        },
+        "required": members,
+        "unevaluatedProperties": False,
+    }
+
+
 def _json_pointer_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     contract = meta_format.get("json_pointer")
     schema = contract.get("schema") if isinstance(contract, dict) else None
@@ -829,40 +862,83 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     }
                 )
                 continue
-            if set(input_members) != {"seed", "state_names", "values"}:
-                raise ValueError("Kernel runtime-vector input contract is incomplete")
+            if kind_id != "operation-execution" or set(input_members) != {
+                "seed",
+                "values",
+            }:
+                raise ValueError("Kernel operation-vector input contract is incomplete")
             state_members = kind.get("state_value_members")
             if not isinstance(state_members, list):
-                raise ValueError("Kernel runtime-vector state contract is incomplete")
+                raise ValueError("Kernel operation-vector state contract is incomplete")
             properties["input"] = {
                 "type": "object",
                 "properties": {
                     "seed": _signed_int64_schema(),
-                    "state_names": {
-                        "type": "array",
-                        "items": _non_empty_string_schema(),
-                        "uniqueItems": True,
-                    },
                     "values": {
                         "type": "array",
-                        "items": _closed_named_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(state_members),
                     },
                 },
                 "required": input_members,
                 "unevaluatedProperties": False,
             }
             expect_members = kind.get("expect_members")
+            completion_members = kind.get("completion_members")
+            result_members = kind.get("result_members")
             rng_draw_members = kind.get("rng_draw_members")
-            if not isinstance(expect_members, list) or not isinstance(
-                rng_draw_members, list
+            if (
+                not isinstance(expect_members, list)
+                or completion_members != ["id", "kind", "reason"]
+                or result_members != ["kind", "value"]
+                or not isinstance(rng_draw_members, list)
             ):
                 raise ValueError(
-                    "Kernel runtime-vector expectation contract is incomplete"
+                    "Kernel operation-vector expectation contract is incomplete"
                 )
             properties["expect"] = {
                 "type": "object",
                 "properties": {
-                    "outcome": _non_empty_string_schema(),
+                    "completion": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "id": _non_empty_string_schema(),
+                                    "kind": {"const": "outcome"},
+                                },
+                                "required": ["id", "kind"],
+                                "unevaluatedProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"const": "refusal"},
+                                    "reason": _non_empty_string_schema(),
+                                },
+                                "required": ["kind", "reason"],
+                                "unevaluatedProperties": False,
+                            },
+                        ]
+                    },
+                    "result": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"const": "value"},
+                                    "value": _operation_value_schema(),
+                                },
+                                "required": ["kind", "value"],
+                                "unevaluatedProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {"kind": {"const": "not-produced"}},
+                                "required": ["kind"],
+                                "unevaluatedProperties": False,
+                            },
+                        ]
+                    },
                     "rng_draws": {
                         "type": "array",
                         "items": {
@@ -886,7 +962,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     },
                     "state_after": {
                         "type": "array",
-                        "items": _closed_named_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(state_members),
                     },
                 },
                 "required": expect_members,

@@ -1522,6 +1522,33 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     )
 
 
+def test_operation_execution_evidence_replaces_runtime_scenario(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    kinds = {
+        item["id"]: item
+        for item in authority["kernel"]["meta_format"]["package_vector"]["kinds"]
+    }
+
+    assert "runtime-scenario" not in kinds
+    assert kinds["operation-execution"] == {
+        "completion_members": ["id", "kind", "reason"],
+        "expect_members": ["completion", "result", "rng_draws", "state_after"],
+        "id": "operation-execution",
+        "input_members": ["seed", "values"],
+        "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "operation",
+        ],
+        "result_members": ["kind", "value"],
+        "rng_draw_members": ["candidate_hex", "index", "stream", "value"],
+        "state_value_members": ["name", "value"],
+    }
+
+
 def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     contract = authority["kernel"]["meta_format"]["package_vector"]
@@ -1544,7 +1571,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         "package-contract",
         "operation-contract",
         "operation-relation",
-        "runtime-scenario",
+        "operation-execution",
         "scheduler-scenario",
         "structured-value",
         "value-program",
