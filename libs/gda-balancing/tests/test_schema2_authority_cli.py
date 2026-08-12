@@ -871,6 +871,39 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
         for item in cast(list[dict[str, Any]], vector_items["oneOf"])
         if "kind" in cast(dict[str, Any], item)["properties"]
     } == {item["id"] for item in kernel_meta["package_vector"]["kinds"]}
+    operation_vector = next(
+        item
+        for item in cast(list[dict[str, Any]], vector_items["oneOf"])
+        if "kind" in cast(dict[str, Any], item["properties"])
+        and cast(dict[str, Any], item["properties"])["kind"]["const"]
+        == "operation-execution"
+    )
+    operation_value = cast(
+        dict[str, Any],
+        operation_vector["properties"]["input"]["properties"]["values"]["items"][
+            "properties"
+        ]["value"]["oneOf"][4],
+    )
+    type_coordinate = operation_value["properties"]["type"]
+    coordinate_contracts = kernel_meta["language_bundle"]["package_descriptor"][
+        "field_types"
+    ]
+    assert set(type_coordinate["required"]) == {"id", "package", "version"}
+    assert type_coordinate["properties"] == {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"const": "nominal"},
+        "package": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": coordinate_contracts["id"]["pattern"],
+        },
+        "version": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": coordinate_contracts["version"]["pattern"],
+        },
+    }
+    assert type_coordinate["unevaluatedProperties"] is False
 
     list_schema = package_list_success_schema()
     list_properties = cast(dict[str, Any], list_schema["properties"])

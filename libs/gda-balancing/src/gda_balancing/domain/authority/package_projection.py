@@ -204,7 +204,56 @@ def _closed_named_value_schema(members: list[str]) -> dict[str, object]:
     }
 
 
-def _operation_value_schema() -> dict[str, object]:
+def _operation_type_coordinate_schema(
+    meta_format: dict[str, Any],
+) -> dict[str, object]:
+    descriptor = meta_format.get("language_bundle", {}).get("package_descriptor")
+    field_types = (
+        descriptor.get("field_types") if isinstance(descriptor, dict) else None
+    )
+    typed_profile = meta_format.get("literal_typing", {}).get("typed_envelope_profile")
+    admission = (
+        typed_profile.get("admission") if isinstance(typed_profile, dict) else None
+    )
+    reference = (
+        admission.get("nominal_type_reference") if isinstance(admission, dict) else None
+    )
+    coordinate_members = (
+        reference.get("coordinate_members") if isinstance(reference, dict) else None
+    )
+    kind_member = (
+        reference.get("optional_kind_member") if isinstance(reference, dict) else None
+    )
+    kind_value = (
+        reference.get("optional_kind_value") if isinstance(reference, dict) else None
+    )
+    if (
+        not isinstance(field_types, dict)
+        or set(coordinate_members or ()) != {"id", "package", "version"}
+        or not isinstance(kind_member, str)
+        or not kind_member
+        or not isinstance(kind_value, str)
+        or not kind_value
+    ):
+        raise ValueError("Kernel typed-envelope coordinate contract is incomplete")
+    package_contract = field_types.get("id")
+    version_contract = field_types.get("version")
+    if not isinstance(package_contract, dict) or not isinstance(version_contract, dict):
+        raise ValueError("Kernel package-coordinate contract is incomplete")
+    return {
+        "type": "object",
+        "properties": {
+            "id": _non_empty_string_schema(),
+            "package": _contract_schema(package_contract),
+            "version": _contract_schema(version_contract),
+            kind_member: {"const": kind_value},
+        },
+        "required": coordinate_members,
+        "unevaluatedProperties": False,
+    }
+
+
+def _operation_value_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     return {
         "oneOf": [
             {"type": "integer", "minimum": -(2**63), "maximum": 2**63 - 1},
@@ -213,7 +262,10 @@ def _operation_value_schema() -> dict[str, object]:
             {"type": "null"},
             {
                 "type": "object",
-                "properties": {"type": {"type": "object"}, "value": {}},
+                "properties": {
+                    "type": _operation_type_coordinate_schema(meta_format),
+                    "value": {},
+                },
                 "required": ["type", "value"],
                 "unevaluatedProperties": False,
             },
@@ -221,14 +273,16 @@ def _operation_value_schema() -> dict[str, object]:
     }
 
 
-def _closed_named_operation_value_schema(members: list[str]) -> dict[str, object]:
+def _closed_named_operation_value_schema(
+    members: list[str], meta_format: dict[str, Any]
+) -> dict[str, object]:
     return {
         "type": "object",
         "properties": {
             member: (
                 _non_empty_string_schema()
                 if member == "name"
-                else _operation_value_schema()
+                else _operation_value_schema(meta_format)
             )
             for member in members
         },
@@ -876,7 +930,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     "seed": _signed_int64_schema(),
                     "values": {
                         "type": "array",
-                        "items": _closed_named_operation_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(
+                            state_members, meta_format
+                        ),
                     },
                 },
                 "required": input_members,
@@ -926,7 +982,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                                 "type": "object",
                                 "properties": {
                                     "kind": {"const": "value"},
-                                    "value": _operation_value_schema(),
+                                    "value": _operation_value_schema(meta_format),
                                 },
                                 "required": ["kind", "value"],
                                 "unevaluatedProperties": False,
@@ -962,7 +1018,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     },
                     "state_after": {
                         "type": "array",
-                        "items": _closed_named_operation_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(
+                            state_members, meta_format
+                        ),
                     },
                 },
                 "required": expect_members,
