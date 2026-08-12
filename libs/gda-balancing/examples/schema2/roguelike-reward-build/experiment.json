@@ -1,0 +1,127 @@
+{
+  "schema_version": "2.0.0",
+  "id": "roguelike.reward-build-feedback.baseline",
+  "version": "1.0.0",
+  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "language_bundle_identity": "sha256:e6b17edfe8c991259aad1f61a81fa08aa72859701067c8dfe235e5b9786b5bc1",
+  "model": {
+    "source_identity": "sha256:b2fa7cf5fe850ea706bb6189df848cf27d0b57cf9032293963bae4e488fd2547",
+    "build_receipt_identity": "sha256:64257419c9aa458241a1aba6c1d0dc8d4df26808825d3f37c8e2db8f2ae403c6",
+    "resolved_model_identity": "sha256:d5d475f269c3365d53338e818e29226fa75303f80e479168d5be6ec381bc1dbd",
+    "package_lock_identity": "sha256:dad1c8cf1706cfd5664b9f687a97d9ae39c79aa56c37a8d6c9694995e16e4ee7",
+    "rir_identity": "sha256:74c35cee30d45f8ba740dbdaa70f841bfd6fe3e2766658d5cefaba1c19c187d0"
+  },
+  "runtime": {
+    "profile": "standard.exact-int64-event-v1",
+    "required_evaluator": {
+      "effects": ["event.commit", "metric.observe", "rng.named-stream", "snapshot.commit"],
+      "instruction_nodes": [
+        "constant",
+        "copy",
+        "draw",
+        "equal",
+        "if",
+        "less-than-or-equal",
+        "lookup",
+        "precondition-greater-than-or-equal",
+        "write-state"
+      ],
+      "numeric_policies": ["exact-int64"],
+      "operation_kinds": ["event-program"],
+      "rng_algorithms": ["splitmix64-v1"],
+      "runtime_profiles": ["standard.exact-int64-event-v1"]
+    }
+  },
+  "seed": {"algorithm": "splitmix64-v1", "value": 20260812},
+  "scenarios": [
+    {
+      "id": "seeded-reward",
+      "assignments": [
+        {
+          "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "reward_pool"},
+          "value": {
+            "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardPool"},
+            "value": {
+              "candidates": [
+                {"key": {"key": "steady_guard"}, "rarity": "common", "disposition": "build"},
+                {"key": {"key": "volatile_crown"}, "rarity": "rare", "disposition": "build"}
+              ],
+              "selections": [
+                {
+                  "selected": {"key": "steady_guard"},
+                  "rarity": "common",
+                  "disposition": "build",
+                  "selected_index": 0,
+                  "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                  "policy_after": {"kind": "fixed-weight", "draw_count": 1},
+                  "reward_score": 20
+                },
+                {
+                  "selected": {"key": "volatile_crown"},
+                  "rarity": "rare",
+                  "disposition": "build",
+                  "selected_index": 1,
+                  "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                  "policy_after": {"kind": "fixed-weight", "draw_count": 1},
+                  "reward_score": 80
+                }
+              ],
+              "policy_before": {"kind": "fixed-weight", "draw_count": 0}
+            }
+          }
+        },
+        {
+          "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "selected_reward"},
+          "value": {
+            "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardSelection"},
+            "value": {
+              "selected": {"key": "steady_guard"},
+              "rarity": "common",
+              "disposition": "build",
+              "selected_index": 0,
+              "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+              "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+              "reward_score": 20
+            }
+          }
+        },
+        {
+          "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "rare_weight"},
+          "value": 5
+        },
+        {
+          "target": {"model": "roguelike.reward-build-feedback", "module": "reward-build", "name": "reward_score"},
+          "value": 20
+        }
+      ],
+      "named_streams": ["reward"],
+      "event_plan": [
+        {
+          "kind": "transition-invocation",
+          "root_event_ref": "select-reward",
+          "logical_time": 0,
+          "priority": 0,
+          "entrypoint": "reward.select",
+          "payload": []
+        }
+      ],
+      "terminal_condition": {"kind": "event-count", "maximum": 1}
+    }
+  ],
+  "metrics": [
+    {
+      "id": "reward_score",
+      "kind": "scalar",
+      "unit": "1",
+      "dimensions": [],
+      "observation": {"source": "snapshot", "name": "terminal", "member": "reward_score"},
+      "window": {"kind": "scenario", "name": "terminal-event"},
+      "aggregation": "single",
+      "replication": {"unit": "scenario"},
+      "missing": "refuse",
+      "censoring": "none",
+      "target": {"minimum": 0, "maximum": 100}
+    }
+  ],
+  "acceptance": {"policy": "all-metrics-within-target"}
+}

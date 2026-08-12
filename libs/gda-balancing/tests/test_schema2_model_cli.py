@@ -405,11 +405,11 @@ def test_roguelike_model_build_publishes_the_reward_formula_boundary(
     )
 
     assert formula["expression"] == "rare_weight"
-    assert binding["site"] == {
-        **binding["site"],
-        "context": {"frame": "pre-event-snapshot", "phase": "event"},
-        "slot": "rare-threshold-policy",
+    assert binding["site"]["context"] == {
+        "frame": "pre-event-snapshot",
+        "phase": "event",
     }
+    assert binding["site"]["slot"] == "rare-threshold-policy"
     assert any(
         row["id"] == "rare-threshold"
         and row["evaluation_sites"][0]["binding_identity"] == binding["identity"]

@@ -50,6 +50,9 @@ _PERIODIC_EXAMPLE_DIR = (
 _STRUCTURED_EXAMPLE_DIR = (
     Path(__file__).parents[1] / "examples" / "schema2" / "structured-selection"
 )
+_ROGUELIKE_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
@@ -1563,6 +1566,312 @@ def _write_built_structured_experiment(tmp_path, run_cli):
     specification_path = tmp_path / "structured-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
     return specification_path, specification
+
+
+def _write_built_roguelike_experiment(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_ROGUELIKE_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-roguelike-model.json"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = json.loads(
+        (_ROGUELIKE_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    specification["kernel_identity"] = build_record["kernel_identity"]
+    specification["language_bundle_identity"] = build_record[
+        "language_bundle_identity"
+    ]
+    specification["model"] = {
+        "source_identity": build_record["source_identity"],
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
+    specification_path = tmp_path / "roguelike-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path, specification
+
+
+def test_public_seeded_reward_selection_exposes_policy_and_disposition(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "roguelike-evaluation.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    event = _member(receipt, "event-trace")["events"][0]
+    metrics = _member(receipt, "metric-dataset")
+    assignments = {
+        row["target"]["name"]: row["value"]
+        for row in specification["scenarios"][0]["assignments"]
+    }
+    pool = assignments["reward_pool"]["value"]
+    result = next(row for row in event["facts"] if row["name"] == "reward_result")
+
+    assert event["outcome"] == {"id": "selected", "kind": "success"}
+    assert event["rng_draws"] == [
+        {
+            "stream": "reward",
+            "index": 0,
+            "candidate_hex": "cb822c763bee22e2",
+            "accepted": True,
+            "minimum": 1,
+            "maximum": 100,
+            "value": 3,
+        }
+    ]
+    assert [row["key"]["key"] for row in pool["candidates"]] == [
+        "steady_guard",
+        "volatile_crown",
+    ]
+    assert result["value"]["value"] == pool["selections"][1]
+    assert result["value"]["value"]["disposition"] == "build"
+    assert result["value"]["value"]["policy_before"] == pool["policy_before"]
+    assert result["value"]["value"]["policy_after"]["draw_count"] == 1
+    assert metrics["samples"][0]["value"] == 80
+
+
+def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
+    tmp_path, run_cli
+):
+    specification_path, baseline = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+
+    def run(specification, path, output, invocation_key):
+        path.write_text(json.dumps(specification), encoding="utf-8")
+        check_exit, check_stdout, check_stderr = run_cli(
+            ["experiment", "check", str(path)]
+        )
+        assert (check_exit, check_stderr) == (0, ""), (
+            check_stdout,
+            check_stderr,
+        )
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(path),
+                "--out",
+                str(output),
+                "--invocation-key",
+                invocation_key,
+            ]
+        )
+        assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+        receipt = json.loads(stdout)
+        trace = _member(receipt, "event-trace")
+        metrics = _member(receipt, "metric-dataset")
+        result = next(
+            row
+            for row in trace["events"][0]["facts"]
+            if row["name"] == "reward_result"
+        )
+        return trace, metrics, result
+
+    baseline_trace, baseline_metrics, baseline_result = run(
+        baseline,
+        specification_path,
+        tmp_path / "baseline-evaluation.json",
+        "a" * 64,
+    )
+    tuned = deepcopy(baseline)
+    tuned["id"] = "roguelike.reward-build-feedback.lower-rare-weight"
+    rare_weight = next(
+        row
+        for row in tuned["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "rare_weight"
+    )
+    rare_weight["value"] = 2
+    tuned_trace, tuned_metrics, tuned_result = run(
+        tuned,
+        tmp_path / "tuned-experiment.json",
+        tmp_path / "tuned-evaluation.json",
+        "b" * 64,
+    )
+
+    assert tuned["kernel_identity"] == baseline["kernel_identity"]
+    assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
+    assert tuned["model"] == baseline["model"]
+    assert tuned["runtime"] == baseline["runtime"]
+    assert tuned_trace["experiment_identity"] != baseline_trace["experiment_identity"]
+    assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
+    assert tuned_trace["events"][0]["rng_draws"] == baseline_trace["events"][0][
+        "rng_draws"
+    ]
+    baseline_value = baseline_result["value"]["value"]
+    tuned_value = tuned_result["value"]["value"]
+    assert (
+        baseline_value["selected"],
+        baseline_value["selected_index"],
+        baseline_value["reward_score"],
+    ) == ({"key": "volatile_crown"}, 1, 80)
+    assert (
+        tuned_value["selected"],
+        tuned_value["selected_index"],
+        tuned_value["reward_score"],
+    ) == ({"key": "steady_guard"}, 0, 20)
+    assert baseline_metrics["samples"][0]["value"] == 80
+    assert tuned_metrics["samples"][0]["value"] == 20
+
+
+def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["candidates"] = []
+    pool["selections"] = []
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "unsatisfied-reward-pool.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "runtime.structured_lookup_out_of_range"
+    ]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == (
+        "runtime.structured_lookup_out_of_range"
+    )
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
+def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["policy_before"]["kind"] = "relaxed-pool"
+    pool["candidates"][1] = {
+        "key": {"key": "no_reward"},
+        "rarity": "rare",
+        "disposition": "no-reward",
+    }
+    pool["selections"][1] = {
+        "selected": {"key": "no_reward"},
+        "rarity": "rare",
+        "disposition": "no-reward",
+        "selected_index": 1,
+        "policy_before": {"kind": "relaxed-pool", "draw_count": 0},
+        "policy_after": {"kind": "relaxed-pool", "draw_count": 1},
+        "reward_score": 0,
+    }
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "declared-no-reward.json"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    event = _member(receipt, "event-trace")["events"][0]
+    result = next(row for row in event["facts"] if row["name"] == "reward_result")
+    assert event["outcome"] == {"id": "selected", "kind": "success"}
+    assert result["value"]["value"]["selected"] == {"key": "no_reward"}
+    assert result["value"]["value"]["disposition"] == "no-reward"
+    assert result["value"]["value"]["policy_before"]["kind"] == "relaxed-pool"
+    assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 0
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
+
+
+def test_public_reward_configuration_reports_an_unknown_disposition(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["candidates"][0]["disposition"] = "host-default"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == (
+        "language.structured_value_unknown_enum"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
+    )
 
 
 def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write(
