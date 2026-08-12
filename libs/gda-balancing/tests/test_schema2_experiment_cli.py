@@ -1586,11 +1586,12 @@ def _write_built_roguelike_experiment(tmp_path, run_cli):
     specification = json.loads(
         (_ROGUELIKE_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
-    specification["kernel_identity"] = build_record["kernel_identity"]
-    specification["language_bundle_identity"] = build_record[
-        "language_bundle_identity"
-    ]
-    specification["model"] = {
+    assert specification["kernel_identity"] == build_record["kernel_identity"]
+    assert (
+        specification["language_bundle_identity"]
+        == build_record["language_bundle_identity"]
+    )
+    assert specification["model"] == {
         "source_identity": build_record["source_identity"],
         "build_receipt_identity": build_record["content_identity"],
         "resolved_model_identity": build_record["resolved_model_identity"],

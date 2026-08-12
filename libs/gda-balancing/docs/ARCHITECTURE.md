@@ -1485,6 +1485,16 @@ issues own detailed observations, acceptance criteria, and live completion statu
     identity, rewards, inventory, targeting, arbitrary collections, or a general query language.
   - Evidence: [structured-selection](../examples/schema2/structured-selection/),
     `standard.schema@2.3.0`, and `standard.conformance.structured@1.0.0`.
+- **Seeded Roguelike reward and build tuning
+  ([#585](https://github.com/aigengame/godot-agent/issues/585))**
+  - Architecture consequence: Added `game.generation@1.0.0` and `game.build@1.0.0` as complete
+    Package Releases. The maintained example uses public Model and Experiment commands for one
+    seeded reward Event followed by one atomic build replacement Event.
+  - Open boundary: This product-feedback slice closes no Roguelike, Variant, Extension, Replay,
+    Evidence, template-support, Core Extension Invariance, or cross-genre claim. Later coverage
+    work must revalidate its artifacts and observations.
+  - Evidence: [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
+    `game.generation@1.0.0`, and `game.build@1.0.0`.
 
 ### 12.3 Architecture consequence
 

@@ -55,6 +55,8 @@ refusal and publishes neither a partial Source nor a compatibility artifact.
   roots, committed-Snapshot visibility, explicit cancellation and Formula tuning.
 - [Periodic RPG Effect](examples/schema2/rpg-periodic-effect/README.md) — snapshot/live Formula
   timing, scheduled tick/tick/expire Events, same-time combat ordering and Formula rebinding.
+- [Seeded Roguelike reward and build tuning](examples/schema2/roguelike-reward-build/README.md) —
+  ordered reward selection, named RNG, one-value tuning, atomic replacement and typed alternatives.
 
 ## Development
 
