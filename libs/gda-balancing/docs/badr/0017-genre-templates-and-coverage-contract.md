@@ -17,21 +17,38 @@ distribution contract and a falsifiable definition of genre completeness.
 
 > **Amendment (2026-08-12, #640):** The #585 Roguelike product-feedback slice falsified the
 > provisional claim that the current Kernel could express every required bounded selection path.
-> Because Standard Schema 2.0 remains under development and is not release-frozen, the architecture
-> gate reopens and admits the generic `is-empty` and `require` primitives under bADR-0022. All later
-> Core Extension Invariance evidence must bind the resulting exact Kernel identity; evidence for the
-> superseded provisional baseline does not carry forward.
+> Under bADR-0022's pre-freeze rule, #640 admits the generic `is-empty`, `require`, and `branch`
+> primitives and replaces the exact provisional Kernel identity. All later Core Extension
+> Invariance evidence must bind the replacement identity; evidence for the superseded baseline does
+> not carry forward.
 
 > `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
-> candidate and selection data, plus a bounded zero-or-one fallback list. `fixed-weight` with no
-> fallback refuses an empty pool as selection exhaustion. `no-reward-on-empty` with exactly one
-> declared no-reward fallback completes as a committed `gameplay-alternative`, publishes the
-> fallback selection, preserves policy state and draw count, and consumes no RNG. Other
-> policy/fallback pairings and contradictory option data are typed configuration refusals. The
-> former `relaxed-pool` claim is removed until a package declares an actual excluded pool,
-> eligibility predicate, and relaxation order. A subsequent `game.build` Event observes the
-> no-reward disposition, completes with its own rollback `gameplay-alternative`, and does not change
-> build state or consume RNG.
+> candidate and selection data. Its primary `RarityPolicyKind` remains a selection-policy axis. The
+> independent `no_reward_on_empty: List<RewardSelection, max=1>` field declares the exhaustion
+> fallback: an empty list declares none, and one value declares the exact no-reward selection.
+> Empty selection without that value raises `selection-exhausted`. Empty selection with it validates
+> the no-reward disposition, commits the selection and its score to the declared state ports,
+> preserves policy state and draw count, consumes no RNG, completes as the `no-reward`
+> `gameplay-alternative`, and produces no Operation result. Contradictory option or fallback data is
+> a typed configuration refusal. The former `relaxed-pool` claim is removed until a package declares
+> an actual excluded pool, eligibility predicate, and relaxation order. A subsequent `game.build`
+> Event observes the no-reward disposition, completes with its own rollback
+> `gameplay-alternative`, produces no Operation result, and does not change build state or consume
+> RNG.
+
+> The selection Operation has this closed control flow. It first evaluates `is-empty` under
+> `standard.schema.list-empty-v1` for the options and `no_reward_on_empty` lists. Its `branch` on
+> the options result executes exactly one arm. The empty arm compares the fallback-empty Boolean
+> with false and applies `require` with
+> `selection-exhausted`; it then reads index zero, validates the no-reward disposition, writes
+> `selected_reward` and `reward_score`, and completes with `no-reward`. The non-empty arm performs
+> the Named-stream draw, reads one paired `RewardOption`, validates its Package-owned relations,
+> writes the same state ports, and continues to the default `selected` outcome. The successful
+> Operation result reads `selected_reward` from its state port, so no branch-local value escapes.
+> The build Operation branches on the selected disposition: the no-reward arm completes before any
+> plan lookup or write; the build arm validates and writes the replacement, then continues to its
+> default success outcome. These traces use no label jump, loop, evaluator callback, or game-specific
+> dispatch.
 
 ## Decision
 
@@ -105,7 +122,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
   | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
-  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, explicit selection exhaustion, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
+  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee rarity policies, separately declared exhaustion fallbacks, explicit selection exhaustion, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
   | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
   | `game.decision` | optional bounded candidate evaluation, selection of one admitted immutable Action plan, and policy-governed observable Intent projection | Action-plan schema/admission/identity, encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
@@ -271,8 +288,8 @@ distribution contract and a falsifiable definition of genre completeness.
   RPG/Roguelike support claim.
 
 - **The Roguelike minimum coverage adds:** seeded constrained reward generation; closed fixed,
-  pity, and guarantee/fallback rarity-policy behavior; generated effect pools that compose
-  generation with the ordinary Effect lifecycle;
+  pity, and guarantee rarity-policy behavior with separately declared exhaustion fallbacks;
+  generated effect pools that compose generation with the ordinary Effect lifecycle;
   build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown; explicit
   typed transfer into Meta-scope progression and its Model Source-derived projection into a
   subsequent run; and replay equality under identical model, experiment, Resolved Runtime profile,

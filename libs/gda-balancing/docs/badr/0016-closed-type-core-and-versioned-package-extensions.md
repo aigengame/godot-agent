@@ -35,20 +35,21 @@ therefore requires a small closed type language and a constrained package extens
 
 > **Amendment (2026-08-12, #640):** Package execution evidence uses the Kernel
 > `operation-execution` vector kind. It binds one exact Operation, supplies every declared input,
-> derives mutable state from `read-write` ports, and compares a closed completion, result, named-RNG
-> draw projection, and final state. Scalar values follow their declared contracts; nominal Enum,
-> Record, List, and Ref values use exact typed envelopes and recursive LDB value admission. LDB
-> admission closes vector structure, identity, references, types, and manifest binding. The
-> production conformance path and one independent consumer execute the manifest-bound vectors
-> before a maintained release enters the LDB. Public Runtime does not discover or execute these
-> package evidence children.
+> derives mutable state from `read-write` ports, and compares a closed completion, result,
+> Named-stream RNG draw projection, and final state. Scalar values follow their declared contracts;
+> nominal Enum, Record, List, and Ref values use exact typed envelopes and recursive LDB value
+> admission. LDB admission closes vector structure, identity, references, types, and manifest
+> binding.
 
-> The unreleased Standard Schema 2.0 baseline may still add an irreducible primitive when a failing
-> generic product-feedback scenario proves it necessary and the architecture gate explicitly
-> reopens. Such a change replaces the provisional exact Kernel identity and requires all affected
-> authority and evidence to be rebuilt. After the Schema-major baseline freezes for release, an
-> irreducible addition requires the next Schema major. Issue #640 applies the pre-freeze rule; it
-> does not preserve the earlier provisional Core Extension Invariance claim.
+> Before a maintained release enters the checked-in LDB, a development conformance harness creates
+> an isolated candidate graph from the current exact Kernel, maintained releases, and proposed
+> replacements. It admits that complete graph, enumerates each candidate manifest's exact vector
+> child, executes every applicable vector through the production evaluator adapter and one
+> independent consumer, and compares their canonical completion, result, state, and RNG
+> observations. Only agreement permits the maintenance workflow to rebuild the checked-in LDB
+> root. Public Runtime, the package resolver, and the identity rebuild tool do not discover or
+> execute vectors. bADR-0022 owns the pre-freeze Kernel-evolution rule; #640 applies it and therefore
+> invalidates invariance evidence for the superseded provisional Kernel.
 
 ## Decision
 
@@ -271,14 +272,15 @@ therefore requires a small closed type language and a constrained package extens
   receipt is conformance evidence, not a new semantic authority; its exact inputs and independent
   verifier are checked through the ordinary claim-closure path.
 
-- **Every package ships executable conformance evidence.** Positive, negative, boundary,
+- **Every package ships executable conformance evidence.** Applicable positive, negative, boundary,
   compatibility, deterministic replay, and declared-effect vectors are required before a package
-  enters the Language Definition Bundle. The Package Release manifest binds exactly one
+  enters the Language Definition Bundle. A package does not add an empty vector category only for
+  matrix symmetry. The Package Release manifest binds exactly one
   package-owned conformance-vector set, including a closed empty set when no vectors are currently
   required. Execution vectors use the Kernel-declared `operation-execution` form; malformed typed
   values, incompatible port or state contracts, undeclared completions, and mismatched expected
-  results or state refuse. The resolver and reference evaluator derive vectors from admitted vector
-  children, not from inline manifest fields or a parallel test registry.
+  results or state refuse. The development conformance harness enumerates vectors from admitted
+  vector children, not from inline manifest fields or a parallel test registry.
 
 - **This decision supersedes the conflicting 2.x portions of bADR-0001, bADR-0002, and
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core

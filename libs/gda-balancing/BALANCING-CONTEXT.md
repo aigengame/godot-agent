@@ -92,9 +92,10 @@ values exactly cover the Operation ports; `read-write` ports derive the state in
 expectation records an outcome or typed refusal, a produced value or `not-produced`, the stable
 Named-stream RNG projection, and final state. Nominal structured values use exact typed envelopes;
 scalar values follow their declared contracts. LDB admission closes its structure, identities,
-types, and bindings, while production and independent conformance consumers execute it before the
-maintained Package Release enters the LDB. Public Runtime does not discover or execute the vector
-(bADR-0016/0022).
+types, and bindings. During LDB maintenance, a development conformance harness admits the candidate
+release in an isolated complete LDB graph, enumerates its manifest-bound vectors, and compares the
+production and independent consumers before the maintained graph is rebuilt. Public Runtime does
+not discover or execute the vector (bADR-0016/0022).
 _Avoid_: runtime scenario, Experiment scenario, package test script, full Event Trace
 
 **Admitted language index**:
@@ -109,9 +110,8 @@ The versioned, non-self-hosted authority that defines bundle structure and inter
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
 conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
-refusals, resource units, and canonical behavior. Before an unreleased Schema-major baseline
-freezes, an explicitly reopened architecture gate may add a demonstrated primitive and reidentify
-the provisional Kernel. After freeze, adding a primitive requires the next Schema major.
+refusals, resource units, and canonical behavior. Its evolution follows the pre-freeze and
+post-freeze rule in bADR-0022.
 Its identity law also names every authority-artifact identity domain; package meta-format contracts
 own package id/version grammar. Every Language Definition Bundle binds one exact
 kernel-specification identity. Host implementations conform to the kernel and bundle; a Python function, reference
@@ -120,9 +120,10 @@ _Avoid_: reference implementation as authority, host semantic kernel, implicit b
 
 **Semantic kernel**:
 The closed bootstrap operation set whose laws are fixed by the Schema-major Kernel Specification:
-literals, reads, calls, conditionals, local bindings, bounded aggregation, lookup, sampling, and
-transition/event primitives. Language Definition Bundle rules compose those primitives into
-language and domain behavior. An irreducible addition is a Schema-major kernel change with formal
+literals, reads, calls, value conditionals, structured conditional branches, local bindings,
+bounded aggregation, lookup, sampling, and transition/event primitives. Language Definition Bundle
+rules compose those primitives into language and domain behavior. An irreducible addition is a
+Schema-major kernel change with formal
 laws, independent conforming implementations, and normative vectors (bADR-0022).
 _Avoid_: standard library, evaluator built-ins, host functions
 
@@ -754,26 +755,27 @@ effect application, or build admission—without forcing every reward through an
 _Avoid_: reward grant (without destination semantics), universal inventory transfer
 
 **Reward rarity policy**:
-A `game.generation`-owned closed selection policy whose declared variant is fixed, pity,
-guarantee, or fallback composition. Each variant specifies its state, reset, eligibility,
-exhaustion, and refusal laws; a pity bound does not silently imply a guarantee
-(bADR-0017).
+A `game.generation`-owned closed selection policy whose declared variant is fixed, pity, or
+guarantee. Each variant specifies its state, reset, eligibility, and refusal laws. Selection
+exhaustion behavior is a separate declared fallback; a pity bound does not silently imply a
+guarantee or fallback (bADR-0017).
 _Avoid_: luck curve, implicit pity, rarity callback
 
 **Selection exhaustion**:
-The `game.generation` result when an already ordered eligible pool contains no selectable option.
-It is not a candidate/result length mismatch, contradictory option data, or a later build conflict.
+Selection exhaustion occurs when an already ordered eligible pool contains no selectable option.
+It is not contradictory option data, an invalid fallback value, or a later build conflict.
 Without a declared fallback it is a typed refusal; with an applicable declared fallback it enters
 that fallback's gameplay outcome (bADR-0017).
 _Avoid_: empty candidate selected, invalid pool, build conflict
 
 **Declared fallback**:
-A `game.generation` policy branch that names its trigger and exact bounded fallback value before
-Runtime execution. `no-reward-on-empty` applies only to selection exhaustion, consumes no RNG,
-preserves the policy draw count, and publishes its no-reward selection as a committed gameplay
-outcome. A normally selectable no-reward option is not fallback. Relaxed-pool behavior requires an
-actual excluded pool, eligibility predicate, and relaxation order; the term alone declares no
-semantics (bADR-0017).
+A `game.generation` exhaustion declaration that names its trigger and exact bounded fallback value
+before Runtime execution. The zero-or-one `no_reward_on_empty` field is independent of the primary rarity
+policy. When it applies, the Operation commits the exact fallback selection to its declared
+`selected_reward` state, completes with the `no-reward` gameplay outcome, produces no Operation
+result, preserves the policy draw count, and consumes no RNG. A normally selectable no-reward
+option is not fallback. Relaxed-pool behavior requires an actual excluded pool, eligibility
+predicate, and relaxation order; the term alone declares no semantics (bADR-0017).
 _Avoid_: sentinel candidate, evaluator default, implicit retry, relaxed-pool label without a pool
 
 **Action plan**:
