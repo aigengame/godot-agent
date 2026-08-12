@@ -408,7 +408,7 @@ def _candidate_model_source(
     manifest_id = "standard.conformance.operation-execution-model"
     formulas, formula_bindings = _formula_sources(context, operation, aliases)
     requirements = sorted(
-        {operation_owner, quantity_coordinate[:2]},
+        {operation_owner, *(coordinate[:2] for coordinate in coordinates)},
         key=lambda row: tuple(member.encode("utf-8") for member in row),
     )
     return (

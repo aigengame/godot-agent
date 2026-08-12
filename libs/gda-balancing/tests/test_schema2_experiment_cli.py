@@ -2177,6 +2177,12 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         }
     ]
     fallback = pool["no_reward_on_empty"][0]
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans.clear()
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -2471,20 +2477,22 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
             ]
         )
 
-        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
-        receipt = json.loads(stdout)
-        event = next(
-            row
-            for row in _member(receipt, "event-trace")["events"]
-            if row["operation"] == "game.build.replace-reward-v1"
-        )
-        assert event["outcome"] == {
-            "id": "plan-mismatch",
-            "kind": "gameplay-alternative",
-        }, contradiction
-        assert event["state_after"] == event["state_before"], contradiction
-        assert not any(row["name"] == "build_result" for row in event["facts"]), (
-            contradiction
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.build.invalid_plan"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.build.invalid_plan"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"][
+            "state_before"
+        ], contradiction
+        assert not any(
+            row["name"] == "build_result"
+            for row in audit["last_snapshot"]
         )
 
 
@@ -2830,6 +2838,53 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     assert audit["refusing_event"]["instruction_index"] == 4
     assert audit["budget_counters"]["event_steps"] == 5
     assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+
+
+def test_structured_terminal_audit_preserves_a_committed_event_prefix(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "accepted-selection",
+            "entrypoint": "structured.select-candidate-a",
+        },
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "refused-selection",
+            "logical_time": 1,
+            "entrypoint": "structured.select-candidate-b",
+        },
+    ]
+    scenario["terminal_condition"]["maximum"] = 2
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "structured-terminal-audit"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    audit = _member(
+        json.loads(stdout)["error"]["terminal_audit"],
+        "runtime-terminal-audit",
+    )
+    assert len(audit["committed_trace_prefix"]) == 1
+    assert any(
+        fact["kind"] == "structured"
+        for fact in audit["committed_trace_prefix"][0]["facts"]
+    )
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
@@ -7010,6 +7065,57 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
         "generation.select.invalid-fallback-refusal",
         "generation.select.invalid-option-refusal",
     }
+
+
+def test_build_operation_vectors_cover_success_alternatives_and_refusal():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "game.build"
+    } == {
+        "build.replace.success",
+        "build.replace.no-reward-outcome",
+        "build.replace.conflict-outcome",
+        "build.replace.invalid-plan-refusal",
+    }
+
+
+def test_build_operation_guards_no_reward_before_plan_access_without_rng():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.build.replace-reward-v1"
+    )
+
+    assert operation["body"][:3] == [
+        {
+            "key": "disposition",
+            "node": "lookup",
+            "target": "selected_disposition",
+            "value": "selected_reward",
+        },
+        {
+            "left": "selected_disposition",
+            "node": "equal",
+            "right": "expected_no_reward_disposition",
+            "target": "no_reward_selected",
+        },
+        {
+            "body": [],
+            "condition": "no_reward_selected",
+            "node": "guard-block",
+            "outcome": "no-reward",
+        },
+    ]
+    assert operation["effects"] == [
+        "event.commit",
+        "metric.observe",
+        "snapshot.commit",
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 50}
 
 
 def test_candidate_graph_executes_every_operation_vector_in_two_consumers():

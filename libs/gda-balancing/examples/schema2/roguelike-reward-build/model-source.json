@@ -64,12 +64,12 @@
         {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
         {"port": "build_plans", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_plans"}},
         {
-          "port": "expected_build_disposition",
+        "port": "expected_no_reward_disposition",
           "operand": {
             "kind": "literal",
             "value": {
               "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardDisposition"},
-              "value": "build"
+            "value": "no-reward"
             }
           }
         },
