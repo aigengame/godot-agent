@@ -6,10 +6,19 @@ from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.experiment import CheckedExperiment
+from gda_balancing.domain.operation_program import (
+    OperationCoordinate,
+    instruction_evaluation_sites,
+    operation_coordinate,
+    selected_operation_index,
+)
 from gda_balancing.domain.runtime.projections import (
     formula_programs_reachable_from_entrypoints,
+    operation_formula_evaluation_record,
+    resolved_display_names,
     runtime_contract,
     runtime_nodes,
+    scheduler_contract,
 )
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
@@ -19,6 +28,7 @@ from gda_balancing.domain.structured_values import (
     is_empty_typed_value,
     lookup_selector_kind,
     lookup_typed_value,
+    selected_structured_value_index,
     typed_envelope_members,
 )
 
@@ -526,3 +536,422 @@ def evaluate_initialization_programs(
         if not progressed:
             raise ValueError("admitted initialization program graph is cyclic")
     return consumed_steps
+
+
+def replay_event_evidence(
+    checked: CheckedExperiment,
+    parent_event: dict[str, JsonValue],
+    parent_spec: dict[str, JsonValue],
+    target_schedule: dict[str, JsonValue] | None,
+    root_arguments: tuple[
+        dict[str, JsonValue],
+        dict[str, dict[str, JsonValue]],
+        dict[bytes, Any],
+    ],
+    *,
+    scenario_id: str,
+    catalog_by_id: dict[str, dict[str, JsonValue]],
+    events_by_id: dict[str, dict[str, JsonValue]],
+) -> (
+    tuple[
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
+        list[dict[str, JsonValue]],
+    ]
+    | None
+):
+    """Replay one committed Operation event without using Runtime execution."""
+    operations = selected_operation_index(checked.rir["selected_semantics"])
+    formula_bindings_by_site = {
+        cast(str, cast(dict[str, Any], binding["site"])["identity"]): binding
+        for binding in cast(list[dict[str, Any]], checked.rir["formula_bindings"])
+        if cast(dict[str, Any], binding["site"])["kind"] == "operation-slot"
+    }
+    entrypoint_reference = parent_event.get("entrypoint")
+    if isinstance(entrypoint_reference, dict):
+        entrypoint = next(
+            (
+                row
+                for row in checked.rir["entrypoints"]
+                if row["id"] == entrypoint_reference.get("id")
+            ),
+            None,
+        )
+        root_reference = entrypoint.get("operation") if entrypoint is not None else None
+    else:
+        root_reference = parent_spec.get("operation")
+    if not isinstance(root_reference, dict):
+        return None
+    try:
+        root_coordinate = operation_coordinate(root_reference)
+    except (KeyError, TypeError):
+        return None
+    root_operation = operations.get(root_coordinate)
+    if root_operation is None or parent_event.get("operation") != root_coordinate[2]:
+        return None
+    declarations = {
+        canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
+        for row in cast(list[dict[str, Any]], checked.rir["declarations"])
+    }
+    display_names = resolved_display_names(declarations)
+    values_by_name = {
+        cast(str, row["name"]): row["value"]
+        for row in cast(list[dict[str, JsonValue]], parent_event["state_before"])
+    }
+    state: dict[bytes, JsonValue] = {
+        identity: values_by_name[display_name]
+        for identity, display_name in display_names.items()
+        if display_name in values_by_name
+    }
+    actual_values = root_arguments[2]
+    calls = cast(list[dict[str, JsonValue]], parent_event["calls"])
+    schedules = cast(list[dict[str, JsonValue]], parent_event["schedules"])
+    draws = cast(list[dict[str, JsonValue]], parent_event["rng_draws"])
+    draw_index = 0
+    formula_evaluations: list[dict[str, JsonValue]] = []
+    runtime = runtime_contract(checked)
+    rng = ReplayNamedRng(
+        cast(int, checked.value["seed"]["value"]),
+        cast(dict[str, Any], runtime["named_rng"]),
+    )
+
+    def consume_authoritative_draw(traced: dict[str, JsonValue]) -> int | None:
+        try:
+            value, index, candidate, accepted = rng.draw(
+                cast(str, traced["stream"]),
+                cast(int, traced["minimum"]),
+                cast(int, traced["maximum"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        expected = {
+            "stream": traced["stream"],
+            "index": index,
+            "candidate_hex": rng.encode_candidate(candidate),
+            "accepted": accepted,
+            "minimum": traced["minimum"],
+            "maximum": traced["maximum"],
+            "value": value,
+        }
+        return value if traced == expected else None
+
+    for prior_event in sorted(
+        events_by_id.values(), key=lambda row: cast(int, row["index"])
+    ):
+        if cast(int, prior_event["index"]) >= cast(int, parent_event["index"]):
+            break
+        prior_record = catalog_by_id.get(cast(str, prior_event["event_id"]))
+        if prior_record is None:
+            return None
+        if prior_record["scenario"] != scenario_id:
+            continue
+        if any(
+            consume_authoritative_draw(draw) is None
+            for draw in cast(list[dict[str, JsonValue]], prior_event["rng_draws"])
+        ):
+            return None
+    numeric = cast(dict[str, Any], runtime["numeric"])
+    node_contracts = runtime_nodes(checked)
+    structured_authority = selected_structured_value_index(
+        cast(dict[str, Any], checked.rir["selected_semantics"]),
+        kernel=checked.kernel,
+    )
+    structured_resource_limit = cast(
+        int, checked.language_bundle["resources"]["max_rule_match_steps"]
+    )
+    schedule_identity = scheduler_contract(checked)["call_site_identity"]["schedule"]
+
+    def execute(
+        coordinate: OperationCoordinate,
+        operation: dict[str, Any],
+        arguments: dict[str, JsonValue],
+        state_references: dict[str, dict[str, JsonValue]],
+        call_path: tuple[str, ...],
+    ) -> tuple[
+        str,
+        JsonValue,
+        tuple[dict[str, JsonValue], dict[str, dict[str, JsonValue]]] | None,
+    ]:
+        nonlocal draw_index
+        operation_before = dict(state)
+        variables: dict[str, Any] = dict(arguments)
+        extensions = operation.get("extensions", {})
+        snapshot_operands = (
+            extensions.get("standard.snapshot-operands")
+            if isinstance(extensions, dict)
+            else None
+        )
+        if isinstance(snapshot_operands, dict):
+            for row in cast(
+                list[dict[str, Any]], snapshot_operands.get("operands", [])
+            ):
+                identity = canonical_bytes(cast(JsonValue, row["resolved_symbol"]))
+                if identity not in actual_values:
+                    return "", None, None
+                variables[cast(str, row["name"])] = actual_values[identity]
+        operation_results: dict[str, JsonValue] = {}
+        outcome = cast(str, operation["default_outcome"])
+        evaluation_sites = instruction_evaluation_sites(operation)
+        for instruction_index, instruction in enumerate(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            evaluation_site_identity = evaluation_sites.get(instruction_index)
+            node_contract = node_contracts[instruction["node"]]
+            operator = node_contract["semantics"]["operator"]
+            if operator == "invoke-operation":
+                child_coordinate = operation_coordinate(instruction["operation"])
+                child = operations.get(child_coordinate)
+                if child is None:
+                    return "", None, None
+                child_arguments: dict[str, JsonValue] = {}
+                child_state_references: dict[str, dict[str, JsonValue]] = {}
+                for binding in instruction["arguments"]:
+                    operand = binding["operand"]
+                    name = cast(str, binding["port"])
+                    if operand["kind"] == "port":
+                        source = cast(str, operand["port"])
+                        child_arguments[name] = cast(JsonValue, variables[source])
+                        if source in state_references:
+                            child_state_references[name] = state_references[source]
+                    elif operand["kind"] == "local":
+                        child_arguments[name] = cast(
+                            JsonValue, variables[operand["local"]]
+                        )
+                    else:
+                        child_arguments[name] = cast(JsonValue, operand["literal"])
+                child_path = (*call_path, cast(str, instruction["site"]))
+                child_outcome, child_result, found = execute(
+                    child_coordinate,
+                    child,
+                    child_arguments,
+                    child_state_references,
+                    child_path,
+                )
+                if found is not None:
+                    return "", None, found
+                call = next(
+                    (
+                        row
+                        for row in calls
+                        if row["site"] == "/".join(child_path)
+                        and operation_coordinate(
+                            cast(dict[str, Any], row["operation"])
+                        )
+                        == child_coordinate
+                    ),
+                    None,
+                )
+                if (
+                    call is None
+                    or cast(dict[str, JsonValue], call["outcome"])["id"]
+                    != child_outcome
+                ):
+                    return "", None, None
+                result_binding = instruction["result"]
+                if result_binding["kind"] == "local":
+                    variables[result_binding["name"]] = child_result
+                elif result_binding["kind"] == "operation-result":
+                    operation_results[instruction["site"]] = child_result
+                for alias, target in state_references.items():
+                    variables[alias] = state[canonical_bytes(cast(JsonValue, target))]
+                mapping = next(
+                    row
+                    for row in instruction["outcomes"]
+                    if row["outcome"] == child_outcome
+                )
+                if mapping["action"]["kind"] == "propagate":
+                    outcome = cast(str, mapping["action"]["outcome"])
+                    break
+                continue
+            if operator == "schedule-operation":
+                child_arguments = {}
+                child_state_references = {}
+                for binding in instruction["arguments"]:
+                    operand = binding["operand"]
+                    name = cast(str, binding["port"])
+                    if operand["kind"] == "port":
+                        source = cast(str, operand["port"])
+                        child_arguments[name] = cast(JsonValue, variables[source])
+                        if source in state_references:
+                            child_state_references[name] = state_references[source]
+                    elif operand["kind"] == "local":
+                        child_arguments[name] = cast(
+                            JsonValue, variables[operand["local"]]
+                        )
+                    else:
+                        child_arguments[name] = cast(JsonValue, operand["literal"])
+                call_site_identity = content_identity(
+                    cast(str, schedule_identity["domain"]),
+                    cast(
+                        JsonValue,
+                        {
+                            "parent_event_id": parent_event["event_id"],
+                            "parent_operation": coordinate[2],
+                            "site": instruction["site"],
+                            "operation": instruction["operation"],
+                        },
+                    ),
+                )
+                if (
+                    target_schedule is not None
+                    and target_schedule["call_site_identity"] == call_site_identity
+                    and target_schedule["call_path"] == "/".join(call_path)
+                ):
+                    return "", None, (child_arguments, child_state_references)
+                scheduled = next(
+                    (
+                        row
+                        for row in schedules
+                        if row["call_site_identity"] == call_site_identity
+                        and row["call_path"] == "/".join(call_path)
+                    ),
+                    None,
+                )
+                if scheduled is None:
+                    return "", None, None
+                variables[instruction["result"]["name"]] = scheduled["event_id"]
+                continue
+            if operator == "cancel-event":
+                continue
+            if operator == "gameplay-precondition":
+                if not integer_compare(
+                    node_contract["semantics"]["comparison"],
+                    cast(int, variables[instruction["left"]]),
+                    cast(int, variables[instruction["right"]]),
+                ):
+                    outcome = cast(str, instruction["outcome"])
+                    break
+            elif operator == "typed-require":
+                if variables[instruction["condition"]] != instruction["expected"]:
+                    return "", None, None
+            elif operator == "guarded-outcome-block":
+                if variables[instruction["condition"]]:
+                    guarded_operation = {
+                        "body": instruction["body"],
+                        "default_outcome": instruction["outcome"],
+                        "extensions": {},
+                        "id": operation["id"],
+                        "outcomes": list(operation["outcomes"]),
+                        "result": {"source": {"kind": "unit"}},
+                    }
+                    guarded_outcome, _guarded_result, found = execute(
+                        coordinate,
+                        guarded_operation,
+                        variables,
+                        state_references,
+                        call_path,
+                    )
+                    if found is not None:
+                        return "", None, found
+                    if guarded_outcome != instruction["outcome"]:
+                        return "", None, None
+                    outcome = cast(str, instruction["outcome"])
+                    break
+            elif operator == "named-integer-draw":
+                if draw_index >= len(draws):
+                    return "", None, None
+                draw = draws[draw_index]
+                draw_index += 1
+                if (
+                    draw["stream"] != instruction["stream"]
+                    or draw["minimum"] != instruction["minimum"]
+                    or draw["maximum"] != instruction["maximum"]
+                ):
+                    return "", None, None
+                value = consume_authoritative_draw(draw)
+                if value is None:
+                    return "", None, None
+                variables[instruction["target"]] = value
+            elif node_contract["family"] == "expression":
+                execute_value_instruction(
+                    instruction,
+                    variables,
+                    numeric,
+                    node_contract,
+                    structured_authority=structured_authority,
+                    structured_resource_limit=structured_resource_limit,
+                )
+            elif operator in {"state-integer-subtract", "state-write"}:
+                formal = cast(str, instruction["symbol"])
+                target = canonical_bytes(cast(JsonValue, state_references[formal]))
+                declaration = declarations.get(target)
+                if declaration is None:
+                    return "", None, None
+                state[target] = admit_declared_value(
+                    cast(int, state[target])
+                    - cast(int, variables[instruction["value"]])
+                    if operator == "state-integer-subtract"
+                    else variables[instruction["value"]],
+                    numeric,
+                    declaration,
+                    structured_authority=structured_authority,
+                    structured_resource_limit=structured_resource_limit,
+                )
+                for alias, alias_target in state_references.items():
+                    if canonical_bytes(cast(JsonValue, alias_target)) == target:
+                        variables[alias] = state[target]
+            else:
+                return "", None, None
+            if (
+                evaluation_site_identity is not None
+                and evaluation_sites.get(instruction_index + 1)
+                != evaluation_site_identity
+            ):
+                binding = formula_bindings_by_site.get(evaluation_site_identity)
+                if binding is None:
+                    return "", None, None
+                evaluation = operation_formula_evaluation_record(
+                    operation,
+                    binding,
+                    variables,
+                    evaluation_site_identity=evaluation_site_identity,
+                    frame_identity=cast(
+                        JsonValue, parent_event["snapshot_before_identity"]
+                    ),
+                    call_path=call_path,
+                )
+                if evaluation is None:
+                    return "", None, None
+                formula_evaluations.append(evaluation)
+        outcome_definition = next(
+            row for row in operation["outcomes"] if row["id"] == outcome
+        )
+        if outcome_definition["state_policy"] == "rollback":
+            state.clear()
+            state.update(operation_before)
+        result_source = operation["result"]["source"]
+        if outcome_definition["kind"] != "success":
+            result: JsonValue = None
+        elif result_source["kind"] in {"local", "port"}:
+            result = cast(JsonValue, variables[result_source["name"]])
+        elif result_source["kind"] == "operation-result":
+            result = operation_results[result_source["site"]]
+        else:
+            result = None
+        return outcome, result, None
+
+    root_state_references = {name: target for name, target in root_arguments[1].items()}
+    root_path = (
+        (cast(str, cast(dict[str, JsonValue], parent_event["entrypoint"])["id"]),)
+        if parent_event.get("entrypoint") is not None
+        else (f"scheduled:{parent_spec['call_site_identity']}",)
+    )
+    try:
+        replayed_outcome, _result, found = execute(
+            root_coordinate,
+            root_operation,
+            root_arguments[0],
+            root_state_references,
+            root_path,
+        )
+    except (
+        KeyError,
+        OverflowError,
+        StopIteration,
+        StructuredValueFault,
+        TypeError,
+        ValueError,
+    ):
+        return None
+    if not replayed_outcome and found is None:
+        return None
+    return found, formula_evaluations
