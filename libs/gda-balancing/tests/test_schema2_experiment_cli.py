@@ -16,6 +16,7 @@ import gda_balancing.application.experiment_run as experiment_run_application_mo
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.evidence as experiment_evidence_module
+import gda_balancing.domain.evidence_replay as evidence_replay_module
 import gda_balancing.domain.operation_program as operation_program_module
 import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
@@ -3333,6 +3334,44 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     assert audit["refusing_event"]["reason"] == "runtime.step_limit_exceeded"
     assert audit["budget_counters"]["event_steps"] > 0
     assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+
+    replay_rir = deepcopy(checked.rir)
+    entrypoint = next(
+        row
+        for row in replay_rir["entrypoints"]
+        if row["id"] == audit["refusing_event"]["event_spec"]["entrypoint"]
+    )
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
+    selected_semantics = replay_rir["selected_semantics"]
+    selected = next(
+        row
+        for row in selected_semantics["operations"]
+        if row["package"] == root_coordinate[0]
+        and row["definition"]["id"] == root_coordinate[2]
+    )
+    decoy = deepcopy(selected)
+    decoy["package"] = "example.decoy"
+    decoy["definition"]["body"] = []
+    selected_semantics["packages"].append(
+        {"id": "example.decoy", "version": "1.0.0"}
+    )
+    selected_semantics["operations"].append(decoy)
+    budget = audit["budget_counters"]
+    replay_profile = next(
+        row
+        for row in selected_semantics["runtime_profiles"]
+        if row["id"] == checked.value["runtime"]["profile"]
+    )
+    assert evidence_replay_module.attempted_operation_charge(
+        replace(checked, rir=replay_rir),
+        audit["refusing_event"],
+        audit["refusing_event"]["event_spec"],
+        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
+        bounds=replay_profile["resource_bounds"],
+        require_budget_breach=True,
+    ) == budget["event_steps"]
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
