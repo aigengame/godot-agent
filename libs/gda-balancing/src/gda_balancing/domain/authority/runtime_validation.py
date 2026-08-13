@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.domain.canonical import JsonValue, content_identity
+from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     StructuredValueIndex,
@@ -18,6 +18,22 @@ from gda_balancing.domain.structured_values import (
 
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
+)
+
+_LITERAL_CONTEXT_MEMBERS = (
+    "id",
+    "type",
+    "representation",
+    "kind",
+    "unit",
+    "domain",
+    "numeric_policy",
+)
+
+_STRUCTURED_LITERAL_CONTEXT_MEMBERS = (
+    "id",
+    "type",
+    "value_kind",
 )
 
 
@@ -39,6 +55,120 @@ def operation_value_contract_matches(
             "numeric_policy",
         )
     )
+
+
+def fixed_operation_value_contract(
+    kernel: dict[str, Any], contract_id: str
+) -> dict[str, Any] | None:
+    """Resolve one Kernel-owned fixed Operation value contract."""
+    runtime_program = kernel.get("meta_format", {}).get("runtime_program")
+    fixed_contracts = (
+        runtime_program.get("fixed_value_contracts")
+        if isinstance(runtime_program, dict)
+        else None
+    )
+    contract = (
+        fixed_contracts.get(contract_id) if isinstance(fixed_contracts, dict) else None
+    )
+    return contract if isinstance(contract, dict) else None
+
+
+def operation_literal_context_contract(
+    value: Any,
+    formal: dict[str, Any],
+    kernel: dict[str, Any],
+    selected_semantics: dict[str, Any],
+) -> dict[str, JsonValue] | None:
+    """Select the unique authority-owned literal context for an Operation port."""
+    literal_contract = kernel.get("meta_format", {}).get("literal_typing")
+    selected = selected_semantics.get("literal_typing_profiles")
+    if (
+        not isinstance(literal_contract, dict)
+        or literal_contract.get("selection") != "unique-formal-match"
+        or not isinstance(selected, list)
+    ):
+        return None
+    profiles = [
+        row["definition"]
+        for row in selected
+        if isinstance(row, dict) and isinstance(row.get("definition"), dict)
+    ]
+    typed_envelope_contract = literal_contract.get("typed_envelope_profile")
+    admission = (
+        typed_envelope_contract.get("admission")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    envelope_members = (
+        admission.get("envelope_members") if isinstance(admission, dict) else None
+    )
+    type_member = (
+        typed_envelope_contract.get("type_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    value_member = (
+        typed_envelope_contract.get("value_member")
+        if isinstance(typed_envelope_contract, dict)
+        else None
+    )
+    if (
+        isinstance(value, dict)
+        and isinstance(envelope_members, list)
+        and isinstance(type_member, str)
+        and isinstance(value_member, str)
+        and set(envelope_members) == {type_member, value_member}
+        and set(value) == set(envelope_members)
+        and isinstance(value.get(type_member), dict)
+        and isinstance(formal.get("type"), dict)
+    ):
+        matches = [
+            profile
+            for profile in profiles
+            if isinstance(profile, dict)
+            and isinstance(typed_envelope_contract, dict)
+            and profile.get("id") == typed_envelope_contract.get("id")
+            and profile.get("source_kind") == "typed-envelope"
+            and profile.get("value_kind") == typed_envelope_contract.get("value_kind")
+            and formal.get("value_kind") == profile.get("value_kind")
+            and canonical_bytes(cast(JsonValue, value[type_member]))
+            == canonical_bytes(cast(JsonValue, formal.get("type")))
+        ]
+        if len(matches) != 1:
+            return None
+        profile = cast(dict[str, JsonValue], matches[0])
+        context = {**profile, "type": cast(JsonValue, value[type_member])}
+        return {
+            member: context[member] for member in _STRUCTURED_LITERAL_CONTEXT_MEMBERS
+        }
+    if not isinstance(value, int) or isinstance(value, bool):
+        return None
+    matches = [
+        profile
+        for profile in profiles
+        if isinstance(profile, dict)
+        and profile.get("source_kind") == "integer"
+        and isinstance(profile.get("minimum"), int)
+        and not isinstance(profile["minimum"], bool)
+        and isinstance(profile.get("maximum"), int)
+        and not isinstance(profile["maximum"], bool)
+        and profile["minimum"] <= value <= profile["maximum"]
+        and profile.get("type") == formal.get("type")
+        and all(
+            profile.get(member) == formal.get(member)
+            for member in (
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+            )
+        )
+    ]
+    if len(matches) != 1:
+        return None
+    profile = cast(dict[str, JsonValue], matches[0])
+    return {member: profile[member] for member in _LITERAL_CONTEXT_MEMBERS}
 
 
 @dataclass(frozen=True)

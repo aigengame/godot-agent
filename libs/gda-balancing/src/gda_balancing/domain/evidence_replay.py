@@ -1152,13 +1152,14 @@ def attempted_operation_charge(
             operator = node_contracts[instruction["node"]]["semantics"]["operator"]
             if operator == "guarded-outcome-block":
                 guard_body = cast(list[dict[str, Any]], instruction["body"])
-                guard_start = instruction_index + 1
-                guard_stop = guard_start + len(guard_body)
+                guard_indices = guard_expanded_instruction_indices(
+                    guard_body, offset=instruction_index + 1
+                )
                 target_is_directly_in_guard = (
                     call_path == target_path
                     and operation["id"] == refusing_event["operation"]
                     and isinstance(target_instruction_index, int)
-                    and guard_start <= target_instruction_index < guard_stop
+                    and target_instruction_index in guard_indices
                 )
                 target_is_in_guard_call = any(
                     node_contracts[guard_instruction["node"]]["semantics"]["operator"]
@@ -1173,13 +1174,14 @@ def attempted_operation_charge(
                 )
                 if not (target_is_directly_in_guard or target_is_in_guard_call):
                     continue
-                for guard_offset, guard_instruction in enumerate(guard_body):
+                for guard_index, guard_instruction in zip(
+                    guard_indices, guard_body, strict=True
+                ):
                     operation_charge, breached = charge_instruction(
                         operation,
                         operation_charge,
                         guard_instruction,
                     )
-                    guard_index = guard_start + guard_offset
                     target = is_target(operation, call_path, guard_index, sites)
                     if breached or target:
                         return target and (breached or not require_budget_breach)

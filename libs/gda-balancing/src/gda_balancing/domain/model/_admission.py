@@ -30,7 +30,9 @@ from gda_balancing.domain.formula.notation import (
 from gda_balancing.domain.formula.types import (
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
-    literal_context_contract as _literal_context_contract,
+)
+from gda_balancing.domain.authority.runtime_validation import (
+    operation_literal_context_contract as _literal_context_contract,
 )
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
@@ -563,6 +565,7 @@ def _resolved_entrypoint_graph_is_admitted(
                 ),
                 operations,
                 operation_formula_dependencies,
+                operation_node_ids=_operation_reference_node_ids(kernel),
             )
         except ValueError:
             return False

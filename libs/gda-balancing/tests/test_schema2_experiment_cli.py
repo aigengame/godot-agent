@@ -20,6 +20,7 @@ import gda_balancing.domain.evidence_replay as evidence_replay_module
 import gda_balancing.domain.operation_program as operation_program_module
 import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
+import schema2_operation_execution_conformance_support as operation_conformance_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.domain.authority.context as authority_module
@@ -6733,6 +6734,32 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
     assert failures[0]["vector"] == vector["id"]
     assert failures[0]["production"] == failures[0]["independent"]
     assert failures[0]["production"] != failures[0]["expected"]
+
+
+def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
+    kernel, ldb = mutable_authorities()
+    target = "structured.select.empty-outcome"
+    evaluate = operation_conformance_module.evaluate_operation_execution_vector
+
+    def divergent_production(context, vector, **owner):
+        observation = deepcopy(evaluate(context, vector, **owner))
+        if vector["id"] == target:
+            observation["completion"]["id"] = "production-only-outcome"
+        return observation
+
+    monkeypatch.setattr(
+        operation_conformance_module,
+        "evaluate_operation_execution_vector",
+        divergent_production,
+    )
+
+    failures = candidate_conformance_failures(kernel, ldb)
+
+    assert len(failures) == 1
+    assert failures[0]["kind"] == "vector-divergence"
+    assert failures[0]["vector"] == target
+    assert failures[0]["production"] != failures[0]["independent"]
+    assert failures[0]["independent"] == failures[0]["expected"]
 
 
 def test_operation_execution_projection_preserves_declared_state_order():

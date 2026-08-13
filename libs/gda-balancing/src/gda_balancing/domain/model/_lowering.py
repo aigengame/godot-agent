@@ -19,13 +19,15 @@ from gda_balancing.domain.canonical import (
 from gda_balancing.domain.formula.types import (
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
-    literal_context_contract as _literal_context_contract,
     resolve_formula_contract as _resolved_formula_contract,
 )
 from gda_balancing.domain.authority.runtime_validation import (
+    fixed_operation_value_contract,
+    operation_literal_context_contract as _literal_context_contract,
     operation_value_contract_matches,
 )
 from gda_balancing.domain.operation_program import (
+    closed_operation_coordinates,
     project_operation_program,
     record_instruction_evaluation_sites,
 )
@@ -2848,18 +2850,19 @@ def _reachable_operation_formula_dependencies(
         tuple[str, str, str],
         list[dict[str, JsonValue]],
     ],
+    *,
+    operation_node_ids: set[str],
 ) -> list[dict[str, JsonValue]]:
-    reachable: set[tuple[str, str, str]] = set()
-    pending = [root]
+    definitions = {
+        coordinate: cast(dict[str, Any], row["definition"])
+        for coordinate, row in operations.items()
+    }
+    reachable = closed_operation_coordinates({root}, definitions, operation_node_ids)
     symbols: dict[tuple[str, str, str], dict[str, JsonValue]] = {}
-    while pending:
-        coordinate = pending.pop()
-        if coordinate in reachable:
-            continue
+    for coordinate in reachable:
         operation_row = operations.get(coordinate)
         if operation_row is None:
             raise ValueError("Operation Formula dependency graph is incomplete")
-        reachable.add(coordinate)
         for symbol in dependencies.get(coordinate, []):
             key = (
                 cast(str, symbol["model"]),
@@ -2867,18 +2870,6 @@ def _reachable_operation_formula_dependencies(
                 cast(str, symbol["name"]),
             )
             symbols[key] = symbol
-        operation = cast(dict[str, Any], operation_row["definition"])
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
-            if instruction.get("node") != "invoke":
-                continue
-            called = cast(dict[str, str], instruction["operation"])
-            pending.append(
-                (
-                    called["package"],
-                    called["version"],
-                    called["id"],
-                )
-            )
     return [symbols[key] for key in sorted(symbols)]
 
 
@@ -3332,6 +3323,7 @@ def _resolved_entrypoints(
             ),
             operations,
             operation_formula_dependencies,
+            operation_node_ids=_operation_reference_node_ids(checked.kernel),
         ):
             record_formula_dependency(dependency_symbol)
         try:
@@ -3435,11 +3427,12 @@ def _resolved_event_reference_operand(
     domains: dict[str, str],
 ) -> tuple[dict[str, JsonValue], str, dict[str, JsonValue]] | None:
     name = operand.get("name")
-    event_reference_contract = kernel["meta_format"]["runtime_program"][
-        "fixed_value_contracts"
-    ]["kernel-event-reference"]
+    event_reference_contract = fixed_operation_value_contract(
+        kernel, "kernel-event-reference"
+    )
     if (
-        formal.get("access") != "read"
+        event_reference_contract is None
+        or formal.get("access") != "read"
         or not isinstance(name, str)
         or not name
         or not operation_value_contract_matches(event_reference_contract, formal)
