@@ -2,12 +2,12 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-periodic-effect.same-time",
   "version": "1.0.0",
-  "kernel_identity": "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64",
-  "language_bundle_identity": "sha256:4d89d1d6e9250bf3a77ca74ab999643faec241bb49d46d22bf60679b83a4c912",
+  "kernel_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
+  "language_bundle_identity": "sha256:8f831f8cf6b4e9d9f8fd8c4a9fffe447bd9c838d5edf69e56893ecdd8e0a22f8",
   "model": {
     "source_identity": "sha256:8925004e32bab21428c8a1a971e3e91269a394f92f26b7ef1637fe6156351f83",
-    "build_receipt_identity": "sha256:0611dc94f02516970ec819f2486cb9ec6482d85000ce666e789c6439d9124b20",
-    "resolved_model_identity": "sha256:b75054cc663f2dfb6d4b8ffc7442154fa21f71cab75e746b894d4c94012c3a1b",
+    "build_receipt_identity": "sha256:880cd5011ced3ec083d2c8d03054b04959f72f7bfa5cf8509a7c76f8468881c5",
+    "resolved_model_identity": "sha256:64ce7a715c483467fbdf226903eca3fd5a5bdaa4a732fea9929d25598f8e786c",
     "package_lock_identity": "sha256:a1dbd5fc8f7be1bde4c7db86b0a62f8020daecd6a22aa038c10a87c190f72d62",
     "rir_identity": "sha256:6e89ec6ecc8d38dc1e1c4f1f77b6a5347fd1e007ffc2d2dfa28970df48d6bee7"
   },

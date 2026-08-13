@@ -81,7 +81,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64"
+    "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3724,9 +3724,22 @@ def _operation_composition_diagnostic_subjects(
                         return None
                 operator = node["semantics"]["operator"]
                 if operator == "typed-require":
-                    reason = instruction.get("reason")
+                    refusal_reference = node["semantics"].get("refusal_reference")
+                    reason_member = (
+                        refusal_reference.get("instruction_member")
+                        if isinstance(refusal_reference, dict)
+                        else None
+                    )
+                    reason = (
+                        instruction.get(reason_member)
+                        if isinstance(reason_member, str)
+                        else None
+                    )
                     if (
                         not isinstance(instruction.get("expected"), bool)
+                        or reason_member not in node["required_members"]
+                        or refusal_reference.get("source")
+                        != "enclosing-operation.refusals"
                         or not isinstance(reason, str)
                         or reason not in refusals
                     ):

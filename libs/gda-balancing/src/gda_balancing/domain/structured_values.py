@@ -992,6 +992,10 @@ def evaluate_structured_value_vector(
                 authority=authority,
                 resource_limit=limit,
             )
+        elif inp["action"] == "is-empty":
+            result = is_empty_typed_value(
+                inp["left"], authority=authority, resource_limit=limit
+            )
         else:
             raise ValueError("admitted structured-value vector has an unknown action")
     except StructuredValueFault as fault:

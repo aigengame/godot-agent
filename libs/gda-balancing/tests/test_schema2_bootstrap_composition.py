@@ -177,6 +177,73 @@ def test_two_consumers_refuse_invalid_runtime_control_compositions(mutation):
     )
 
 
+@pytest.mark.parametrize(
+    ("member", "replacement"),
+    (
+        ("instruction_member", "unknown-reason-member"),
+        ("source", "ambient-operation-refusals"),
+    ),
+)
+def test_two_consumers_follow_require_refusal_reference(
+    member, replacement, monkeypatch
+):
+    authority = _authority_candidate()
+    kernel = authority["kernel"]
+    require = next(
+        node
+        for node in kernel["meta_format"]["runtime_program"]["nodes"]
+        if node["id"] == "require"
+    )
+    require["semantics"]["refusal_reference"][member] = replacement
+    _reidentify(kernel, authority["language_bundle"])
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+    monkeypatch.setattr(
+        bootstrap_support, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+
+    first = _consumer_a(kernel, authority["language_bundle"])
+    second = _consumer_b(kernel, authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        "standard.conformance.structured.select-v1" in subject
+        for _stage, _code, subject in first["diagnostics"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("member", "replacement"),
+    (
+        ("owner_constructor", "standard.schema.record"),
+        ("operator", "unknown-list-law"),
+        ("result_contract", "kernel-unit"),
+        ("max_steps", 0),
+    ),
+)
+def test_two_consumers_close_list_empty_law(member, replacement):
+    authority = _authority_candidate()
+    ldb = authority["language_bundle"]
+    law = next(
+        row
+        for row in ldb["language"]["structured_operations"]
+        if row["id"] == "standard.schema.list-empty-v1"
+    )
+    target = law["resource_bounds"] if member == "max_steps" else law
+    if member in {"operator", "result_contract"}:
+        target = law["law"]
+    target[member] = replacement
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+
+
 def _install_negative_vector_artifact_contract(ldb, *, retain_standalone):
     language = ldb["language"]
     source = next(

@@ -612,9 +612,9 @@ def evaluate_operation_execution_vector(
         raise ValueError("operation execution vector target is unavailable")
     checked, result_name = _checked_vector_experiment(context, operation, vector)
     evaluation = evaluate_experiment(checked)
-    state_names = {
+    state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
-    }
+    ]
     if isinstance(evaluation, RuntimeRefusalOutcome):
         diagnostic = evaluation.report.diagnostics[0].code
         reasons = [
@@ -631,7 +631,7 @@ def evaluate_operation_execution_vector(
             "rng_draws": [],
             "state_after": [
                 {"name": name, "value": evaluation.state_after[name]}
-                for name in sorted(state_names, key=lambda value: value.encode("utf-8"))
+                for name in state_names
             ],
         }
     if isinstance(evaluation, Schema2RefusalReport):
@@ -657,7 +657,6 @@ def evaluate_operation_execution_vector(
             for draw in event["rng_draws"]
         ],
         "state_after": [
-            {"name": name, "value": state_after[name]}
-            for name in sorted(state_names, key=lambda value: value.encode("utf-8"))
+            {"name": name, "value": state_after[name]} for name in state_names
         ],
     }

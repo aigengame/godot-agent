@@ -853,10 +853,7 @@ def _replayed_event_evidence(
                         "default_outcome": instruction["outcome"],
                         "extensions": {},
                         "id": operation["id"],
-                        "outcomes": [
-                            {**definition, "state_policy": "commit"}
-                            for definition in operation["outcomes"]
-                        ],
+                        "outcomes": list(operation["outcomes"]),
                         "result": {"source": {"kind": "unit"}},
                     }
                     guarded_outcome, _guarded_result, found = execute(

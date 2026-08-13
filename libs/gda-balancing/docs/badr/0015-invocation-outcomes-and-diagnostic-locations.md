@@ -16,6 +16,13 @@ location into a JSON Pointer would lose the source, symbol, artifact, and runtim
 need to remediate it. PRD #534 therefore preserves the small outcome algebra while making the
 refusal payload stage-aware and artifact-aware.
 
+> **Amendment (2026-08-13, #640):** For an Operation refusal inside a selected Kernel
+> `guard-block`, the terminal audit's `instruction_index` uses guard-expanded local Operation order.
+> The guard has its outer-body position, its body follows in authored order, and the remaining outer
+> nodes follow the body. This coordinate identifies the refusing node without making the guard body
+> a separate Operation, Event, or audit scope. bADR-0022 owns the guard grammar and execution order;
+> this record owns the terminal-audit member and its binding.
+
 ## Decision
 
 - **The exit-code and output-channel algebra remains stable:**

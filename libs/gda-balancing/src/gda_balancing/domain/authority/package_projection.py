@@ -256,9 +256,8 @@ def _operation_type_coordinate_schema(
 def _operation_value_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     return {
         "oneOf": [
-            {"type": "integer", "minimum": -(2**63), "maximum": 2**63 - 1},
+            _signed_int64_schema(),
             {"type": "boolean"},
-            {"type": "string"},
             {"type": "null"},
             {
                 "type": "object",
@@ -681,7 +680,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 expect_members = kind.get("expect_members")
                 if (
                     input_members != ["action", "key", "left", "limit", "right"]
-                    or actions != ["admit", "equal", "lookup"]
+                    or actions != ["admit", "equal", "is-empty", "lookup"]
                     or expect_members != ["code", "outcome", "pointer", "type", "value"]
                 ):
                     raise ValueError(

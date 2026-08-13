@@ -249,9 +249,11 @@ bytes and the actual Kernel schema-profile bytes. The test and CI contract for t
 [`docs/agents/testing.md`](agents/testing.md).
 
 Checked-in LDB maintenance uses bADR-0016's development conformance harness. It admits one complete
-candidate graph and permits replacement authority publication only after the production and
-independent consumers agree on every manifest-bound vector. This is not a product layer or a public
-Runtime path; the resolver, public Runtime, and identity rebuild tool do not execute vectors.
+candidate graph. The production and independent admission consumers execute every manifest-bound
+vector. The production evaluator adapter and independent Runtime consumer also agree on every
+`operation-execution` vector. Only then can the replacement authority be published. This is not a
+product layer or a public Runtime path; the resolver, public Runtime, and identity rebuild tool do
+not execute vectors.
 
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 not semantic authorities. Generated JSON Schema, help text, and SDK types project authoritative
@@ -707,17 +709,16 @@ and a single-level guard block. `is-empty` returns Kernel Boolean for one exact 
 continues execution; inequality raises one Operation-declared refusal. `guard-block` also consumes
 an already produced Kernel Boolean. False skips its body and continues the enclosing body. True
 executes the selected body in authored order and completes with one declared outcome unless an
-earlier node refuses. Admission rejects body nodes and `invoke` mappings that can complete or
-propagate an outcome, so only a typed refusal can stop the selected body early. The node is allowed
+earlier node refuses. bADR-0022 closes the selected body grammar so that only a typed refusal can
+stop it early. The node is allowed
 only in the top-level Operation body, produces no local, and cannot contain another guard block. It
 adds its own step and the selected body's actual charge; static closure includes the guard and the
 complete body bound. These nodes add no second arm, label jump, loop, Runtime phase, package
 dispatch, or evaluator callback.
 
 Runtime executes each Operation body and selected guard body in authored array order. Node families
-do not reorder the body. A terminal audit identifies the refusing node by its position in the
-guard-expanded local Operation body: the guard comes first, its body follows, and the remaining
-outer nodes come last. The replacement Kernel removes the unused
+do not reorder the body. bADR-0015 defines how a terminal audit identifies a refusing node in that
+guard-expanded order. The replacement Kernel removes the unused
 `runtime_program.evaluation_order` phase list; `operation-body-order` remains an alias policy for
 writable operands, not an instruction-order setting.
 

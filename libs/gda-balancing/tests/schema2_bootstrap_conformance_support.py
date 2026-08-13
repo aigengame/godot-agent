@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e5e4ba59ae8c022e6681f6ec72fa9275730cd58774a491b9859e265585f03f64"
+    "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -708,7 +708,8 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         == ["scenario", "value"]
         and kinds["scheduler-scenario"].get("target_states")
         == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
-        and kinds["structured-value"].get("actions") == ["admit", "equal", "lookup"]
+        and kinds["structured-value"].get("actions")
+        == ["admit", "equal", "is-empty", "lookup"]
         and kinds["structured-value"].get("input_members")
         == ["action", "key", "left", "limit", "right"]
         and kinds["structured-value"].get("expect_members")
@@ -7668,9 +7669,20 @@ def _consumer_b_operation_composition_subjects(
                         return None
                 operator = node.get("semantics", {}).get("operator")
                 if operator == "typed-require":
+                    refusal_reference = node.get("semantics", {}).get(
+                        "refusal_reference"
+                    )
+                    reason_member = (
+                        refusal_reference.get("instruction_member")
+                        if isinstance(refusal_reference, dict)
+                        else None
+                    )
                     if (
                         not isinstance(instruction.get("expected"), bool)
-                        or instruction.get("reason") not in refusals
+                        or reason_member not in node.get("required_members", [])
+                        or refusal_reference.get("source")
+                        != "enclosing-operation.refusals"
+                        or instruction.get(reason_member) not in refusals
                     ):
                         found.add(
                             subject(
@@ -9537,7 +9549,8 @@ def _consumer_b_evaluate_structured_value_vector(
     value_nodes = {
         node["semantics"]["operator"]: node
         for node in runtime["nodes"]
-        if node["semantics"]["operator"] in {"bounded-lookup", "canonical-equal"}
+        if node["semantics"]["operator"]
+        in {"bounded-lookup", "canonical-equal", "collection-is-empty"}
     }
     inp = vector["input"]
     requested = inp.get("limit")
@@ -9833,6 +9846,24 @@ def _consumer_b_evaluate_structured_value_vector(
                 }
             else:
                 raise Refusal("language.structured_value_type_mismatch", "/key")
+        elif inp["action"] == "is-empty":
+            type_expression, constructor, list_rule = structural_contract(
+                left[type_member], "/type"
+            )
+            result_contract = value_nodes["collection-is-empty"]["result"]["typing"][
+                "contract"
+            ]
+            law = operation_law(constructor, "collection-is-empty", "/type")
+            if (
+                list_rule.get("operator") != "bounded-list"
+                or law.get("result_contract") != result_contract
+                or not isinstance(left[value_member], list)
+            ):
+                raise Refusal("language.structured_value_type_mismatch", "/type")
+            result = {
+                type_member: runtime["fixed_value_contracts"][result_contract]["type"],
+                value_member: not left[value_member],
+            }
         else:
             raise AssertionError("unknown structured vector action")
     except Refusal as refusal:
