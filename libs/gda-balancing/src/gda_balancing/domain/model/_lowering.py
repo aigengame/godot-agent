@@ -1027,12 +1027,13 @@ def _resolved_formula_programs_and_bindings_impl(
                     expected=None,
                     actual_operand_domain=actual_operand_domain,
                 )
-                boolean_contract = cast(
-                    dict[str, Any],
-                    checked.kernel["meta_format"]["runtime_program"][
-                        "fixed_value_contracts"
-                    ]["kernel-boolean"],
+                boolean_contract = fixed_operation_value_contract(
+                    checked.kernel, "kernel-boolean"
                 )
+                if boolean_contract is None:
+                    raise ValueError(
+                        "Formula conditional has no Kernel Boolean contract"
+                    )
                 boolean_type = cast(dict[str, str], boolean_contract["type"])
                 if condition_contract.get("type_identity") != {
                     "package": boolean_type["package"],
