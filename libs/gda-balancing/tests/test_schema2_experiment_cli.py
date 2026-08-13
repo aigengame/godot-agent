@@ -7289,6 +7289,44 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     }
 
 
+def test_generation_operation_owns_the_no_reward_discriminator():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.generation.select-reward-v1"
+    )
+
+    assert [row["id"] for row in operation["inputs"]] == [
+        "reward_pool",
+        "rare_weight",
+        "selected_reward",
+        "reward_score",
+    ]
+    fallback = next(row for row in operation["body"] if row["node"] == "guard-block")
+    assert fallback["body"][4:6] == [
+        {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
+            "left": "fallback_disposition",
+            "node": "equal",
+            "right": "no_reward_disposition",
+            "target": "fallback_is_no_reward",
+        },
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 80}
+
+
 def test_build_operation_vectors_cover_success_alternatives_and_refusal():
     _kernel, ldb = mutable_authorities()
 
@@ -7313,7 +7351,14 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
         if row["id"] == "game.build.replace-reward-v1"
     )
 
-    assert operation["body"][:3] == [
+    assert [row["id"] for row in operation["inputs"]] == [
+        "selected_reward",
+        "build_plans",
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+    assert operation["body"][:4] == [
         {
             "key": "disposition",
             "node": "lookup",
@@ -7321,9 +7366,21 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
             "value": "selected_reward",
         },
         {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
             "left": "selected_disposition",
             "node": "equal",
-            "right": "expected_no_reward_disposition",
+            "right": "no_reward_disposition",
             "target": "no_reward_selected",
         },
         {
@@ -7338,7 +7395,47 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
         "metric.observe",
         "snapshot.commit",
     ]
-    assert operation["resource_bounds"] == {"max_steps": 50}
+    assert operation["resource_bounds"] == {"max_steps": 54}
+
+    fixed_literals = {
+        row["target"]: row["literal"]
+        for row in operation["body"]
+        if row["node"] == "constant" and isinstance(row["literal"], dict)
+    }
+    assert fixed_literals == {
+        "no_reward_disposition": {
+            "type": {
+                "id": "RewardDisposition",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "no-reward",
+        },
+        "rare_rarity": {
+            "type": {
+                "id": "RewardRarity",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "rare",
+        },
+        "replace_constraint": {
+            "type": {
+                "id": "BuildConstraint",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replace",
+        },
+        "replaced_kind": {
+            "type": {
+                "id": "BuildDecisionKind",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replaced",
+        },
+    }
 
 
 def test_candidate_graph_executes_every_operation_vector_in_two_consumers():

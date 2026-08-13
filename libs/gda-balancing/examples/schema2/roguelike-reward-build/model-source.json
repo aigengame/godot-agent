@@ -38,16 +38,6 @@
       "arguments": [
         {"port": "reward_pool", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_pool"}},
         {"port": "rare_weight", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "rare_weight"}},
-        {
-          "port": "expected_no_reward_disposition",
-          "operand": {
-            "kind": "literal",
-            "value": {
-              "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardDisposition"},
-              "value": "no-reward"
-            }
-          }
-        },
         {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
         {"port": "reward_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_score"}}
       ],
@@ -63,46 +53,6 @@
       "arguments": [
         {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
         {"port": "build_plans", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_plans"}},
-        {
-        "port": "expected_no_reward_disposition",
-          "operand": {
-            "kind": "literal",
-            "value": {
-              "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardDisposition"},
-            "value": "no-reward"
-            }
-          }
-        },
-        {
-          "port": "expected_rare_rarity",
-          "operand": {
-            "kind": "literal",
-            "value": {
-              "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardRarity"},
-              "value": "rare"
-            }
-          }
-        },
-        {
-          "port": "expected_replace_constraint",
-          "operand": {
-            "kind": "literal",
-            "value": {
-              "type": {"package": "game.build", "version": "1.0.0", "id": "BuildConstraint"},
-              "value": "replace"
-            }
-          }
-        },
-        {
-          "port": "expected_replaced_kind",
-          "operand": {
-            "kind": "literal",
-            "value": {
-              "type": {"package": "game.build", "version": "1.0.0", "id": "BuildDecisionKind"},
-              "value": "replaced"
-            }
-          }
-        },
         {"port": "build_state", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_state"}},
         {"port": "build_decision", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_decision"}},
         {"port": "build_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_score"}}

@@ -33,6 +33,9 @@ _RPG_COMBAT_EXAMPLE = (
 _RPG_PERIODIC_EFFECT_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "rpg-periodic-effect"
 )
+_ROGUELIKE_REWARD_BUILD_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
 _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
@@ -303,6 +306,55 @@ class TestKeyUserPath:
         assert "game.combat.cast-v1" in {
             row["id"] for row in explanation["operation_explanations"]
         }
+
+    def test_roguelike_reward_build_key_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        built = _run(
+            "model",
+            "build",
+            str(_ROGUELIKE_REWARD_BUILD_EXAMPLE / "model-source.json"),
+            "--out",
+            str(tmp_path / "roguelike-model"),
+            "--invocation-key",
+            "5" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, ""), built.stdout
+        build_receipt = json.loads(built.stdout)
+
+        experiment = json.loads(
+            (_ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        _bind_experiment_to_build(experiment, build_receipt)
+        experiment_path = tmp_path / "roguelike-experiment.json"
+        experiment_path.write_text(json.dumps(experiment), encoding="utf-8")
+
+        run = _run(
+            "experiment",
+            "run",
+            str(experiment_path),
+            "--out",
+            str(tmp_path / "roguelike-run"),
+            "--invocation-key",
+            "6" * 64,
+        )
+        assert (run.returncode, run.stderr) == (0, ""), run.stdout
+        trace = json.loads(
+            _receipt_members(json.loads(run.stdout))["event-trace"].read_text(
+                encoding="utf-8"
+            )
+        )
+        transitions = [event for event in trace["events"] if event["operation"]]
+        assert [event["operation"] for event in transitions] == [
+            "game.generation.select-reward-v1",
+            "game.build.replace-reward-v1",
+        ]
+        assert [event["outcome"] for event in transitions] == [
+            {"id": "selected", "kind": "success"},
+            {"id": "replaced", "kind": "success"},
+        ]
 
     def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
         _example, receipt = _build_reciprocal_example(
