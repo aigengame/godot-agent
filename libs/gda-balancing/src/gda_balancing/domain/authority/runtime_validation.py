@@ -40,7 +40,7 @@ def literal_operation_contracts(
     value: Any,
     literal_profiles: Any,
     typed_envelope_contract: Any,
-    fixed_value_contracts: Any = None,
+    fixed_value_contracts: Any,
 ) -> tuple[dict[str, Any], ...]:
     """Project the admitted Operation contracts for one literal value."""
     if not isinstance(literal_profiles, list):

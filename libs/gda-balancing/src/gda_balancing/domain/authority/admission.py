@@ -3184,6 +3184,7 @@ def _literal_matches_operation_contract(
     formal: dict[str, Any],
     literal_profiles: Any,
     typed_envelope_contract: Any,
+    fixed_value_contracts: Any,
 ) -> bool:
     return len(
         matches := [
@@ -3192,6 +3193,7 @@ def _literal_matches_operation_contract(
                 value,
                 literal_profiles,
                 typed_envelope_contract,
+                fixed_value_contracts,
             )
             if operation_value_contract_matches(contract, formal)
         ]
@@ -3947,6 +3949,7 @@ def _operation_composition_diagnostic_subjects(
                                 instruction.get(member),
                                 literal_profiles,
                                 literal_contract["typed_envelope_profile"],
+                                fixed_value_contracts,
                             )
                             for member in cast(list[str], typing["members"])
                         ]
@@ -4041,6 +4044,7 @@ def _operation_composition_diagnostic_subjects(
                         formal,
                         literal_profiles,
                         literal_contract["typed_envelope_profile"],
+                        fixed_value_contracts,
                     ):
                         refuse(owner, operation, site, "arguments")
                         return None
