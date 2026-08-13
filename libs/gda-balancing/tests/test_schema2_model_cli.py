@@ -5659,10 +5659,9 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
 def test_package_admission_rejects_canonical_equality_across_value_contracts():
     baseline = model_checking_module.check_model_source_value(
         json.loads(
-            (
-                Path(__file__).parents[1]
-                / "examples/schema2/roguelike-reward-build/model-source.json"
-            ).read_text(encoding="utf-8")
+            (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(
+                encoding="utf-8"
+            )
         )
     )
     assert isinstance(baseline, model_module.CheckedModel)

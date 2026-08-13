@@ -2283,7 +2283,7 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
 ):
     _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
     for invocation_digit, contradiction in (
-        ("a", "policy-before"),
+        ("a", "policy-start"),
         ("b", "policy-after"),
     ):
         specification = deepcopy(baseline)
@@ -2305,7 +2305,9 @@ def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
             }
         ]
         fallback = pool["no_reward_on_empty"][0]
-        if contradiction == "policy-before":
+        if contradiction == "policy-start":
+            # Keep the fallback's no-draw transition internally consistent while
+            # contradicting the pool's declared start state.
             fallback["policy_before"]["draw_count"] = 1
             fallback["policy_after"]["draw_count"] = 1
         else:
@@ -2402,7 +2404,7 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
         "selected-key",
         "selected-index",
         "reward-score",
-        "policy-before",
+        "policy-start",
         "draw-count",
     )
     for index, contradiction in enumerate(contradictions, start=1):
@@ -2425,8 +2427,11 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             selection["selected_index"] = 0
         elif contradiction == "reward-score":
             candidate["reward_score"] = 79
-        elif contradiction == "policy-before":
+        elif contradiction == "policy-start":
+            # Keep the one-draw transition internally consistent while
+            # contradicting the pool's declared start state.
             selection["policy_before"]["draw_count"] = 1
+            selection["policy_after"]["draw_count"] = 2
         else:
             selection["policy_after"]["draw_count"] = 2
         specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
@@ -2615,7 +2620,7 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
                 "--out",
                 str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
                 "--invocation-key",
-                f"{index:x}" * 64,
+                f"{index:064x}",
             ]
         )
 
@@ -7275,17 +7280,17 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     _kernel, ldb = mutable_authorities()
 
     assert {
-        vector["id"]
+        vector["id"]: vector["category"]
         for package_id, vector in _operation_execution_vectors(ldb)
         if package_id == "game.generation"
     } == {
-        "generation.select.success",
-        "generation.select.no-reward-outcome",
-        "generation.select.empty-refusal",
-        "generation.select.invalid-fallback-refusal",
-        "generation.select.invalid-fallback-policy-before-refusal",
-        "generation.select.invalid-fallback-policy-after-refusal",
-        "generation.select.invalid-option-refusal",
+        "generation.select.success": "deterministic-rng",
+        "generation.select.no-reward-outcome": "outcome",
+        "generation.select.empty-refusal": "boundary",
+        "generation.select.invalid-fallback-refusal": "semantic-mutation",
+        "generation.select.invalid-fallback-policy-before-refusal": "rollback-replay",
+        "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
+        "generation.select.invalid-option-refusal": "semantic-mutation",
     }
 
 
@@ -7303,6 +7308,10 @@ def test_generation_operation_owns_the_no_reward_discriminator():
         "selected_reward",
         "reward_score",
     ]
+    assert operation["result"]["source"] == {
+        "kind": "port",
+        "name": "selected_reward",
+    }
     fallback = next(row for row in operation["body"] if row["node"] == "guard-block")
     assert fallback["body"][4:6] == [
         {
@@ -7331,15 +7340,15 @@ def test_build_operation_vectors_cover_success_alternatives_and_refusal():
     _kernel, ldb = mutable_authorities()
 
     assert {
-        vector["id"]
+        vector["id"]: vector["category"]
         for package_id, vector in _operation_execution_vectors(ldb)
         if package_id == "game.build"
     } == {
-        "build.replace.success",
-        "build.replace.no-reward-outcome",
-        "build.replace.conflict-outcome",
-        "build.replace.conflicting-invalid-plan-refusal",
-        "build.replace.invalid-plan-refusal",
+        "build.replace.success": "positive",
+        "build.replace.no-reward-outcome": "boundary",
+        "build.replace.conflict-outcome": "outcome",
+        "build.replace.conflicting-invalid-plan-refusal": "semantic-mutation",
+        "build.replace.invalid-plan-refusal": "rollback-replay",
     }
 
 

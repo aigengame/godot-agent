@@ -22,8 +22,9 @@ distribution contract and a falsifiable definition of genre completeness.
 > Extension Invariance evidence must bind the replacement identity; evidence for the superseded
 > baseline does not carry forward.
 
-> `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
-> candidate and selection data. Its primary `RarityPolicyKind` remains a selection-policy axis. The
+> **Amendment (2026-08-13, #640):** `game.generation` owns one ordered eligible `RewardOption`
+> pool. Each option pairs its candidate and selection data. Its primary `RarityPolicyKind` remains
+> a selection-policy axis. The
 > independent `no_reward_on_empty: List<RewardSelection, max=1>` field declares the exhaustion
 > fallback: an empty list declares none, and one value declares the exact no-reward selection.
 > Empty selection without that value raises `selection-exhausted`. Empty selection with it validates

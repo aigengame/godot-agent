@@ -1543,6 +1543,7 @@ issues own detailed observations, acceptance criteria, and live completion statu
   - Open boundary: PR #639 must synchronize this replacement evidence before the #585 HITL
     acceptance decision. Evidence bound to the superseded Kernel identity does not carry forward.
   - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
+    [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
     [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md).
 

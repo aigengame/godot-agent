@@ -350,7 +350,7 @@ Run the focused tests:
 
 ```bash
 uv run pytest tests/test_schema2_experiment_cli.py \
-  -k 'public_reward or public_build or formula_edit'
+  -k 'public_seeded_reward or public_reward or public_build_conflict or public_build_configuration or public_build_replacement or public_formula_edit'
 ```
 
 These cases are typed refusals or declared gameplay outcomes. They are not internal failures.
@@ -372,7 +372,7 @@ owner and action for each observation, and the human accept, condition, or reope
 accepted example remains bounded implementation evidence; it does not close any claim listed
 above.
 
-The [Seeded Roguelike reward and build tuning entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)
+The [Roguelike reward feedback entry](../../../docs/ARCHITECTURE.md#122-maintained-product-examples)
 summarizes the macro architecture consequence and open boundary. This README explains how to run
 and inspect the example and preserves its permanent observations. It does not define language
 authority or live completion status.
