@@ -4038,13 +4038,10 @@ def _operation_composition_diagnostic_subjects(
             )
             or (
                 source_kind == "unit"
-                and result_contract.get("type")
-                == {"package": "kernel", "version": "2.0.0", "id": "Unit"}
-                and result_contract.get("representation") == "Unit"
-                and result_contract.get("kind") == "unit"
-                and result_contract.get("unit") == "1"
-                and result_contract.get("domain") == {"kind": "unit"}
-                and result_contract.get("numeric_policy") == "exact-unit"
+                and value_contracts.matches(
+                    result_contract,
+                    cast(dict[str, Any], fixed_value_contracts["kernel-unit"]),
+                )
             )
         )
         if not source_is_compatible:
