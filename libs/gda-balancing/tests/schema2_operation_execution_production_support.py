@@ -34,19 +34,17 @@ def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
 def _language_operation_index(
     language: dict[str, Any],
 ) -> dict[OperationCoordinate, dict[str, Any]]:
-    definitions = {
-        (cast(str, row["version"]), cast(str, row["id"])): row
-        for row in cast(list[dict[str, Any]], language["operations"])
-    }
     return {
         (
             cast(str, package["id"]),
             cast(str, package["version"]),
-            cast(str, operation_id),
-        ): definitions[(cast(str, package["version"]), cast(str, operation_id))]
+            cast(str, definition["id"]),
+        ): definition
         for package in cast(list[dict[str, Any]], language["packages"])
-        for operation_id in cast(
-            list[str], cast(dict[str, Any], package["exports"])["operations"]
+        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
+        if closure["authority_path"] == "language.operations"
+        for definition in cast(
+            list[dict[str, Any]], closure["definitions"]
         )
     }
 

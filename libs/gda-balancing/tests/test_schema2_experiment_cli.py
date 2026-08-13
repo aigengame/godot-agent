@@ -47,6 +47,7 @@ from schema2_scheduler_production_support import (
     scheduler_detector_inventory,
 )
 from schema2_operation_execution_production_support import (
+    _language_operation_index as production_operation_index,
     evaluate_operation_execution_vector,
 )
 from schema2_operation_execution_independent_support import (
@@ -54,6 +55,7 @@ from schema2_operation_execution_independent_support import (
     reference_rng_draw,
 )
 from schema2_operation_execution_conformance_support import (
+    _operation_index as conformance_operation_index,
     candidate_conformance_failures,
     operation_execution_observations,
     operation_execution_vectors,
@@ -6460,6 +6462,31 @@ def test_operation_execution_conformance_adapters_remain_independent():
     assert "schema2_operation_execution_independent_support" not in production
     assert "schema2_operation_execution_production_support" not in independent
     assert "gda_balancing.domain.runtime.execution" not in independent
+
+
+def test_operation_conformance_indexes_same_named_package_definitions_exactly():
+    language = {
+        "packages": [
+            {
+                "id": package_id,
+                "version": "1.0.0",
+                "semantic_closure": [
+                    {
+                        "authority_path": "language.operations",
+                        "definitions": [{"id": "shared", "marker": marker}],
+                    }
+                ],
+            }
+            for package_id, marker in (("example.a", "a"), ("example.b", "b"))
+        ]
+    }
+
+    conformance = conformance_operation_index({"language": language})
+    production = production_operation_index(language)
+
+    assert conformance[("example.a", "1.0.0", "shared")]["marker"] == "a"
+    assert conformance[("example.b", "1.0.0", "shared")]["marker"] == "b"
+    assert production == conformance
 
 
 def test_generation_operation_vectors_cover_success_fallback_and_refusals():
