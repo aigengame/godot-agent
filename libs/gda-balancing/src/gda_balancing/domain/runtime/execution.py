@@ -24,6 +24,8 @@ from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.operation_program import (
     guard_expanded_instruction_indices,
     instruction_evaluation_sites,
+    operation_coordinate,
+    selected_operation_index,
 )
 from gda_balancing.domain.runtime.projections import (
     RuntimeRefusalOutcome,
@@ -932,10 +934,7 @@ def evaluate_experiment(
     runtime_bounds = cast(dict[str, int], runtime_profile["resource_bounds"])
     _runtime_execution_contract(checked)
     _formula_snapshot_identity_domain(checked)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in checked.rir["selected_semantics"]["operations"]
-    }
+    operations = selected_operation_index(checked.rir["selected_semantics"])
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     declarations = {
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
@@ -944,7 +943,7 @@ def evaluate_experiment(
     display_names = _resolved_display_names(declarations)
     call_sites = {
         (
-            cast(dict[str, str], row["parent_operation"])["id"],
+            operation_coordinate(cast(dict[str, str], row["parent_operation"])),
             row["site"],
         ): row
         for row in checked.rir["call_sites"]
@@ -1189,7 +1188,7 @@ def evaluate_experiment(
         current_snapshot_identity = cast(str, initial_snapshot["snapshot_identity"])
         scenario_event_outputs[scenario["id"]] = []
         operation = (
-            operations[scenario_entrypoints[0]["operation"]["id"]]
+            operations[operation_coordinate(scenario_entrypoints[0]["operation"])]
             if scenario_entrypoints
             else None
         )
@@ -1203,6 +1202,7 @@ def evaluate_experiment(
         event_id = ""
 
         def execute_operation(
+            selected_coordinate: tuple[str, str, str],
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
             state_references: dict[str, bytes],
@@ -1263,9 +1263,9 @@ def evaluate_experiment(
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
                 if operator == "invoke-operation":
-                    child = operations[instruction["operation"]["id"]]
+                    child = operations[operation_coordinate(instruction["operation"])]
                     resolved_call_site = call_sites[
-                        (selected_operation["id"], instruction["site"])
+                        (selected_coordinate, instruction["site"])
                     ]
                     child_arguments: dict[str, Any] = {}
                     child_state_references: dict[str, bytes] = {}
@@ -1284,6 +1284,7 @@ def evaluate_experiment(
                         else:
                             child_arguments[binding["port"]] = actual["literal"]
                     child_outcome, child_result = execute_operation(
+                        operation_coordinate(instruction["operation"]),
                         child,
                         child_arguments,
                         child_state_references,
@@ -1333,7 +1334,9 @@ def evaluate_experiment(
                         break
                     continue
                 if operator == "schedule-operation":
-                    child_operation = operations[instruction["operation"]["id"]]
+                    child_operation = operations[
+                        operation_coordinate(instruction["operation"])
+                    ]
                     child_arguments: dict[str, Any] = {}
                     child_state_references: dict[str, bytes] = {}
                     for binding in instruction["arguments"]:
@@ -1616,6 +1619,7 @@ def evaluate_experiment(
                             },
                         }
                         execute_operation(
+                            selected_coordinate,
                             guarded_operation,
                             dict(variables),
                             state_references,
@@ -1765,15 +1769,18 @@ def evaluate_experiment(
             external_input = event_spec.get("kind") == "external-input"
             if external_input:
                 entrypoint = None
+                operation_reference = None
                 operation = None
                 event_id = cast(str, event_spec["event_id"])
             elif "entrypoint" in event_spec:
                 entrypoint = entrypoints[event_spec["entrypoint"]]
-                operation = operations[entrypoint["operation"]["id"]]
+                operation_reference = operation_coordinate(entrypoint["operation"])
+                operation = operations[operation_reference]
                 event_id = cast(str, event_spec["event_id"])
             else:
                 entrypoint = None
-                operation = operations[event_spec["operation"]]
+                operation_reference = operation_coordinate(event_spec["operation_ref"])
+                operation = operations[operation_reference]
                 event_id = event_spec["event_id"]
             outcomes = (
                 {row["id"]: row for row in operation["outcomes"]}
@@ -1879,7 +1886,9 @@ def evaluate_experiment(
                     outcome, root_result = "input-admitted", None
                 else:
                     assert operation is not None
+                    assert operation_reference is not None
                     outcome, root_result = execute_operation(
+                        operation_reference,
                         operation,
                         root_arguments,
                         root_state_references,

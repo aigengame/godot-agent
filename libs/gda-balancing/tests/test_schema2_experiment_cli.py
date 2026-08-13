@@ -3804,6 +3804,42 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     )
 
 
+def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
+    selected_semantics = rir["selected_semantics"]
+    selected = next(
+        row
+        for row in selected_semantics["operations"]
+        if row["package"] == root_coordinate[0]
+        and row["definition"]["id"] == root_coordinate[2]
+    )
+    decoy = deepcopy(selected)
+    decoy["package"] = "example.decoy"
+    decoy["definition"]["default_outcome"] = "decoy-must-not-run"
+    selected_semantics["packages"].append(
+        {"id": "example.decoy", "version": "1.0.0"}
+    )
+    selected_semantics["operations"].append(decoy)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_event = next(
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    )
+    assert runtime_event["operation"] == root_coordinate[2]
+    assert runtime_event["outcome"]["id"] != "decoy-must-not-run"
+
+
 def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
     tmp_path, run_cli, monkeypatch
 ):
