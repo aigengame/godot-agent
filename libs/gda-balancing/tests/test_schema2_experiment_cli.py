@@ -3768,17 +3768,18 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
-    operation = operations[entrypoint["operation"]["id"]]
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
     runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
     per_event_steps = sum(
         runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
         for instruction in operation_program_module.expanded_operation_body(
-            operation, operations
+            root_coordinate, operations
         )
     )
     runtime_profile = next(
@@ -7338,17 +7339,18 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
     first = runtime_projection_module.evaluator_manifest(checked)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in checked.rir["selected_semantics"]["operations"]
-    }
+    operations = operation_program_module.selected_operation_index(
+        checked.rir["selected_semantics"]
+    )
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
         for instruction in operation_program_module.expanded_operation_body(
-            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
+            operation_program_module.operation_coordinate(
+                entrypoints[event["entrypoint"]]["operation"]
+            ),
             operations,
         )
     }
@@ -7369,9 +7371,13 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
 
 
 def test_operation_closure_includes_guard_body_nodes_and_invocations():
+    root = ("example", "1.0.0", "example.root")
+    child = ("example", "1.0.0", "example.child")
     operations = {
-        "example.root": {
+        root: {
             "id": "example.root",
+            "effects": ["event.commit"],
+            "refusals": ["example.root-refusal"],
             "body": [
                 {
                     "node": "guard-block",
@@ -7385,20 +7391,23 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
                                 "version": "1.0.0",
                                 "id": "example.child",
                             },
+                            "site": "child",
                         },
                     ],
                     "outcome": "complete",
                 }
             ],
         },
-        "example.child": {
+        child: {
             "id": "example.child",
+            "effects": ["snapshot.commit"],
+            "refusals": ["example.child-refusal"],
             "body": [{"node": "constant", "literal": 1, "target": "one"}],
         },
     }
 
     expanded = operation_program_module.expanded_operation_body(
-        operations["example.root"], operations
+        root, operations
     )
 
     assert [instruction["node"] for instruction in expanded] == [
@@ -7406,6 +7415,52 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         "copy",
         "invoke",
         "constant",
+    ]
+    projection = operation_program_module.project_operation_program(
+        root,
+        operations,
+        operation_node_ids={"invoke"},
+        invocation_node_ids={"invoke"},
+    )
+    assert projection.reachable_operations == {root, child}
+    assert projection.invocation_paths == ((('child',), child),)
+    assert projection.node_ids == {"guard-block", "copy", "invoke", "constant"}
+    assert projection.effects == {"event.commit", "snapshot.commit"}
+    assert projection.refusals == {
+        "example.child-refusal",
+        "example.root-refusal",
+    }
+    assert projection.resource_charge == 4
+
+
+def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
+    root = ("example.root", "1.0.0", "example.root")
+    wrong = ("example.a", "1.0.0", "shared")
+    selected = ("example.b", "1.0.0", "shared")
+    operations = {
+        root: {
+            "id": "example.root",
+            "body": [
+                {
+                    "node": "invoke",
+                    "operation": {
+                        "package": selected[0],
+                        "version": selected[1],
+                        "id": selected[2],
+                    },
+                    "site": "selected",
+                }
+            ],
+        },
+        wrong: {"id": "shared", "body": [{"node": "wrong"}]},
+        selected: {"id": "shared", "body": [{"node": "selected"}]},
+    }
+
+    expanded = operation_program_module.expanded_operation_body(root, operations)
+
+    assert [instruction["node"] for instruction in expanded] == [
+        "invoke",
+        "selected",
     ]
 
 

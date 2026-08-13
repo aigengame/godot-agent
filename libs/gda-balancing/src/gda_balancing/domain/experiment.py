@@ -30,7 +30,11 @@ from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
 )
 from gda_balancing.domain.model import admit_resolved_model
-from gda_balancing.domain.operation_program import expanded_operation_body
+from gda_balancing.domain.operation_program import (
+    expanded_operation_body,
+    operation_coordinate,
+    selected_operation_index,
+)
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
@@ -299,29 +303,29 @@ def derive_scenario_program_requirements(
 ) -> tuple[dict[str, list[str]], list[str]]:
     """Project one Scenario's evaluator contract from its admitted RIR."""
     selected = cast(dict[str, Any], rir["selected_semantics"])
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in cast(list[dict[str, Any]], selected["operations"])
-    }
+    operations = selected_operation_index(selected)
     entrypoints = {
         row["id"]: row for row in cast(list[dict[str, Any]], rir["entrypoints"])
     }
     entrypoint = entrypoints.get(entrypoint_id)
     if entrypoint is None:
         raise ValueError("Scenario entrypoint is absent from the selected RIR")
-    operation = operations.get(entrypoint["operation"]["id"])
+    root_coordinate = operation_coordinate(entrypoint["operation"])
+    operation = operations.get(root_coordinate)
     if operation is None:
         raise ValueError("Scenario Operation is absent from the selected RIR")
     if operation["runtime_profile"] != runtime_profile:
         raise ValueError("Scenario Operation requires another Runtime profile")
-    expanded_body = expanded_operation_body(operation, operations)
+    expanded_body = expanded_operation_body(root_coordinate, operations)
     instruction_nodes = {instruction["node"] for instruction in expanded_body}
     requirements = {
         "operation_kinds": sorted(
             {
                 operation["operation_kind"],
                 *(
-                    operations[instruction["operation"]["id"]]["operation_kind"]
+                    operations[operation_coordinate(instruction["operation"])][
+                        "operation_kind"
+                    ]
                     for instruction in expanded_body
                     if instruction["node"] in {"invoke", "schedule"}
                 ),

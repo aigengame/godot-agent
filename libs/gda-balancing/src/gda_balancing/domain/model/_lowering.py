@@ -25,7 +25,10 @@ from gda_balancing.domain.formula.types import (
 from gda_balancing.domain.authority.runtime_validation import (
     operation_value_contract_matches,
 )
-from gda_balancing.domain.operation_program import record_instruction_evaluation_sites
+from gda_balancing.domain.operation_program import (
+    project_operation_program,
+    record_instruction_evaluation_sites,
+)
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
@@ -3530,12 +3533,33 @@ def _resolved_call_sites(
         ],
     )
     resolved_rows: list[dict[str, JsonValue]] = []
-    closure_cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    operation_definitions = {
+        coordinate: cast(dict[str, Any], row["definition"])
+        for coordinate, row in operations.items()
+    }
+    runtime_nodes = cast(
+        list[dict[str, Any]],
+        kernel["meta_format"]["runtime_program"]["nodes"],
+    )
+    operation_node_ids = {
+        cast(str, node["id"])
+        for node in runtime_nodes
+        if node["semantics"]["operator"]
+        in {"invoke-operation", "schedule-operation"}
+    }
+    invocation_node_ids = {
+        cast(str, node["id"])
+        for node in runtime_nodes
+        if node["semantics"]["operator"] == "invoke-operation"
+    }
+    closure_cache: dict[
+        tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]
+    ] = {}
 
     def operation_closure(
         operation_row: dict[str, Any],
         stack: tuple[tuple[str, str, str], ...],
-    ) -> tuple[set[str], set[str], int]:
+    ) -> tuple[frozenset[str], frozenset[str], int]:
         parent_ref = _exact_operation_coordinate(operation_row, package_versions)
         parent_key = (
             parent_ref["package"],
@@ -3547,6 +3571,12 @@ def _resolved_call_sites(
         if parent_key in closure_cache:
             return closure_cache[parent_key]
         operation = cast(dict[str, Any], operation_row["definition"])
+        projection = project_operation_program(
+            parent_key,
+            operation_definitions,
+            operation_node_ids=operation_node_ids,
+            invocation_node_ids=invocation_node_ids,
+        )
         parent_ports = {
             row["id"]: row for row in cast(list[dict[str, Any]], operation["inputs"])
         }
@@ -3555,14 +3585,10 @@ def _resolved_call_sites(
             for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
         }
         locals_: dict[str, dict[str, Any]] = {}
-        effects = set(cast(list[str], operation["effects"]))
-        refusals = set(cast(list[str], operation["refusals"]))
-        charge = 0
         seen_sites: set[str] = set()
         for order, instruction in enumerate(
             cast(list[dict[str, Any]], operation["body"])
         ):
-            charge += 1
             if instruction["node"] != "invoke":
                 continue
             site = cast(str, instruction["site"])
@@ -3778,12 +3804,6 @@ def _resolved_call_sites(
                 raise ValueError(
                     "nested Operation refusal closure exceeds caller declaration"
                 )
-            if effect_policy["aggregation"] == "union":
-                effects.update(child_effects)
-            if refusal_policy["aggregation"] == "union":
-                refusals.update(child_refusals)
-            if resource_policy["aggregation"] == "sum":
-                charge += child_charge
             call_body = cast(
                 dict[str, JsonValue],
                 {
@@ -3810,11 +3830,16 @@ def _resolved_call_sites(
             )
         if (
             resource_policy["containment"] == "transitive-charge-within-caller-bound"
-            and charge > operation["resource_bounds"]["max_steps"]
+            and projection.resource_charge
+            > operation["resource_bounds"]["max_steps"]
         ):
             raise ValueError("Operation transitive resource charge exceeds its bound")
-        closure_cache[parent_key] = effects, refusals, charge
-        return effects, refusals, charge
+        closure_cache[parent_key] = (
+            projection.effects,
+            projection.refusals,
+            projection.resource_charge,
+        )
+        return closure_cache[parent_key]
 
     for operation_row in sorted(
         operation_rows,

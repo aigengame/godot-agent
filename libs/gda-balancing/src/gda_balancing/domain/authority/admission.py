@@ -50,6 +50,7 @@ from gda_balancing.domain.authority.vector_validation import (
     _rule_is_closed,
     _vector_header_is_closed,
 )
+from gda_balancing.domain.operation_program import project_operation_program
 
 SCHEMA2_REFUSAL_STAGES = (
     "ingress",
@@ -3299,7 +3300,20 @@ def _operation_composition_diagnostic_subjects(
         for _owner, operation in operations.values()
     ):
         return ("language.operations.alias-policy",)
-    cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    operation_node_ids = {
+        node_id
+        for node_id, node in node_definitions.items()
+        if node["semantics"]["operator"]
+        in {"invoke-operation", "schedule-operation"}
+    }
+    invocation_node_ids = {
+        node_id
+        for node_id, node in node_definitions.items()
+        if node["semantics"]["operator"] == "invoke-operation"
+    }
+    cache: dict[
+        tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]
+    ] = {}
     guard_body_keys: set[tuple[str, str, str]] = set()
     found: set[str] = set()
 
@@ -3309,7 +3323,7 @@ def _operation_composition_diagnostic_subjects(
     def close(
         key: tuple[str, str, str],
         stack: tuple[tuple[str, str, str], ...],
-    ) -> tuple[set[str], set[str], int] | None:
+    ) -> tuple[frozenset[str], frozenset[str], int] | None:
         if key in stack:
             owner, operation = operations[key]
             refuse(owner, operation, "cycle", "operation")
@@ -3347,7 +3361,6 @@ def _operation_composition_diagnostic_subjects(
         local_producers: dict[str, int] = {}
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
-        charge = 0
         seen_sites: set[str] = set()
         operation_result_sites: set[str] = set()
         source_producer_reached = False
@@ -3397,7 +3410,6 @@ def _operation_composition_diagnostic_subjects(
         for instruction_index, instruction in enumerate(
             cast(list[dict[str, Any]], operation["body"])
         ):
-            charge += 1
             node = node_definitions.get(instruction.get("node"))
             if not isinstance(node, dict) or set(instruction) != set(
                 node["required_members"]
@@ -3669,7 +3681,7 @@ def _operation_composition_diagnostic_subjects(
                         cache.pop(guard_key, None)
                     if guard_closure is None:
                         return None
-                    body_effects, body_refusals, body_charge = guard_closure
+                    body_effects, body_refusals, _body_charge = guard_closure
                     if not body_effects <= effects:
                         refuse(
                             owner,
@@ -3686,7 +3698,6 @@ def _operation_composition_diagnostic_subjects(
                             "refusals",
                         )
                         return None
-                    charge += body_charge
                 result_definition = cast(dict[str, Any], node["result"])
                 if result_definition["kind"] in {"local", "draw"}:
                     if (
@@ -3977,16 +3988,13 @@ def _operation_composition_diagnostic_subjects(
             child_closure = close(cast(tuple[str, str, str], child_key), (*stack, key))
             if child_closure is None:
                 return None
-            child_effects, child_refusals, child_charge = child_closure
+            child_effects, child_refusals, _child_charge = child_closure
             if not child_effects <= set(cast(list[str], operation["effects"])):
                 refuse(owner, operation, site, "effects")
                 return None
             if not child_refusals <= set(cast(list[str], operation["refusals"])):
                 refuse(owner, operation, site, "refusals")
                 return None
-            effects.update(child_effects)
-            refusals.update(child_refusals)
-            charge += child_charge
 
         result_contract = cast(dict[str, Any], operation["result"])
         local_result_candidates = (
@@ -4042,10 +4050,27 @@ def _operation_composition_diagnostic_subjects(
         if not source_is_compatible:
             found.add(f"language.operations.{owner}.{operation['id']}.result.source")
             return None
-        if charge > operation["resource_bounds"]["max_steps"]:
+        try:
+            projection = project_operation_program(
+                key,
+                {
+                    coordinate: definition
+                    for coordinate, (_definition_owner, definition) in operations.items()
+                },
+                operation_node_ids=operation_node_ids,
+                invocation_node_ids=invocation_node_ids,
+            )
+        except (KeyError, TypeError, ValueError):
+            refuse(owner, operation, "closure", "operation")
+            return None
+        if projection.resource_charge > operation["resource_bounds"]["max_steps"]:
             found.add(f"language.operations.{owner}.{operation['id']}.resource_bounds")
             return None
-        cache[key] = effects, refusals, charge
+        cache[key] = (
+            projection.effects,
+            projection.refusals,
+            projection.resource_charge,
+        )
         return cache[key]
 
     for key in sorted(operations):

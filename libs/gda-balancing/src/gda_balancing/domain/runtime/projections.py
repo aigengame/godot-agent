@@ -18,7 +18,11 @@ from gda_balancing.domain.experiment import (
     _ordered_root_events_under,
     _scenario_root_events,
 )
-from gda_balancing.domain.operation_program import expanded_operation_body
+from gda_balancing.domain.operation_program import (
+    operation_coordinate,
+    project_operation_program,
+    selected_operation_index,
+)
 from gda_balancing.domain.publication import PublicationMember
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
@@ -650,20 +654,31 @@ def evaluator_build_identity(root: Path | None = None) -> str:
 def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     """Project the evaluator's authority-derived capability manifest."""
     runtime = runtime_contract(checked)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in checked.rir["selected_semantics"]["operations"]
-    }
+    operations = selected_operation_index(checked.rir["selected_semantics"])
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
-    reachable_nodes = {
-        instruction["node"]
+    operation_node_ids = {
+        cast(str, row["id"])
+        for row in runtime["nodes"]
+        if row["semantics"]["operator"]
+        in {"invoke-operation", "schedule-operation"}
+    }
+    invocation_node_ids = {
+        cast(str, row["id"])
+        for row in runtime["nodes"]
+        if row["semantics"]["operator"] == "invoke-operation"
+    }
+    reachable_nodes = set().union(
+        *(
+            project_operation_program(
+                operation_coordinate(entrypoints[event["entrypoint"]]["operation"]),
+                operations,
+                operation_node_ids=operation_node_ids,
+                invocation_node_ids=invocation_node_ids,
+            ).node_ids
         for scenario in checked.value["scenarios"]
         for event in scenario_transition_events(scenario)
-        for instruction in expanded_operation_body(
-            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
-            operations,
         )
-    }
+    )
     nodes = sorted(
         row["id"]
         for row in runtime["nodes"]
