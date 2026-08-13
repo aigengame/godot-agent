@@ -21,6 +21,7 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -4197,13 +4198,14 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     )
     checked = check_model_source(str(path))
     assert isinstance(checked, CheckedModel)
-    rir = lower_checked_model(checked)["rir-semantic-payload"]
-    selected_semantics = deepcopy(rir["selected_semantics"])
-    for row in selected_semantics["operations"]:
+    rir = cast(dict[str, Any], lower_checked_model(checked)["rir-semantic-payload"])
+    selected_semantics = cast(dict[str, Any], deepcopy(rir["selected_semantics"]))
+    operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    for row in operation_rows:
         row["definition"]["resource_bounds"]["max_steps"] += 100
     damage = next(
         row["definition"]
-        for row in selected_semantics["operations"]
+        for row in operation_rows
         if row["definition"]["id"] == "game.combat.damage-v1"
     )
     damage["body"].append(
@@ -4233,11 +4235,16 @@ def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
     independent = _reference_call_sites(checked, selected_semantics, lowering)
 
     assert independent == production
+    production_rows = cast(list[dict[str, Any]], production)
     damage_calls = [
-        row for row in production if row["operation"]["id"] == "game.combat.damage-v1"
+        row
+        for row in production_rows
+        if cast(dict[str, Any], row["operation"])["id"] == "game.combat.damage-v1"
     ]
     assert damage_calls
-    assert {row["closure"]["resource_charge"] for row in damage_calls} == {14}
+    assert {
+        cast(dict[str, Any], row["closure"])["resource_charge"] for row in damage_calls
+    } == {14}
 
 
 def test_operation_formula_dependency_closure_includes_guard_invocations():
@@ -4265,7 +4272,7 @@ def test_operation_formula_dependency_closure_includes_guard_invocations():
         },
         child: {"definition": {"body": []}},
     }
-    dependencies = {
+    dependencies: dict[tuple[str, str, str], list[dict[str, JsonValue]]] = {
         root: [{"model": "model", "module": "module", "name": "root"}],
         child: [{"model": "model", "module": "module", "name": "child"}],
     }

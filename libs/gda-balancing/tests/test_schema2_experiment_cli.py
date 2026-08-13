@@ -6744,7 +6744,8 @@ def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
     def divergent_production(context, vector, **owner):
         observation = deepcopy(evaluate(context, vector, **owner))
         if vector["id"] == target:
-            observation["completion"]["id"] = "production-only-outcome"
+            completion = cast(dict[str, Any], observation["completion"])
+            completion["id"] = "production-only-outcome"
         return observation
 
     monkeypatch.setattr(
