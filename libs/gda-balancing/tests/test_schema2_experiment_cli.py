@@ -15,6 +15,7 @@ import gda_balancing.application.experiment_run as experiment_run_application_mo
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.evidence as experiment_evidence_module
+import gda_balancing.domain.operation_program as operation_program_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
@@ -4558,7 +4559,7 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
     per_event_steps = sum(
         runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
-        for instruction in experiment_admission_module._expanded_operation_body(
+        for instruction in operation_program_module.expanded_operation_body(
             operation, operations
         )
     )
@@ -8222,7 +8223,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
-        for instruction in experiment_admission_module._expanded_operation_body(
+        for instruction in operation_program_module.expanded_operation_body(
             operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
@@ -8272,7 +8273,7 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         },
     }
 
-    expanded = experiment_admission_module._expanded_operation_body(
+    expanded = operation_program_module.expanded_operation_body(
         operations["example.root"], operations
     )
 
@@ -8282,6 +8283,36 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         "invoke",
         "constant",
     ]
+
+
+def test_operation_program_projects_guard_expanded_audit_positions():
+    body = [
+        {"node": "constant"},
+        {
+            "node": "guard-block",
+            "body": [{"node": "copy"}, {"node": "require"}],
+        },
+        {"node": "copy"},
+    ]
+
+    indices = operation_program_module.guard_expanded_instruction_indices(body)
+
+    assert indices == (0, 1, 4)
+
+
+def test_operation_program_owns_formula_instruction_provenance():
+    operation: dict[str, Any] = {"extensions": {}}
+    operation_program_module.record_instruction_evaluation_sites(
+        operation,
+        first_instruction_index=2,
+        instruction_count=2,
+        evaluation_site_identity="sha256:" + "a" * 64,
+    )
+
+    assert operation_program_module.instruction_evaluation_sites(operation) == {
+        2: "sha256:" + "a" * 64,
+        3: "sha256:" + "a" * 64,
+    }
 
 
 def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):

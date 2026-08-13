@@ -29,10 +29,14 @@ from gda_balancing.domain.artifacts import (
     wire_schema_identity,
 )
 from gda_balancing.domain.publication import PublicationMember
+from gda_balancing.domain.operation_program import (
+    expanded_operation_body,
+    guard_expanded_instruction_indices,
+    instruction_evaluation_sites,
+)
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
-    _expanded_operation_body,
     _ordered_root_events_under,
     _refusal,
     _scenario_root_events,
@@ -199,39 +203,6 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
         row["id"]: row
         for row in cast(list[dict[str, Any]], _runtime_contract(checked)["nodes"])
     }
-
-
-def _instruction_evaluation_sites(
-    operation: dict[str, Any],
-) -> dict[int, str]:
-    extensions = operation.get("extensions")
-    if not isinstance(extensions, dict):
-        return {}
-    provenance = extensions.get("standard.instruction-provenance")
-    if (
-        not isinstance(provenance, dict)
-        or provenance.get("kind") != "instruction-evaluation-sites"
-        or not isinstance(provenance.get("sites"), list)
-    ):
-        return {}
-    return {
-        cast(int, row["instruction_index"]): cast(str, row["evaluation_site_identity"])
-        for row in cast(list[dict[str, Any]], provenance["sites"])
-    }
-
-
-def _guard_expanded_instruction_indices(
-    body: list[dict[str, Any]], *, offset: int = 0
-) -> tuple[int, ...]:
-    """Map top-level positions to guard-expanded audit positions."""
-    indices: list[int] = []
-    next_index = offset
-    for instruction in body:
-        indices.append(next_index)
-        next_index += 1
-        if instruction["node"] == "guard-block":
-            next_index += len(cast(list[dict[str, Any]], instruction["body"]))
-    return tuple(indices)
 
 
 def _operation_formula_slot(
@@ -1051,7 +1022,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in _scenario_transition_events(scenario)
-        for instruction in _expanded_operation_body(
+        for instruction in expanded_operation_body(
             operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
             operations,
         )
@@ -2076,9 +2047,9 @@ def evaluate_experiment(
             operation_steps = (
                 operation_step_counter if operation_step_counter is not None else [0]
             )
-            evaluation_sites = _instruction_evaluation_sites(selected_operation)
+            evaluation_sites = instruction_evaluation_sites(selected_operation)
             body = cast(list[dict[str, Any]], selected_operation["body"])
-            expanded_indices = _guard_expanded_instruction_indices(
+            expanded_indices = guard_expanded_instruction_indices(
                 body, offset=instruction_index_offset
             )
             for body_index, instruction in enumerate(body):

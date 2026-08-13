@@ -30,6 +30,7 @@ from gda_balancing.infrastructure.input_bytes import (
     read_bounded_input_with_sha256,
 )
 from gda_balancing.domain.model import admit_resolved_model
+from gda_balancing.domain.operation_program import expanded_operation_body
 from gda_balancing.domain.publication import find_published_artifact
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
@@ -290,38 +291,6 @@ def _external_input_plan_is_admitted(
     return True
 
 
-def _expanded_operation_body(
-    operation: dict[str, Any],
-    operations: dict[str, dict[str, Any]],
-    visiting: frozenset[str] = frozenset(),
-) -> list[dict[str, Any]]:
-    """Expand generic Operation composition without package-specific dispatch."""
-    operation_id = cast(str, operation["id"])
-    if operation_id in visiting:
-        raise ValueError("admitted Operation composition is cyclic")
-    nested_visiting = visiting | {operation_id}
-
-    def expand(instructions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        expanded: list[dict[str, Any]] = []
-        for instruction in instructions:
-            expanded.append(instruction)
-            if instruction["node"] == "guard-block":
-                expanded.extend(expand(cast(list[dict[str, Any]], instruction["body"])))
-                continue
-            if instruction["node"] not in {"invoke", "schedule"}:
-                continue
-            operation_ref = cast(dict[str, Any], instruction["operation"])
-            invoked = operations.get(cast(str, operation_ref["id"]))
-            if invoked is None:
-                raise ValueError("admitted Operation composition target is absent")
-            expanded.extend(
-                _expanded_operation_body(invoked, operations, nested_visiting)
-            )
-        return expanded
-
-    return expand(cast(list[dict[str, Any]], operation["body"]))
-
-
 def derive_scenario_program_requirements(
     rir: dict[str, Any],
     entrypoint_id: str,
@@ -345,7 +314,7 @@ def derive_scenario_program_requirements(
         raise ValueError("Scenario Operation is absent from the selected RIR")
     if operation["runtime_profile"] != runtime_profile:
         raise ValueError("Scenario Operation requires another Runtime profile")
-    expanded_body = _expanded_operation_body(operation, operations)
+    expanded_body = expanded_operation_body(operation, operations)
     instruction_nodes = {instruction["node"] for instruction in expanded_body}
     requirements = {
         "operation_kinds": sorted(

@@ -25,6 +25,7 @@ from gda_balancing.domain.formula.types import (
 from gda_balancing.domain.authority.runtime_validation import (
     operation_value_contract_matches,
 )
+from gda_balancing.domain.operation_program import record_instruction_evaluation_sites
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     admit_typed_value,
@@ -2189,25 +2190,14 @@ def _specialize_operation_formula_slots(
                     for name, resolved_symbol in sorted(snapshot_sources.items())
                 ],
             }
-        provenance = cast(
-            dict[str, Any],
-            extensions.setdefault(
-                "standard.instruction-provenance",
-                {
-                    "kind": "instruction-evaluation-sites",
-                    "sites": [],
-                },
-            ),
-        )
         shift = 0
         for start, length, compiled, site_identity in ordered:
             final_start = start + shift
-            cast(list[dict[str, JsonValue]], provenance["sites"]).extend(
-                {
-                    "instruction_index": final_start + index,
-                    "evaluation_site_identity": site_identity,
-                }
-                for index in range(len(compiled))
+            record_instruction_evaluation_sites(
+                operation,
+                first_instruction_index=final_start,
+                instruction_count=len(compiled),
+                evaluation_site_identity=site_identity,
             )
             shift += len(compiled) - length
     return cast(dict[str, JsonValue], specialized)

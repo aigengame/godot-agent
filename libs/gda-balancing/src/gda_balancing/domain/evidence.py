@@ -13,6 +13,10 @@ from gda_balancing.domain.artifacts import (
     verify_artifact,
 )
 from gda_balancing.domain.publication import PublicationMember
+from gda_balancing.domain.operation_program import (
+    guard_expanded_instruction_indices,
+    instruction_evaluation_sites,
+)
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.experiment import (
     CheckedExperiment,
@@ -31,8 +35,6 @@ from gda_balancing.domain.runtime.execution import (
     _execute_value_instruction,
     _extend_runtime_journal_identity,
     _formula_programs_reachable_from_entrypoints,
-    _guard_expanded_instruction_indices,
-    _instruction_evaluation_sites,
     _named_value_rows,
     _integer_compare,
     _metric_definition_identity,
@@ -287,7 +289,7 @@ def _event_formula_evaluations_are_authoritative(
             or evaluation.get("context") != site["context"]
             or evaluation.get("frame_identity") != event.get("snapshot_before_identity")
             or executions.get(call_path) != operation_reference["id"]
-            or site_identity not in _instruction_evaluation_sites(operation).values()
+            or site_identity not in instruction_evaluation_sites(operation).values()
             or (call_path, cast(str, site_identity)) in seen
         ):
             return False
@@ -717,7 +719,7 @@ def _replayed_event_evidence(
                 variables[cast(str, row["name"])] = actual_values[identity]
         operation_results: dict[str, JsonValue] = {}
         outcome = cast(str, operation["default_outcome"])
-        evaluation_sites = _instruction_evaluation_sites(operation)
+        evaluation_sites = instruction_evaluation_sites(operation)
         for instruction_index, instruction in enumerate(
             cast(list[dict[str, Any]], operation["body"])
         ):
@@ -1813,24 +1815,6 @@ def _attempted_operation_charge(
     event_charge = 0
     node_steps = node_steps_before_operation
 
-    def evaluation_sites(operation: dict[str, Any]) -> dict[int, str]:
-        extensions = operation.get("extensions")
-        if not isinstance(extensions, dict):
-            return {}
-        provenance = extensions.get("standard.instruction-provenance")
-        if (
-            not isinstance(provenance, dict)
-            or provenance.get("kind") != "instruction-evaluation-sites"
-            or not isinstance(provenance.get("sites"), list)
-        ):
-            return {}
-        return {
-            cast(int, row["instruction_index"]): cast(
-                str, row["evaluation_site_identity"]
-            )
-            for row in cast(list[dict[str, Any]], provenance["sites"])
-        }
-
     def is_target(
         operation: dict[str, Any],
         call_path: str,
@@ -1900,9 +1884,9 @@ def _attempted_operation_charge(
     ) -> bool:
         operation_charge = 0
         outcome = cast(str, operation["default_outcome"])
-        sites = evaluation_sites(operation)
+        sites = instruction_evaluation_sites(operation)
         body = cast(list[dict[str, Any]], operation["body"])
-        expanded_indices = _guard_expanded_instruction_indices(body)
+        expanded_indices = guard_expanded_instruction_indices(body)
         for body_index, instruction in enumerate(body):
             instruction_index = expanded_indices[body_index]
             operation_charge, breached = charge_instruction(
@@ -1956,9 +1940,9 @@ def _attempted_operation_charge(
         call_path: str,
     ) -> bool:
         operation_charge = 0
-        sites = evaluation_sites(operation)
+        sites = instruction_evaluation_sites(operation)
         body = cast(list[dict[str, Any]], operation["body"])
-        expanded_indices = _guard_expanded_instruction_indices(body)
+        expanded_indices = guard_expanded_instruction_indices(body)
         for body_index, instruction in enumerate(body):
             instruction_index = expanded_indices[body_index]
             operation_charge, breached = charge_instruction(
