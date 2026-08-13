@@ -1,5 +1,6 @@
-"""Runtime component and operation-contract admission."""
+"""Runtime component and Operation value-contract admission."""
 
+from dataclasses import dataclass
 from typing import Any, cast
 
 from gda_balancing.domain.canonical import JsonValue, content_identity
@@ -7,6 +8,10 @@ from gda_balancing.domain.structured_values import (
     StructuredValueFault,
     StructuredValueIndex,
     admit_typed_value,
+    equal_result_contract,
+    is_empty_result_contract,
+    language_structured_value_index,
+    lookup_type_contract,
     nominal_type_key,
 )
 
@@ -36,14 +41,213 @@ def operation_value_contract_matches(
     )
 
 
-def literal_operation_contracts(
+@dataclass(frozen=True)
+class OperationValueContracts:
+    """Read-only interpretation of Operation values under exact authorities."""
+
+    literal_profiles: tuple[dict[str, Any], ...]
+    typed_envelope_contract: dict[str, Any]
+    fixed_value_contracts: dict[str, Any]
+    structured_authority: StructuredValueIndex
+    resource_limit: int
+    runtime_numeric_policies: tuple[str, ...]
+
+    def matches(self, actual: dict[str, Any], formal: dict[str, Any]) -> bool:
+        """Apply the Kernel-owned Operation value-contract relation."""
+        return operation_value_contract_matches(actual, formal)
+
+    def literal_contracts(self, value: Any) -> tuple[dict[str, Any], ...]:
+        """Project all authority-admitted contracts for one literal."""
+        return _literal_operation_contracts(
+            value,
+            self.literal_profiles,
+            self.typed_envelope_contract,
+            self.fixed_value_contracts,
+        )
+
+    def literal_matches(self, value: Any, formal: dict[str, Any]) -> bool:
+        """Return whether one literal has exactly one matching formal contract."""
+        matches = [
+            contract
+            for contract in self.literal_contracts(value)
+            if self.matches(contract, formal)
+        ]
+        return len(matches) == 1
+
+    def admits(self, value: Any, formal: dict[str, Any]) -> bool:
+        """Validate one execution-vector value against an Operation port."""
+        matches = [
+            contract
+            for contract in self.literal_contracts(value)
+            if self.matches(contract, formal)
+        ]
+        if len(matches) != 1:
+            return False
+        if not isinstance(value, dict):
+            return True
+        try:
+            admit_typed_value(
+                value,
+                authority=self.structured_authority,
+                resource_limit=self.resource_limit,
+            )
+        except (StructuredValueFault, ValueError):
+            return False
+        return True
+
+    def contract_for_type(self, type_expression: Any) -> dict[str, Any] | None:
+        """Project one exact type expression to its Operation value contract."""
+        if not isinstance(type_expression, dict):
+            return None
+        package = type_expression.get("package")
+        version = type_expression.get("version")
+        type_id = type_expression.get("id")
+        if all(isinstance(item, str) and item for item in (package, version, type_id)):
+            exact_type = {"id": type_id, "package": package, "version": version}
+            scalar_profiles = [
+                profile
+                for profile in self.literal_profiles
+                if profile.get("source_kind") == "integer"
+                and profile.get("type") == exact_type
+            ]
+            if len(scalar_profiles) == 1:
+                profile = scalar_profiles[0]
+                return {
+                    member: profile[member]
+                    for member in (
+                        "domain",
+                        "kind",
+                        "numeric_policy",
+                        "representation",
+                        "unit",
+                    )
+                } | {"type": exact_type}
+            return {"type": exact_type, "value_kind": "nominal-structured"}
+        if type_expression.get("kind") in {"list", "ref"}:
+            return {"type": type_expression, "value_kind": "nominal-structured"}
+        return None
+
+    def declared_lookup_contract(
+        self,
+        value_contract: dict[str, Any],
+        key: Any,
+        key_candidates: tuple[dict[str, Any], ...] | None,
+    ) -> tuple[dict[str, Any], str] | None:
+        """Resolve an admitted structured lookup result and refusal signal."""
+        try:
+            selector, result_type, refusal_signal = lookup_type_contract(
+                value_contract.get("type"),
+                key,
+                authority=self.structured_authority,
+            )
+        except StructuredValueFault:
+            return None
+        if selector == "local-index":
+            integer_profiles = [
+                profile
+                for profile in self.literal_profiles
+                if profile.get("source_kind") == "integer"
+                and profile.get("numeric_policy") in self.runtime_numeric_policies
+            ]
+            if not key_candidates or any(
+                not any(self.matches(candidate, profile) for profile in integer_profiles)
+                for candidate in key_candidates
+            ):
+                return None
+        result = self.contract_for_type(result_type)
+        return (result, refusal_signal) if result is not None else None
+
+    def declared_equal_result_contract(
+        self, value_contract: dict[str, Any]
+    ) -> str | None:
+        """Return the Kernel fixed contract for canonical equality."""
+        try:
+            return equal_result_contract(
+                value_contract.get("type"), authority=self.structured_authority
+            )
+        except StructuredValueFault:
+            return None
+
+    def declared_is_empty_result_contract(
+        self, value_contract: dict[str, Any]
+    ) -> str | None:
+        """Return the Kernel fixed contract for collection emptiness."""
+        try:
+            return is_empty_result_contract(
+                value_contract.get("type"), authority=self.structured_authority
+            )
+        except StructuredValueFault:
+            return None
+
+
+def derive_operation_value_contracts(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> OperationValueContracts | None:
+    """Derive the complete read-only Operation value interpretation."""
+    language = language_bundle.get("language")
+    literal_typing = kernel.get("meta_format", {}).get("literal_typing")
+    runtime_program = kernel.get("meta_format", {}).get("runtime_program")
+    literal_profiles = (
+        language.get("literal_typing_profiles") if isinstance(language, dict) else None
+    )
+    typed_envelope_contract = (
+        literal_typing.get("typed_envelope_profile")
+        if isinstance(literal_typing, dict)
+        else None
+    )
+    fixed_value_contracts = (
+        runtime_program.get("fixed_value_contracts")
+        if isinstance(runtime_program, dict)
+        else None
+    )
+    numeric = (
+        runtime_program.get("numeric") if isinstance(runtime_program, dict) else None
+    )
+    runtime_numeric_policies = (
+        numeric.get("compatible_value_numeric_policies")
+        if isinstance(numeric, dict)
+        else None
+    )
+    resource_limit = kernel.get("resources", {}).get("max_ldb_admission_work")
+    if (
+        not isinstance(literal_typing, dict)
+        or literal_typing.get("selection") != "unique-formal-match"
+        or not isinstance(literal_profiles, list)
+        or not all(isinstance(profile, dict) for profile in literal_profiles)
+        or not isinstance(typed_envelope_contract, dict)
+        or not isinstance(fixed_value_contracts, dict)
+        or not isinstance(runtime_numeric_policies, list)
+        or not runtime_numeric_policies
+        or not all(isinstance(policy, str) for policy in runtime_numeric_policies)
+        or not isinstance(resource_limit, int)
+        or isinstance(resource_limit, bool)
+        or resource_limit < 1
+    ):
+        return None
+    try:
+        structured_authority = language_structured_value_index(
+            language_bundle, kernel=kernel
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return OperationValueContracts(
+        literal_profiles=tuple(cast(list[dict[str, Any]], literal_profiles)),
+        typed_envelope_contract=typed_envelope_contract,
+        fixed_value_contracts=fixed_value_contracts,
+        structured_authority=structured_authority,
+        resource_limit=resource_limit,
+        runtime_numeric_policies=tuple(runtime_numeric_policies),
+    )
+
+
+def _literal_operation_contracts(
     value: Any,
     literal_profiles: Any,
     typed_envelope_contract: Any,
     fixed_value_contracts: Any,
 ) -> tuple[dict[str, Any], ...]:
     """Project the admitted Operation contracts for one literal value."""
-    if not isinstance(literal_profiles, list):
+    if not isinstance(literal_profiles, (list, tuple)):
         return ()
     if value is None:
         unit = (
@@ -119,42 +323,6 @@ def literal_operation_contracts(
         and not isinstance(profile["maximum"], bool)
         and profile["minimum"] <= value <= profile["maximum"]
     )
-
-
-def operation_value_is_admitted(
-    value: Any,
-    formal: dict[str, Any],
-    *,
-    literal_profiles: Any,
-    typed_envelope_contract: Any,
-    fixed_value_contracts: Any,
-    structured_authority: StructuredValueIndex,
-    resource_limit: int,
-) -> bool:
-    """Validate one execution-vector value against an Operation port."""
-    matches = [
-        contract
-        for contract in literal_operation_contracts(
-            value,
-            literal_profiles,
-            typed_envelope_contract,
-            fixed_value_contracts,
-        )
-        if operation_value_contract_matches(contract, formal)
-    ]
-    if len(matches) != 1:
-        return False
-    if not isinstance(value, dict):
-        return True
-    try:
-        admit_typed_value(
-            value,
-            authority=structured_authority,
-            resource_limit=resource_limit,
-        )
-    except (StructuredValueFault, ValueError):
-        return False
-    return True
 
 
 def _operation_result_source_shape_is_closed(
