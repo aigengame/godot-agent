@@ -178,9 +178,7 @@ def project_operation_program(
             return cached
         effects = set(cast(list[str], operation["effects"]))
         refusals = set(cast(list[str], operation["refusals"]))
-        instructions = _body_instructions(
-            cast(list[dict[str, Any]], operation["body"])
-        )
+        instructions = _body_instructions(cast(list[dict[str, Any]], operation["body"]))
         charge = len(instructions)
         for instruction in instructions:
             reference = instruction.get("operation")

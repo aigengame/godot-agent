@@ -734,9 +734,7 @@ def replay_event_evidence(
                         row
                         for row in calls
                         if row["site"] == "/".join(child_path)
-                        and operation_coordinate(
-                            cast(dict[str, Any], row["operation"])
-                        )
+                        and operation_coordinate(cast(dict[str, Any], row["operation"]))
                         == child_coordinate
                     ),
                     None,

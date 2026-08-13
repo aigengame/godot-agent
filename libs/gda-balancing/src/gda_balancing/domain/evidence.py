@@ -54,6 +54,7 @@ from gda_balancing.domain.runtime.projections import (
     scheduled_event_id as _scheduled_event_id,
     scheduler_contract as _scheduler_contract,
 )
+
 _INVALID_FORMULA_EVIDENCE = object()
 
 
@@ -606,6 +607,7 @@ def _replayed_event_evidence(
         catalog_by_id=catalog_by_id,
         events_by_id=events_by_id,
     )
+
 
 def _replayed_schedule_arguments(
     checked: CheckedExperiment,

@@ -3303,17 +3303,14 @@ def _operation_composition_diagnostic_subjects(
     operation_node_ids = {
         node_id
         for node_id, node in node_definitions.items()
-        if node["semantics"]["operator"]
-        in {"invoke-operation", "schedule-operation"}
+        if node["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
     }
     invocation_node_ids = {
         node_id
         for node_id, node in node_definitions.items()
         if node["semantics"]["operator"] == "invoke-operation"
     }
-    cache: dict[
-        tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]
-    ] = {}
+    cache: dict[tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]] = {}
     guard_body_keys: set[tuple[str, str, str]] = set()
     found: set[str] = set()
 
@@ -3788,9 +3785,7 @@ def _operation_composition_diagnostic_subjects(
                         )
                     else:
                         literal_candidates = [
-                            value_contracts.literal_contracts(
-                                instruction.get(member)
-                            )
+                            value_contracts.literal_contracts(instruction.get(member))
                             for member in cast(list[str], typing["members"])
                         ]
                         result_candidates = compatible_candidates(literal_candidates)
@@ -3877,9 +3872,9 @@ def _operation_composition_diagnostic_subjects(
                     alias_key = f"local:{operand['local']}"
                 elif kind == "literal":
                     literal = operand.get("literal")
-                    if formal["access"] != "read" or not value_contracts.literal_matches(
-                        literal, formal
-                    ):
+                    if formal[
+                        "access"
+                    ] != "read" or not value_contracts.literal_matches(literal, formal):
                         refuse(owner, operation, site, "arguments")
                         return None
                     alias_key = f"literal:{operand['literal']}"
@@ -4052,7 +4047,10 @@ def _operation_composition_diagnostic_subjects(
                 key,
                 {
                     coordinate: definition
-                    for coordinate, (_definition_owner, definition) in operations.items()
+                    for coordinate, (
+                        _definition_owner,
+                        definition,
+                    ) in operations.items()
                 },
                 operation_node_ids=operation_node_ids,
                 invocation_node_ids=invocation_node_ids,

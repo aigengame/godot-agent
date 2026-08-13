@@ -21,6 +21,8 @@ from gda_balancing.domain.authority.vector_validation import (
     _signed_int64,
     _value_program_instruction_is_closed,
 )
+
+
 def _package_is_closed(
     package: dict[str, Any], contract: Any, language_bundle: dict[str, Any]
 ) -> bool:

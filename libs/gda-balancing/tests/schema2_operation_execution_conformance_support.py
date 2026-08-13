@@ -28,9 +28,7 @@ def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
         for package in cast(list[dict[str, Any]], language["packages"])
         for closure in cast(list[dict[str, Any]], package["semantic_closure"])
         if closure["authority_path"] == "language.operations"
-        for definition in cast(
-            list[dict[str, Any]], closure["definitions"]
-        )
+        for definition in cast(list[dict[str, Any]], closure["definitions"])
     }
 
 

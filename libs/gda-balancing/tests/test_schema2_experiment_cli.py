@@ -3356,9 +3356,7 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     decoy = deepcopy(selected)
     decoy["package"] = "example.decoy"
     decoy["definition"]["body"] = []
-    selected_semantics["packages"].append(
-        {"id": "example.decoy", "version": "1.0.0"}
-    )
+    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
     selected_semantics["operations"].append(decoy)
     budget = audit["budget_counters"]
     replay_profile = next(
@@ -3366,14 +3364,17 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
         for row in selected_semantics["runtime_profiles"]
         if row["id"] == checked.value["runtime"]["profile"]
     )
-    assert evidence_replay_module.attempted_operation_charge(
-        replace(checked, rir=replay_rir),
-        audit["refusing_event"],
-        audit["refusing_event"]["event_spec"],
-        node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
-        bounds=replay_profile["resource_bounds"],
-        require_budget_breach=True,
-    ) == budget["event_steps"]
+    assert (
+        evidence_replay_module.attempted_operation_charge(
+            replace(checked, rir=replay_rir),
+            audit["refusing_event"],
+            audit["refusing_event"]["event_spec"],
+            node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
+            bounds=replay_profile["resource_bounds"],
+            require_budget_breach=True,
+        )
+        == budget["event_steps"]
+    )
 
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
@@ -3864,9 +3865,7 @@ def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_
     decoy = deepcopy(selected)
     decoy["package"] = "example.decoy"
     decoy["definition"]["default_outcome"] = "decoy-must-not-run"
-    selected_semantics["packages"].append(
-        {"id": "example.decoy", "version": "1.0.0"}
-    )
+    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
     selected_semantics["operations"].append(decoy)
 
     artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
@@ -7501,9 +7500,7 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         },
     }
 
-    expanded = operation_program_module.expanded_operation_body(
-        root, operations
-    )
+    expanded = operation_program_module.expanded_operation_body(root, operations)
 
     assert [instruction["node"] for instruction in expanded] == [
         "guard-block",
@@ -7518,7 +7515,7 @@ def test_operation_closure_includes_guard_body_nodes_and_invocations():
         invocation_node_ids={"invoke"},
     )
     assert projection.reachable_operations == {root, child}
-    assert projection.invocation_paths == ((('child',), child),)
+    assert projection.invocation_paths == ((("child",), child),)
     assert projection.node_ids == {"guard-block", "copy", "invoke", "constant"}
     assert projection.effects == {"event.commit", "snapshot.commit"}
     assert projection.refusals == {

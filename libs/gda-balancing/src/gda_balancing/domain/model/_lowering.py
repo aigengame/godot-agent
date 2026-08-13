@@ -3544,8 +3544,7 @@ def _resolved_call_sites(
     operation_node_ids = {
         cast(str, node["id"])
         for node in runtime_nodes
-        if node["semantics"]["operator"]
-        in {"invoke-operation", "schedule-operation"}
+        if node["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
     }
     invocation_node_ids = {
         cast(str, node["id"])
@@ -3830,8 +3829,7 @@ def _resolved_call_sites(
             )
         if (
             resource_policy["containment"] == "transitive-charge-within-caller-bound"
-            and projection.resource_charge
-            > operation["resource_bounds"]["max_steps"]
+            and projection.resource_charge > operation["resource_bounds"]["max_steps"]
         ):
             raise ValueError("Operation transitive resource charge exceeds its bound")
         closure_cache[parent_key] = (

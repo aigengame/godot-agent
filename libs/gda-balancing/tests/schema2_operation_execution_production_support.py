@@ -43,9 +43,7 @@ def _language_operation_index(
         for package in cast(list[dict[str, Any]], language["packages"])
         for closure in cast(list[dict[str, Any]], package["semantic_closure"])
         if closure["authority_path"] == "language.operations"
-        for definition in cast(
-            list[dict[str, Any]], closure["definitions"]
-        )
+        for definition in cast(list[dict[str, Any]], closure["definitions"])
     }
 
 
@@ -186,9 +184,7 @@ def _formula_sources(
             and result["source"].get("kind") == "local"
         ):
             expression_operations.append((coordinate, operation))
-    expression_operations.sort(
-        key=lambda row: (-len(row[1]["body"]), row[0])
-    )
+    expression_operations.sort(key=lambda row: (-len(row[1]["body"]), row[0]))
     formulas: list[dict[str, Any]] = []
     bindings: list[dict[str, Any]] = []
     for owner, operation in _reachable_operations(root, operations):

@@ -659,8 +659,7 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     operation_node_ids = {
         cast(str, row["id"])
         for row in runtime["nodes"]
-        if row["semantics"]["operator"]
-        in {"invoke-operation", "schedule-operation"}
+        if row["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
     }
     invocation_node_ids = {
         cast(str, row["id"])
@@ -675,8 +674,8 @@ def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
                 operation_node_ids=operation_node_ids,
                 invocation_node_ids=invocation_node_ids,
             ).node_ids
-        for scenario in checked.value["scenarios"]
-        for event in scenario_transition_events(scenario)
+            for scenario in checked.value["scenarios"]
+            for event in scenario_transition_events(scenario)
         )
     )
     nodes = sorted(

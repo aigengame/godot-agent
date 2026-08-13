@@ -150,7 +150,9 @@ class OperationValueContracts:
                 and profile.get("numeric_policy") in self.runtime_numeric_policies
             ]
             if not key_candidates or any(
-                not any(self.matches(candidate, profile) for profile in integer_profiles)
+                not any(
+                    self.matches(candidate, profile) for profile in integer_profiles
+                )
                 for candidate in key_candidates
             ):
                 return None
