@@ -1540,8 +1540,10 @@ issues own detailed observations, acceptance criteria, and live completion statu
     independent consumers agree on the admitted Operation vectors. The maintained Roguelike path
     runs these Operations, and affected authority and example identities are rebuilt against the
     replacement Kernel.
-  - Open boundary: PR #639 must synchronize this replacement evidence before the #585 HITL
-    acceptance decision. Evidence bound to the superseded Kernel identity does not carry forward.
+  - Open boundary: The synchronized designer loop still authors result Records because the Runtime
+    node vocabulary does not construct them. The Package Operations validate those Records before
+    commit. The #585 HITL decision must judge that bounded authoring cost; the example does not
+    establish general Record construction or close a genre claim.
   - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
     [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and

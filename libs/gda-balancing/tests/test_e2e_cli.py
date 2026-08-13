@@ -343,10 +343,14 @@ class TestKeyUserPath:
     def test_roguelike_reward_build_key_path(self, tmp_path, monkeypatch):
         monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
         monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a" * 64)
+        source_path = _ROGUELIKE_REWARD_BUILD_EXAMPLE / "model-source.json"
+        checked = _run("model", "check", str(source_path))
+        assert (checked.returncode, checked.stderr) == (0, ""), checked.stdout
+
         built = _run(
             "model",
             "build",
-            str(_ROGUELIKE_REWARD_BUILD_EXAMPLE / "model-source.json"),
+            str(source_path),
             "--out",
             str(tmp_path / "roguelike-model"),
             "--invocation-key",
@@ -354,6 +358,27 @@ class TestKeyUserPath:
         )
         assert (built.returncode, built.stderr) == (0, ""), built.stdout
         build_receipt = json.loads(built.stdout)
+        receipt_path = tmp_path / "roguelike-model-set-receipt.json"
+        receipt_path.write_text(built.stdout, encoding="utf-8")
+
+        inspected = _run(
+            "model",
+            "inspect",
+            str(receipt_path),
+            "--format",
+            "indented",
+        )
+        assert (inspected.returncode, inspected.stderr) == (0, ""), inspected.stdout
+        explanation = json.loads(inspected.stdout)
+        assert {row["id"] for row in explanation["formula_explanations"]} == {
+            "rare-threshold"
+        }
+        assert {row["id"] for row in explanation["operation_explanations"]}.issuperset(
+            {
+                "game.generation.select-reward-v1",
+                "game.build.replace-reward-v1",
+            }
+        )
 
         experiment = json.loads(
             (_ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json").read_text(
@@ -363,31 +388,87 @@ class TestKeyUserPath:
         _bind_experiment_to_build(experiment, build_receipt)
         experiment_path = tmp_path / "roguelike-experiment.json"
         experiment_path.write_text(json.dumps(experiment), encoding="utf-8")
+        checked_experiment = _run("experiment", "check", str(experiment_path))
+        assert (checked_experiment.returncode, checked_experiment.stderr) == (
+            0,
+            "",
+        ), checked_experiment.stdout
 
-        run = _run(
-            "experiment",
-            "run",
-            str(experiment_path),
-            "--out",
-            str(tmp_path / "roguelike-run"),
-            "--invocation-key",
-            "6" * 64,
+        baseline_receipt, baseline_trace = _run_experiment_variant(
+            tmp_path,
+            experiment,
+            name="roguelike-baseline",
+            invocation_key="6" * 64,
         )
-        assert (run.returncode, run.stderr) == (0, ""), run.stdout
-        trace = json.loads(
-            _receipt_members(json.loads(run.stdout))["event-trace"].read_text(
+        baseline_metrics = json.loads(
+            _receipt_members(baseline_receipt)["metric-dataset"].read_text(
                 encoding="utf-8"
             )
         )
-        transitions = [event for event in trace["events"] if event["operation"]]
-        assert [event["operation"] for event in transitions] == [
+
+        tuned = json.loads(json.dumps(experiment))
+        tuned["id"] = "roguelike.reward-build-feedback.lower-rare-weight"
+        next(
+            row
+            for row in tuned["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "rare_weight"
+        )["value"] = 2
+        tuned_path = tmp_path / "roguelike-tuned.json"
+        tuned_path.write_text(json.dumps(tuned), encoding="utf-8")
+        checked_tuned = _run("experiment", "check", str(tuned_path))
+        assert (checked_tuned.returncode, checked_tuned.stderr) == (
+            0,
+            "",
+        ), checked_tuned.stdout
+        tuned_receipt, tuned_trace = _run_experiment_variant(
+            tmp_path,
+            tuned,
+            name="roguelike-tuned",
+            invocation_key="7" * 64,
+        )
+        tuned_metrics = json.loads(
+            _receipt_members(tuned_receipt)["metric-dataset"].read_text(
+                encoding="utf-8"
+            )
+        )
+
+        baseline_events = [
+            event for event in baseline_trace["events"] if event["operation"]
+        ]
+        tuned_events = [event for event in tuned_trace["events"] if event["operation"]]
+        assert [event["operation"] for event in baseline_events] == [
             "game.generation.select-reward-v1",
             "game.build.replace-reward-v1",
         ]
-        assert [event["outcome"] for event in transitions] == [
+        assert [event["outcome"] for event in baseline_events] == [
             {"id": "selected", "kind": "success"},
             {"id": "replaced", "kind": "success"},
         ]
+        assert [event["outcome"] for event in tuned_events] == [
+            {"id": "selected", "kind": "success"},
+            {"id": "replaced", "kind": "success"},
+        ]
+
+        def reward_result(events: list[dict]) -> dict:
+            return next(
+                row for row in events[0]["facts"] if row["name"] == "reward_result"
+            )["value"]["value"]
+
+        assert reward_result(baseline_events)["selected"] == {"key": "volatile_crown"}
+        assert reward_result(tuned_events)["selected"] == {"key": "steady_guard"}
+        assert baseline_events[0]["rng_draws"] == tuned_events[0]["rng_draws"]
+        assert baseline_events[0]["rng_draws"][0]["value"] == 3
+        assert {row["metric"]: row["value"] for row in baseline_metrics["samples"]} == {
+            "build_score": 90,
+            "reward_score": 80,
+        }
+        assert {row["metric"]: row["value"] for row in tuned_metrics["samples"]} == {
+            "build_score": 30,
+            "reward_score": 20,
+        }
+        assert (
+            baseline_trace["experiment_identity"] != tuned_trace["experiment_identity"]
+        )
 
     def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
         _example, receipt = _build_reciprocal_example(
