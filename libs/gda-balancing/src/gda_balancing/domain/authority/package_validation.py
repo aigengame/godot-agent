@@ -6,6 +6,9 @@ from gda_balancing.domain.canonical import JsonValue, canonical_bytes, content_i
 from gda_balancing.domain.authority.package_semantics import (
     package_runtime_semantic_closure,
 )
+from gda_balancing.domain.authority.runtime_validation import (
+    derive_operation_value_contracts,
+)
 from gda_balancing.domain.authority.contract_validation import (
     _exact_path_value,
     _path_is_declared,
@@ -293,6 +296,8 @@ def _package_evidence_vectors_are_closed(
     contract: Any,
     candidate_encoding: Any,
     runtime_program_contract: Any,
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
 ) -> bool:
     scheduler_contract = (
         runtime_program_contract.get("scheduler")
@@ -321,6 +326,7 @@ def _package_evidence_vectors_are_closed(
         if isinstance(ordering, list)
         else None
     )
+    value_contracts = derive_operation_value_contracts(kernel, language_bundle)
     if (
         not _package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -335,6 +341,7 @@ def _package_evidence_vectors_are_closed(
         or not all(isinstance(phase, str) and phase for phase in phase_rank)
         or not isinstance(runtime_nodes, list)
         or not all(isinstance(node, dict) for node in runtime_nodes)
+        or value_contracts is None
     ):
         return False
     phase_inventory = set(phase_rank)
@@ -549,47 +556,50 @@ def _package_evidence_vectors_are_closed(
             not isinstance(inp, dict)
             or set(inp) != set(kind["input_members"])
             or not _signed_int64(inp.get("seed"))
-            or not isinstance(inp.get("state_names"), list)
-            or inp["state_names"] != sorted(set(inp["state_names"]))
-            or not all(isinstance(name, str) and name for name in inp["state_names"])
             or not isinstance(inp.get("values"), list)
             or not isinstance(expect, dict)
             or set(expect) != set(kind["expect_members"])
-            or not isinstance(expect.get("outcome"), str)
+            or not isinstance(expect.get("completion"), dict)
+            or not isinstance(expect.get("result"), dict)
             or not isinstance(expect.get("state_after"), list)
             or not isinstance(expect.get("rng_draws"), list)
         ):
             return False
         values = inp["values"]
-        value_names = [item.get("name") for item in values if isinstance(item, dict)]
         operation_inputs = [
-            item.get("id")
+            item
             for item in cast(list[dict[str, Any]], operation.get("inputs"))
             if isinstance(item, dict)
         ]
+        value_names = [item.get("name") for item in values if isinstance(item, dict)]
         if (
             not all(
                 isinstance(item, dict)
                 and set(item) == {"name", "value"}
                 and isinstance(item.get("name"), str)
                 and item["name"]
-                and _signed_int64(item.get("value"))
-                for item in values
+                and value_contracts.admits(item.get("value"), formal)
+                for item, formal in zip(values, operation_inputs, strict=False)
             )
-            or value_names != operation_inputs
-            or not set(inp["state_names"]) <= set(value_names)
+            or len(values) != len(operation_inputs)
+            or value_names != [item.get("id") for item in operation_inputs]
         ):
             return False
+        state_inputs = [
+            item for item in operation_inputs if item.get("access") == "read-write"
+        ]
         state_after = expect["state_after"]
         if (
             not all(
                 isinstance(item, dict)
                 and set(item) == set(kind["state_value_members"])
                 and isinstance(item.get("name"), str)
-                and _signed_int64(item.get("value"))
-                for item in state_after
+                and value_contracts.admits(item.get("value"), formal)
+                for item, formal in zip(state_after, state_inputs, strict=False)
             )
-            or [item["name"] for item in state_after] != inp["state_names"]
+            or len(state_after) != len(state_inputs)
+            or [item["name"] for item in state_after]
+            != [item.get("id") for item in state_inputs]
         ):
             return False
         draws = expect["rng_draws"]
@@ -610,10 +620,40 @@ def _package_evidence_vectors_are_closed(
             for item in draws
         ):
             return False
-        outcomes = operation.get("outcomes")
-        if not isinstance(outcomes, list) or expect["outcome"] not in {
-            item.get("id") for item in outcomes if isinstance(item, dict)
-        }:
+        outcomes = {
+            item.get("id"): item
+            for item in cast(list[dict[str, Any]], operation.get("outcomes"))
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        refusals = operation.get("refusals")
+        completion = expect["completion"]
+        result = expect["result"]
+        if completion.get("kind") == "outcome":
+            outcome = outcomes.get(completion.get("id"))
+            if set(completion) != {"id", "kind"} or not isinstance(outcome, dict):
+                return False
+            produces_result = outcome.get("kind") == "success"
+        elif completion.get("kind") == "refusal":
+            if (
+                set(completion) != {"kind", "reason"}
+                or not isinstance(refusals, list)
+                or completion.get("reason") not in refusals
+            ):
+                return False
+            produces_result = False
+        else:
+            return False
+        if produces_result:
+            if (
+                set(result) != {"kind", "value"}
+                or result.get("kind") != "value"
+                or not isinstance(operation.get("result"), dict)
+                or not value_contracts.admits(
+                    result.get("value"), cast(dict[str, Any], operation["result"])
+                )
+            ):
+                return False
+        elif result != {"kind": "not-produced"}:
             return False
 
     relation_kind = kinds.get("operation-relation")
@@ -782,7 +822,7 @@ def _package_evidence_vectors_are_closed(
         for vector in vectors
         if isinstance(vector, dict)
         and vector.get("kind")
-        in {"operation-contract", "operation-relation", "runtime-scenario"}
+        in {"operation-contract", "operation-relation", "operation-execution"}
     }
     referenced = {
         vector_id

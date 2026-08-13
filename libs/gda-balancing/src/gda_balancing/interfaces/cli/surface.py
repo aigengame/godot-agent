@@ -109,7 +109,7 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
     for stage in descriptor.refusal_stages:
         codes = sorted(
             code
-            for code, declared_stage in descriptor.refusal_catalog
+            for code, declared_stage in descriptor.resolved_refusal_catalog()
             if declared_stage == stage
         )
         stage_diagnostic = deepcopy(diagnostic)
@@ -346,7 +346,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             "refusal_stages": list(descriptor.refusal_stages),
             "refusal_catalog": [
                 {"code": code, "stage": stage}
-                for code, stage in descriptor.refusal_catalog
+                for code, stage in descriptor.resolved_refusal_catalog()
             ],
             **(
                 {
@@ -610,7 +610,7 @@ def surface_manifest(
                     "refusal_stages": list(descriptor.refusal_stages),
                     "refusal_catalog": [
                         {"code": code, "stage": stage}
-                        for code, stage in descriptor.refusal_catalog
+                        for code, stage in descriptor.resolved_refusal_catalog()
                     ],
                     "refusal_variants": [
                         {

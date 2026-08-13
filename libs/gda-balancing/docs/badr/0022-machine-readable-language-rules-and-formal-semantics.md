@@ -89,9 +89,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 > `kernel-boolean`. Its fixed refusal set is empty, `result.kind=outcome`, its resource charge is one
 > `event-steps` unit, and `semantics.operator=guarded-outcome-block`. The node is allowed only in an
 > Operation's top-level body and produces no local. Its `body` is a possibly empty ordered list that
-> uses the closed Runtime-node grammar except `guard-block`; `outcome` resolves to one outcome in the
-> enclosing Operation. False skips the body and continues the outer authored sequence. True executes
-> the body in authored order and, unless a node refuses, completes the Operation with `outcome`.
+> uses the closed Runtime-node grammar except `guard-block`. A body node cannot complete an outcome,
+> and an `invoke` outcome mapping cannot propagate an outcome. Thus, only a typed refusal can stop the
+> body early. `outcome` resolves to one outcome in the enclosing Operation. False skips the body and
+> continues the outer authored sequence. True executes the body in authored order and, unless a node
+> refuses, completes the Operation with `outcome`.
 > The guard costs one step. A false condition charges no body steps, RNG, writes, or effects. A true
 > condition adds the actual body charge. Static resource closure includes the guard plus the complete
 > admitted body bound. Admission closes the body's effects and refusals, the terminal outcome, and
@@ -99,18 +101,25 @@ structured formal judgments, and an honest proof/conformance boundary.
 > outcome, or an unbound body reference is a static refusal.
 
 > Runtime executes the outer Operation body and a selected guard body in their authored array order.
-> Node families do not reorder instructions. The replacement Kernel removes the unused
+> Node families do not reorder instructions. bADR-0015 owns the terminal audit's guard-expanded
+> instruction coordinate. The replacement Kernel removes the unused
 > `runtime_program.evaluation_order` phase list. `operation-body-order` remains an alias policy for
 > writable operands and does not define instruction phases.
 
 > These primitives contain no reward, fallback, package, field, or genre dispatch. The neutral
-> `standard.conformance.structured@1.1.0` release proves them before mechanic packages consume
+> `standard.conformance.structured@2.0.0` release proves them before mechanic packages consume
 > them. Standard Schema 2.0 remains provisional until Gate 5 and Gate 6 complete and a maintainer
 > records `Kernel baseline frozen` in PRD #534. The demonstrated failure therefore reopens the
 > architecture gate and replaces the exact provisional Kernel identity. All affected authority and
 > evidence must be rebuilt against that identity. After the recorded freeze event, another
 > irreducible primitive, fact kind, term type, premise operator, or judgment construct requires the
 > next Schema major.
+
+> The #640 replacement LDB is unreleased. Its `standard.schema@2.4.0` release may be completed and
+> reidentified before publication only when the complete LDB and every
+> affected downstream identity are rebuilt together. After that Package Release is published, a
+> later semantic or accepted-input change follows bADR-0016 package versioning instead of rebinding
+> the published release in place.
 
 ## Decision
 
@@ -386,7 +395,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   and adds generic List emptiness. Record fields are exact, Lists are invariant and bounded, and
   each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node vocabulary
   admits typed literals, bounded Record/List lookup, List emptiness, exact-type canonical equality,
-  typed requirements, and single-level guard blocks.
+  typed requirements, and single-level guard blocks. A typed `constant.literal` and its Package
+  Release Wire Schema projection use the same admitted value union as structured ports. When
+  equality compares a Quantity projected from a structured envelope with an exact-contract scalar
+  operand,
+  Runtime projects the scalar payload only after static checking proves the same admitted value
+  contract. This representation step does not add numeric coercion or host-owned type semantics.
   Each constructor carries a machine-readable value rule. The selected typed-envelope profile owns
   recursive resource charging and exact type resolution. Record lookup always uses a static field
   literal; List lookup always uses a resolved integer local. RIR closes recursive nominal type and
@@ -497,7 +511,7 @@ structured formal judgments, and an honest proof/conformance boundary.
 - The 2026-08-11 structured-value amendment replaces the integer-only literal path with typed
   integer and structured envelopes. Its #640 follow-up adds generic List emptiness, typed
   requirements, single-level guard blocks, and structured Operation execution evidence through
-  `standard.schema@2.4.0` and the neutral `standard.conformance.structured@1.1.0` package. Neither
+  `standard.schema@2.4.0` and the neutral `standard.conformance.structured@2.0.0` package. Neither
   amendment adds game or reward semantics.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.

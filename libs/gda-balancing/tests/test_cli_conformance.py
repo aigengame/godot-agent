@@ -170,7 +170,7 @@ class TestPerDescriptorRows:
         payload = json.loads(stdout)
         assert payload["error"]["category"] == "refusal"
         jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
-        catalog = {code for code, _stage in descriptor.refusal_catalog}
+        catalog = {code for code, _stage in descriptor.resolved_refusal_catalog()}
         for entry in payload["error"]["diagnostics"]:
             assert entry["code"] in catalog
 

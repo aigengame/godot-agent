@@ -31,6 +31,7 @@ from gda_balancing.domain.formula.notation import (
     FormulaPairRefusal,
     admit_formula_pair,
 )
+from gda_balancing.domain.operation_program import closed_operation_coordinates
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
@@ -360,34 +361,6 @@ def _operation_reference_node_ids(kernel: dict[str, Any]) -> set[str]:
     }
 
 
-def _closed_operation_coordinates(
-    selected: set[tuple[str, str, str]],
-    operations: dict[tuple[str, str, str], dict[str, Any]],
-    operation_node_ids: set[str],
-) -> set[tuple[str, str, str]]:
-    """Close one Operation graph through every Kernel-declared Operation member."""
-    pending = list(selected)
-    while pending:
-        operation = operations.get(pending.pop())
-        if operation is None:
-            continue
-        for instruction in cast(list[dict[str, Any]], operation.get("body", [])):
-            dependency_ref = instruction.get("operation")
-            if instruction.get("node") not in operation_node_ids or not isinstance(
-                dependency_ref, dict
-            ):
-                continue
-            dependency = (
-                cast(str, dependency_ref.get("package")),
-                cast(str, dependency_ref.get("version")),
-                cast(str, dependency_ref.get("id")),
-            )
-            if dependency not in selected:
-                selected.add(dependency)
-                pending.append(dependency)
-    return selected
-
-
 def _selected_source_operation_coordinates(
     source: dict[str, Any],
     lock: dict[str, Any],
@@ -419,7 +392,7 @@ def _selected_source_operation_coordinates(
         # Exact Operation-resolution diagnostics own precedence over Formula
         # reachability when an authored root coordinate cannot resolve.
         return set(operations)
-    return _closed_operation_coordinates(selected, operations, operation_node_ids)
+    return closed_operation_coordinates(selected, operations, operation_node_ids)
 
 
 def _selected_resolved_operation_coordinates(
@@ -449,7 +422,7 @@ def _selected_resolved_operation_coordinates(
         for entrypoint in entrypoints
         if isinstance((operation := entrypoint.get("operation")), dict)
     }
-    return _closed_operation_coordinates(selected, operations, operation_node_ids)
+    return closed_operation_coordinates(selected, operations, operation_node_ids)
 
 
 def model_source_identity_domain(language_bundle: dict[str, Any]) -> str:

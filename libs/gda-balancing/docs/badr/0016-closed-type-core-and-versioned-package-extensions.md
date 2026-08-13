@@ -44,10 +44,12 @@ therefore requires a small closed type language and a constrained package extens
 > Before a maintained release enters the checked-in LDB, the LDB maintenance workflow creates an
 > isolated candidate graph from the current exact Kernel, maintained releases, and proposed
 > replacements. Domain admission closes that complete graph. A development conformance harness then
-> executes every vector bound by every Package Release manifest through the production evaluator
-> adapter and one independent consumer, and compares their canonical completion, result, state, and
-> RNG observations. The workflow rebuilds and validates affected downstream identities only against
-> the admitted candidate graph. It publishes the complete replacement set only after every check
+> executes every vector bound by every Package Release manifest through the production and
+> independent admission consumers. For each `operation-execution` vector, it also compares the
+> production evaluator adapter with an independent Runtime consumer over canonical completion,
+> result, state, and RNG observations. The workflow rebuilds and validates affected downstream
+> identities only against the admitted candidate graph. It publishes the complete replacement set
+> only after every check
 > passes. On failure, the existing admitted graph remains authoritative. Public Runtime, the package
 > resolver, and the identity rebuild tool do not discover or execute vectors. This workflow is a
 > maintenance commit boundary, not a new Runtime transaction service. bADR-0022 owns the Kernel

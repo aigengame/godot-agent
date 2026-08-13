@@ -22,8 +22,9 @@ distribution contract and a falsifiable definition of genre completeness.
 > Extension Invariance evidence must bind the replacement identity; evidence for the superseded
 > baseline does not carry forward.
 
-> `game.generation` owns one ordered eligible `RewardOption` pool, with each option pairing its
-> candidate and selection data. Its primary `RarityPolicyKind` remains a selection-policy axis. The
+> **Amendment (2026-08-13, #640):** `game.generation` owns one ordered eligible `RewardOption`
+> pool. Each option pairs its candidate and selection data. Its primary `RarityPolicyKind` remains
+> a selection-policy axis. The
 > independent `no_reward_on_empty: List<RewardSelection, max=1>` field declares the exhaustion
 > fallback: an empty list declares none, and one value declares the exact no-reward selection.
 > Empty selection without that value raises `selection-exhausted`. Empty selection with it validates
@@ -35,6 +36,10 @@ distribution contract and a falsifiable definition of genre completeness.
 > Event observes the no-reward disposition, completes with its own rollback
 > `gameplay-alternative`, produces no Operation result, and does not change build state or consume
 > RNG.
+> On the ordinary build path, `game.build` validates the selected reward, current state, next state,
+> decision, and score before it commits. Contradictory authored plan data is a typed configuration
+> refusal. A valid plan with the declared `conflict` constraint remains the `build-conflict`
+> gameplay outcome.
 
 > One illustrative, non-normative lowering uses `is-empty` and a top-level `guard-block` to complete
 > the empty selection and no-reward build paths before the outer authored sequence can draw, look
