@@ -1,7 +1,18 @@
 """Independent Operation execution adapter for development conformance."""
 
 import hashlib
+from collections.abc import Mapping
 from typing import Any, cast
+
+OperationCoordinate = tuple[str, str, str]
+
+
+def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
+    return (
+        cast(str, reference["package"]),
+        cast(str, reference["version"]),
+        cast(str, reference["id"]),
+    )
 
 
 def _reference_compare(comparison: str, left: int, right: int) -> bool:
@@ -88,7 +99,7 @@ class _ReferenceRuntimeRefusal(Exception):
 def reference_execute_event(
     kernel: dict[str, Any],
     operation: dict[str, Any],
-    operations: dict[str, dict[str, Any]],
+    operations: Mapping[Any, dict[str, Any]],
     scenario: dict[str, Any],
     *,
     seed: int,
@@ -98,6 +109,7 @@ def reference_execute_event(
     resolved_call_sites: list[dict[str, Any]] | None = None,
     resolved_initialization_programs: list[dict[str, Any]] | None = None,
     language_bundle: dict[str, Any] | None = None,
+    root_operation_coordinate: OperationCoordinate | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -395,12 +407,13 @@ def reference_execute_event(
         return value
 
     def execute(
+        selected_coordinate: OperationCoordinate,
         selected: dict[str, Any],
         arguments: dict[str, dict[str, Any]],
-        stack: tuple[str, ...] = (),
+        stack: tuple[OperationCoordinate, ...] = (),
         path: tuple[str, ...] = (),
     ) -> tuple[str, Any]:
-        assert selected["id"] not in stack
+        assert selected_coordinate not in stack
         locals_: dict[str, dict[str, Any]] = {}
         operation_results: dict[str, Any] = {}
         frame_cells = {id(cell): cell for cell in arguments.values()}
@@ -438,7 +451,10 @@ def reference_execute_event(
                 semantics = node["semantics"]
                 operator = semantics["operator"]
                 if operator == "invoke-operation":
-                    child = operations[instruction["operation"]["id"]]
+                    child_coordinate = _operation_coordinate(instruction["operation"])
+                    child = operations.get(child_coordinate)
+                    if child is None:
+                        child = operations[instruction["operation"]["id"]]
                     child_arguments: dict[str, dict[str, Any]] = {}
                     for binding in instruction["arguments"]:
                         operand = binding["operand"]
@@ -451,9 +467,10 @@ def reference_execute_event(
                         child_arguments[binding["port"]] = actual
                     try:
                         child_outcome, child_result = execute(
+                            child_coordinate,
                             child,
                             child_arguments,
-                            (*stack, selected["id"]),
+                            (*stack, selected_coordinate),
                             (*path, instruction["site"]),
                         )
                     except _ReferenceRuntimeRefusal as refusal:
@@ -542,6 +559,7 @@ def reference_execute_event(
                             },
                         }
                         execute(
+                            selected_coordinate,
                             guarded,
                             {**arguments, **locals_},
                             stack,
@@ -719,7 +737,13 @@ def reference_execute_event(
                 actual = {"value": operand["value"]}
             root_frame[argument["port"]["name"]] = actual
     try:
+        selected_root_coordinate = root_operation_coordinate or (
+            "",
+            cast(str, operation.get("version", "")),
+            cast(str, operation["id"]),
+        )
         outcome, result = execute(
+            selected_root_coordinate,
             operation,
             root_frame,
             path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),

@@ -1,6 +1,6 @@
 """Orchestrate dual-consumer Operation execution conformance."""
 
-from typing import Any
+from typing import Any, cast
 
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -14,10 +14,34 @@ from schema2_operation_execution_production_support import (
 )
 
 
-def operation_execution_vectors(ldb: Any) -> list[tuple[str, dict[str, Any]]]:
+OperationCoordinate = tuple[str, str, str]
+
+
+def _operation_index(ldb: Any) -> dict[OperationCoordinate, dict[str, Any]]:
+    language = cast(dict[str, Any], ldb["language"])
+    definitions = {
+        (cast(str, row["version"]), cast(str, row["id"])): row
+        for row in cast(list[dict[str, Any]], language["operations"])
+    }
+    return {
+        (
+            cast(str, package["id"]),
+            cast(str, package["version"]),
+            cast(str, operation_id),
+        ): definitions[(cast(str, package["version"]), cast(str, operation_id))]
+        for package in cast(list[dict[str, Any]], language["packages"])
+        for operation_id in cast(
+            list[str], cast(dict[str, Any], package["exports"])["operations"]
+        )
+    }
+
+
+def operation_execution_vectors(
+    ldb: Any,
+) -> list[tuple[str, str, dict[str, Any]]]:
     """Discover every manifest-bound Operation execution vector."""
     return [
-        (vector_set["package_id"], vector)
+        (vector_set["package_id"], vector_set["package_version"], vector)
         for vector_set in ldb.package_conformance_vector_sets
         for vector in vector_set["vector_definitions"]
         if vector.get("kind") == "operation-execution"
@@ -27,11 +51,14 @@ def operation_execution_vectors(ldb: Any) -> list[tuple[str, dict[str, Any]]]:
 def independent_operation_execution_projection(
     kernel: dict[str, Any],
     ldb: Any,
-    operations: dict[str, dict[str, Any]],
+    operations: dict[OperationCoordinate, dict[str, Any]],
+    package_id: str,
+    package_version: str,
     vector: dict[str, Any],
 ) -> dict[str, Any]:
     """Project the independent adapter result to the canonical vector shape."""
-    operation = operations[vector["operation"]]
+    coordinate = (package_id, package_version, cast(str, vector["operation"]))
+    operation = operations[coordinate]
     event = reference_execute_event(
         kernel,
         operation,
@@ -42,6 +69,7 @@ def independent_operation_execution_projection(
             row["id"] for row in operation["inputs"] if row["access"] == "read-write"
         },
         language_bundle=ldb,
+        root_operation_coordinate=coordinate,
     )
     state_after = {row["name"]: row["value"] for row in event["state_after"]}
     state_names = [
@@ -82,19 +110,38 @@ def operation_execution_observations(
     vector: dict[str, Any],
     *,
     context: AdmittedAuthorityContext | None = None,
-    operations: dict[str, dict[str, Any]] | None = None,
+    package_id: str | None = None,
+    package_version: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Observe one vector through both adapters in the canonical shape."""
     resolved_context = context or admit_authority_context(kernel, ldb)
     assert isinstance(resolved_context, AdmittedAuthorityContext)
-    resolved_operations = operations or {
-        row["id"]: row for row in ldb["language"]["operations"]
-    }
+    if package_id is None or package_version is None:
+        owners = [
+            (owner_id, owner_version)
+            for owner_id, owner_version, declared in operation_execution_vectors(ldb)
+            if declared["id"] == vector["id"]
+            and declared["operation"] == vector["operation"]
+        ]
+        if len(owners) != 1:
+            raise ValueError("operation execution vector owner is not unique")
+        package_id, package_version = owners[0]
+    resolved_operations = _operation_index(ldb)
     return {
         "expected": vector["expect"],
-        "production": evaluate_operation_execution_vector(resolved_context, vector),
+        "production": evaluate_operation_execution_vector(
+            resolved_context,
+            vector,
+            package_id=package_id,
+            package_version=package_version,
+        ),
         "independent": independent_operation_execution_projection(
-            kernel, ldb, resolved_operations, vector
+            kernel,
+            ldb,
+            resolved_operations,
+            package_id,
+            package_version,
+            vector,
         ),
     }
 
@@ -125,17 +172,17 @@ def candidate_conformance_failures(
         ]
     context = admit_authority_context(kernel, ldb)
     assert isinstance(context, AdmittedAuthorityContext)
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
     failures: list[dict[str, Any]] = []
     overrides = vector_overrides or {}
-    for package_id, declared in operation_execution_vectors(ldb):
+    for package_id, package_version, declared in operation_execution_vectors(ldb):
         vector = overrides.get(declared["id"], declared)
         observations = operation_execution_observations(
             kernel,
             ldb,
             vector,
             context=context,
-            operations=operations,
+            package_id=package_id,
+            package_version=package_version,
         )
         if (
             observations["production"] != observations["independent"]

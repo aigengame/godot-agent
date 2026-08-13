@@ -6388,9 +6388,7 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
                 if row["access"] == "read-write"
             },
         )
-        observations = operation_execution_observations(
-            kernel, ldb, vector, operations=operations
-        )
+        observations = operation_execution_observations(kernel, ldb, vector)
         assert observations["production"] == observations["independent"]
         assert observations["production"] == observations["expected"]
         projection = observations["production"]
@@ -6425,10 +6423,9 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
 
 def test_neutral_structured_operation_vectors_cover_control_paths():
     kernel, ldb = mutable_authorities()
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
         vector
-        for package_id, vector in operation_execution_vectors(ldb)
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
         if package_id == "standard.conformance.structured"
     ]
     assert {vector["id"] for vector in vectors} == {
@@ -6439,9 +6436,7 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     }
 
     for vector in vectors:
-        observations = operation_execution_observations(
-            kernel, ldb, vector, operations=operations
-        )
+        observations = operation_execution_observations(kernel, ldb, vector)
         assert observations["production"] == observations["independent"]
         assert observations["production"] == observations["expected"]
 
@@ -6472,7 +6467,7 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
 
     assert {
         vector["id"]: vector["category"]
-        for package_id, vector in operation_execution_vectors(ldb)
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
         if package_id == "game.generation"
     } == {
         "generation.select.success": "deterministic-rng",
@@ -6494,7 +6489,7 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
     }
     vectors = [
         vector
-        for package_id, vector in operation_execution_vectors(ldb)
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
         if package_id in {"game.generation", "game.build"}
         and vector["category"] == "rollback-replay"
     ]
@@ -6523,7 +6518,6 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
                 ldb,
                 vector,
                 context=context,
-                operations=operations,
             )
             for _ in range(2)
         ]
@@ -6582,7 +6576,7 @@ def test_build_operation_vectors_cover_success_alternatives_and_refusal():
 
     assert {
         vector["id"]: vector["category"]
-        for package_id, vector in operation_execution_vectors(ldb)
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
         if package_id == "game.build"
     } == {
         "build.replace.success": "positive",
@@ -6699,7 +6693,7 @@ def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
     kernel, ldb = mutable_authorities()
     package_id, vector = next(
         (package_id, deepcopy(candidate))
-        for package_id, candidate in operation_execution_vectors(ldb)
+        for package_id, _package_version, candidate in operation_execution_vectors(ldb)
         if candidate["id"] == "structured.select.empty-outcome"
     )
     vector["expect"]["completion"]["id"] = "mutated-outcome"
@@ -6727,7 +6721,7 @@ def test_operation_execution_projection_preserves_declared_state_order():
     operation["inputs"] = [*read_only, *reversed(writable)]
     vectors = [
         vector
-        for _package_id, vector in operation_execution_vectors(ldb)
+        for _package_id, _package_version, vector in operation_execution_vectors(ldb)
         if vector["operation"] == operation["id"]
     ]
     input_order = [row["id"] for row in operation["inputs"]]
