@@ -205,6 +205,12 @@ class CommandDescriptor:
     # reverse-conformance projection of Kernel/LDB Diagnostics; dispatch and
     # --schema both consume it, so an undeclared stage/code cannot leak.
     refusal_catalog: tuple[tuple[str, str], ...] = field(default=())
+    # A catalog that depends on admitted authority may be resolved at the first
+    # refusal/schema projection. The owning descriptor module need not admit the
+    # authority at import; static descriptors continue to use the field above.
+    refusal_catalog_provider: Callable[[], tuple[tuple[str, str], ...]] | None = field(
+        default=None
+    )
     # Stage-specific refusal fields remain closed and descriptor-owned. Their
     # schemas are shared by dispatch validation, --schema, manifest, and
     # descriptor identity; handlers cannot add an ambient details bag.
@@ -246,33 +252,18 @@ class CommandDescriptor:
             self.verdict_artifact_set or self.verdict_schema is not None
         ):
             raise ValueError("verdict contracts require a declared verdict model")
-        if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
-            raise ValueError("duplicate Schema 2.x refusal catalog entry")
-        if any(
-            not code or stage not in _SCHEMA2_REFUSAL_STAGES
-            for code, stage in self.refusal_catalog
-        ):
-            raise ValueError("invalid Schema 2.x refusal catalog entry")
+        if self.refusal_catalog and self.refusal_catalog_provider is not None:
+            raise ValueError("refusal catalog has both static and deferred sources")
         refusal_detail_keys = [
             (detail.stage, detail.field_name) for detail in self.refusal_details
         ]
         if len(refusal_detail_keys) != len(set(refusal_detail_keys)):
             raise ValueError("duplicate Schema 2.x refusal-detail field")
-        if any(
-            detail.stage not in {stage for _, stage in self.refusal_catalog}
-            for detail in self.refusal_details
-        ):
-            raise ValueError("refusal detail belongs to an unreachable stage")
         refusal_variant_keys = [
             (variant.stage, variant.id) for variant in self.refusal_variants
         ]
         if len(refusal_variant_keys) != len(set(refusal_variant_keys)):
             raise ValueError("duplicate Schema 2.x refusal variant")
-        if any(
-            variant.stage not in {stage for _, stage in self.refusal_catalog}
-            for variant in self.refusal_variants
-        ):
-            raise ValueError("refusal variant belongs to an unreachable stage")
         for variant in self.refusal_variants:
             referenced = set(variant.required_details) | set(variant.forbidden_details)
             if not {(variant.stage, detail) for detail in referenced} <= set(
@@ -301,11 +292,6 @@ class CommandDescriptor:
         refusal_set_stages = [item.stage for item in self.refusal_artifact_sets]
         if len(refusal_set_stages) != len(set(refusal_set_stages)):
             raise ValueError("duplicate refusal artifact-set stage")
-        if any(
-            stage not in {declared for _, declared in self.refusal_catalog}
-            for stage in refusal_set_stages
-        ):
-            raise ValueError("refusal artifact set belongs to an unreachable stage")
         if any(
             (item.stage, "terminal_audit") not in refusal_detail_keys
             for item in self.refusal_artifact_sets
@@ -339,6 +325,8 @@ class CommandDescriptor:
             )
         if not set(self.usage_codes) <= USAGE_CODES:
             raise ValueError("unknown Schema 2.x usage code")
+        if self.refusal_catalog_provider is None:
+            self._validate_refusal_catalog(self.refusal_catalog)
         if (
             self.positional_field is not None
             and self.positional_field not in self.input_model.model_fields
@@ -358,7 +346,36 @@ class CommandDescriptor:
 
     @property
     def refusal_stages(self) -> tuple[str, ...]:
-        return tuple(sorted({stage for _, stage in self.refusal_catalog}))
+        return tuple(sorted({stage for _, stage in self.resolved_refusal_catalog()}))
+
+    def resolved_refusal_catalog(self) -> tuple[tuple[str, str], ...]:
+        """Resolve and validate the descriptor's exact refusal catalog."""
+        catalog = (
+            self.refusal_catalog_provider()
+            if self.refusal_catalog_provider is not None
+            else self.refusal_catalog
+        )
+        self._validate_refusal_catalog(catalog)
+        return catalog
+
+    def _validate_refusal_catalog(self, catalog: tuple[tuple[str, str], ...]) -> None:
+        if not isinstance(catalog, tuple) or len(catalog) != len(set(catalog)):
+            raise ValueError("duplicate Schema 2.x refusal catalog entry")
+        if any(
+            not isinstance(entry, tuple)
+            or len(entry) != 2
+            or not entry[0]
+            or entry[1] not in _SCHEMA2_REFUSAL_STAGES
+            for entry in catalog
+        ):
+            raise ValueError("invalid Schema 2.x refusal catalog entry")
+        stages = {stage for _, stage in catalog}
+        if any(detail.stage not in stages for detail in self.refusal_details):
+            raise ValueError("refusal detail belongs to an unreachable stage")
+        if any(variant.stage not in stages for variant in self.refusal_variants):
+            raise ValueError("refusal variant belongs to an unreachable stage")
+        if any(item.stage not in stages for item in self.refusal_artifact_sets):
+            raise ValueError("refusal artifact set belongs to an unreachable stage")
 
 
 def build_registry(*descriptors: CommandDescriptor) -> tuple[CommandDescriptor, ...]:

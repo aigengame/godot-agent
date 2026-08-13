@@ -85,10 +85,17 @@ _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS = (
     "runtime.reason.capability-unsupported",
     "evaluation.reason.observation-unavailable",
 )
-_EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
-    *_EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS,
-    *_operation_refusal_reasons(),
-)
+
+
+def _experiment_run_refusal_catalog() -> tuple[tuple[str, str], ...]:
+    """Resolve the run-only catalog after the CLI has selected this surface."""
+    return refusal_catalog_for_reasons(
+        EXPERIMENT_CHECK_REFUSAL_REASONS
+        + _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS
+        + _operation_refusal_reasons()
+    )
+
+
 _EXPERIMENT_SUCCESS_ARTIFACT_SET = (
     ArtifactSetMemberSpec("evaluation-run", "evaluation-run", role="primary"),
     ArtifactSetMemberSpec("event-trace", "event-trace"),
@@ -200,9 +207,7 @@ EXPERIMENT_RUN = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     stochastic=True,
-    refusal_catalog=refusal_catalog_for_reasons(
-        EXPERIMENT_CHECK_REFUSAL_REASONS + _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS
-    ),
+    refusal_catalog_provider=_experiment_run_refusal_catalog,
     refusal_details=(
         RefusalDetailSpec(
             stage="runtime",

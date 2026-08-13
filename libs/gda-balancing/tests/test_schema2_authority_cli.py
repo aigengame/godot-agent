@@ -2100,7 +2100,7 @@ def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
         },
     }
     for descriptor, catalog in expected.items():
-        assert set(descriptor.refusal_catalog) == catalog
+        assert set(descriptor.resolved_refusal_catalog()) == catalog
 
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     witnessed_codes: set[str] = set()

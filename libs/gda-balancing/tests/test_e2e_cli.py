@@ -71,6 +71,39 @@ def _run(*argv: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([_console_script(), *argv], capture_output=True, text=True)
 
 
+def test_experiment_run_descriptor_defers_operation_refusal_catalog_at_import():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "\n".join(
+                (
+                    "import json",
+                    "import gda_balancing.domain.model",
+                    "import gda_balancing.domain.authority.context as authority",
+                    "original = authority.packaged_authority_context",
+                    "calls = {'count': 0}",
+                    "def observed():",
+                    "    calls['count'] += 1",
+                    "    return original()",
+                    "authority.packaged_authority_context = observed",
+                    "from gda_balancing.interfaces.cli.experiment_run import EXPERIMENT_RUN",
+                    "print(json.dumps({'operation_catalog_calls': calls['count'], 'deferred': EXPERIMENT_RUN.refusal_catalog_provider is not None}))",
+                )
+            ),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    assert observed == {
+        "operation_catalog_calls": 0,
+        "deferred": True,
+    }
+
+
 def _receipt_members(receipt: dict) -> dict[str, Path]:
     return {
         row["logical_name"]: Path(row["locator"]) for row in receipt["member_locators"]
