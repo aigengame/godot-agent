@@ -7294,6 +7294,47 @@ def test_generation_operation_vectors_cover_success_fallback_and_refusals():
     }
 
 
+def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {
+        operation["id"]: operation for operation in ldb["language"]["operations"]
+    }
+    vectors = [
+        vector
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id in {"game.generation", "game.build"}
+        and vector["category"] == "rollback-replay"
+    ]
+    assert {vector["id"] for vector in vectors} == {
+        "generation.select.invalid-fallback-policy-before-refusal",
+        "generation.select.invalid-fallback-policy-after-refusal",
+        "build.replace.invalid-plan-refusal",
+    }
+
+    for vector in vectors:
+        operation = operations[vector["operation"]]
+        initial_values = {
+            row["name"]: row["value"] for row in vector["input"]["values"]
+        }
+        state_names = [
+            row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+        ]
+        assert vector["expect"]["state_after"] == [
+            {"name": name, "value": initial_values[name]} for name in state_names
+        ]
+        assert vector["expect"]["rng_draws"] == []
+
+        observed = [
+            evaluate_operation_execution_vector(context, vector),
+            evaluate_operation_execution_vector(context, vector),
+            _reference_operation_execution_projection(kernel, ldb, operations, vector),
+            _reference_operation_execution_projection(kernel, ldb, operations, vector),
+        ]
+        assert all(result == vector["expect"] for result in observed), vector["id"]
+
+
 def test_generation_operation_owns_the_no_reward_discriminator():
     _kernel, ldb = mutable_authorities()
     operation = next(
