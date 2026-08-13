@@ -1,0 +1,149 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "roguelike.reward-build-feedback",
+    "version": "1.0.0",
+    "entry_module": "reward-build"
+  },
+  "package_requirements": [
+    {"id": "core.quantity", "version": "2.1.0"},
+    {"id": "game.build", "version": "1.0.0"},
+    {"id": "game.generation", "version": "1.0.0"}
+  ],
+  "formula_bindings": [
+    {
+      "site": {
+        "kind": "operation-slot",
+        "operation": {
+          "package": "game.generation",
+          "version": "1.0.0",
+          "id": "game.generation.select-reward-v1"
+        },
+        "slot": "rare-threshold-policy"
+      },
+      "formula": {"module": "reward-build", "id": "rare-threshold"},
+      "arguments": [
+        {"parameter": "rare_weight", "operand": {"kind": "slot-parameter", "parameter": "rare_weight"}}
+      ]
+    }
+  ],
+  "entrypoints": [
+    {
+      "id": "reward.select",
+      "operation": {
+        "package": "game.generation",
+        "version": "1.0.0",
+        "id": "game.generation.select-reward-v1"
+      },
+      "arguments": [
+        {"port": "reward_pool", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_pool"}},
+        {"port": "rare_weight", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "rare_weight"}},
+        {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
+        {"port": "reward_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "reward_score"}}
+      ],
+      "result": {"kind": "symbol", "module": "reward-build", "symbol": "reward_result"}
+    },
+    {
+      "id": "build.replace",
+      "operation": {
+        "package": "game.build",
+        "version": "1.0.0",
+        "id": "game.build.replace-reward-v1"
+      },
+      "arguments": [
+        {"port": "selected_reward", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "selected_reward"}},
+        {"port": "build_plans", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_plans"}},
+        {"port": "build_state", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_state"}},
+        {"port": "build_decision", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_decision"}},
+        {"port": "build_score", "operand": {"kind": "symbol", "module": "reward-build", "symbol": "build_score"}}
+      ],
+      "result": {"kind": "symbol", "module": "reward-build", "symbol": "build_result"}
+    }
+  ],
+  "modules": [
+    {
+      "id": "reward-build",
+      "imports": [
+        {"alias": "quantity", "package": "core.quantity", "version": "2.1.0", "symbol": "Quantity"},
+        {"alias": "build-plan-set", "package": "game.build", "version": "1.0.0", "symbol": "BuildPlanSet"},
+        {"alias": "build-state", "package": "game.build", "version": "1.0.0", "symbol": "BuildState"},
+        {"alias": "build-decision", "package": "game.build", "version": "1.0.0", "symbol": "BuildDecision"},
+        {"alias": "reward-pool", "package": "game.generation", "version": "1.0.0", "symbol": "RewardPool"},
+        {"alias": "reward-selection", "package": "game.generation", "version": "1.0.0", "symbol": "RewardSelection"}
+      ],
+      "symbols": [
+        {"symbol": "reward_pool", "type": "reward-pool", "role": "state", "value_policy": {"mode": "experiment-required"}},
+        {"symbol": "selected_reward", "type": "reward-selection", "role": "state", "value_policy": {"mode": "experiment-required"}},
+        {
+          "symbol": "rare_weight",
+          "type": "quantity",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {"minimum": 0, "maximum": 90},
+          "numeric_policy": "exact-int64",
+          "value_policy": {"mode": "experiment-required"}
+        },
+        {
+          "symbol": "reward_score",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {"minimum": 0, "maximum": 100},
+          "numeric_policy": "exact-int64",
+          "value_policy": {"mode": "experiment-required"}
+        },
+        {"symbol": "reward_result", "type": "reward-selection", "role": "output", "value_policy": {"mode": "none"}},
+        {"symbol": "build_plans", "type": "build-plan-set", "role": "state", "value_policy": {"mode": "experiment-required"}},
+        {"symbol": "build_state", "type": "build-state", "role": "state", "value_policy": {"mode": "experiment-required"}},
+        {"symbol": "build_decision", "type": "build-decision", "role": "state", "value_policy": {"mode": "experiment-required"}},
+        {
+          "symbol": "build_score",
+          "type": "quantity",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {"minimum": 0, "maximum": 100},
+          "numeric_policy": "exact-int64",
+          "value_policy": {"mode": "experiment-required"}
+        },
+        {"symbol": "build_result", "type": "build-decision", "role": "output", "value_policy": {"mode": "none"}}
+      ],
+      "formulas": [
+        {
+          "id": "rare-threshold",
+          "parameters": [
+            {
+              "id": "rare_weight",
+              "type": "quantity",
+              "representation": "Int",
+              "kind": "scalar",
+              "unit": "1",
+              "domain_kind": "closed-interval",
+              "domain": {"minimum": 0, "maximum": 90},
+              "numeric_policy": "exact-int64"
+            }
+          ],
+          "result": {
+            "type": "quantity",
+            "representation": "Int",
+            "kind": "scalar",
+            "unit": "1",
+            "domain_kind": "closed-interval",
+            "domain": {"minimum": 0, "maximum": 90},
+            "numeric_policy": "exact-int64"
+          },
+          "body": {"node": "parameter", "parameter": "rare_weight"},
+          "expression": "rare_weight"
+        }
+      ]
+    }
+  ]
+}

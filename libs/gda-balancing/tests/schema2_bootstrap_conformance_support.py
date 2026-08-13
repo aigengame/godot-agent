@@ -37,7 +37,7 @@ from gda_balancing.domain.authority.graph import (
 
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c"
+    "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856"
 )
 _SUPPORTED_RUNTIME_COMPONENT_CONTRACT_IDENTITY = (
     "sha256:5884a044e531d0a94c93e203a9644ea6d9d845154592ff714636a6032c8a7798"
@@ -469,11 +469,13 @@ _CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS = {
         "required_members",
         "schedule_projection_members",
     },
-    "runtime-scenario": {
+    "operation-execution": {
+        "completion_members",
         "expect_members",
         "id",
         "input_members",
         "required_members",
+        "result_members",
         "rng_draw_members",
         "state_value_members",
     },
@@ -563,7 +565,7 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
             "probe",
             "role",
         },
-        "runtime-scenario": {
+        "operation-execution": {
             "category",
             "expect",
             "id",
@@ -628,13 +630,15 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         == ["contract", "operation", "relations"]
         and kinds["operation-relation"].get("schedule_projection_members")
         == ["logical_time", "operation"]
-        and kinds["runtime-scenario"].get("input_members")
-        == ["seed", "state_names", "values"]
-        and kinds["runtime-scenario"].get("expect_members")
-        == ["outcome", "rng_draws", "state_after"]
-        and kinds["runtime-scenario"].get("rng_draw_members")
+        and kinds["operation-execution"].get("input_members") == ["seed", "values"]
+        and kinds["operation-execution"].get("expect_members")
+        == ["completion", "result", "rng_draws", "state_after"]
+        and kinds["operation-execution"].get("completion_members")
+        == ["id", "kind", "reason"]
+        and kinds["operation-execution"].get("result_members") == ["kind", "value"]
+        and kinds["operation-execution"].get("rng_draw_members")
         == ["candidate_hex", "index", "stream", "value"]
-        and kinds["runtime-scenario"].get("state_value_members") == ["name", "value"]
+        and kinds["operation-execution"].get("state_value_members") == ["name", "value"]
         and kinds["value-program"].get("input_members")
         == [
             "cache",
@@ -704,7 +708,8 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         == ["scenario", "value"]
         and kinds["scheduler-scenario"].get("target_states")
         == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
-        and kinds["structured-value"].get("actions") == ["admit", "equal", "lookup"]
+        and kinds["structured-value"].get("actions")
+        == ["admit", "equal", "is-empty", "lookup"]
         and kinds["structured-value"].get("input_members")
         == ["action", "key", "left", "limit", "right"]
         and kinds["structured-value"].get("expect_members")
@@ -1056,12 +1061,172 @@ def _consumer_b_package_vector_set_is_closed(
     )
 
 
+def _consumer_b_operation_value_contract_matches(
+    actual: dict[str, Any], formal: dict[str, Any]
+) -> bool:
+    if not _consumer_b_canonical_equal(actual.get("type"), formal.get("type")):
+        return False
+    if "value_kind" in actual or "value_kind" in formal:
+        return actual.get("value_kind") == formal.get("value_kind")
+    return all(
+        _consumer_b_canonical_equal(actual.get(member), formal.get(member))
+        for member in ("representation", "kind", "unit", "domain", "numeric_policy")
+    )
+
+
+def _consumer_b_operation_value_is_admitted(
+    value: Any,
+    formal: dict[str, Any],
+    *,
+    ldb: dict[str, Any],
+    kernel: dict[str, Any],
+    resource_limit: int,
+) -> bool:
+    language = ldb.get("language")
+    profiles = (
+        language.get("literal_typing_profiles") if isinstance(language, dict) else None
+    )
+    literal_typing = kernel.get("meta_format", {}).get("literal_typing")
+    typed_contract = (
+        literal_typing.get("typed_envelope_profile")
+        if isinstance(literal_typing, dict)
+        else None
+    )
+    runtime = kernel.get("meta_format", {}).get("runtime_program")
+    fixed = runtime.get("fixed_value_contracts") if isinstance(runtime, dict) else None
+    if (
+        not isinstance(profiles, list)
+        or not isinstance(typed_contract, dict)
+        or not isinstance(fixed, dict)
+    ):
+        return False
+    contracts: list[dict[str, Any]] = []
+    if value is None:
+        unit = fixed.get("kernel-unit")
+        if isinstance(unit, dict):
+            contracts.append(unit)
+    elif isinstance(value, bool):
+        boolean = fixed.get("kernel-boolean")
+        if isinstance(boolean, dict):
+            contracts.append(boolean)
+    elif isinstance(value, int):
+        contracts.extend(
+            profile
+            for profile in profiles
+            if isinstance(profile, dict)
+            and profile.get("source_kind") == "integer"
+            and type(profile.get("minimum")) is int
+            and type(profile.get("maximum")) is int
+            and profile["minimum"] <= value <= profile["maximum"]
+        )
+    elif isinstance(value, dict):
+        admission = typed_contract.get("admission")
+        envelope_members = (
+            admission.get("envelope_members") if isinstance(admission, dict) else None
+        )
+        type_member = typed_contract.get("type_member")
+        value_member = typed_contract.get("value_member")
+        reference = (
+            admission.get("nominal_type_reference")
+            if isinstance(admission, dict)
+            else None
+        )
+        coordinate_members = (
+            reference.get("coordinate_members") if isinstance(reference, dict) else None
+        )
+        optional_kind = (
+            reference.get("optional_kind_member")
+            if isinstance(reference, dict)
+            else None
+        )
+        optional_value = (
+            reference.get("optional_kind_value")
+            if isinstance(reference, dict)
+            else None
+        )
+        if (
+            isinstance(envelope_members, list)
+            and isinstance(type_member, str)
+            and isinstance(value_member, str)
+            and set(value) == set(envelope_members) == {type_member, value_member}
+            and coordinate_members == ["package", "version", "id"]
+            and isinstance(optional_kind, str)
+            and isinstance(optional_value, str)
+            and isinstance(value[type_member], dict)
+        ):
+            type_expression = value[type_member]
+            expected_members = {"package", "version", "id"}
+            if optional_kind in type_expression:
+                expected_members.add(optional_kind)
+            coordinate = tuple(
+                type_expression.get(member) for member in ("package", "version", "id")
+            )
+            if (
+                set(type_expression) == expected_members
+                and all(isinstance(item, str) and item for item in coordinate)
+                and (
+                    optional_kind not in type_expression
+                    or type_expression[optional_kind] == optional_value
+                )
+                and len(
+                    [
+                        profile
+                        for profile in profiles
+                        if isinstance(profile, dict)
+                        and profile.get("source_kind") == "typed-envelope"
+                        and profile.get("value_kind") == "nominal-structured"
+                    ]
+                )
+                == 1
+            ):
+                package, version, type_id = cast(tuple[str, str, str], coordinate)
+                contracts.append(
+                    {
+                        "type": {
+                            "id": type_id,
+                            "package": package,
+                            "version": version,
+                        },
+                        "value_kind": "nominal-structured",
+                    }
+                )
+    matches = [
+        contract
+        for contract in contracts
+        if _consumer_b_operation_value_contract_matches(contract, formal)
+    ]
+    if len(matches) != 1:
+        return False
+    if not isinstance(value, dict):
+        return True
+    packages = language.get("packages") if isinstance(language, dict) else None
+    if not isinstance(packages, list):
+        return False
+    observed = _consumer_b_evaluate_structured_value_vector(
+        {
+            "input": {
+                "action": "admit",
+                "key": None,
+                "left": value,
+                "limit": None,
+                "right": None,
+            }
+        },
+        nominal_types=packages,
+        kernel=kernel,
+        resource_limit=resource_limit,
+    )
+    return observed.get("outcome") == "admitted"
+
+
 def _consumer_b_package_evidence_vectors_are_closed(
     package: dict[str, Any],
     vector_set: dict[str, Any],
     contract: Any,
     candidate_encoding: Any,
     runtime_program: Any,
+    kernel: dict[str, Any],
+    ldb: dict[str, Any],
 ) -> bool:
     scheduler = (
         runtime_program.get("scheduler") if isinstance(runtime_program, dict) else None
@@ -1083,6 +1248,22 @@ def _consumer_b_package_evidence_vectors_are_closed(
         else None
     )
     phase_rank = phase_row.get("rank") if isinstance(phase_row, dict) else None
+    language = ldb.get("language")
+    literal_typing = kernel.get("meta_format", {}).get("literal_typing")
+    literal_profiles = (
+        language.get("literal_typing_profiles") if isinstance(language, dict) else None
+    )
+    typed_envelope_contract = (
+        literal_typing.get("typed_envelope_profile")
+        if isinstance(literal_typing, dict)
+        else None
+    )
+    fixed_value_contracts = (
+        runtime_program.get("fixed_value_contracts")
+        if isinstance(runtime_program, dict)
+        else None
+    )
+    resource_limit = kernel.get("resources", {}).get("max_ldb_admission_work")
     if (
         not _consumer_b_package_vector_contract_is_closed(contract)
         or not isinstance(candidate_encoding, dict)
@@ -1097,6 +1278,12 @@ def _consumer_b_package_evidence_vectors_are_closed(
         or any(not isinstance(phase, str) or not phase for phase in phase_rank)
         or not isinstance(runtime_nodes, list)
         or not all(isinstance(node, dict) for node in runtime_nodes)
+        or not isinstance(literal_profiles, list)
+        or not isinstance(typed_envelope_contract, dict)
+        or not isinstance(fixed_value_contracts, dict)
+        or not isinstance(resource_limit, int)
+        or isinstance(resource_limit, bool)
+        or resource_limit < 1
     ):
         return False
     phases = set(phase_rank)
@@ -1318,47 +1505,60 @@ def _consumer_b_package_evidence_vectors_are_closed(
             not isinstance(inp, dict)
             or set(inp) != set(kind["input_members"])
             or not _consumer_b_signed_int64(inp.get("seed"))
-            or not isinstance(inp.get("state_names"), list)
-            or inp["state_names"] != sorted(set(inp["state_names"]))
-            or not all(isinstance(name, str) and name for name in inp["state_names"])
             or not isinstance(inp.get("values"), list)
             or not isinstance(expect, dict)
             or set(expect) != set(kind["expect_members"])
-            or not isinstance(expect.get("outcome"), str)
+            or not isinstance(expect.get("completion"), dict)
+            or not isinstance(expect.get("result"), dict)
             or not isinstance(expect.get("state_after"), list)
             or not isinstance(expect.get("rng_draws"), list)
         ):
             return False
         values = inp["values"]
-        value_names = [item.get("name") for item in values if isinstance(item, dict)]
         operation_inputs = [
-            item.get("id")
-            for item in operation.get("inputs", [])
-            if isinstance(item, dict)
+            item for item in operation.get("inputs", []) if isinstance(item, dict)
         ]
+        value_names = [item.get("name") for item in values if isinstance(item, dict)]
         if (
             not all(
                 isinstance(item, dict)
                 and set(item) == {"name", "value"}
                 and isinstance(item.get("name"), str)
                 and item["name"]
-                and _consumer_b_signed_int64(item.get("value"))
-                for item in values
+                and _consumer_b_operation_value_is_admitted(
+                    item.get("value"),
+                    formal,
+                    ldb=ldb,
+                    kernel=kernel,
+                    resource_limit=resource_limit,
+                )
+                for item, formal in zip(values, operation_inputs, strict=False)
             )
-            or value_names != operation_inputs
-            or not set(inp["state_names"]) <= set(value_names)
+            or len(values) != len(operation_inputs)
+            or value_names != [item.get("id") for item in operation_inputs]
         ):
             return False
+        state_inputs = [
+            item for item in operation_inputs if item.get("access") == "read-write"
+        ]
         state_after = expect["state_after"]
         if (
             not all(
                 isinstance(item, dict)
                 and set(item) == set(kind["state_value_members"])
                 and isinstance(item.get("name"), str)
-                and _consumer_b_signed_int64(item.get("value"))
-                for item in state_after
+                and _consumer_b_operation_value_is_admitted(
+                    item.get("value"),
+                    formal,
+                    ldb=ldb,
+                    kernel=kernel,
+                    resource_limit=resource_limit,
+                )
+                for item, formal in zip(state_after, state_inputs, strict=False)
             )
-            or [item["name"] for item in state_after] != inp["state_names"]
+            or len(state_after) != len(state_inputs)
+            or [item["name"] for item in state_after]
+            != [item.get("id") for item in state_inputs]
         ):
             return False
         draws = expect["rng_draws"]
@@ -1379,10 +1579,44 @@ def _consumer_b_package_evidence_vectors_are_closed(
             for item in draws
         ):
             return False
-        outcomes = operation.get("outcomes")
-        if not isinstance(outcomes, list) or expect["outcome"] not in {
-            item.get("id") for item in outcomes if isinstance(item, dict)
-        }:
+        outcomes = {
+            item.get("id"): item
+            for item in operation.get("outcomes", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        refusals = operation.get("refusals")
+        completion = expect["completion"]
+        result = expect["result"]
+        if completion.get("kind") == "outcome":
+            outcome = outcomes.get(completion.get("id"))
+            if set(completion) != {"id", "kind"} or not isinstance(outcome, dict):
+                return False
+            produces_result = outcome.get("kind") == "success"
+        elif completion.get("kind") == "refusal":
+            if (
+                set(completion) != {"kind", "reason"}
+                or not isinstance(refusals, list)
+                or completion.get("reason") not in refusals
+            ):
+                return False
+            produces_result = False
+        else:
+            return False
+        if produces_result:
+            if (
+                set(result) != {"kind", "value"}
+                or result.get("kind") != "value"
+                or not isinstance(operation.get("result"), dict)
+                or not _consumer_b_operation_value_is_admitted(
+                    result.get("value"),
+                    cast(dict[str, Any], operation["result"]),
+                    ldb=ldb,
+                    kernel=kernel,
+                    resource_limit=resource_limit,
+                )
+            ):
+                return False
+        elif result != {"kind": "not-produced"}:
             return False
 
     relation_kind = kinds.get("operation-relation")
@@ -1552,7 +1786,7 @@ def _consumer_b_package_evidence_vectors_are_closed(
         for vector in vectors
         if isinstance(vector, dict)
         and vector.get("kind")
-        in {"operation-contract", "operation-relation", "runtime-scenario"}
+        in {"operation-contract", "operation-relation", "operation-execution"}
     }
     referenced = {
         vector_id
@@ -6175,7 +6409,6 @@ def _consumer_b_runtime_authority_is_closed(
         != {
             "closed",
             "version",
-            "evaluation_order",
             "fixed_value_contracts",
             "expression_nodes",
             "effect_nodes",
@@ -6863,6 +7096,7 @@ def _consumer_b_operation_composition_subjects(
     }
     found: set[str] = set()
     closed: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    guard_body_coordinates: set[tuple[str, str, str]] = set()
 
     def subject(
         coordinate: tuple[str, str, str],
@@ -7113,6 +7347,20 @@ def _consumer_b_operation_composition_subjects(
         result_contract = law.get("result_contract") if isinstance(law, dict) else None
         return result_contract if isinstance(result_contract, str) else None
 
+    def empty_contract(value_contract: dict[str, Any]) -> str | None:
+        resolved = structural_contract(value_contract.get("type"))
+        if resolved is None:
+            return None
+        _definition, constructor, rule = resolved
+        law = operation_law(constructor, "collection-is-empty")
+        result_contract = law.get("result_contract") if isinstance(law, dict) else None
+        return (
+            result_contract
+            if rule.get("operator") == "bounded-list"
+            and isinstance(result_contract, str)
+            else None
+        )
+
     def aliases_are_admitted(
         operation: dict[str, Any],
         aliases: dict[str, list[tuple[str, str]]],
@@ -7292,6 +7540,12 @@ def _consumer_b_operation_composition_subjects(
         for instruction_index, instruction in enumerate(body):
             if not isinstance(instruction, dict):
                 return None
+            node = node_definitions.get(instruction.get("node"))
+            if not isinstance(node, dict) or set(instruction) != set(
+                node["required_members"]
+            ):
+                found.add(subject(coordinate, str(instruction_index), "members"))
+                return None
             target = instruction.get("target")
             if instruction.get("node") != "invoke":
                 if (
@@ -7300,10 +7554,6 @@ def _consumer_b_operation_composition_subjects(
                     and instruction.get("outcome") in parent_successes
                 ):
                     found.add(subject(coordinate, None, "result.source"))
-                    return None
-                node = node_definitions.get(instruction.get("node"))
-                if not isinstance(node, dict):
-                    found.add(subject(coordinate, str(instruction_index), "node"))
                     return None
                 for constraint in node.get("operand_constraints", []):
                     if not isinstance(constraint, dict):
@@ -7417,6 +7667,128 @@ def _consumer_b_operation_composition_subjects(
                     ):
                         found.add(subject(coordinate, str(instruction_index), "typing"))
                         return None
+                operator = node.get("semantics", {}).get("operator")
+                if operator == "typed-require":
+                    refusal_reference = node.get("semantics", {}).get(
+                        "refusal_reference"
+                    )
+                    reason_member = (
+                        refusal_reference.get("instruction_member")
+                        if isinstance(refusal_reference, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(instruction.get("expected"), bool)
+                        or reason_member not in node.get("required_members", [])
+                        or refusal_reference.get("source")
+                        != "enclosing-operation.refusals"
+                        or instruction.get(reason_member) not in refusals
+                    ):
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "refusals",
+                            )
+                        )
+                        return None
+                if operator == "guarded-outcome-block":
+                    guard_body = instruction.get("body")
+                    guarded_outcome = instruction.get("outcome")
+                    if (
+                        coordinate in guard_body_coordinates
+                        or not isinstance(guard_body, list)
+                        or not all(isinstance(row, dict) for row in guard_body)
+                        or any(row.get("node") == "guard-block" for row in guard_body)
+                        or any(
+                            isinstance(body_node, dict)
+                            and body_node.get("result", {}).get("kind") == "outcome"
+                            for row in guard_body
+                            if (body_node := node_definitions.get(row.get("node")))
+                        )
+                        or guarded_outcome not in parent_outcomes
+                    ):
+                        found.add(subject(coordinate, str(instruction_index), "body"))
+                        return None
+                    guard_coordinate = (
+                        coordinate[0],
+                        coordinate[1],
+                        f"{coordinate[2]}#guard-{instruction_index}",
+                    )
+                    synthetic_inputs = [
+                        {
+                            **candidates[0],
+                            "access": (
+                                parent_ports[name]["access"]
+                                if name in parent_ports
+                                else "read"
+                            ),
+                            "id": name,
+                        }
+                        for name, candidates in scope.items()
+                        if len(candidates) == 1
+                    ]
+                    if len(synthetic_inputs) != len(scope):
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "typing",
+                            )
+                        )
+                        return None
+                    unit_contract = cast(
+                        dict[str, Any], fixed_value_contracts["kernel-unit"]
+                    )
+                    synthetic = {
+                        "body": guard_body,
+                        "default_outcome": guarded_outcome,
+                        "effects": list(effects),
+                        "id": guard_coordinate[2],
+                        "inputs": synthetic_inputs,
+                        "outcomes": list(parent_outcome_definitions.values()),
+                        "refusals": list(refusals),
+                        "resource_bounds": {
+                            "max_steps": operation["resource_bounds"]["max_steps"]
+                        },
+                        "result": {
+                            **unit_contract,
+                            "access": "read",
+                            "discardable": True,
+                            "id": "result",
+                            "source": {"kind": "unit"},
+                        },
+                    }
+                    by_coordinate[guard_coordinate] = synthetic
+                    guard_body_coordinates.add(guard_coordinate)
+                    try:
+                        guard_closure = close(guard_coordinate, (*stack, coordinate))
+                    finally:
+                        guard_body_coordinates.discard(guard_coordinate)
+                        by_coordinate.pop(guard_coordinate, None)
+                        closed.pop(guard_coordinate, None)
+                    if guard_closure is None:
+                        return None
+                    body_effects, body_refusals, body_charge = guard_closure
+                    if not body_effects <= effects:
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "effects",
+                            )
+                        )
+                        return None
+                    if not body_refusals <= refusals:
+                        found.add(
+                            subject(
+                                coordinate,
+                                str(instruction_index),
+                                "refusals",
+                            )
+                        )
+                        return None
+                    charge += body_charge
                 result_definition = node.get("result")
                 if isinstance(result_definition, dict) and result_definition.get(
                     "kind"
@@ -7431,7 +7803,25 @@ def _consumer_b_operation_composition_subjects(
                     produced: tuple[dict[str, Any], ...]
                     if kind == "fixed":
                         contract = fixed_value_contracts.get(typing.get("contract"))
-                        produced = (contract,) if isinstance(contract, dict) else ()
+                        if operator == "collection-is-empty":
+                            value_name = instruction.get("value")
+                            candidates = (
+                                scope.get(value_name)
+                                if isinstance(value_name, str)
+                                else None
+                            )
+                            produced = (
+                                (contract,)
+                                if isinstance(contract, dict)
+                                and candidates
+                                and all(
+                                    empty_contract(candidate) == typing.get("contract")
+                                    for candidate in candidates
+                                )
+                                else ()
+                            )
+                        else:
+                            produced = (contract,) if isinstance(contract, dict) else ()
                     elif kind == "same-as-references":
                         members = typing.get("members")
                         resolved = (
@@ -7626,6 +8016,13 @@ def _consumer_b_operation_composition_subjects(
             if (
                 not isinstance(mappings, list)
                 or [row.get("outcome") for row in mappings] != child_outcomes
+                or (
+                    coordinate in guard_body_coordinates
+                    and any(
+                        row.get("action", {}).get("kind") == "propagate"
+                        for row in mappings
+                    )
+                )
                 or any(
                     row.get("action", {}).get("kind") == "propagate"
                     and row["action"].get("outcome") not in parent_outcomes
@@ -8397,6 +8794,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         .get("named_rng", {})
                         .get("candidate_encoding"),
                         meta.get("runtime_program"),
+                        kernel,
+                        ldb,
                     )
                 )
             ):
@@ -9150,7 +9549,8 @@ def _consumer_b_evaluate_structured_value_vector(
     value_nodes = {
         node["semantics"]["operator"]: node
         for node in runtime["nodes"]
-        if node["semantics"]["operator"] in {"bounded-lookup", "canonical-equal"}
+        if node["semantics"]["operator"]
+        in {"bounded-lookup", "canonical-equal", "collection-is-empty"}
     }
     inp = vector["input"]
     requested = inp.get("limit")
@@ -9446,6 +9846,24 @@ def _consumer_b_evaluate_structured_value_vector(
                 }
             else:
                 raise Refusal("language.structured_value_type_mismatch", "/key")
+        elif inp["action"] == "is-empty":
+            type_expression, constructor, list_rule = structural_contract(
+                left[type_member], "/type"
+            )
+            result_contract = value_nodes["collection-is-empty"]["result"]["typing"][
+                "contract"
+            ]
+            law = operation_law(constructor, "collection-is-empty", "/type")
+            if (
+                list_rule.get("operator") != "bounded-list"
+                or law.get("result_contract") != result_contract
+                or not isinstance(left[value_member], list)
+            ):
+                raise Refusal("language.structured_value_type_mismatch", "/type")
+            result = {
+                type_member: runtime["fixed_value_contracts"][result_contract]["type"],
+                value_member: not left[value_member],
+            }
         else:
             raise AssertionError("unknown structured vector action")
     except Refusal as refusal:

@@ -218,6 +218,24 @@ def test_architectural_modules_are_acyclic() -> None:
     assert cycles == []
 
 
+def test_evidence_replay_does_not_import_the_production_executor() -> None:
+    violations = [
+        module
+        for module in (
+            "gda_balancing.domain.evidence",
+            "gda_balancing.domain.evidence_replay",
+        )
+        if "gda_balancing.domain.runtime.execution"
+        in _resolved_imports(
+            module,
+            _SOURCE_ROOT.joinpath(*module.split(".")[1:]).with_suffix(".py"),
+            _production_modules(),
+        )
+    ]
+
+    assert violations == []
+
+
 def test_cli_composition_root_cold_imports_without_a_registry_cycle() -> None:
     completed = subprocess.run(
         [

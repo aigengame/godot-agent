@@ -26,6 +26,7 @@ from gda_balancing.interfaces.cli.experiment_fixtures import (
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.diagnostics import refusal_catalog_for_reasons
+from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.interfaces.cli.surface import descriptor_identity
 
 
@@ -66,23 +67,35 @@ class ExperimentVerdictResult(BaseModel):
     artifact_set: ExperimentRunResult
 
 
-_EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
+def _operation_refusal_reasons() -> tuple[str, ...]:
+    language = packaged_authority_context().language_bundle["language"]
+    return tuple(
+        sorted(
+            {
+                reason
+                for operation in language["operations"]
+                for reason in operation.get("refusals", [])
+            },
+            key=lambda value: value.encode("utf-8"),
+        )
+    )
+
+
+_EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS = (
     "runtime.reason.capability-unsupported",
-    "runtime.reason.step-limit",
-    "runtime.reason.numeric-overflow",
-    "structured.reason.lookup-out-of-range",
-    "runtime.reason.schedule-backward",
-    "runtime.reason.schedule-hidden-input",
-    "runtime.reason.schedule-illegal-same-time-priority",
-    "runtime.reason.queue-limit",
-    "runtime.reason.zero-time-depth-limit",
-    "runtime.reason.event-limit",
-    "runtime.reason.logical-time-limit",
-    "runtime.reason.cancel-active",
-    "runtime.reason.cancel-completed",
-    "runtime.reason.cancel-unknown",
     "evaluation.reason.observation-unavailable",
 )
+
+
+def _experiment_run_refusal_catalog() -> tuple[tuple[str, str], ...]:
+    """Resolve the run-only catalog after the CLI has selected this surface."""
+    return refusal_catalog_for_reasons(
+        EXPERIMENT_CHECK_REFUSAL_REASONS
+        + _EXPERIMENT_RUN_NON_OPERATION_REFUSAL_REASONS
+        + _operation_refusal_reasons()
+    )
+
+
 _EXPERIMENT_SUCCESS_ARTIFACT_SET = (
     ArtifactSetMemberSpec("evaluation-run", "evaluation-run", role="primary"),
     ArtifactSetMemberSpec("event-trace", "event-trace"),
@@ -194,9 +207,7 @@ EXPERIMENT_RUN = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     stochastic=True,
-    refusal_catalog=refusal_catalog_for_reasons(
-        EXPERIMENT_CHECK_REFUSAL_REASONS + _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS
-    ),
+    refusal_catalog_provider=_experiment_run_refusal_catalog,
     refusal_details=(
         RefusalDetailSpec(
             stage="runtime",

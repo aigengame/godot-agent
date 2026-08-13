@@ -204,6 +204,92 @@ def _closed_named_value_schema(members: list[str]) -> dict[str, object]:
     }
 
 
+def _operation_type_coordinate_schema(
+    meta_format: dict[str, Any],
+) -> dict[str, object]:
+    descriptor = meta_format.get("language_bundle", {}).get("package_descriptor")
+    field_types = (
+        descriptor.get("field_types") if isinstance(descriptor, dict) else None
+    )
+    typed_profile = meta_format.get("literal_typing", {}).get("typed_envelope_profile")
+    admission = (
+        typed_profile.get("admission") if isinstance(typed_profile, dict) else None
+    )
+    reference = (
+        admission.get("nominal_type_reference") if isinstance(admission, dict) else None
+    )
+    coordinate_members = (
+        reference.get("coordinate_members") if isinstance(reference, dict) else None
+    )
+    kind_member = (
+        reference.get("optional_kind_member") if isinstance(reference, dict) else None
+    )
+    kind_value = (
+        reference.get("optional_kind_value") if isinstance(reference, dict) else None
+    )
+    if (
+        not isinstance(field_types, dict)
+        or set(coordinate_members or ()) != {"id", "package", "version"}
+        or not isinstance(kind_member, str)
+        or not kind_member
+        or not isinstance(kind_value, str)
+        or not kind_value
+    ):
+        raise ValueError("Kernel typed-envelope coordinate contract is incomplete")
+    package_contract = field_types.get("id")
+    version_contract = field_types.get("version")
+    if not isinstance(package_contract, dict) or not isinstance(version_contract, dict):
+        raise ValueError("Kernel package-coordinate contract is incomplete")
+    return {
+        "type": "object",
+        "properties": {
+            "id": _non_empty_string_schema(),
+            "package": _contract_schema(package_contract),
+            "version": _contract_schema(version_contract),
+            kind_member: {"const": kind_value},
+        },
+        "required": coordinate_members,
+        "unevaluatedProperties": False,
+    }
+
+
+def _operation_value_schema(meta_format: dict[str, Any]) -> dict[str, object]:
+    return {
+        "oneOf": [
+            _signed_int64_schema(),
+            {"type": "boolean"},
+            {"type": "null"},
+            {
+                "type": "object",
+                "properties": {
+                    "type": _operation_type_coordinate_schema(meta_format),
+                    "value": {},
+                },
+                "required": ["type", "value"],
+                "unevaluatedProperties": False,
+            },
+        ]
+    }
+
+
+def _closed_named_operation_value_schema(
+    members: list[str], meta_format: dict[str, Any]
+) -> dict[str, object]:
+    return {
+        "type": "object",
+        "properties": {
+            member: (
+                _non_empty_string_schema()
+                if member == "name"
+                else _operation_value_schema(meta_format)
+            )
+            for member in members
+        },
+        "required": members,
+        "unevaluatedProperties": False,
+    }
+
+
 def _json_pointer_schema(meta_format: dict[str, Any]) -> dict[str, object]:
     contract = meta_format.get("json_pointer")
     schema = contract.get("schema") if isinstance(contract, dict) else None
@@ -594,7 +680,7 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                 expect_members = kind.get("expect_members")
                 if (
                     input_members != ["action", "key", "left", "limit", "right"]
-                    or actions != ["admit", "equal", "lookup"]
+                    or actions != ["admit", "equal", "is-empty", "lookup"]
                     or expect_members != ["code", "outcome", "pointer", "type", "value"]
                 ):
                     raise ValueError(
@@ -829,40 +915,85 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     }
                 )
                 continue
-            if set(input_members) != {"seed", "state_names", "values"}:
-                raise ValueError("Kernel runtime-vector input contract is incomplete")
+            if kind_id != "operation-execution" or set(input_members) != {
+                "seed",
+                "values",
+            }:
+                raise ValueError("Kernel operation-vector input contract is incomplete")
             state_members = kind.get("state_value_members")
             if not isinstance(state_members, list):
-                raise ValueError("Kernel runtime-vector state contract is incomplete")
+                raise ValueError("Kernel operation-vector state contract is incomplete")
             properties["input"] = {
                 "type": "object",
                 "properties": {
                     "seed": _signed_int64_schema(),
-                    "state_names": {
-                        "type": "array",
-                        "items": _non_empty_string_schema(),
-                        "uniqueItems": True,
-                    },
                     "values": {
                         "type": "array",
-                        "items": _closed_named_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(
+                            state_members, meta_format
+                        ),
                     },
                 },
                 "required": input_members,
                 "unevaluatedProperties": False,
             }
             expect_members = kind.get("expect_members")
+            completion_members = kind.get("completion_members")
+            result_members = kind.get("result_members")
             rng_draw_members = kind.get("rng_draw_members")
-            if not isinstance(expect_members, list) or not isinstance(
-                rng_draw_members, list
+            if (
+                not isinstance(expect_members, list)
+                or completion_members != ["id", "kind", "reason"]
+                or result_members != ["kind", "value"]
+                or not isinstance(rng_draw_members, list)
             ):
                 raise ValueError(
-                    "Kernel runtime-vector expectation contract is incomplete"
+                    "Kernel operation-vector expectation contract is incomplete"
                 )
             properties["expect"] = {
                 "type": "object",
                 "properties": {
-                    "outcome": _non_empty_string_schema(),
+                    "completion": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "id": _non_empty_string_schema(),
+                                    "kind": {"const": "outcome"},
+                                },
+                                "required": ["id", "kind"],
+                                "unevaluatedProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"const": "refusal"},
+                                    "reason": _non_empty_string_schema(),
+                                },
+                                "required": ["kind", "reason"],
+                                "unevaluatedProperties": False,
+                            },
+                        ]
+                    },
+                    "result": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {"const": "value"},
+                                    "value": _operation_value_schema(meta_format),
+                                },
+                                "required": ["kind", "value"],
+                                "unevaluatedProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {"kind": {"const": "not-produced"}},
+                                "required": ["kind"],
+                                "unevaluatedProperties": False,
+                            },
+                        ]
+                    },
                     "rng_draws": {
                         "type": "array",
                         "items": {
@@ -886,7 +1017,9 @@ def _package_vector_schemas(meta_format: dict[str, Any]) -> list[dict[str, objec
                     },
                     "state_after": {
                         "type": "array",
-                        "items": _closed_named_value_schema(state_members),
+                        "items": _closed_named_operation_value_schema(
+                            state_members, meta_format
+                        ),
                     },
                 },
                 "required": expect_members,

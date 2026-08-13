@@ -38,6 +38,89 @@ structured formal judgments, and an honest proof/conformance boundary.
 > entrypoints evaluates their union. Closed cycles remain invariant violations rather than being
 > silently pruned as unavailable input branches.
 
+> **Amendment (2026-08-12, #640):** The unreleased Standard Schema 2.0 Kernel replaces the
+> provisional `runtime-scenario` package-vector kind with `operation-execution`. The vector executes
+> one exact admitted Operation; it is a Kernel-owned bootstrap conformance form, not a public
+> Runtime primitive or a generic scenario language. Its inputs exactly cover the Operation ports,
+> and `read-write` access derives the initial and expected state inventory without a duplicate
+> `state_names` list. Exact typed envelopes carry nominal structured values; numeric scalars retain
+> their declared scalar encoding. A closed completion distinguishes a declared outcome from a
+> declared typed refusal, while a closed result distinguishes a produced value from
+> `not-produced`. Kernel Unit is a produced `null` value, not `not-produced`. Expected values compare
+> their exact type contract and canonical value. The stable
+> RNG projection remains stream, index, `candidate_hex`, and value; full Event Trace and
+> resource-report fields are not copied into package evidence.
+
+> The three additions are irreducible under the provisional node vocabulary. Lookup cannot observe
+> an empty List without attempting an element access and raising the existing out-of-range refusal.
+> Value selection chooses between already produced values and cannot suppress a draw, lookup, write,
+> or effect. A typed requirement can stop execution but cannot express the successful empty and
+> nonempty paths by itself. Host collection inspection or host control flow would bypass Kernel/LDB
+> authority, so #640 adds the smallest closed nodes that express these demonstrated behaviors.
+
+> This amendment also adds three generic primitives demonstrated by #585. The `is-empty` node has
+> `family=expression`, exact required members `node`, `target`, and `value`, no fixed operand
+> constraint, `result.kind=local`, and
+> `result.typing={"kind": "fixed", "contract": "kernel-boolean"}`. Its fixed refusal set is
+> empty, its resource charge is one `event-steps` unit, and
+> `semantics.operator=collection-is-empty`. The selected structured-operation law must resolve the
+> operand as one exact admitted List and the result as Kernel Boolean. The operator returns true
+> only when the canonical List length is zero. The Kernel owns this node and operator law. LDB
+> `standard.schema@2.4.0` exports the
+> `standard.schema.list-empty-v1` structured-operation law. That record binds
+> `owner_constructor=standard.schema.list`, `law.operator=collection-is-empty`,
+> `law.result_contract=kernel-boolean`, and `resource_bounds.max_steps=1`. It is the LDB-owned
+> applicability contract for using the generic node with the package-owned List constructor.
+
+> The `require` node has `family=control`; exact required members `node`, `condition`, `expected`,
+> and `reason`; and one `fixed-value-contract` operand constraint that requires `condition` to use
+> `kernel-boolean`. `expected` is a Kernel Boolean literal. Its fixed refusal set is empty,
+> `result.kind=refusal`, its resource charge is one `event-steps` unit, and
+> `semantics.operator=typed-require`. The semantics record binds
+> `semantics.refusal_reference.instruction_member=reason` and
+> `semantics.refusal_reference.source=enclosing-operation.refusals`. Admission resolves the `reason`
+> instruction member to one refusal in the enclosing Operation's declared refusal set. The node
+> produces no value. Equality between the referenced condition and `expected` continues with the
+> next authored node. Inequality raises the resolved typed refusal and enters the bADR-0014
+> Event-refusal rollback boundary.
+
+> The `guard-block` node has `family=control`; exact required members `node`, `condition`, `body`,
+> and `outcome`; and one `fixed-value-contract` operand constraint that requires `condition` to use
+> `kernel-boolean`. Its fixed refusal set is empty, `result.kind=outcome`, its resource charge is one
+> `event-steps` unit, and `semantics.operator=guarded-outcome-block`. The node is allowed only in an
+> Operation's top-level body and produces no local. Its `body` is a possibly empty ordered list that
+> uses the closed Runtime-node grammar except `guard-block`. A body node cannot complete an outcome,
+> and an `invoke` outcome mapping cannot propagate an outcome. Thus, only a typed refusal can stop the
+> body early. `outcome` resolves to one outcome in the enclosing Operation. False skips the body and
+> continues the outer authored sequence. True executes the body in authored order and, unless a node
+> refuses, completes the Operation with `outcome`.
+> The guard costs one step. A false condition charges no body steps, RNG, writes, or effects. A true
+> condition adds the actual body charge. Static resource closure includes the guard plus the complete
+> admitted body bound. Admission closes the body's effects and refusals, the terminal outcome, and
+> the maximum charge. Unknown members, a non-Boolean condition, a nested guard, an undeclared
+> outcome, or an unbound body reference is a static refusal.
+
+> Runtime executes the outer Operation body and a selected guard body in their authored array order.
+> Node families do not reorder instructions. bADR-0015 owns the terminal audit's guard-expanded
+> instruction coordinate. The replacement Kernel removes the unused
+> `runtime_program.evaluation_order` phase list. `operation-body-order` remains an alias policy for
+> writable operands and does not define instruction phases.
+
+> These primitives contain no reward, fallback, package, field, or genre dispatch. The neutral
+> `standard.conformance.structured@2.0.0` release proves them before mechanic packages consume
+> them. Standard Schema 2.0 remains provisional until Gate 5 and Gate 6 complete and a maintainer
+> records `Kernel baseline frozen` in PRD #534. The demonstrated failure therefore reopens the
+> architecture gate and replaces the exact provisional Kernel identity. All affected authority and
+> evidence must be rebuilt against that identity. After the recorded freeze event, another
+> irreducible primitive, fact kind, term type, premise operator, or judgment construct requires the
+> next Schema major.
+
+> The #640 replacement LDB is unreleased. Its `standard.schema@2.4.0` release may be completed and
+> reidentified before publication only when the complete LDB and every
+> affected downstream identity are rebuilt together. After that Package Release is published, a
+> later semantic or accepted-input change follows bADR-0016 package versioning instead of rebinding
+> the published release in place.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -107,8 +190,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   Implementations may compile rules for speed, but independently implemented bootstrap interpreters
   must have the same observable behavior. Unknown facts or premise operators, ill-typed terms or
   substitutions, missing required facts, and ambiguous rule selection are bundle-admission
-  refusals. Adding a fact kind, term type, premise operator, or judgment construct changes the
-  Kernel Specification and Schema major rather than entering as an evaluator special case.
+  refusals. The Standard Schema 2.0 Kernel remains provisional until Gate 5 and Gate 6 complete and
+  a maintainer records `Kernel baseline frozen` in PRD #534. Before that event, an explicitly
+  reopened architecture gate may refine the unreleased baseline, reidentify it, and invalidate
+  evidence for its superseded provisional Kernel. After that event, adding a fact kind, term type,
+  premise operator, or judgment construct changes the Kernel Specification and Schema major rather
+  than entering as an evaluator special case.
   “Bundle admission” does not rename the bADR-0015 pipeline stages: identity/version/Kernel-binding
   and safe format admission are `ingress`, while rule/fact structural or semantic illegality after
   safe format admission is `static`; the exact admission meta-diagnostic code-to-stage mapping is
@@ -116,22 +203,25 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **The Semantic kernel is intentionally small and closed.** Its operation set and observable laws
   are fixed by the Kernel Specification. It contains literals, typed reads,
-  versioned calls with exact named port-to-operand bindings, conditionals, non-shadowing lexical
-  local bindings, statically bounded aggregates, lookup, named-stream sampling, and the
-  transition/event primitives required by bADR-0014.
+  versioned calls with exact named port-to-operand bindings, value selection, typed requirements,
+  single-level guard blocks, non-shadowing lexical local bindings, statically bounded aggregates,
+  lookup, named-stream sampling, and the transition/event primitives required by bADR-0014.
   Recursion, user-defined loops, unbounded collection traversal, reflection, dynamic operation
   lookup, host callbacks, ambient state, and same-name argument capture are not kernel features.
 
 - **Runtime-program node families are closed and exhaustive.** The Kernel classifies every admitted
   node as an expression, effect, or control node and fixes its fields, evaluation position, result
   or transition effect, refusal behavior, and resource charge. Named-stream `draw` and a
-  gameplay-outcome precondition are control nodes: neither is a pure expression nor an
-  implementation callback. An LDB Operation body may use only listed nodes, and runtime admission
-  rejects an evaluator that does not implement the complete requested set before dispatch. The
-  Kernel also fixes the exact Numeric bounds and RNG state/stream derivation, transition constants,
-  sampling/bias policy, trace representation, and positive/multi-draw/cross-stream/boundary vectors.
-  The LDB Operation declares one exhaustive typed outcome algebra with a default outcome and an
-  explicit commit/rollback policy for every alternative; an evaluator may not invent outcome ids.
+  gameplay-outcome precondition, `require`, and `guard-block` are control nodes: none is a pure
+  expression or an implementation callback. A guard body is a single-level terminal outcome block,
+  not an Operation lookup, second arm, label jump, loop, or new Runtime phase. Runtime executes the
+  outer body and selected guard body in authored array order. An LDB Operation body may use only
+  listed nodes, and runtime admission rejects an evaluator that does not implement the complete
+  requested set before dispatch. The Kernel also fixes the exact Numeric bounds and RNG
+  state/stream derivation, transition constants, sampling/bias policy, trace representation, and
+  positive/multi-draw/cross-stream/boundary vectors. The LDB Operation declares one exhaustive
+  typed outcome algebra with a default outcome and an explicit commit/rollback policy for every
+  alternative; an evaluator may not invent outcome ids.
 
 - **Model Source formulas enter Operations only through static typed bindings.** A Formula
   declaration is a Model Source-owned pure expression with explicit named inputs and one annotated
@@ -219,8 +309,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   An operation that cannot be reduced to existing kernel composition is an irreducible kernel
   operation: it requires a Kernel-Specification amendment, a machine-readable signature exposed by
   the bundle, independent conforming implementations, positive/negative/boundary vectors,
-  Runtime/Numeric-profile laws, and a Schema-major review. Merely registering or naming a
-  host-language function is never enough.
+  Runtime/Numeric-profile laws, and treatment under the frozen-baseline rule above. Before the
+  recorded freeze, it replaces the provisional Kernel baseline and identity. After the freeze, it
+  requires the next Schema major. Merely registering or naming a host-language function is never
+  enough.
 
 - **Operation admission is one closed judgment, not a collection of trusted declarations.** The
   Kernel closes every known node's exact fields. LDB rules validate signature and parameter use,
@@ -299,9 +391,16 @@ structured formal judgments, and an honest proof/conformance boundary.
   Aggregate evaluation order and bounds are explicit rules, never host-container order.
 
 - **Structured values use closed authority-owned laws.** `standard.schema@2.3.0` defines generic
-  Enum, Record, List, and Ref constructors. Record fields are exact, Lists are invariant and
-  bounded, and each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node
-  vocabulary admits typed literals, bounded Record/List lookup, and exact-type canonical equality.
+  Enum, Record, List, and Ref constructors; the #640 `2.4.0` baseline retains those constructors
+  and adds generic List emptiness. Record fields are exact, Lists are invariant and bounded, and
+  each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node vocabulary
+  admits typed literals, bounded Record/List lookup, List emptiness, exact-type canonical equality,
+  typed requirements, and single-level guard blocks. A typed `constant.literal` and its Package
+  Release Wire Schema projection use the same admitted value union as structured ports. When
+  equality compares a Quantity projected from a structured envelope with an exact-contract scalar
+  operand,
+  Runtime projects the scalar payload only after static checking proves the same admitted value
+  contract. This representation step does not add numeric coercion or host-owned type semantics.
   Each constructor carries a machine-readable value rule. The selected typed-envelope profile owns
   recursive resource charging and exact type resolution. Record lookup always uses a static field
   literal; List lookup always uses a resolved integer local. RIR closes recursive nominal type and
@@ -410,9 +509,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   package-owned, reference-closed, ambiguity-refusing, runtime-selected, and identity-bearing;
   `operation-body-order` aliasing spans the complete invocation rather than one child frame.
 - The 2026-08-11 structured-value amendment replaces the integer-only literal path with typed
-  integer and structured envelopes. It adds generic structured constructors and operations through
-  `standard.schema@2.3.0`, plus the neutral `standard.conformance.structured@1.0.0` package and its
-  independent conformance vectors. This amendment does not add game or reward semantics.
+  integer and structured envelopes. Its #640 follow-up adds generic List emptiness, typed
+  requirements, single-level guard blocks, and structured Operation execution evidence through
+  `standard.schema@2.4.0` and the neutral `standard.conformance.structured@2.0.0` package. Neither
+  amendment adds game or reward semantics.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample
@@ -453,6 +553,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone
   cannot keep the Operation executable.
+- Execute `is-empty`, `require`, and `guard-block` through both consumers. Cover true and false
+  `expected` values; true and false guard conditions; an empty guard body; an early refusal; a
+  terminal outcome; malformed and non-Boolean conditions; an undeclared outcome; a nested guard;
+  and exact step, RNG, state, effect, rollback, and terminal-audit observations. Reordering an
+  Operation body or selected guard body must reorder execution. The removed
+  `runtime_program.evaluation_order` phase list cannot change or preserve behavior.
 - Execute authority-owned positive, boundary, and refusal vectors for Enum, Record, List, and Ref
   admission; bounded lookup; exact-type equality; invalid Ref keys; unknown Enum members; exact
   Record fields; list bounds; and resource exhaustion in production and independent consumers.

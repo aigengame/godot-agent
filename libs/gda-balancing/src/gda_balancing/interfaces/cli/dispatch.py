@@ -209,7 +209,7 @@ def _invoke_descriptor(
     outcome = descriptor.handler(input_obj)
     if isinstance(outcome, Schema2RefusalReport):
         observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
-        if not observed <= set(descriptor.refusal_catalog):
+        if not observed <= set(descriptor.resolved_refusal_catalog()):
             raise TypeError(
                 "handler returned a Schema 2.x refusal absent from its descriptor"
             )

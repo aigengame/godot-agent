@@ -10,6 +10,7 @@ from typing import Any, cast
 import gda_balancing.domain.model._resolution as model_module
 import gda_balancing.domain.model._admission as model_admission_module
 import gda_balancing.domain.model._checking as model_checking_module
+import gda_balancing.domain.model._lowering as model_lowering_module
 import jsonschema
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -20,6 +21,7 @@ from gda_balancing.domain.authority.graph import (
     derive_language_index,
 )
 from gda_balancing.domain.authority.admission import admit_authorities
+from gda_balancing.domain.canonical import JsonValue
 from gda_balancing.domain.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -3217,6 +3219,19 @@ def _reference_call_sites(
     domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
         "identity_domains"
     ]
+    node_operators = {
+        row["id"]: row["semantics"]["operator"]
+        for row in checked.kernel["meta_format"]["runtime_program"]["nodes"]
+    }
+
+    def expanded_body(body: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        instructions = []
+        for instruction in body:
+            instructions.append(instruction)
+            if node_operators[instruction["node"]] == "guarded-outcome-block":
+                instructions.extend(instruction["body"])
+        return instructions
+
     rows = []
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
 
@@ -3240,10 +3255,39 @@ def _reference_call_sites(
         local_contracts: dict[str, dict[str, Any]] = {}
         effects = set(operation["effects"])
         refusals = set(operation["refusals"])
-        charge = 0
+        charge = len(expanded_body(operation["body"]))
+        for instruction in expanded_body(operation["body"]):
+            if node_operators[instruction["node"]] != "invoke-operation":
+                continue
+            child_ref = instruction["operation"]
+            child_row = operations.get(
+                (
+                    child_ref["package"],
+                    child_ref["version"],
+                    child_ref["id"],
+                )
+            )
+            if child_row is None:
+                raise ValueError("nested Operation is not selected")
+            child_effects, child_refusals, child_charge = close(
+                child_row, (*stack, parent_key)
+            )
+            if effect_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_effects <= set(operation["effects"]):
+                raise ValueError("nested effect closure exceeds caller declaration")
+            if refusal_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_refusals <= set(operation["refusals"]):
+                raise ValueError("nested refusal closure exceeds caller declaration")
+            if effect_policy["aggregation"] == "union":
+                effects.update(child_effects)
+            if refusal_policy["aggregation"] == "union":
+                refusals.update(child_refusals)
+            if resource_policy["aggregation"] == "sum":
+                charge += child_charge
         seen_sites: set[str] = set()
         for order, instruction in enumerate(operation["body"]):
-            charge += 1
             if instruction["node"] != "invoke":
                 continue
             site = instruction["site"]
@@ -3417,20 +3461,6 @@ def _reference_call_sites(
             child_effects, child_refusals, child_charge = close(
                 child_row, (*stack, parent_key)
             )
-            if effect_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_effects <= set(operation["effects"]):
-                raise ValueError("nested effect closure exceeds caller declaration")
-            if refusal_policy["containment"] == (
-                "callee-subset-of-caller-declaration"
-            ) and not child_refusals <= set(operation["refusals"]):
-                raise ValueError("nested refusal closure exceeds caller declaration")
-            if effect_policy["aggregation"] == "union":
-                effects.update(child_effects)
-            if refusal_policy["aggregation"] == "union":
-                refusals.update(child_refusals)
-            if resource_policy["aggregation"] == "sum":
-                charge += child_charge
             body = {
                 "parent_operation": parent_ref,
                 "site": site,
@@ -4160,6 +4190,104 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
             )
         }
     ).admitted
+
+
+def test_independent_lowerer_counts_guard_body_in_nested_operation_charge():
+    path = (
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = check_model_source(str(path))
+    assert isinstance(checked, CheckedModel)
+    rir = cast(dict[str, Any], lower_checked_model(checked)["rir-semantic-payload"])
+    selected_semantics = cast(dict[str, Any], deepcopy(rir["selected_semantics"]))
+    operation_rows = cast(list[dict[str, Any]], selected_semantics["operations"])
+    for row in operation_rows:
+        row["definition"]["resource_bounds"]["max_steps"] += 100
+    damage = next(
+        row["definition"]
+        for row in operation_rows
+        if row["definition"]["id"] == "game.combat.damage-v1"
+    )
+    damage["body"].append(
+        {
+            "node": "guard-block",
+            "condition": "enabled",
+            "body": [
+                {"node": "constant", "literal": 1, "target": "one"},
+                {
+                    "node": "invoke",
+                    "site": "identity",
+                    "operation": {
+                        "package": "core.quantity",
+                        "version": "2.1.0",
+                        "id": "quantity.identity",
+                    },
+                },
+            ],
+            "outcome": "complete",
+        }
+    )
+    lowering = checked.language_bundle["language"]["model_lowerings"][0]
+
+    production = model_lowering_module._resolved_call_sites(
+        checked.kernel, selected_semantics, lowering["composition_policy"]
+    )
+    independent = _reference_call_sites(checked, selected_semantics, lowering)
+
+    assert independent == production
+    production_rows = cast(list[dict[str, Any]], production)
+    damage_calls = [
+        row
+        for row in production_rows
+        if cast(dict[str, Any], row["operation"])["id"] == "game.combat.damage-v1"
+    ]
+    assert damage_calls
+    assert {
+        cast(dict[str, Any], row["closure"])["resource_charge"] for row in damage_calls
+    } == {14}
+
+
+def test_operation_formula_dependency_closure_includes_guard_invocations():
+    root = ("example", "1.0.0", "root")
+    child = ("example", "1.0.0", "child")
+    operations = {
+        root: {
+            "definition": {
+                "body": [
+                    {
+                        "node": "guard-block",
+                        "body": [
+                            {
+                                "node": "invoke",
+                                "operation": {
+                                    "package": child[0],
+                                    "version": child[1],
+                                    "id": child[2],
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        child: {"definition": {"body": []}},
+    }
+    dependencies: dict[tuple[str, str, str], list[dict[str, JsonValue]]] = {
+        root: [{"model": "model", "module": "module", "name": "root"}],
+        child: [{"model": "model", "module": "module", "name": "child"}],
+    }
+
+    result = model_lowering_module._reachable_operation_formula_dependencies(
+        root,
+        operations,
+        dependencies,
+        operation_node_ids={"invoke"},
+    )
+
+    assert result == [
+        {"model": "model", "module": "module", "name": "child"},
+        {"model": "model", "module": "module", "name": "root"},
+    ]
 
 
 def test_independent_lowerers_treat_empty_collection_exclusion_as_noop(monkeypatch):

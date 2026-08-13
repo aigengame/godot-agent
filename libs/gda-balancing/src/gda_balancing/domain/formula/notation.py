@@ -15,8 +15,10 @@ from gda_balancing.domain.formula.types import (
     formula_contract_from_operation,
     formula_contract_matches,
     formula_contract_matches_operation,
-    literal_context_contract,
     resolve_formula_contract,
+)
+from gda_balancing.domain.authority.runtime_validation import (
+    operation_literal_context_contract,
 )
 from gda_balancing.domain.formula.inference import infer_formula_operation_result
 
@@ -886,7 +888,7 @@ class _FormulaParser:
         expected: dict[str, Any],
     ) -> dict[str, Any] | None:
         if contract is None and operand.get("kind") == "literal":
-            literal_contract = literal_context_contract(
+            literal_contract = operation_literal_context_contract(
                 operand.get("value"),
                 expected,
                 self.authority_context.kernel,
