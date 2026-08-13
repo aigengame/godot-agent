@@ -101,9 +101,8 @@ structured formal judgments, and an honest proof/conformance boundary.
 > outcome, or an unbound body reference is a static refusal.
 
 > Runtime executes the outer Operation body and a selected guard body in their authored array order.
-> Node families do not reorder instructions. Runtime evidence numbers instructions in guard-expanded
-> local Operation order: the guard precedes its body, and the body precedes the remaining outer
-> instructions. The replacement Kernel removes the unused
+> Node families do not reorder instructions. bADR-0015 owns the terminal audit's guard-expanded
+> instruction coordinate. The replacement Kernel removes the unused
 > `runtime_program.evaluation_order` phase list. `operation-body-order` remains an alias policy for
 > writable operands and does not define instruction phases.
 

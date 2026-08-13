@@ -288,7 +288,8 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         == ["scenario", "value"]
         and kinds["scheduler-scenario"].get("target_states")
         == ["active", "canceled", "completed", "pending", "provisional", "unknown"]
-        and kinds["structured-value"].get("actions") == ["admit", "equal", "lookup"]
+        and kinds["structured-value"].get("actions")
+        == ["admit", "equal", "is-empty", "lookup"]
         and kinds["structured-value"].get("input_members")
         == ["action", "key", "left", "limit", "right"]
         and kinds["structured-value"].get("expect_members")

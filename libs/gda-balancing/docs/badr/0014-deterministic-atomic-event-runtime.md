@@ -53,16 +53,15 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 > Operation body. It reads one already produced Kernel Boolean. False charges only the guard step,
 > skips the body without RNG, writes, or effects, and continues the enclosing body. True executes
 > its non-nested body in authored order and, unless a node refuses, completes the Operation with one
-> declared outcome. Admission rejects body nodes and `invoke` mappings that can complete or propagate
-> another outcome, so only a typed refusal can stop the selected body early. The Kernel `require` node
+> declared outcome. bADR-0022 defines and closes the body grammar, including the rule that only a
+> typed refusal can stop the selected body early. The Kernel `require` node
 > compares an already produced Kernel Boolean with its
 > Boolean `expected` member. A mismatch raises one Operation-declared, LDB-resolved typed refusal;
 > a match continues. The refusal terminates the run and reuses the existing Event-refusal boundary:
 > state writes, RNG continuation, buffered child Events, Metrics, and Snapshot publication are
 > rolled back, and later nodes do not execute. Executed node steps and the terminal audit remain
-> execution facts. The terminal audit's `instruction_index` uses guard-expanded local Operation
-> order: the guard precedes its body, and the body precedes the remaining outer nodes. This differs
-> from a completed `gameplay-alternative`; that outcome follows its
+> execution facts. bADR-0015 defines the terminal audit's guard-expanded `instruction_index`. This
+> differs from a completed `gameplay-alternative`; that outcome follows its
 > declared state policy and retains any RNG draws that led to the completed Event. An
 > `operation-execution` refusal vector observes the post-rollback state and committed RNG projection,
 > not discarded attempt logs.

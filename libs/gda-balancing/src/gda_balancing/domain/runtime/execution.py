@@ -2409,13 +2409,15 @@ def evaluate_experiment(
                         break
                 elif operator == "typed-require":
                     if variables[instruction["condition"]] != instruction["expected"]:
+                        refusal_reference = semantics["refusal_reference"]
+                        reason_id = instruction[refusal_reference["instruction_member"]]
                         reason = next(
                             (
                                 item
                                 for item in checked.language_bundle["language"][
                                     "reasons"
                                 ]
-                                if item.get("id") == instruction["reason"]
+                                if item.get("id") == reason_id
                             ),
                             None,
                         )
@@ -2445,10 +2447,7 @@ def evaluate_experiment(
                             "effects": selected_operation["effects"],
                             "id": selected_operation["id"],
                             "inputs": [],
-                            "outcomes": [
-                                {**definition, "state_policy": "commit"}
-                                for definition in selected_operation["outcomes"]
-                            ],
+                            "outcomes": list(selected_operation["outcomes"]),
                             "refusals": selected_operation["refusals"],
                             "resource_bounds": selected_operation["resource_bounds"],
                             "result": {

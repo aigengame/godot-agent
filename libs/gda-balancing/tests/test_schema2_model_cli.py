@@ -5643,6 +5643,7 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
         for instruction in operation["body"]
         if instruction.get("target") == "selected_candidate"
     )
+    lookup_index = operation["body"].index(lookup)
     lookup["key"] = key
     _reidentify_language_bundle(candidate_ldb)
 
@@ -5653,7 +5654,7 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
 
     assert (
         "language.operations.standard.conformance.structured@2.0.0."
-        "standard.conformance.structured.select-v1.body.5.typing"
+        f"standard.conformance.structured.select-v1.body.{lookup_index}.typing"
         in composition_subjects
     )
     assert admission.admitted is False

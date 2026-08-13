@@ -351,6 +351,18 @@ def test_public_package_vector_schema_uses_exact_rng_and_pointer_encodings():
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(combat, schema)
 
+    string_value = deepcopy(
+        next(row for row in vector_sets if row["package_id"] == "game.combat")
+    )
+    runtime_vector = next(
+        row
+        for row in string_value["vector_definitions"]
+        if row["id"] == "game.combat.cast.positive"
+    )
+    runtime_vector["input"]["values"][0]["value"] = "not-an-admitted-scalar"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(string_value, schema)
+
     standard_runtime = deepcopy(
         next(row for row in vector_sets if row["package_id"] == "standard.runtime")
     )
@@ -731,13 +743,9 @@ def test_structured_value_vectors_run_in_production_and_independent_consumers(
     )
 
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
-    vector_set = next(
-        vector_set
-        for vector_set in authority["package_conformance_vector_sets"]
-        if vector_set["package_id"] == "standard.conformance.structured"
-    )
     vectors = [
         vector
+        for vector_set in authority["package_conformance_vector_sets"]
         for vector in vector_set["vector_definitions"]
         if vector.get("kind") == "structured-value"
     ]
@@ -762,6 +770,11 @@ def test_structured_value_vectors_run_in_production_and_independent_consumers(
     assert "structured.accept.authority-ref-key-pattern" in {
         vector["id"] for vector in vectors
     }
+    assert {
+        "structured.list-empty.empty",
+        "structured.list-empty.nonempty",
+        "structured.list-empty.refuse-non-list",
+    } <= {vector["id"] for vector in vectors}
     nominal_types = authority["package_releases"]
     limit = authority["language_bundle"]["resources"]["max_rule_match_steps"]
     for vector in vectors:
@@ -878,11 +891,14 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
         and cast(dict[str, Any], item["properties"])["kind"]["const"]
         == "operation-execution"
     )
+    operation_values = operation_vector["properties"]["input"]["properties"]["values"]
     operation_value = cast(
         dict[str, Any],
-        operation_vector["properties"]["input"]["properties"]["values"]["items"][
-            "properties"
-        ]["value"]["oneOf"][4],
+        next(
+            alternative
+            for alternative in operation_values["items"]["properties"]["value"]["oneOf"]
+            if set(alternative.get("properties", {})) == {"type", "value"}
+        ),
     )
     type_coordinate = operation_value["properties"]["type"]
     coordinate_contracts = kernel_meta["language_bundle"]["package_descriptor"][

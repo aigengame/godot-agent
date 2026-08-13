@@ -137,8 +137,8 @@ Its condition refers to an already produced Kernel Boolean. False skips its body
 enclosing Operation body. True executes its body in authored order and, unless a node refuses,
 completes the Operation with the declared outcome. A guard block is allowed only in a top-level
 Operation body and cannot contain another guard block. Only a typed refusal can stop its selected
-body early; admission rejects body nodes and `invoke` mappings that can complete or propagate an
-outcome. A guard block produces no local value and is not a general two-arm branch, expression
+body early under the closed grammar in bADR-0022. A guard block produces no local value and is not
+a general two-arm branch, expression
 conditional, label jump, or loop (bADR-0022).
 _Avoid_: two-arm branch node, if statement, nested control block, conditional expression
 

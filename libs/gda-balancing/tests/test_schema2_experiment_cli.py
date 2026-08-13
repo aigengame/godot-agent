@@ -45,6 +45,11 @@ from schema2_scheduler_production_support import (
 from schema2_operation_execution_production_support import (
     evaluate_operation_execution_vector,
 )
+from schema2_bootstrap_conformance_support import _consumer_b
+from schema2_bootstrap_production_support import (
+    _consumer_a,
+    _refresh_package_closure_and_reidentify,
+)
 from schema2_authority_support import mutable_authorities
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
@@ -1043,7 +1048,10 @@ def _reference_execute_event(
                         cell(instruction["condition"])["value"]
                         != instruction["expected"]
                     ):
-                        raise _ReferenceRuntimeRefusal(instruction["reason"])
+                        refusal_reference = semantics["refusal_reference"]
+                        raise _ReferenceRuntimeRefusal(
+                            instruction[refusal_reference["instruction_member"]]
+                        )
                 elif operator == "guarded-outcome-block":
                     if cell(instruction["condition"])["value"]:
                         unit_contract = runtime["fixed_value_contracts"]["kernel-unit"]
@@ -1053,10 +1061,7 @@ def _reference_execute_event(
                             "effects": selected["effects"],
                             "id": selected["id"],
                             "inputs": [],
-                            "outcomes": [
-                                {**row, "state_policy": "commit"}
-                                for row in selected["outcomes"]
-                            ],
+                            "outcomes": list(selected["outcomes"]),
                             "refusals": selected["refusals"],
                             "resource_bounds": selected["resource_bounds"],
                             "result": {
@@ -2845,7 +2850,7 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     )
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
-    assert audit["budget_counters"]["event_steps"] == 19
+    assert audit["budget_counters"]["event_steps"] == 20
 
     _reordered_receipt, reordered_trace, _, reordered_metrics = run(
         "candidate_b", reordered=True, selected_rank=7, invocation="9"
@@ -2893,6 +2898,7 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
     )
     initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
     initial_state["candidates"] = []
+    initial_state["results"] = []
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -2928,7 +2934,7 @@ def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, ru
     assert not any(row["name"] == "selection_result" for row in event["facts"])
     snapshots = _member(receipt, "snapshot-series")
     assert (
-        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 5
+        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 6
     )
     assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 9
     assert not any(
@@ -2948,16 +2954,6 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
-    rir = deepcopy(checked.rir)
-    operation = next(
-        row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-        if row["definition"]["id"] == "standard.conformance.structured.select-v1"
-    )
-    guard = next(row for row in operation["body"] if row["node"] == "guard-block")
-    guard["body"][0]["expected"] = False
-    checked = replace(checked, rir=rir)
-
     outcome = experiment_runtime_module.evaluate_experiment(checked)
 
     assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
@@ -2969,8 +2965,8 @@ def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
     assert audit["refusing_event"]["reason"] == (
         "standard.conformance.candidate_mismatch"
     )
-    assert audit["refusing_event"]["instruction_index"] == 4
-    assert audit["budget_counters"]["event_steps"] == 5
+    assert audit["refusing_event"]["instruction_index"] == 5
+    assert audit["budget_counters"]["event_steps"] == 6
     assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
 
@@ -7204,6 +7200,55 @@ def _operation_execution_vectors(ldb: Any) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def _candidate_conformance_failures(
+    kernel: dict[str, Any],
+    ldb: Any,
+    *,
+    vector_overrides: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return bounded candidate-graph and execution-vector disagreements."""
+    production_admission = _consumer_a(kernel, ldb)
+    independent_admission = _consumer_b(kernel, ldb)
+    if production_admission != independent_admission:
+        return [
+            {
+                "kind": "admission-divergence",
+                "independent": independent_admission,
+                "production": production_admission,
+            }
+        ]
+    if production_admission["admitted"] is not True:
+        return [
+            {
+                "kind": "candidate-refused",
+                "observed": production_admission["diagnostics"],
+            }
+        ]
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    failures: list[dict[str, Any]] = []
+    overrides = vector_overrides or {}
+    for package_id, declared in _operation_execution_vectors(ldb):
+        vector = overrides.get(declared["id"], declared)
+        production = evaluate_operation_execution_vector(context, vector)
+        independent = _reference_operation_execution_projection(
+            kernel, ldb, operations, vector
+        )
+        if production != independent or production != vector["expect"]:
+            failures.append(
+                {
+                    "kind": "vector-divergence",
+                    "package": package_id,
+                    "vector": vector["id"],
+                    "expected": vector["expect"],
+                    "production": production,
+                    "independent": independent,
+                }
+            )
+    return failures
+
+
 def test_neutral_structured_operation_vectors_cover_control_paths():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
@@ -7215,6 +7260,7 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     assert {vector["id"] for vector in vectors} == {
         "structured.select.success",
         "structured.select.empty-outcome",
+        "structured.select.guard-refusal",
         "structured.select.mismatch-refusal",
     }
 
@@ -7297,50 +7343,63 @@ def test_build_operation_guards_no_reward_before_plan_access_without_rng():
 
 def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
     kernel, ldb = mutable_authorities()
-    context = authority_module.admit_authority_context(kernel, ldb)
-    assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
-    vectors = _operation_execution_vectors(ldb)
-    assert vectors
+    assert _operation_execution_vectors(ldb)
 
-    for package_id, vector in vectors:
-        production = evaluate_operation_execution_vector(context, vector)
-        reference = _reference_operation_execution_projection(
-            kernel, ldb, operations, vector
-        )
-        assert production == reference == vector["expect"], (
-            package_id,
-            vector["id"],
-            production,
-            reference,
-        )
+    assert _candidate_conformance_failures(kernel, ldb) == []
 
 
 def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
     kernel, ldb = mutable_authorities()
-    context = authority_module.admit_authority_context(kernel, ldb)
-    assert isinstance(context, authority_module.AdmittedAuthorityContext)
-    operations = {row["id"]: row for row in ldb["language"]["operations"]}
     package_id, vector = next(
         (package_id, deepcopy(candidate))
         for package_id, candidate in _operation_execution_vectors(ldb)
         if candidate["id"] == "structured.select.empty-outcome"
     )
     vector["expect"]["completion"]["id"] = "mutated-outcome"
-
-    production = evaluate_operation_execution_vector(context, vector)
-    reference = _reference_operation_execution_projection(
-        kernel, ldb, operations, vector
+    failures = _candidate_conformance_failures(
+        kernel, ldb, vector_overrides={vector["id"]: vector}
     )
-    with pytest.raises(AssertionError) as failure:
-        assert production == reference == vector["expect"], (
-            package_id,
-            vector["id"],
-            production,
-            reference,
-        )
-    assert package_id in str(failure.value)
-    assert vector["id"] in str(failure.value)
+
+    assert len(failures) == 1
+    assert failures[0]["kind"] == "vector-divergence"
+    assert failures[0]["package"] == package_id
+    assert failures[0]["vector"] == vector["id"]
+    assert failures[0]["production"] == failures[0]["independent"]
+    assert failures[0]["production"] != failures[0]["expected"]
+
+
+def test_operation_execution_projection_preserves_declared_state_order():
+    kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "standard.conformance.structured.select-v1"
+    )
+    read_only = [row for row in operation["inputs"] if row["access"] == "read"]
+    writable = [row for row in operation["inputs"] if row["access"] == "read-write"]
+    operation["inputs"] = [*read_only, *reversed(writable)]
+    vectors = [
+        vector
+        for _package_id, vector in _operation_execution_vectors(ldb)
+        if vector["operation"] == operation["id"]
+    ]
+    input_order = [row["id"] for row in operation["inputs"]]
+    state_order = [
+        row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+    ]
+    for vector in vectors:
+        values = {row["name"]: row for row in vector["input"]["values"]}
+        states = {row["name"]: row for row in vector["expect"]["state_after"]}
+        vector["input"]["values"] = [values[name] for name in input_order]
+        vector["expect"]["state_after"] = [states[name] for name in state_order]
+    _refresh_package_closure_and_reidentify(ldb)
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+
+    observed = evaluate_operation_execution_vector(context, vectors[0])
+
+    observed_state = cast(list[dict[str, Any]], observed["state_after"])
+    assert [row["name"] for row in observed_state] == state_order
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
