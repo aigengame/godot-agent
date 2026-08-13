@@ -7463,6 +7463,63 @@ def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
     ]
 
 
+def test_operation_program_projects_descendants_for_each_invocation_path():
+    root = ("example", "1.0.0", "root")
+    child = ("example", "1.0.0", "child")
+    grandchild = ("example", "1.0.0", "grandchild")
+
+    def reference(coordinate):
+        return {
+            "package": coordinate[0],
+            "version": coordinate[1],
+            "id": coordinate[2],
+        }
+
+    operations = {
+        root: {
+            "id": "root",
+            "effects": [],
+            "refusals": [],
+            "body": [
+                {"node": "invoke", "operation": reference(child), "site": "a"},
+                {"node": "invoke", "operation": reference(child), "site": "b"},
+            ],
+        },
+        child: {
+            "id": "child",
+            "effects": [],
+            "refusals": [],
+            "body": [
+                {
+                    "node": "invoke",
+                    "operation": reference(grandchild),
+                    "site": "g",
+                }
+            ],
+        },
+        grandchild: {
+            "id": "grandchild",
+            "effects": [],
+            "refusals": [],
+            "body": [],
+        },
+    }
+
+    projection = operation_program_module.project_operation_program(
+        root,
+        operations,
+        operation_node_ids={"invoke"},
+        invocation_node_ids={"invoke"},
+    )
+
+    assert projection.invocation_paths == (
+        (("a",), child),
+        (("a", "g"), grandchild),
+        (("b",), child),
+        (("b", "g"), grandchild),
+    )
+
+
 def test_operation_program_projects_guard_expanded_audit_positions():
     body = [
         {"node": "constant"},

@@ -141,9 +141,31 @@ def project_operation_program(
         OperationCoordinate, tuple[frozenset[str], frozenset[str], int]
     ] = {}
 
-    def close(
+    def collect_paths(
         coordinate: OperationCoordinate,
         path: tuple[str, ...],
+        stack: tuple[OperationCoordinate, ...],
+    ) -> None:
+        if coordinate in stack:
+            raise ValueError("admitted Operation invocation graph is cyclic")
+        operation = operations.get(coordinate)
+        if operation is None:
+            raise ValueError("admitted Operation invocation target is absent")
+        for instruction in _body_instructions(
+            cast(list[dict[str, Any]], operation["body"])
+        ):
+            reference = instruction.get("operation")
+            if instruction.get("node") not in invocation_node_ids or not isinstance(
+                reference, dict
+            ):
+                continue
+            child = operation_coordinate(reference)
+            child_path = (*path, cast(str, instruction["site"]))
+            paths.append((child_path, child))
+            collect_paths(child, child_path, (*stack, coordinate))
+
+    def close(
+        coordinate: OperationCoordinate,
         stack: tuple[OperationCoordinate, ...],
     ) -> tuple[frozenset[str], frozenset[str], int]:
         if coordinate in stack:
@@ -167,11 +189,8 @@ def project_operation_program(
             ):
                 continue
             child = operation_coordinate(reference)
-            site = cast(str, instruction["site"])
-            child_path = (*path, site)
-            paths.append((child_path, child))
             child_effects, child_refusals, child_charge = close(
-                child, child_path, (*stack, coordinate)
+                child, (*stack, coordinate)
             )
             effects.update(child_effects)
             refusals.update(child_refusals)
@@ -180,7 +199,8 @@ def project_operation_program(
         closure_cache[coordinate] = closure
         return closure
 
-    effects, refusals, charge = close(root, (), ())
+    collect_paths(root, (), ())
+    effects, refusals, charge = close(root, ())
     return OperationProgramProjection(
         reachable_operations=frozenset(reachable),
         invocation_paths=tuple(paths),
