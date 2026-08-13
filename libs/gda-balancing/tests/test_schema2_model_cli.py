@@ -22,6 +22,7 @@ import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_modul
 import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.domain.authority.runtime_validation as runtime_validation_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
 import gda_balancing.domain.model._resolution as model_module
@@ -5796,8 +5797,14 @@ def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile()
         "unit": "points",
     }
 
-    result = bootstrap_module._operation_contract_for_structured_type(
-        exact_type, [profile]
+    kernel, language_bundle = mutable_authorities()
+    value_contracts = runtime_validation_module.derive_operation_value_contracts(
+        kernel, language_bundle
+    )
+    assert value_contracts is not None
+
+    result = replace(value_contracts, literal_profiles=(profile,)).contract_for_type(
+        exact_type
     )
 
     assert result == {
@@ -5821,9 +5828,13 @@ def test_lookup_structured_result_uses_the_kernel_value_kind():
         "maximum_length": 2,
     }
 
-    result = bootstrap_module._operation_contract_for_structured_type(
-        type_expression, []
+    kernel, language_bundle = mutable_authorities()
+    value_contracts = runtime_validation_module.derive_operation_value_contracts(
+        kernel, language_bundle
     )
+    assert value_contracts is not None
+
+    result = value_contracts.contract_for_type(type_expression)
 
     assert result == {
         "type": type_expression,

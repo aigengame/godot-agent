@@ -19,11 +19,17 @@ from gda_balancing.domain.canonical import (
 from gda_balancing.domain.formula.types import (
     formula_contract_matches as _formula_contract_matches,
     formula_contract_matches_operation as _formula_contract_matches_operation,
-    literal_context_contract as _literal_context_contract,
     resolve_formula_contract as _resolved_formula_contract,
 )
 from gda_balancing.domain.authority.runtime_validation import (
+    fixed_operation_value_contract,
+    operation_literal_context_contract as _literal_context_contract,
     operation_value_contract_matches,
+)
+from gda_balancing.domain.operation_program import (
+    closed_operation_coordinates,
+    project_operation_program,
+    record_instruction_evaluation_sites,
 )
 from gda_balancing.domain.structured_values import (
     StructuredValueFault,
@@ -1021,12 +1027,13 @@ def _resolved_formula_programs_and_bindings_impl(
                     expected=None,
                     actual_operand_domain=actual_operand_domain,
                 )
-                boolean_contract = cast(
-                    dict[str, Any],
-                    checked.kernel["meta_format"]["runtime_program"][
-                        "fixed_value_contracts"
-                    ]["kernel-boolean"],
+                boolean_contract = fixed_operation_value_contract(
+                    checked.kernel, "kernel-boolean"
                 )
+                if boolean_contract is None:
+                    raise ValueError(
+                        "Formula conditional has no Kernel Boolean contract"
+                    )
                 boolean_type = cast(dict[str, str], boolean_contract["type"])
                 if condition_contract.get("type_identity") != {
                     "package": boolean_type["package"],
@@ -2189,25 +2196,14 @@ def _specialize_operation_formula_slots(
                     for name, resolved_symbol in sorted(snapshot_sources.items())
                 ],
             }
-        provenance = cast(
-            dict[str, Any],
-            extensions.setdefault(
-                "standard.instruction-provenance",
-                {
-                    "kind": "instruction-evaluation-sites",
-                    "sites": [],
-                },
-            ),
-        )
         shift = 0
         for start, length, compiled, site_identity in ordered:
             final_start = start + shift
-            cast(list[dict[str, JsonValue]], provenance["sites"]).extend(
-                {
-                    "instruction_index": final_start + index,
-                    "evaluation_site_identity": site_identity,
-                }
-                for index in range(len(compiled))
+            record_instruction_evaluation_sites(
+                operation,
+                first_instruction_index=final_start,
+                instruction_count=len(compiled),
+                evaluation_site_identity=site_identity,
             )
             shift += len(compiled) - length
     return cast(dict[str, JsonValue], specialized)
@@ -2855,18 +2851,19 @@ def _reachable_operation_formula_dependencies(
         tuple[str, str, str],
         list[dict[str, JsonValue]],
     ],
+    *,
+    operation_node_ids: set[str],
 ) -> list[dict[str, JsonValue]]:
-    reachable: set[tuple[str, str, str]] = set()
-    pending = [root]
+    definitions = {
+        coordinate: cast(dict[str, Any], row["definition"])
+        for coordinate, row in operations.items()
+    }
+    reachable = closed_operation_coordinates({root}, definitions, operation_node_ids)
     symbols: dict[tuple[str, str, str], dict[str, JsonValue]] = {}
-    while pending:
-        coordinate = pending.pop()
-        if coordinate in reachable:
-            continue
+    for coordinate in reachable:
         operation_row = operations.get(coordinate)
         if operation_row is None:
             raise ValueError("Operation Formula dependency graph is incomplete")
-        reachable.add(coordinate)
         for symbol in dependencies.get(coordinate, []):
             key = (
                 cast(str, symbol["model"]),
@@ -2874,18 +2871,6 @@ def _reachable_operation_formula_dependencies(
                 cast(str, symbol["name"]),
             )
             symbols[key] = symbol
-        operation = cast(dict[str, Any], operation_row["definition"])
-        for instruction in cast(list[dict[str, Any]], operation["body"]):
-            if instruction.get("node") != "invoke":
-                continue
-            called = cast(dict[str, str], instruction["operation"])
-            pending.append(
-                (
-                    called["package"],
-                    called["version"],
-                    called["id"],
-                )
-            )
     return [symbols[key] for key in sorted(symbols)]
 
 
@@ -3339,6 +3324,7 @@ def _resolved_entrypoints(
             ),
             operations,
             operation_formula_dependencies,
+            operation_node_ids=_operation_reference_node_ids(checked.kernel),
         ):
             record_formula_dependency(dependency_symbol)
         try:
@@ -3442,11 +3428,12 @@ def _resolved_event_reference_operand(
     domains: dict[str, str],
 ) -> tuple[dict[str, JsonValue], str, dict[str, JsonValue]] | None:
     name = operand.get("name")
-    event_reference_contract = kernel["meta_format"]["runtime_program"][
-        "fixed_value_contracts"
-    ]["kernel-event-reference"]
+    event_reference_contract = fixed_operation_value_contract(
+        kernel, "kernel-event-reference"
+    )
     if (
-        formal.get("access") != "read"
+        event_reference_contract is None
+        or formal.get("access") != "read"
         or not isinstance(name, str)
         or not name
         or not operation_value_contract_matches(event_reference_contract, formal)
@@ -3540,12 +3527,32 @@ def _resolved_call_sites(
         ],
     )
     resolved_rows: list[dict[str, JsonValue]] = []
-    closure_cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    operation_definitions = {
+        coordinate: cast(dict[str, Any], row["definition"])
+        for coordinate, row in operations.items()
+    }
+    runtime_nodes = cast(
+        list[dict[str, Any]],
+        kernel["meta_format"]["runtime_program"]["nodes"],
+    )
+    operation_node_ids = {
+        cast(str, node["id"])
+        for node in runtime_nodes
+        if node["semantics"]["operator"] in {"invoke-operation", "schedule-operation"}
+    }
+    invocation_node_ids = {
+        cast(str, node["id"])
+        for node in runtime_nodes
+        if node["semantics"]["operator"] == "invoke-operation"
+    }
+    closure_cache: dict[
+        tuple[str, str, str], tuple[frozenset[str], frozenset[str], int]
+    ] = {}
 
     def operation_closure(
         operation_row: dict[str, Any],
         stack: tuple[tuple[str, str, str], ...],
-    ) -> tuple[set[str], set[str], int]:
+    ) -> tuple[frozenset[str], frozenset[str], int]:
         parent_ref = _exact_operation_coordinate(operation_row, package_versions)
         parent_key = (
             parent_ref["package"],
@@ -3557,6 +3564,12 @@ def _resolved_call_sites(
         if parent_key in closure_cache:
             return closure_cache[parent_key]
         operation = cast(dict[str, Any], operation_row["definition"])
+        projection = project_operation_program(
+            parent_key,
+            operation_definitions,
+            operation_node_ids=operation_node_ids,
+            invocation_node_ids=invocation_node_ids,
+        )
         parent_ports = {
             row["id"]: row for row in cast(list[dict[str, Any]], operation["inputs"])
         }
@@ -3565,14 +3578,10 @@ def _resolved_call_sites(
             for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
         }
         locals_: dict[str, dict[str, Any]] = {}
-        effects = set(cast(list[str], operation["effects"]))
-        refusals = set(cast(list[str], operation["refusals"]))
-        charge = 0
         seen_sites: set[str] = set()
         for order, instruction in enumerate(
             cast(list[dict[str, Any]], operation["body"])
         ):
-            charge += 1
             if instruction["node"] != "invoke":
                 continue
             site = cast(str, instruction["site"])
@@ -3788,12 +3797,6 @@ def _resolved_call_sites(
                 raise ValueError(
                     "nested Operation refusal closure exceeds caller declaration"
                 )
-            if effect_policy["aggregation"] == "union":
-                effects.update(child_effects)
-            if refusal_policy["aggregation"] == "union":
-                refusals.update(child_refusals)
-            if resource_policy["aggregation"] == "sum":
-                charge += child_charge
             call_body = cast(
                 dict[str, JsonValue],
                 {
@@ -3820,11 +3823,15 @@ def _resolved_call_sites(
             )
         if (
             resource_policy["containment"] == "transitive-charge-within-caller-bound"
-            and charge > operation["resource_bounds"]["max_steps"]
+            and projection.resource_charge > operation["resource_bounds"]["max_steps"]
         ):
             raise ValueError("Operation transitive resource charge exceeds its bound")
-        closure_cache[parent_key] = effects, refusals, charge
-        return effects, refusals, charge
+        closure_cache[parent_key] = (
+            projection.effects,
+            projection.refusals,
+            projection.resource_charge,
+        )
+        return closure_cache[parent_key]
 
     for operation_row in sorted(
         operation_rows,

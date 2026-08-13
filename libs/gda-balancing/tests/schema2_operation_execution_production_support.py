@@ -20,6 +20,32 @@ from gda_balancing.domain.runtime.execution import (
     evaluate_experiment,
 )
 
+OperationCoordinate = tuple[str, str, str]
+
+
+def _operation_coordinate(reference: dict[str, Any]) -> OperationCoordinate:
+    return (
+        cast(str, reference["package"]),
+        cast(str, reference["version"]),
+        cast(str, reference["id"]),
+    )
+
+
+def _language_operation_index(
+    language: dict[str, Any],
+) -> dict[OperationCoordinate, dict[str, Any]]:
+    return {
+        (
+            cast(str, package["id"]),
+            cast(str, package["version"]),
+            cast(str, definition["id"]),
+        ): definition
+        for package in cast(list[dict[str, Any]], language["packages"])
+        for closure in cast(list[dict[str, Any]], package["semantic_closure"])
+        if closure["authority_path"] == "language.operations"
+        for definition in cast(list[dict[str, Any]], closure["definitions"])
+    }
+
 
 def _type_coordinate(contract: dict[str, Any]) -> tuple[str, str, str]:
     type_identity = contract.get("type")
@@ -105,39 +131,39 @@ def _formula_contract(
 
 
 def _reachable_operations(
-    root: dict[str, Any], operations: dict[str, dict[str, Any]]
-) -> list[dict[str, Any]]:
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    root: OperationCoordinate,
+    operations: dict[OperationCoordinate, dict[str, Any]],
+) -> list[tuple[OperationCoordinate, dict[str, Any]]]:
+    selected: list[tuple[OperationCoordinate, dict[str, Any]]] = []
+    seen: set[OperationCoordinate] = set()
 
-    def visit(operation: dict[str, Any], body: list[dict[str, Any]]) -> None:
-        if operation["id"] not in seen:
-            seen.add(operation["id"])
-            selected.append(operation)
+    def visit(coordinate: OperationCoordinate, body: list[dict[str, Any]]) -> None:
+        operation = operations[coordinate]
+        if coordinate not in seen:
+            seen.add(coordinate)
+            selected.append((coordinate, operation))
         for instruction in body:
             if instruction["node"] == "guard-block":
-                visit(operation, cast(list[dict[str, Any]], instruction["body"]))
+                visit(coordinate, cast(list[dict[str, Any]], instruction["body"]))
             elif instruction["node"] in {"invoke", "schedule"}:
-                visit(
-                    operations[instruction["operation"]["id"]],
-                    operations[instruction["operation"]["id"]]["body"],
-                )
+                child = _operation_coordinate(instruction["operation"])
+                visit(child, cast(list[dict[str, Any]], operations[child]["body"]))
 
-    visit(root, cast(list[dict[str, Any]], root["body"]))
+    visit(root, cast(list[dict[str, Any]], operations[root]["body"]))
     return selected
 
 
 def _formula_sources(
     context: AdmittedAuthorityContext,
-    root: dict[str, Any],
+    root: OperationCoordinate,
     aliases: dict[tuple[str, str, str], str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     language = cast(dict[str, Any], context.language_bundle["language"])
-    operations = {row["id"]: row for row in language["operations"]}
+    operations = _language_operation_index(language)
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
-    expression_operations: list[dict[str, Any]] = []
-    for operation in operations.values():
+    expression_operations: list[tuple[OperationCoordinate, dict[str, Any]]] = []
+    for coordinate, operation in operations.items():
         body = operation.get("body")
         result = operation.get("result")
         if (
@@ -148,7 +174,7 @@ def _formula_sources(
             and isinstance(result, dict)
             and result.get("source") == {"kind": "local", "name": body[0].get("target")}
         ):
-            expression_operations.append(operation)
+            expression_operations.append((coordinate, operation))
         elif (
             operation.get("operation_kind") == "pure-expression"
             and isinstance(body, list)
@@ -157,13 +183,11 @@ def _formula_sources(
             and isinstance(result.get("source"), dict)
             and result["source"].get("kind") == "local"
         ):
-            expression_operations.append(operation)
-    expression_operations.sort(
-        key=lambda operation: (-len(operation["body"]), operation["id"].encode("utf-8"))
-    )
+            expression_operations.append((coordinate, operation))
+    expression_operations.sort(key=lambda row: (-len(row[1]["body"]), row[0]))
     formulas: list[dict[str, Any]] = []
     bindings: list[dict[str, Any]] = []
-    for operation in _reachable_operations(root, operations):
+    for owner, operation in _reachable_operations(root, operations):
         slots = operation.get("extensions", {}).get("standard.formula-slots", [])
         for slot in slots:
             parameters = {
@@ -176,8 +200,10 @@ def _formula_sources(
             placeholder = operation["body"][start:end]
             position = 0
             while position < len(placeholder):
-                matches: list[tuple[dict[str, Any], dict[str, str]]] = []
-                for candidate in expression_operations:
+                matches: list[
+                    tuple[OperationCoordinate, dict[str, Any], dict[str, str]]
+                ] = []
+                for candidate_owner, candidate in expression_operations:
                     template = candidate["body"]
                     actual = placeholder[position : position + len(template)]
                     if len(actual) != len(template):
@@ -218,12 +244,12 @@ def _formula_sources(
                         and references.get(result_source["name"])
                         == actual[-1].get("target")
                     ):
-                        matches.append((candidate, references))
+                        matches.append((candidate_owner, candidate, references))
                 if len(matches) != 1:
                     raise ValueError(
                         "operation Formula placeholder has no unique expression Operation"
                     )
-                expression_operation, references = matches[0]
+                expression_owner, expression_operation, references = matches[0]
                 arguments = []
                 for formal in expression_operation["inputs"]:
                     name = formal["id"]
@@ -242,10 +268,8 @@ def _formula_sources(
                         ],
                         "node": "operation-call",
                         "operation": {
-                            "package": _operation_owner(
-                                language, expression_operation["id"]
-                            )[0],
-                            "version": expression_operation["version"],
+                            "package": expression_owner[0],
+                            "version": expression_owner[1],
                             "id": expression_operation["id"],
                         },
                         "arguments": arguments,
@@ -308,7 +332,6 @@ def _formula_sources(
                     "expression": render_formula_body(body, context),
                 }
             )
-            owner = _operation_owner(language, operation["id"])
             bindings.append(
                 {
                     "site": {
@@ -338,13 +361,13 @@ def _formula_sources(
 
 def _candidate_model_source(
     context: AdmittedAuthorityContext,
+    operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
     vector: dict[str, Any],
 ) -> tuple[dict[str, Any], str]:
-    language = cast(dict[str, Any], context.language_bundle["language"])
     runtime = cast(dict[str, Any], context.kernel["meta_format"]["runtime_program"])
     numeric = cast(dict[str, int], runtime["numeric"])
-    operation_owner = _operation_owner(language, cast(str, operation["id"]))
+    operation_owner = operation_coordinate[:2]
     quantity_coordinate = ("core.quantity", "2.1.0", "Quantity")
     contracts = [*operation["inputs"], operation["result"]]
     coordinates = sorted(
@@ -406,7 +429,9 @@ def _candidate_model_source(
         )
     )
     manifest_id = "standard.conformance.operation-execution-model"
-    formulas, formula_bindings = _formula_sources(context, operation, aliases)
+    formulas, formula_bindings = _formula_sources(
+        context, operation_coordinate, aliases
+    )
     requirements = sorted(
         {operation_owner, *(coordinate[:2] for coordinate in coordinates)},
         key=lambda row: tuple(member.encode("utf-8") for member in row),
@@ -467,10 +492,13 @@ def _candidate_model_source(
 
 def _checked_vector_experiment(
     context: AdmittedAuthorityContext,
+    operation_coordinate: OperationCoordinate,
     operation: dict[str, Any],
     vector: dict[str, Any],
 ) -> tuple[CheckedExperiment, str]:
-    source, result_name = _candidate_model_source(context, operation, vector)
+    source, result_name = _candidate_model_source(
+        context, operation_coordinate, operation, vector
+    )
     checked_model = check_model_source_value(source, authority_context=context)
     if not isinstance(checked_model, CheckedModel):
         diagnostics = (
@@ -608,15 +636,28 @@ def _fact_value(row: dict[str, Any]) -> JsonValue:
 def evaluate_operation_execution_vector(
     context: AdmittedAuthorityContext,
     vector: dict[str, Any],
+    *,
+    package_id: str | None = None,
+    package_version: str | None = None,
 ) -> dict[str, JsonValue]:
     """Execute one admitted Package vector through the production evaluator."""
-    operations = {
-        row["id"]: row for row in context.language_bundle["language"]["operations"]
-    }
-    operation = operations.get(vector.get("operation"))
+    if package_id is None or package_version is None:
+        language = cast(dict[str, Any], context.language_bundle["language"])
+        package_id, package_version = _operation_owner(
+            language, cast(str, vector.get("operation"))
+        )
+    language = cast(dict[str, Any], context.language_bundle["language"])
+    coordinate = (
+        cast(str, package_id),
+        cast(str, package_version),
+        cast(str, vector.get("operation")),
+    )
+    operation = _language_operation_index(language).get(coordinate)
     if operation is None or vector.get("kind") != "operation-execution":
         raise ValueError("operation execution vector target is unavailable")
-    checked, result_name = _checked_vector_experiment(context, operation, vector)
+    checked, result_name = _checked_vector_experiment(
+        context, coordinate, operation, vector
+    )
     evaluation = evaluate_experiment(checked)
     state_names = [
         row["id"] for row in operation["inputs"] if row["access"] == "read-write"
