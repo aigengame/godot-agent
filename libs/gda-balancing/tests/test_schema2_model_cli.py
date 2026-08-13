@@ -22,6 +22,7 @@ import gda_balancing.interfaces.cli.model_inspect as model_inspect_command_modul
 import gda_balancing.interfaces.cli.model_migration as model_migration_command_module
 import gda_balancing.domain.authority.context as authority_module
 import gda_balancing.domain.authority.admission as bootstrap_module
+import gda_balancing.domain.authority.runtime_validation as runtime_validation_module
 import gda_balancing.domain.experiment as experiment_module
 import gda_balancing.domain.runtime.execution as runtime_execution_module
 import gda_balancing.domain.model._resolution as model_module
@@ -272,7 +273,7 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     }
     assert all(
         row["type_identity"]["package"] == "standard.conformance.structured"
-        and row["type_identity"]["version"] == "1.0.0"
+        and row["type_identity"]["version"] == "2.0.0"
         for row in structured_declarations
     )
     assert all(
@@ -290,9 +291,9 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
     assert {(row["id"], row["version"]) for row in lock["packages"]} >= {
         ("core.quantity", "2.1.0"),
-        ("standard.conformance.structured", "1.0.0"),
+        ("standard.conformance.structured", "2.0.0"),
         ("standard.runtime", "1.1.0"),
-        ("standard.schema", "2.3.0"),
+        ("standard.schema", "2.4.0"),
     }
     assert {
         (row["package"], row["definition"]["id"])
@@ -446,10 +447,6 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
     assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
         "selected_reward",
         "build_plans",
-        "expected_build_disposition",
-        "expected_rare_rarity",
-        "expected_replace_constraint",
-        "expected_replaced_kind",
         "build_state",
         "build_decision",
         "build_score",
@@ -463,11 +460,6 @@ def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_
         },
         {
             "id": "no-reward",
-            "kind": "gameplay-alternative",
-            "state_policy": "rollback",
-        },
-        {
-            "id": "plan-mismatch",
             "kind": "gameplay-alternative",
             "state_policy": "rollback",
         },
@@ -5648,6 +5640,7 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
         for instruction in operation["body"]
         if instruction.get("target") == "selected_candidate"
     )
+    lookup_index = operation["body"].index(lookup)
     lookup["key"] = key
     _reidentify_language_bundle(candidate_ldb)
 
@@ -5657,20 +5650,82 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
     admission = admit_authorities(baseline.kernel, candidate_ldb)
 
     assert (
-        "language.operations.standard.conformance.structured@1.0.0."
-        "standard.conformance.structured.select-v1.body.3.typing"
+        "language.operations.standard.conformance.structured@2.0.0."
+        f"standard.conformance.structured.select-v1.body.{lookup_index}.typing"
         in composition_subjects
     )
     assert admission.admitted is False
 
 
-def test_package_admission_rejects_canonical_equality_across_value_contracts():
+@pytest.mark.parametrize("source_kind", ["invoke-literal", "constant-local"])
+def test_package_admission_accepts_kernel_boolean_literals(source_kind):
     baseline = model_checking_module.check_model_source_value(
         json.loads(
             (
                 Path(__file__).parents[1]
-                / "examples/schema2/roguelike-reward-build/model-source.json"
+                / "examples/schema2/rpg-combat-cast/model-source.json"
             ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    package = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "game.combat"
+    )
+    owned_operations = next(
+        entry["definitions"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operations = (
+        next(
+            operation
+            for operation in candidate_ldb["language"]["operations"]
+            if operation["id"] == "game.combat.cast-v1"
+        ),
+        next(
+            operation
+            for operation in owned_operations
+            if operation["id"] == "game.combat.cast-v1"
+        ),
+    )
+    for operation in operations:
+        body = operation["body"]
+        invoke = next(
+            instruction
+            for instruction in body
+            if instruction.get("site") == "apply-damage"
+        )
+        critical = next(
+            argument
+            for argument in invoke["arguments"]
+            if argument["port"] == "critical"
+        )
+        if source_kind == "invoke-literal":
+            critical["operand"] = {"kind": "literal", "literal": True}
+        else:
+            body.insert(
+                body.index(invoke),
+                {"literal": True, "node": "constant", "target": "literal_critical"},
+            )
+            critical["operand"] = {"kind": "local", "local": "literal_critical"}
+    _reidentify_language_bundle(candidate_ldb)
+
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        baseline.kernel, candidate_ldb
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert composition_subjects == ()
+    assert admission.admitted is True
+
+
+def test_package_admission_rejects_canonical_equality_across_value_contracts():
+    baseline = model_checking_module.check_model_source_value(
+        json.loads(
+            (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
         )
     )
     assert isinstance(baseline, model_module.CheckedModel)
@@ -5697,18 +5752,22 @@ def test_package_admission_rejects_canonical_equality_across_value_contracts():
             if operation["id"] == "game.generation.select-reward-v1"
         ),
     )
+    mutation_index = None
     for operation in operations:
-        equality = next(
-            instruction
-            for instruction in operation["body"]
+        instruction_index, equality = next(
+            (instruction_index, instruction)
+            for instruction_index, instruction in enumerate(operation["body"])
             if instruction.get("target") == "rarity_matches"
         )
+        assert mutation_index in (None, instruction_index)
+        mutation_index = instruction_index
         equality["right"] = "selected_key"
     _reidentify_language_bundle(candidate_ldb)
 
+    assert mutation_index is not None
     expected_subject = (
         "language.operations.game.generation@1.0.0."
-        "game.generation.select-reward-v1.body.17.typing"
+        f"game.generation.select-reward-v1.body.{mutation_index}.typing"
     )
     composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
         baseline.kernel, candidate_ldb
@@ -5738,8 +5797,14 @@ def test_lookup_scalar_result_contract_comes_from_the_selected_literal_profile()
         "unit": "points",
     }
 
-    result = bootstrap_module._operation_contract_for_structured_type(
-        exact_type, [profile]
+    kernel, language_bundle = mutable_authorities()
+    value_contracts = runtime_validation_module.derive_operation_value_contracts(
+        kernel, language_bundle
+    )
+    assert value_contracts is not None
+
+    result = replace(value_contracts, literal_profiles=(profile,)).contract_for_type(
+        exact_type
     )
 
     assert result == {
@@ -5763,9 +5828,13 @@ def test_lookup_structured_result_uses_the_kernel_value_kind():
         "maximum_length": 2,
     }
 
-    result = bootstrap_module._operation_contract_for_structured_type(
-        type_expression, []
+    kernel, language_bundle = mutable_authorities()
+    value_contracts = runtime_validation_module.derive_operation_value_contracts(
+        kernel, language_bundle
     )
+    assert value_contracts is not None
+
+    result = value_contracts.contract_for_type(type_expression)
 
     assert result == {
         "type": type_expression,

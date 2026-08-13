@@ -1,5 +1,6 @@
 """Public RPG Experiment tracer for Standard Schema 2.0 (#540)."""
 
+import ast
 import hashlib
 import json
 import os
@@ -15,7 +16,11 @@ import gda_balancing.application.experiment_run as experiment_run_application_mo
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.evidence as experiment_evidence_module
+import gda_balancing.domain.evidence_replay as evidence_replay_module
+import gda_balancing.domain.operation_program as operation_program_module
+import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
+import schema2_operation_execution_conformance_support as operation_conformance_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
 import gda_balancing.domain.authority.context as authority_module
@@ -41,6 +46,23 @@ from schema2_scheduler_production_support import (
     evaluate_runtime_scheduler_vector,
     require_complete_scheduler_detector_bindings,
     scheduler_detector_inventory,
+)
+from schema2_operation_execution_production_support import (
+    _language_operation_index as production_operation_index,
+    evaluate_operation_execution_vector,
+)
+from schema2_operation_execution_independent_support import (
+    reference_execute_event,
+    reference_rng_draw,
+)
+from schema2_operation_execution_conformance_support import (
+    _operation_index as conformance_operation_index,
+    candidate_conformance_failures,
+    operation_execution_observations,
+    operation_execution_vectors,
+)
+from schema2_bootstrap_production_support import (
+    _refresh_package_closure_and_reidentify,
 )
 from schema2_authority_support import mutable_authorities
 
@@ -122,6 +144,39 @@ def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
     )
 
 
+def test_runtime_canonical_equality_compares_kernel_booleans():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_index(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        ),
+        kernel=authority_context.kernel,
+    )
+    equality_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "equal"
+    )
+    variables = {"left": True, "right": True}
+
+    experiment_runtime_module._execute_value_instruction(
+        {
+            "left": "left",
+            "node": "equal",
+            "right": "right",
+            "target": "result",
+        },
+        variables,
+        {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+        equality_contract,
+        structured_authority=structured_authority,
+        structured_resource_limit=1024,
+    )
+
+    assert variables["result"] is True
+
+
 def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
     authority_context = authority_module.packaged_authority_context()
     structured_authority = replace(
@@ -163,7 +218,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
             "type": {
                 "id": "Candidate",
                 "package": "standard.conformance.structured",
-                "version": "1.0.0",
+                "version": "2.0.0",
             },
             "value": {"key": {"key": "candidate_a"}, "kind": "primary"},
         },
@@ -188,7 +243,7 @@ def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
         "type": {
             "id": "CandidateKind",
             "package": "standard.conformance.structured",
-            "version": "1.0.0",
+            "version": "2.0.0",
         },
         "value": "primary",
     }
@@ -215,7 +270,7 @@ def test_list_lookup_requires_the_statically_resolved_index_local():
                     "id": "Candidate",
                     "kind": "nominal",
                     "package": "standard.conformance.structured",
-                    "version": "1.0.0",
+                    "version": "2.0.0",
                 },
                 "kind": "list",
                 "maximum_length": 16,
@@ -492,588 +547,6 @@ def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
         if item["logical_name"] == logical_name
     )
     return json.loads(Path(locator).read_text(encoding="utf-8"))
-
-
-def _reference_compare(comparison: str, left: int, right: int) -> bool:
-    if comparison == "greater-than-or-equal":
-        return left >= right
-    if comparison == "less-than":
-        return left < right
-    if comparison == "less-than-or-equal":
-        return left <= right
-    raise AssertionError(f"unsupported comparison in authority: {comparison}")
-
-
-def _reference_rng_draw(
-    contract: dict[str, Any],
-    seed: int,
-    stream: str,
-    minimum: int,
-    maximum: int,
-    states: dict[str, int],
-    indices: dict[str, int],
-) -> dict[str, Any]:
-    mask = (1 << contract["word_bits"]) - 1
-    if stream not in states:
-        derivation = contract["stream_derivation"]
-        digest = hashlib.sha256(
-            stream.encode(contract["stream_name_encoding"])
-        ).digest()
-        digest_slice = derivation["digest_slice"]
-        start = digest_slice["offset"]
-        end = start + digest_slice["length"]
-        states[stream] = (
-            seed
-            + int.from_bytes(
-                digest[start:end],
-                derivation["byte_order"],
-            )
-        ) & mask
-        indices[stream] = 0
-    transition = contract["state_transition"]
-    state = (states[stream] + int(transition["increment_hex"], 16)) & mask
-    states[stream] = state
-    candidate = state
-    for step in transition["mix_steps"]:
-        candidate ^= candidate >> step["xor_shift_right"]
-        if "multiply_hex" in step:
-            candidate = (candidate * int(step["multiply_hex"], 16)) & mask
-    index = indices[stream]
-    indices[stream] = index + 1
-    value = minimum + candidate % (maximum - minimum + 1)
-    candidate_width = contract["candidate_encoding"]["width_bits"] // 4
-    return {
-        "stream": stream,
-        "index": index,
-        "candidate_hex": f"{candidate:0{candidate_width}x}",
-        "accepted": True,
-        "minimum": minimum,
-        "maximum": maximum,
-        "value": value,
-    }
-
-
-def _reference_fact_rows(values: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = []
-    for name in sorted(values):
-        value = values[name]
-        if isinstance(value, bool):
-            rows.append({"name": name, "kind": "boolean", "boolean": value})
-        else:
-            rows.append({"name": name, "kind": "integer", "integer": value})
-    return rows
-
-
-class _ReferenceRuntimeRefusal(Exception):
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
-        self.operation: str | None = None
-        self.call_path: str | None = None
-        self.call_site_identity: str | None = None
-
-
-def _reference_execute_event(
-    kernel: dict[str, Any],
-    operation: dict[str, Any],
-    operations: dict[str, dict[str, Any]],
-    scenario: dict[str, Any],
-    *,
-    seed: int,
-    state_names: set[str] | None = None,
-    resolved_entrypoint: dict[str, Any] | None = None,
-    resolved_declarations: list[dict[str, Any]] | None = None,
-    resolved_call_sites: list[dict[str, Any]] | None = None,
-    resolved_initialization_programs: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    runtime = kernel["meta_format"]["runtime_program"]
-    numeric = runtime["numeric"]
-    nodes = {row["id"]: row for row in runtime["nodes"]}
-    variables: dict[str | tuple[str, str, str], Any]
-    state_targets: set[str | tuple[str, str, str]]
-    display_names: dict[str | tuple[str, str, str], str]
-    if resolved_entrypoint is not None:
-        assert resolved_declarations is not None
-        declarations = {
-            (
-                row["resolved_symbol"]["model"],
-                row["resolved_symbol"]["module"],
-                row["resolved_symbol"]["name"],
-            ): row
-            for row in resolved_declarations
-        }
-        variables = {
-            (
-                row["target"]["model"],
-                row["target"]["module"],
-                row["target"]["name"],
-            ): row["value"]
-            for row in resolved_entrypoint["scenario_input_contract"]["initializers"]
-        }
-        variables.update(
-            {
-                (
-                    row["target"]["model"],
-                    row["target"]["module"],
-                    row["target"]["name"],
-                ): row["value"]
-                for row in scenario["assignments"]
-            }
-        )
-        pending_programs = list(resolved_initialization_programs or [])
-        reachable_formula_targets = {
-            (
-                operand["symbol"]["model"],
-                operand["symbol"]["module"],
-                operand["symbol"]["name"],
-            )
-            for binding in resolved_entrypoint["arguments"]
-            if (operand := binding["operand"])["kind"] == "symbol"
-        }
-        while True:
-            previous_target_count = len(reachable_formula_targets)
-            for program in pending_programs:
-                target = program["target"]
-                target_coordinate = (
-                    target["model"],
-                    target["module"],
-                    target["name"],
-                )
-                if target_coordinate not in reachable_formula_targets:
-                    continue
-                reachable_formula_targets.update(
-                    (
-                        operand["resolved_symbol"]["model"],
-                        operand["resolved_symbol"]["module"],
-                        operand["resolved_symbol"]["name"],
-                    )
-                    for row in program["inputs"]
-                    if (operand := row["operand"])["kind"] != "literal"
-                )
-            if len(reachable_formula_targets) == previous_target_count:
-                break
-        pending_programs = [
-            program
-            for program in pending_programs
-            if (
-                program["target"]["model"],
-                program["target"]["module"],
-                program["target"]["name"],
-            )
-            in reachable_formula_targets
-        ]
-        while pending_programs:
-            progressed = False
-            for program in list(pending_programs):
-                values: dict[str, int] = {}
-                ready = True
-                for row in program["inputs"]:
-                    operand = row["operand"]
-                    if operand["kind"] == "literal":
-                        values[row["name"]] = operand["value"]
-                        continue
-                    symbol = operand["resolved_symbol"]
-                    coordinate = (
-                        symbol["model"],
-                        symbol["module"],
-                        symbol["name"],
-                    )
-                    if coordinate not in variables:
-                        ready = False
-                        break
-                    values[row["name"]] = variables[coordinate]
-                if not ready:
-                    continue
-                for row in program["body"]:
-                    instruction = row["instruction"]
-                    node = instruction["node"]
-                    if node == "constant":
-                        result = instruction["literal"]
-                    elif node == "copy":
-                        result = values[instruction["value"]]
-                    elif node == "add":
-                        result = (
-                            values[instruction["left"]] + values[instruction["right"]]
-                        )
-                    elif node == "subtract":
-                        result = (
-                            values[instruction["left"]] - values[instruction["right"]]
-                        )
-                    elif node == "multiply":
-                        result = (
-                            values[instruction["left"]] * values[instruction["right"]]
-                        )
-                    elif node == "maximum":
-                        result = max(
-                            values[instruction["left"]],
-                            values[instruction["right"]],
-                        )
-                    else:
-                        assert node == "if"
-                        result = values[
-                            instruction[
-                                "when_true"
-                                if values[instruction["condition"]]
-                                else "when_false"
-                            ]
-                        ]
-                    assert numeric["minimum"] <= result <= numeric["maximum"]
-                    values[instruction["target"]] = result
-                target = program["target"]
-                result_source = program["result"]
-                variables[(target["model"], target["module"], target["name"])] = values[
-                    result_source["name"]
-                ]
-                pending_programs.remove(program)
-                progressed = True
-            assert progressed
-        state_targets = {
-            coordinate
-            for coordinate, declaration in declarations.items()
-            if declaration["role"] == "state"
-        }
-        display_names = {
-            coordinate: declaration["resolved_symbol"]["name"]
-            for coordinate, declaration in declarations.items()
-        }
-    else:
-        assert state_names is not None
-        legacy_variables: dict[str, Any] = {
-            row["name"]: row["value"] for row in scenario["values"]
-        }
-        variables = cast(
-            dict[str | tuple[str, str, str], Any],
-            legacy_variables,
-        )
-        state_targets = set(state_names)
-        display_names = {name: name for name in legacy_variables}
-    cells = {name: {"value": value} for name, value in variables.items()}
-    state_cells = {name: cells[name] for name in state_targets if name in cells}
-    declared_domains_by_cell = (
-        {
-            id(cells[coordinate]): declaration["domain"]
-            for coordinate, declaration in declarations.items()
-            if coordinate in state_cells
-            and declaration["domain_kind"] == "closed-interval"
-        }
-        if resolved_entrypoint is not None
-        else {}
-    )
-    before = {name: cell["value"] for name, cell in state_cells.items()}
-    rng_states: dict[str, int] = {}
-    rng_indices: dict[str, int] = {}
-    draws: list[dict[str, Any]] = []
-    calls: list[dict[str, Any]] = []
-    call_sites = {
-        (row["parent_operation"]["id"], row["site"]): row
-        for row in (resolved_call_sites or [])
-    }
-
-    def exact(value: int, target: dict[str, Any] | None = None) -> int:
-        if not numeric["minimum"] <= value <= numeric["maximum"]:
-            raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
-        domain = (
-            declared_domains_by_cell.get(id(target)) if target is not None else None
-        )
-        if domain is not None and not domain["minimum"] <= value <= domain["maximum"]:
-            raise _ReferenceRuntimeRefusal("runtime.numeric_overflow")
-        return value
-
-    def execute(
-        selected: dict[str, Any],
-        arguments: dict[str, dict[str, Any]],
-        stack: tuple[str, ...] = (),
-        path: tuple[str, ...] = (),
-    ) -> tuple[str, Any]:
-        assert selected["id"] not in stack
-        locals_: dict[str, dict[str, Any]] = {}
-        operation_results: dict[str, Any] = {}
-        frame_cells = {id(cell): cell for cell in arguments.values()}
-        snapshot = {key: cell["value"] for key, cell in frame_cells.items()}
-        outcome = selected["default_outcome"]
-
-        def cell(name: str) -> dict[str, Any]:
-            if name in locals_:
-                return locals_[name]
-            return arguments[name]
-
-        def write_local(name: str, value: Any) -> None:
-            locals_[name] = {"value": value}
-
-        try:
-            for instruction in selected["body"]:
-                node = nodes[instruction["node"]]
-                assert set(instruction) == set(node["required_members"])
-                semantics = node["semantics"]
-                operator = semantics["operator"]
-                if operator == "invoke-operation":
-                    child = operations[instruction["operation"]["id"]]
-                    child_arguments: dict[str, dict[str, Any]] = {}
-                    for binding in instruction["arguments"]:
-                        operand = binding["operand"]
-                        if operand["kind"] == "port":
-                            actual = arguments[operand["port"]]
-                        elif operand["kind"] == "local":
-                            actual = locals_[operand["local"]]
-                        else:
-                            actual = {"value": operand["literal"]}
-                        child_arguments[binding["port"]] = actual
-                    try:
-                        child_outcome, child_result = execute(
-                            child,
-                            child_arguments,
-                            (*stack, selected["id"]),
-                            (*path, instruction["site"]),
-                        )
-                    except _ReferenceRuntimeRefusal as refusal:
-                        if resolved_call_sites is not None:
-                            refusal.call_site_identity = call_sites[
-                                (selected["id"], instruction["site"])
-                            ]["identity"]
-                        raise
-                    if resolved_call_sites is not None:
-                        call_site = call_sites[(selected["id"], instruction["site"])]
-                        outcome_row = next(
-                            row
-                            for row in call_site["outcomes"]
-                            if row["outcome"] == child_outcome
-                        )
-                        calls.append(
-                            {
-                                "call_site_identity": call_site["identity"],
-                                "site": "/".join((*path, instruction["site"])),
-                                "operation": call_site["operation"],
-                                "outcome": {
-                                    "id": child_outcome,
-                                    "identity": outcome_row["identity"],
-                                },
-                                "arguments": [
-                                    {
-                                        "formal_port_identity": row["port"]["identity"],
-                                        "actual_operand_identity": row["operand"][
-                                            "identity"
-                                        ],
-                                    }
-                                    for row in call_site["arguments"]
-                                ],
-                                "result_identity": call_site["result"]["identity"],
-                            }
-                        )
-                    result_binding = instruction["result"]
-                    if result_binding["kind"] == "local":
-                        write_local(result_binding["name"], child_result)
-                    elif result_binding["kind"] == "operation-result":
-                        operation_results[instruction["site"]] = child_result
-                    action = next(
-                        row["action"]
-                        for row in instruction["outcomes"]
-                        if row["outcome"] == child_outcome
-                    )
-                    if action["kind"] == "propagate":
-                        outcome = action["outcome"]
-                        break
-                    continue
-                if operator == "gameplay-precondition":
-                    if not _reference_compare(
-                        semantics["comparison"],
-                        cell(instruction["left"])["value"],
-                        cell(instruction["right"])["value"],
-                    ):
-                        outcome = instruction["outcome"]
-                        break
-                elif operator == "named-integer-draw":
-                    draw = _reference_rng_draw(
-                        runtime["named_rng"],
-                        seed,
-                        instruction["stream"],
-                        instruction["minimum"],
-                        instruction["maximum"],
-                        rng_states,
-                        rng_indices,
-                    )
-                    draws.append(draw)
-                    write_local(instruction["target"], draw["value"])
-                elif operator == "typed-literal":
-                    write_local(instruction["target"], instruction["literal"])
-                elif operator == "copy-value":
-                    write_local(
-                        instruction["target"],
-                        cell(instruction["value"])["value"],
-                    )
-                elif operator in {
-                    "integer-add",
-                    "integer-subtract",
-                    "integer-multiply",
-                    "integer-maximum",
-                }:
-                    left = cell(instruction["left"])["value"]
-                    right = cell(instruction["right"])["value"]
-                    result = {
-                        "integer-add": lambda: left + right,
-                        "integer-subtract": lambda: left - right,
-                        "integer-multiply": lambda: left * right,
-                        "integer-maximum": lambda: max(left, right),
-                    }[operator]()
-                    write_local(instruction["target"], exact(result))
-                elif operator == "integer-compare":
-                    write_local(
-                        instruction["target"],
-                        _reference_compare(
-                            semantics["comparison"],
-                            cell(instruction["left"])["value"],
-                            cell(instruction["right"])["value"],
-                        ),
-                    )
-                elif operator == "select-value":
-                    choice = (
-                        instruction["when_true"]
-                        if cell(instruction["condition"])["value"]
-                        else instruction["when_false"]
-                    )
-                    write_local(instruction["target"], cell(choice)["value"])
-                elif operator == "state-integer-subtract":
-                    target = arguments[instruction["symbol"]]
-                    target["value"] = exact(
-                        target["value"] - cell(instruction["value"])["value"],
-                        target,
-                    )
-                elif operator == "state-write":
-                    target = arguments[instruction["symbol"]]
-                    target["value"] = exact(
-                        cell(instruction["value"])["value"],
-                        target,
-                    )
-                else:
-                    raise AssertionError(
-                        f"unsupported operator in authority: {operator}"
-                    )
-        except _ReferenceRuntimeRefusal as refusal:
-            for key, value in snapshot.items():
-                frame_cells[key]["value"] = value
-            if refusal.operation is None:
-                refusal.operation = selected["id"]
-                refusal.call_path = "/".join(path)
-            raise
-
-        outcome_definition = next(
-            row for row in selected["outcomes"] if row["id"] == outcome
-        )
-        if outcome_definition["state_policy"] == "rollback":
-            for key, value in snapshot.items():
-                frame_cells[key]["value"] = value
-        source = selected["result"]["source"]
-        if outcome_definition["kind"] != "success":
-            result = None
-        elif source["kind"] == "local":
-            result = locals_[source["name"]]["value"]
-        elif source["kind"] == "port":
-            result = arguments[source["name"]]["value"]
-        elif source["kind"] == "operation-result":
-            result = operation_results[source["site"]]
-        else:
-            assert source["kind"] == "unit"
-            result = None
-        return outcome, result
-
-    if resolved_entrypoint is None:
-        root_arguments = [
-            {
-                "port": port["id"],
-                "operand": {"kind": "symbol", "symbol": port["id"]},
-            }
-            for port in operation["inputs"]
-        ]
-        root_frame = {
-            row["port"]: cells[row["operand"]["symbol"]] for row in root_arguments
-        }
-    else:
-        root_frame = {}
-        for argument in resolved_entrypoint["arguments"]:
-            operand = argument["operand"]
-            if operand["kind"] == "symbol":
-                symbol = operand["symbol"]
-                coordinate = (
-                    symbol["model"],
-                    symbol["module"],
-                    symbol["name"],
-                )
-                actual = cells[coordinate]
-            else:
-                actual = {"value": operand["value"]}
-            root_frame[argument["port"]["name"]] = actual
-    try:
-        outcome, result = execute(
-            operation,
-            root_frame,
-            path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
-        )
-    except _ReferenceRuntimeRefusal as refusal:
-        return {
-            "refusal": {
-                "reason": refusal.reason,
-                "operation": refusal.operation,
-                "call_path": refusal.call_path,
-                "call_site_identity": refusal.call_site_identity,
-            },
-            "state_before": [
-                {"name": display_names[name], "value": before[name]}
-                for name in sorted(before)
-            ],
-            "state_after": [
-                {
-                    "name": display_names[name],
-                    "value": state_cells[name]["value"],
-                }
-                for name in sorted(state_cells)
-            ],
-        }
-    outcome_definition = next(
-        row for row in operation["outcomes"] if row["id"] == outcome
-    )
-    if (
-        resolved_entrypoint is not None
-        and resolved_entrypoint["result"]["kind"] == "symbol"
-        and outcome_definition["kind"] == "success"
-    ):
-        symbol = resolved_entrypoint["result"]["symbol"]
-        coordinate = (symbol["model"], symbol["module"], symbol["name"])
-        cells[coordinate] = {"value": result}
-        display_names[coordinate] = symbol["name"]
-    if outcome_definition["state_policy"] == "rollback":
-        for name, value in before.items():
-            state_cells[name]["value"] = value
-    facts: dict[str, Any] = {
-        display_names[name]: cell["value"] for name, cell in cells.items()
-    }
-    event = {
-        "operation": operation["id"],
-        "outcome": {
-            "id": outcome,
-            "kind": outcome_definition["kind"],
-        },
-        "facts": _reference_fact_rows(facts),
-        "state_before": [
-            {"name": display_names[name], "value": before[name]}
-            for name in sorted(before)
-        ],
-        "state_after": [
-            {
-                "name": display_names[name],
-                "value": state_cells[name]["value"],
-            }
-            for name in sorted(state_cells)
-        ],
-        "rng_draws": draws,
-        "schedules": [],
-        "cancellations": [],
-    }
-    if resolved_entrypoint is not None:
-        event["entrypoint"] = {
-            "id": resolved_entrypoint["id"],
-            "identity": resolved_entrypoint["identity"],
-        }
-        event["calls"] = calls
-    return event
 
 
 def _reference_evaluate_value_program_vector(
@@ -1726,11 +1199,11 @@ def test_public_seeded_reward_selection_exposes_policy_and_disposition(
             "value": 3,
         }
     ]
-    assert [row["key"]["key"] for row in pool["candidates"]] == [
+    assert [row["candidate"]["key"]["key"] for row in pool["options"]] == [
         "steady_guard",
         "volatile_crown",
     ]
-    assert result["value"]["value"] == pool["selections"][1]
+    assert result["value"]["value"] == pool["options"][1]["selection"]
     assert result["value"]["value"]["disposition"] == "build"
     assert result["value"]["value"]["policy_before"] == pool["policy_before"]
     assert result["value"]["value"]["policy_after"]["draw_count"] == 1
@@ -1913,8 +1386,8 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"] = []
-    pool["selections"] = []
+    pool["options"] = []
+    pool["no_reward_on_empty"] = []
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -1938,14 +1411,13 @@ def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "runtime"
     assert [row["code"] for row in error["diagnostics"]] == [
-        "runtime.structured_lookup_out_of_range"
+        "game.generation.selection_exhausted"
     ]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["reason"] == (
-        "runtime.structured_lookup_out_of_range"
-    )
+    assert audit["refusing_event"]["reason"] == ("game.generation.selection_exhausted")
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert audit["budget_counters"]["event_steps"] == 6
 
 
 def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
@@ -1959,23 +1431,34 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["policy_before"]["kind"] = "relaxed-pool"
-    pool["candidates"][1] = {
-        "key": {"key": "no_reward"},
-        "rarity": "rare",
-        "disposition": "no-reward",
-        "reward_score": 0,
-    }
-    pool["selections"][1] = {
-        "selected": {"key": "no_reward"},
-        "rarity": "rare",
-        "disposition": "no-reward",
-        "selected_index": 1,
-        "policy_before": {"kind": "relaxed-pool", "draw_count": 0},
-        "policy_after": {"kind": "relaxed-pool", "draw_count": 1},
-        "reward_score": 0,
-    }
+    pool["options"] = []
+    pool["no_reward_on_empty"] = [
+        {
+            "selected": {"key": "no_reward"},
+            "rarity": "common",
+            "disposition": "no-reward",
+            "selected_index": 0,
+            "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+            "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+            "reward_score": 0,
+        }
+    ]
+    fallback = pool["no_reward_on_empty"][0]
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans.clear()
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (
+        check_stdout,
+        check_stderr,
+    )
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -1996,17 +1479,18 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         for event in _member(receipt, "event-trace")["events"]
         if event["operation"] is not None
     ]
-    result = next(
-        row for row in transitions[0]["facts"] if row["name"] == "reward_result"
-    )
     assert [event["outcome"] for event in transitions] == [
-        {"id": "selected", "kind": "success"},
+        {"id": "no-reward", "kind": "gameplay-alternative"},
         {"id": "no-reward", "kind": "gameplay-alternative"},
     ]
+    assert transitions[0]["rng_draws"] == []
+    assert transitions[1]["rng_draws"] == []
     assert transitions[1]["state_after"] == transitions[1]["state_before"]
-    assert result["value"]["value"]["selected"] == {"key": "no_reward"}
-    assert result["value"]["value"]["disposition"] == "no-reward"
-    assert result["value"]["value"]["policy_before"]["kind"] == "relaxed-pool"
+    assert not any(row["name"] == "reward_result" for row in transitions[0]["facts"])
+    selected = next(
+        row for row in transitions[0]["state_after"] if row["name"] == "selected_reward"
+    )
+    assert selected["value"]["value"] == fallback
     assert {
         row["metric"]: row["value"]
         for row in _member(receipt, "metric-dataset")["samples"]
@@ -2015,6 +1499,70 @@ def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
         row["logical_name"] == "runtime-terminal-audit"
         for row in receipt["member_locators"]
     )
+
+
+def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    for invocation_digit, contradiction in (
+        ("a", "policy-start"),
+        ("b", "policy-after"),
+    ):
+        specification = deepcopy(baseline)
+        pool = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "reward_pool"
+        )["value"]["value"]
+        pool["options"] = []
+        pool["no_reward_on_empty"] = [
+            {
+                "selected": {"key": "no_reward"},
+                "rarity": "common",
+                "disposition": "no-reward",
+                "selected_index": 0,
+                "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+                "reward_score": 0,
+            }
+        ]
+        fallback = pool["no_reward_on_empty"][0]
+        if contradiction == "policy-start":
+            # Keep the fallback's no-draw transition internally consistent while
+            # contradicting the pool's declared start state.
+            fallback["policy_before"]["draw_count"] = 1
+            fallback["policy_after"]["draw_count"] = 1
+        else:
+            fallback["policy_after"]["draw_count"] = 1
+        specification_path = tmp_path / f"invalid-fallback-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
+                "--invocation-key",
+                invocation_digit * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_fallback"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_fallback"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
 
 
 def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
@@ -2026,7 +1574,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"][0]["disposition"] = "host-default"
+    pool["options"][0]["candidate"]["disposition"] = "host-default"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
@@ -2038,7 +1586,7 @@ def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, ru
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/scenarios/0/assignments/0/value/value/candidates/0/disposition"
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/disposition"
     )
 
 
@@ -2051,7 +1599,7 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
         for row in specification["scenarios"][0]["assignments"]
         if row["target"]["name"] == "reward_pool"
     )["value"]["value"]
-    pool["candidates"][0]["reward_score"] = "twenty"
+    pool["options"][0]["candidate"]["reward_score"] = "twenty"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     exit_code, stdout, stderr = run_cli(
@@ -2065,7 +1613,7 @@ def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, ru
         "language.structured_value_type_mismatch"
     )
     assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/scenarios/0/assignments/0/value/value/candidates/0/reward_score"
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/reward_score"
     )
 
 
@@ -2076,10 +1624,10 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
     contradictions = (
         "rarity",
         "disposition",
+        "selected-key",
         "selected-index",
         "reward-score",
-        "policy-before",
-        "policy-kind",
+        "policy-start",
         "draw-count",
     )
     for index, contradiction in enumerate(contradictions, start=1):
@@ -2089,20 +1637,24 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             for row in specification["scenarios"][0]["assignments"]
             if row["target"]["name"] == "reward_pool"
         )["value"]["value"]
-        candidate = pool["candidates"][1]
-        selection = pool["selections"][1]
+        option = pool["options"][1]
+        candidate = option["candidate"]
+        selection = option["selection"]
         if contradiction == "rarity":
             candidate["rarity"] = "common"
         elif contradiction == "disposition":
             candidate["disposition"] = "no-reward"
+        elif contradiction == "selected-key":
+            selection["selected"] = {"key": "steady_guard"}
         elif contradiction == "selected-index":
             selection["selected_index"] = 0
         elif contradiction == "reward-score":
             candidate["reward_score"] = 79
-        elif contradiction == "policy-before":
+        elif contradiction == "policy-start":
+            # Keep the one-draw transition internally consistent while
+            # contradicting the pool's declared start state.
             selection["policy_before"]["draw_count"] = 1
-        elif contradiction == "policy-kind":
-            selection["policy_after"]["kind"] = "relaxed-pool"
+            selection["policy_after"]["draw_count"] = 2
         else:
             selection["policy_after"]["draw_count"] = 2
         specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
@@ -2120,21 +1672,22 @@ def test_public_reward_selection_rejects_contradictory_authored_results(
             ]
         )
 
-        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
-        receipt = json.loads(stdout)
-        event = next(
-            row
-            for row in _member(receipt, "event-trace")["events"]
-            if row["operation"] == "game.generation.select-reward-v1"
-        )
-        assert event["outcome"] == {
-            "id": "candidate-mismatch",
-            "kind": "gameplay-alternative",
-        }, contradiction
-        assert event["state_after"] == event["state_before"], contradiction
-        assert not any(row["name"] == "reward_result" for row in event["facts"]), (
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_option"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_option"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
             contradiction
         )
+        assert not any(
+            row["name"] == "reward_result" for row in audit["last_snapshot"]
+        ), contradiction
 
 
 def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
@@ -2181,6 +1734,40 @@ def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
         row["logical_name"] == "runtime-terminal-audit"
         for row in receipt["member_locators"]
     )
+
+
+def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[1]["constraint"] = "conflict"
+    plans[1]["decision"]["selected"] = {"key": "steady_guard"}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "contradictory-build-conflict.json"),
+            "--invocation-key",
+            "0" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert [row["code"] for row in error["diagnostics"]] == ["game.build.invalid_plan"]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan")
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
 
 
 def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_cli):
@@ -2256,25 +1843,24 @@ def test_public_build_replacement_rejects_contradictory_authored_plans(
                 "--out",
                 str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
                 "--invocation-key",
-                f"{index:x}" * 64,
+                f"{index:064x}",
             ]
         )
 
-        assert (exit_code, stderr) == (0, ""), (contradiction, stdout, stderr)
-        receipt = json.loads(stdout)
-        event = next(
-            row
-            for row in _member(receipt, "event-trace")["events"]
-            if row["operation"] == "game.build.replace-reward-v1"
-        )
-        assert event["outcome"] == {
-            "id": "plan-mismatch",
-            "kind": "gameplay-alternative",
-        }, contradiction
-        assert event["state_after"] == event["state_before"], contradiction
-        assert not any(row["name"] == "build_result" for row in event["facts"]), (
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.build.invalid_plan"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan"), (
             contradiction
         )
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
+        assert not any(row["name"] == "build_result" for row in audit["last_snapshot"])
 
 
 def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
@@ -2463,22 +2049,36 @@ def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write
     assert success_metrics["samples"][0]["value"] == 3
     assert success_snapshots["snapshots"][-1]["values"] == success["state_after"]
 
-    failure_receipt, failure_trace, failure_snapshots, failure_metrics = run(
-        "candidate_b", reordered=False, invocation="8"
+    specification["scenarios"][0]["event_plan"][0]["entrypoint"] = (
+        "structured.select-candidate-b"
     )
-    failure = failure_trace["events"][0]
-    assert failure["outcome"] == {
-        "id": "candidate-mismatch",
-        "kind": "gameplay-alternative",
-    }
-    assert failure["state_after"] == failure["state_before"]
-    assert failure_snapshots["snapshots"][1]["values"] == failure["state_before"]
-    assert not any(row["name"] == "selection_result" for row in failure["facts"])
-    assert failure_metrics["samples"][0]["value"] == 9
-    assert not any(
-        row["logical_name"] == "runtime-terminal-audit"
-        for row in failure_receipt["member_locators"]
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    failure_exit, failure_stdout, failure_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "evaluation-8.json"),
+            "--invocation-key",
+            "8" * 64,
+        ]
     )
+    assert (failure_exit, failure_stderr) == (2, ""), (
+        failure_stdout,
+        failure_stderr,
+    )
+    failure = json.loads(failure_stdout)["error"]
+    assert failure["diagnostics"][0]["code"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    audit = _member(failure["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert audit["budget_counters"]["event_steps"] == 20
 
     _reordered_receipt, reordered_trace, _, reordered_metrics = run(
         "candidate_b", reordered=True, selected_rank=7, invocation="9"
@@ -2520,12 +2120,13 @@ def test_public_structured_assignment_reports_the_exact_nominal_value_failure(
     )
 
 
-def test_public_structured_lookup_refuses_and_rolls_back_the_event(tmp_path, run_cli):
+def test_public_structured_empty_selection_uses_the_guarded_outcome(tmp_path, run_cli):
     specification_path, specification = _write_built_structured_experiment(
         tmp_path, run_cli
     )
     initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
     initial_state["candidates"] = []
+    initial_state["results"] = []
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
     check_exit, check_stdout, check_stderr = run_cli(
@@ -2542,24 +2143,106 @@ def test_public_structured_lookup_refuses_and_rolls_back_the_event(tmp_path, run
             "run",
             str(specification_path),
             "--out",
-            str(tmp_path / "lookup-refusal.json"),
+            str(tmp_path / "empty-selection.json"),
             "--invocation-key",
             "a" * 64,
         ]
     )
 
-    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
-    error = json.loads(stdout)["error"]
-    assert error["stage"] == "runtime"
-    assert [row["code"] for row in error["diagnostics"]] == [
-        "runtime.structured_lookup_out_of_range"
-    ]
-    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
-    assert audit["refusing_event"]["reason"] == (
-        "runtime.structured_lookup_out_of_range"
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    event = trace["events"][0]
+    assert event["outcome"] == {
+        "id": "candidate-mismatch",
+        "kind": "gameplay-alternative",
+    }
+    assert event["rng_draws"] == []
+    assert event["state_after"] == event["state_before"]
+    assert not any(row["name"] == "selection_result" for row in event["facts"])
+    snapshots = _member(receipt, "snapshot-series")
+    assert (
+        snapshots["snapshots"][1]["continuation"]["resource_ledger"]["event_steps"] == 6
     )
-    assert audit["rollback"]["committed"] is False
-    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert _member(receipt, "metric-dataset")["samples"][0]["value"] == 9
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
+
+
+def test_guard_body_refusal_terminal_audit_uses_expanded_instruction_order(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    initial_state = specification["scenarios"][0]["assignments"][0]["value"]["value"]
+    initial_state["candidates"] = []
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    outcome = experiment_runtime_module.evaluate_experiment(checked)
+
+    assert isinstance(outcome, experiment_runtime_module.RuntimeRefusalOutcome)
+    members = experiment_evidence_module.runtime_terminal_audit_members(
+        checked, outcome
+    )
+    values = {name: deepcopy(member.value) for name, member in members.items()}
+    audit = values["runtime-terminal-audit"]
+    assert audit["refusing_event"]["reason"] == (
+        "standard.conformance.candidate_mismatch"
+    )
+    assert audit["refusing_event"]["instruction_index"] == 5
+    assert audit["budget_counters"]["event_steps"] == 6
+    assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
+
+
+def test_structured_terminal_audit_preserves_a_committed_event_prefix(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_structured_experiment(
+        tmp_path, run_cli
+    )
+    scenario = specification["scenarios"][0]
+    scenario["event_plan"] = [
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "accepted-selection",
+            "entrypoint": "structured.select-candidate-a",
+        },
+        {
+            **deepcopy(scenario["event_plan"][0]),
+            "root_event_ref": "refused-selection",
+            "logical_time": 1,
+            "entrypoint": "structured.select-candidate-b",
+        },
+    ]
+    scenario["terminal_condition"]["maximum"] = 2
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "structured-terminal-audit"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    audit = _member(
+        json.loads(stdout)["error"]["terminal_audit"],
+        "runtime-terminal-audit",
+    )
+    assert len(audit["committed_trace_prefix"]) == 1
+    assert any(
+        fact["kind"] == "structured"
+        for fact in audit["committed_trace_prefix"][0]["facts"]
+    )
 
 
 def test_public_experiment_orders_same_time_root_events_and_commits_between_them(
@@ -3655,6 +3338,45 @@ def test_terminal_audit_validation_rejects_coordinated_active_step_drift(
     assert audit["budget_counters"]["event_steps"] > 0
     assert experiment_evidence_module.validate_experiment_artifact_set(checked, values)
 
+    replay_rir = deepcopy(checked.rir)
+    entrypoint = next(
+        row
+        for row in replay_rir["entrypoints"]
+        if row["id"] == audit["refusing_event"]["event_spec"]["entrypoint"]
+    )
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
+    selected_semantics = replay_rir["selected_semantics"]
+    selected = next(
+        row
+        for row in selected_semantics["operations"]
+        if row["package"] == root_coordinate[0]
+        and row["definition"]["id"] == root_coordinate[2]
+    )
+    decoy = deepcopy(selected)
+    decoy["package"] = "example.decoy"
+    decoy["definition"]["body"] = []
+    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
+    selected_semantics["operations"].append(decoy)
+    budget = audit["budget_counters"]
+    replay_profile = next(
+        row
+        for row in selected_semantics["runtime_profiles"]
+        if row["id"] == checked.value["runtime"]["profile"]
+    )
+    assert (
+        evidence_replay_module.attempted_operation_charge(
+            replace(checked, rir=replay_rir),
+            audit["refusing_event"],
+            audit["refusing_event"]["event_spec"],
+            node_steps_before_operation=budget["node_steps"] - budget["event_steps"],
+            bounds=replay_profile["resource_bounds"],
+            require_budget_breach=True,
+        )
+        == budget["event_steps"]
+    )
+
     drifted_audit = deepcopy(audit)
     drifted_audit["budget_counters"]["event_steps"] = 0
     drifted_audit["budget_counters"]["node_steps"] = drifted_audit[
@@ -4089,17 +3811,18 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
     checked = experiment_admission_module.check_experiment(str(specification_path))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
     rir = deepcopy(checked.rir)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in rir["selected_semantics"]["operations"]
-    }
+    operations = operation_program_module.selected_operation_index(
+        rir["selected_semantics"]
+    )
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
-    operation = operations[entrypoint["operation"]["id"]]
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
     runtime_nodes = experiment_runtime_module._runtime_nodes(checked)
     per_event_steps = sum(
         runtime_nodes[instruction["node"]]["resource_charge"]["amount"]
-        for instruction in experiment_admission_module._expanded_operation_body(
-            operation, operations
+        for instruction in operation_program_module.expanded_operation_body(
+            root_coordinate, operations
         )
     )
     runtime_profile = next(
@@ -4122,6 +3845,40 @@ def test_event_step_budget_resets_for_each_event(tmp_path, run_cli):
         )
         == 2
     )
+
+
+def test_runtime_selects_same_named_operation_by_exact_coordinate(tmp_path, run_cli):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_admission_module.check_experiment(str(specification_path))
+    assert isinstance(checked, experiment_admission_module.CheckedExperiment)
+    rir = deepcopy(checked.rir)
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
+    root_coordinate = operation_program_module.operation_coordinate(
+        entrypoint["operation"]
+    )
+    selected_semantics = rir["selected_semantics"]
+    selected = next(
+        row
+        for row in selected_semantics["operations"]
+        if row["package"] == root_coordinate[0]
+        and row["definition"]["id"] == root_coordinate[2]
+    )
+    decoy = deepcopy(selected)
+    decoy["package"] = "example.decoy"
+    decoy["definition"]["default_outcome"] = "decoy-must-not-run"
+    selected_semantics["packages"].append({"id": "example.decoy", "version": "1.0.0"})
+    selected_semantics["operations"].append(decoy)
+
+    artifacts = experiment_runtime_module.evaluate_experiment(replace(checked, rir=rir))
+
+    assert isinstance(artifacts, experiment_runtime_module.EvaluationArtifacts)
+    runtime_event = next(
+        event
+        for event in artifacts.members["event-trace"].value["events"]
+        if event["operation"] is not None
+    )
+    assert runtime_event["operation"] == root_coordinate[2]
+    assert runtime_event["outcome"]["id"] != "decoy-must-not-run"
 
 
 def test_observation_formula_runs_once_after_same_time_transition_queue_drains(
@@ -5109,7 +4866,7 @@ def test_example_effective_accuracy_formula_exercises_its_minimum_clamp(
     seed = next(
         candidate
         for candidate in range(10_000)
-        if _reference_rng_draw(
+        if reference_rng_draw(
             runtime["named_rng"],
             candidate,
             "hit",
@@ -6537,7 +6294,7 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         indices: dict[str, int] = {}
         draw = {}
         for _ in range(inputs["index"] + 1):
-            draw = _reference_rng_draw(
+            draw = reference_rng_draw(
                 runtime["named_rng"],
                 inputs["seed"],
                 inputs["stream"],
@@ -6553,7 +6310,47 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         } == vector["expect"]
 
 
-def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
+def test_reference_runtime_canonical_equality_compares_kernel_booleans():
+    kernel, ldb = mutable_authorities()
+    operation = {
+        "body": [
+            {
+                "left": "left",
+                "node": "equal",
+                "right": "right",
+                "target": "same",
+            }
+        ],
+        "default_outcome": "equaled",
+        "id": "test.boolean-equality",
+        "inputs": [
+            {"access": "read", "id": "left"},
+            {"access": "read", "id": "right"},
+        ],
+        "outcomes": [{"id": "equaled", "kind": "success", "state_policy": "commit"}],
+        "result": {"source": {"kind": "local", "name": "same"}},
+    }
+
+    event = reference_execute_event(
+        kernel,
+        operation,
+        {operation["id"]: operation},
+        {
+            "id": "boolean-equality",
+            "values": [
+                {"name": "left", "value": True},
+                {"name": "right", "value": True},
+            ],
+        },
+        seed=0,
+        state_names=set(),
+        language_bundle=ldb,
+    )
+
+    assert event["result"] is True
+
+
+def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
     vectors = [
@@ -6564,7 +6361,7 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             if vector_set["package_id"] == "game.combat"
             and vector_set["package_version"] == "2.1.0"
         )
-        if vector.get("kind") == "runtime-scenario"
+        if vector.get("kind") == "operation-execution"
     ]
     assert {vector["category"] for vector in vectors} == {
         "positive",
@@ -6581,33 +6378,33 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
             "id": vector["id"],
             "values": vector["input"]["values"],
         }
-        event = _reference_execute_event(
+        event = reference_execute_event(
             kernel,
             operation,
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
-        projection = {
-            "outcome": event["outcome"]["id"],
-            "rng_draws": [
-                {
-                    member: draw[member]
-                    for member in ("candidate_hex", "index", "stream", "value")
-                }
-                for draw in event["rng_draws"]
-            ],
-            "state_after": event["state_after"],
-        }
-        assert projection == vector["expect"]
-        replay = _reference_execute_event(
+        observations = operation_execution_observations(kernel, ldb, vector)
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
+        projection = observations["production"]
+        replay = reference_execute_event(
             kernel,
             operation,
             operations,
             scenario,
             seed=vector["input"]["seed"],
-            state_names=set(vector["input"]["state_names"]),
+            state_names={
+                row["id"]
+                for row in operation["inputs"]
+                if row["access"] == "read-write"
+            },
         )
         assert replay == event
         observed[vector["id"]] = projection
@@ -6624,6 +6421,380 @@ def test_package_runtime_scenario_vectors_execute_in_independent_reference_evalu
         {"name": "actor_resource", "value": 30},
         {"name": "target_health", "value": 100},
     ]
+
+
+def test_neutral_structured_operation_vectors_cover_control_paths():
+    kernel, ldb = mutable_authorities()
+    vectors = [
+        vector
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        if package_id == "standard.conformance.structured"
+    ]
+    assert {vector["id"] for vector in vectors} == {
+        "structured.select.success",
+        "structured.select.empty-outcome",
+        "structured.select.guard-refusal",
+        "structured.select.mismatch-refusal",
+    }
+
+    for vector in vectors:
+        observations = operation_execution_observations(kernel, ldb, vector)
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
+
+
+def test_operation_execution_conformance_adapters_remain_independent():
+    support_root = Path(__file__).parent
+
+    def imported_modules(name: str) -> set[str]:
+        tree = ast.parse(
+            (support_root / name).read_text(encoding="utf-8"), filename=name
+        )
+        return {
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        }
+
+    production = imported_modules("schema2_operation_execution_production_support.py")
+    independent = imported_modules("schema2_operation_execution_independent_support.py")
+
+    assert "schema2_operation_execution_independent_support" not in production
+    assert "schema2_operation_execution_production_support" not in independent
+    assert "gda_balancing.domain.runtime.execution" not in independent
+
+
+def test_operation_conformance_indexes_same_named_package_definitions_exactly():
+    language = {
+        "packages": [
+            {
+                "id": package_id,
+                "version": "1.0.0",
+                "semantic_closure": [
+                    {
+                        "authority_path": "language.operations",
+                        "definitions": [{"id": "shared", "marker": marker}],
+                    }
+                ],
+            }
+            for package_id, marker in (("example.a", "a"), ("example.b", "b"))
+        ]
+    }
+
+    conformance = conformance_operation_index({"language": language})
+    production = production_operation_index(language)
+
+    assert conformance[("example.a", "1.0.0", "shared")]["marker"] == "a"
+    assert conformance[("example.b", "1.0.0", "shared")]["marker"] == "b"
+    assert production == conformance
+
+
+def test_generation_operation_vectors_cover_success_fallback_and_refusals():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]: vector["category"]
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        if package_id == "game.generation"
+    } == {
+        "generation.select.success": "deterministic-rng",
+        "generation.select.no-reward-outcome": "outcome",
+        "generation.select.empty-refusal": "boundary",
+        "generation.select.invalid-fallback-refusal": "semantic-mutation",
+        "generation.select.invalid-fallback-policy-before-refusal": "rollback-replay",
+        "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
+        "generation.select.invalid-option-refusal": "semantic-mutation",
+    }
+
+
+def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
+    kernel, ldb = mutable_authorities()
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+    operations = {
+        operation["id"]: operation for operation in ldb["language"]["operations"]
+    }
+    vectors = [
+        vector
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        if package_id in {"game.generation", "game.build"}
+        and vector["category"] == "rollback-replay"
+    ]
+    assert {vector["id"] for vector in vectors} == {
+        "generation.select.invalid-fallback-policy-before-refusal",
+        "generation.select.invalid-fallback-policy-after-refusal",
+        "build.replace.invalid-plan-refusal",
+    }
+
+    for vector in vectors:
+        operation = operations[vector["operation"]]
+        initial_values = {
+            row["name"]: row["value"] for row in vector["input"]["values"]
+        }
+        state_names = [
+            row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+        ]
+        assert vector["expect"]["state_after"] == [
+            {"name": name, "value": initial_values[name]} for name in state_names
+        ]
+        assert vector["expect"]["rng_draws"] == []
+
+        observed = [
+            operation_execution_observations(
+                kernel,
+                ldb,
+                vector,
+                context=context,
+            )
+            for _ in range(2)
+        ]
+        assert all(
+            observation["production"]
+            == observation["independent"]
+            == observation["expected"]
+            for observation in observed
+        ), vector["id"]
+
+
+def test_generation_operation_owns_the_no_reward_discriminator():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.generation.select-reward-v1"
+    )
+
+    assert [row["id"] for row in operation["inputs"]] == [
+        "reward_pool",
+        "rare_weight",
+        "selected_reward",
+        "reward_score",
+    ]
+    assert operation["result"]["source"] == {
+        "kind": "port",
+        "name": "selected_reward",
+    }
+    fallback = next(row for row in operation["body"] if row["node"] == "guard-block")
+    assert fallback["body"][4:6] == [
+        {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
+            "left": "fallback_disposition",
+            "node": "equal",
+            "right": "no_reward_disposition",
+            "target": "fallback_is_no_reward",
+        },
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 80}
+
+
+def test_build_operation_vectors_cover_success_alternatives_and_refusal():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]: vector["category"]
+        for package_id, _package_version, vector in operation_execution_vectors(ldb)
+        if package_id == "game.build"
+    } == {
+        "build.replace.success": "positive",
+        "build.replace.no-reward-outcome": "boundary",
+        "build.replace.conflict-outcome": "outcome",
+        "build.replace.conflicting-invalid-plan-refusal": "semantic-mutation",
+        "build.replace.invalid-plan-refusal": "rollback-replay",
+    }
+
+
+def test_build_operation_guards_no_reward_before_plan_access_without_rng():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.build.replace-reward-v1"
+    )
+
+    assert [row["id"] for row in operation["inputs"]] == [
+        "selected_reward",
+        "build_plans",
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+    assert operation["body"][:4] == [
+        {
+            "key": "disposition",
+            "node": "lookup",
+            "target": "selected_disposition",
+            "value": "selected_reward",
+        },
+        {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
+            "left": "selected_disposition",
+            "node": "equal",
+            "right": "no_reward_disposition",
+            "target": "no_reward_selected",
+        },
+        {
+            "body": [],
+            "condition": "no_reward_selected",
+            "node": "guard-block",
+            "outcome": "no-reward",
+        },
+    ]
+    assert operation["effects"] == [
+        "event.commit",
+        "metric.observe",
+        "snapshot.commit",
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 54}
+
+    fixed_literals = {
+        row["target"]: row["literal"]
+        for row in operation["body"]
+        if row["node"] == "constant" and isinstance(row["literal"], dict)
+    }
+    assert fixed_literals == {
+        "no_reward_disposition": {
+            "type": {
+                "id": "RewardDisposition",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "no-reward",
+        },
+        "rare_rarity": {
+            "type": {
+                "id": "RewardRarity",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "rare",
+        },
+        "replace_constraint": {
+            "type": {
+                "id": "BuildConstraint",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replace",
+        },
+        "replaced_kind": {
+            "type": {
+                "id": "BuildDecisionKind",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replaced",
+        },
+    }
+
+
+def test_candidate_graph_executes_every_operation_vector_in_two_consumers():
+    kernel, ldb = mutable_authorities()
+    assert operation_execution_vectors(ldb)
+
+    assert candidate_conformance_failures(kernel, ldb) == []
+
+
+def test_candidate_graph_gate_identifies_an_operation_vector_divergence():
+    kernel, ldb = mutable_authorities()
+    package_id, vector = next(
+        (package_id, deepcopy(candidate))
+        for package_id, _package_version, candidate in operation_execution_vectors(ldb)
+        if candidate["id"] == "structured.select.empty-outcome"
+    )
+    vector["expect"]["completion"]["id"] = "mutated-outcome"
+    failures = candidate_conformance_failures(
+        kernel, ldb, vector_overrides={vector["id"]: vector}
+    )
+
+    assert len(failures) == 1
+    assert failures[0]["kind"] == "vector-divergence"
+    assert failures[0]["package"] == package_id
+    assert failures[0]["vector"] == vector["id"]
+    assert failures[0]["production"] == failures[0]["independent"]
+    assert failures[0]["production"] != failures[0]["expected"]
+
+
+def test_candidate_graph_gate_identifies_an_adapter_divergence(monkeypatch):
+    kernel, ldb = mutable_authorities()
+    target = "structured.select.empty-outcome"
+    evaluate = operation_conformance_module.evaluate_operation_execution_vector
+
+    def divergent_production(context, vector, **owner):
+        observation = deepcopy(evaluate(context, vector, **owner))
+        if vector["id"] == target:
+            completion = cast(dict[str, Any], observation["completion"])
+            completion["id"] = "production-only-outcome"
+        return observation
+
+    monkeypatch.setattr(
+        operation_conformance_module,
+        "evaluate_operation_execution_vector",
+        divergent_production,
+    )
+
+    failures = candidate_conformance_failures(kernel, ldb)
+
+    assert len(failures) == 1
+    assert failures[0]["kind"] == "vector-divergence"
+    assert failures[0]["vector"] == target
+    assert failures[0]["production"] != failures[0]["independent"]
+    assert failures[0]["independent"] == failures[0]["expected"]
+
+
+def test_operation_execution_projection_preserves_declared_state_order():
+    kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "standard.conformance.structured.select-v1"
+    )
+    read_only = [row for row in operation["inputs"] if row["access"] == "read"]
+    writable = [row for row in operation["inputs"] if row["access"] == "read-write"]
+    operation["inputs"] = [*read_only, *reversed(writable)]
+    vectors = [
+        vector
+        for _package_id, _package_version, vector in operation_execution_vectors(ldb)
+        if vector["operation"] == operation["id"]
+    ]
+    input_order = [row["id"] for row in operation["inputs"]]
+    state_order = [
+        row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+    ]
+    for vector in vectors:
+        values = {row["name"]: row for row in vector["input"]["values"]}
+        states = {row["name"]: row for row in vector["expect"]["state_after"]}
+        vector["input"]["values"] = [values[name] for name in input_order]
+        vector["expect"]["state_after"] = [states[name] for name in state_order]
+    _refresh_package_closure_and_reidentify(ldb)
+    context = authority_module.admit_authority_context(kernel, ldb)
+    assert isinstance(context, authority_module.AdmittedAuthorityContext)
+
+    observed = evaluate_operation_execution_vector(context, vectors[0])
+
+    observed_state = cast(list[dict[str, Any]], observed["state_after"])
+    assert [row["name"] for row in observed_state] == state_order
 
 
 def test_package_scheduler_vectors_execute_in_two_consumers_and_detect_mutations():
@@ -7107,9 +7278,9 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
         base_damage=24,
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
-        "_SUPPORTED_RUNTIME_OPERATORS",
-        experiment_runtime_module._SUPPORTED_RUNTIME_OPERATORS - {"integer-multiply"},
+        runtime_projection_module,
+        "SUPPORTED_RUNTIME_OPERATORS",
+        runtime_projection_module.SUPPORTED_RUNTIME_OPERATORS - {"integer-multiply"},
     )
     spec_path = tmp_path / "runtime-refusal-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -7289,35 +7460,215 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     checked = experiment_admission_module.check_experiment(str(specification))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
-    first = experiment_runtime_module._evaluator_manifest(checked)
-    operations = {
-        row["definition"]["id"]: row["definition"]
-        for row in checked.rir["selected_semantics"]["operations"]
-    }
+    first = runtime_projection_module.evaluator_manifest(checked)
+    operations = operation_program_module.selected_operation_index(
+        checked.rir["selected_semantics"]
+    )
     entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for event in scenario["event_plan"]
-        for instruction in experiment_admission_module._expanded_operation_body(
-            operations[entrypoints[event["entrypoint"]]["operation"]["id"]],
+        for instruction in operation_program_module.expanded_operation_body(
+            operation_program_module.operation_coordinate(
+                entrypoints[event["entrypoint"]]["operation"]
+            ),
             operations,
         )
     }
     assert first.value["evaluator_build_identity"] == (
-        experiment_runtime_module._evaluator_build_identity()
+        runtime_projection_module.evaluator_build_identity()
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
-        "_evaluator_build_identity",
+        runtime_projection_module,
+        "evaluator_build_identity",
         lambda: "sha256:" + ("0" * 64),
     )
-    changed_build = experiment_runtime_module._evaluator_manifest(checked)
+    changed_build = runtime_projection_module.evaluator_manifest(checked)
     assert (
         changed_build.value["implementation_identity"]
         != (first.value["implementation_identity"])
     )
     assert changed_build.content_identity != first.content_identity
+
+
+def test_operation_closure_includes_guard_body_nodes_and_invocations():
+    root = ("example", "1.0.0", "example.root")
+    child = ("example", "1.0.0", "example.child")
+    operations = {
+        root: {
+            "id": "example.root",
+            "effects": ["event.commit"],
+            "refusals": ["example.root-refusal"],
+            "body": [
+                {
+                    "node": "guard-block",
+                    "condition": "enabled",
+                    "body": [
+                        {"node": "copy", "value": "input", "target": "copied"},
+                        {
+                            "node": "invoke",
+                            "operation": {
+                                "package": "example",
+                                "version": "1.0.0",
+                                "id": "example.child",
+                            },
+                            "site": "child",
+                        },
+                    ],
+                    "outcome": "complete",
+                }
+            ],
+        },
+        child: {
+            "id": "example.child",
+            "effects": ["snapshot.commit"],
+            "refusals": ["example.child-refusal"],
+            "body": [{"node": "constant", "literal": 1, "target": "one"}],
+        },
+    }
+
+    expanded = operation_program_module.expanded_operation_body(root, operations)
+
+    assert [instruction["node"] for instruction in expanded] == [
+        "guard-block",
+        "copy",
+        "invoke",
+        "constant",
+    ]
+    projection = operation_program_module.project_operation_program(
+        root,
+        operations,
+        operation_node_ids={"invoke"},
+        invocation_node_ids={"invoke"},
+    )
+    assert projection.reachable_operations == {root, child}
+    assert projection.invocation_paths == ((("child",), child),)
+    assert projection.node_ids == {"guard-block", "copy", "invoke", "constant"}
+    assert projection.effects == {"event.commit", "snapshot.commit"}
+    assert projection.refusals == {
+        "example.child-refusal",
+        "example.root-refusal",
+    }
+    assert projection.resource_charge == 4
+
+
+def test_operation_program_resolves_same_named_operations_by_exact_coordinate():
+    root = ("example.root", "1.0.0", "example.root")
+    wrong = ("example.a", "1.0.0", "shared")
+    selected = ("example.b", "1.0.0", "shared")
+    operations = {
+        root: {
+            "id": "example.root",
+            "body": [
+                {
+                    "node": "invoke",
+                    "operation": {
+                        "package": selected[0],
+                        "version": selected[1],
+                        "id": selected[2],
+                    },
+                    "site": "selected",
+                }
+            ],
+        },
+        wrong: {"id": "shared", "body": [{"node": "wrong"}]},
+        selected: {"id": "shared", "body": [{"node": "selected"}]},
+    }
+
+    expanded = operation_program_module.expanded_operation_body(root, operations)
+
+    assert [instruction["node"] for instruction in expanded] == [
+        "invoke",
+        "selected",
+    ]
+
+
+def test_operation_program_projects_descendants_for_each_invocation_path():
+    root = ("example", "1.0.0", "root")
+    child = ("example", "1.0.0", "child")
+    grandchild = ("example", "1.0.0", "grandchild")
+
+    def reference(coordinate):
+        return {
+            "package": coordinate[0],
+            "version": coordinate[1],
+            "id": coordinate[2],
+        }
+
+    operations = {
+        root: {
+            "id": "root",
+            "effects": [],
+            "refusals": [],
+            "body": [
+                {"node": "invoke", "operation": reference(child), "site": "a"},
+                {"node": "invoke", "operation": reference(child), "site": "b"},
+            ],
+        },
+        child: {
+            "id": "child",
+            "effects": [],
+            "refusals": [],
+            "body": [
+                {
+                    "node": "invoke",
+                    "operation": reference(grandchild),
+                    "site": "g",
+                }
+            ],
+        },
+        grandchild: {
+            "id": "grandchild",
+            "effects": [],
+            "refusals": [],
+            "body": [],
+        },
+    }
+
+    projection = operation_program_module.project_operation_program(
+        root,
+        operations,
+        operation_node_ids={"invoke"},
+        invocation_node_ids={"invoke"},
+    )
+
+    assert projection.invocation_paths == (
+        (("a",), child),
+        (("a", "g"), grandchild),
+        (("b",), child),
+        (("b", "g"), grandchild),
+    )
+
+
+def test_operation_program_projects_guard_expanded_audit_positions():
+    body = [
+        {"node": "constant"},
+        {
+            "node": "guard-block",
+            "body": [{"node": "copy"}, {"node": "require"}],
+        },
+        {"node": "copy"},
+    ]
+
+    indices = operation_program_module.guard_expanded_instruction_indices(body)
+
+    assert indices == (0, 1, 4)
+
+
+def test_operation_program_owns_formula_instruction_provenance():
+    operation: dict[str, Any] = {"extensions": {}}
+    operation_program_module.record_instruction_evaluation_sites(
+        operation,
+        first_instruction_index=2,
+        instruction_count=2,
+        evaluation_site_identity="sha256:" + "a" * 64,
+    )
+
+    assert operation_program_module.instruction_evaluation_sites(operation) == {
+        2: "sha256:" + "a" * 64,
+        3: "sha256:" + "a" * 64,
+    }
 
 
 def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):
@@ -7582,7 +7933,7 @@ def _assert_numeric_overflow_rolls_back_the_entire_current_event(
     resolved_entrypoint = next(
         row for row in rir["entrypoints"] if row["id"] == "combat.cast"
     )
-    reference = _reference_execute_event(
+    reference = reference_execute_event(
         kernel,
         operations["game.combat.cast-v1"],
         operations,
@@ -7775,7 +8126,7 @@ def test_ordered_writable_aliases_share_one_runtime_location(tmp_path, run_cli):
     assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
     production_event = production.members["event-trace"].value["events"][0]
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
-    reference_event = _reference_execute_event(
+    reference_event = reference_execute_event(
         checked.kernel,
         operations["game.combat.cast-v1"],
         operations,
@@ -7837,7 +8188,7 @@ def test_nested_integer_literal_is_observable_across_evaluators(tmp_path, run_cl
     assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
     production_event = production.members["event-trace"].value["events"][0]
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
-    reference_event = _reference_execute_event(
+    reference_event = reference_execute_event(
         checked.kernel,
         cast_operation,
         operations,
@@ -7902,7 +8253,7 @@ def test_nested_operation_result_is_observable_across_evaluators(tmp_path, run_c
     assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
     production_event = production.members["event-trace"].value["events"][0]
     entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "combat.cast")
-    reference_event = _reference_execute_event(
+    reference_event = reference_execute_event(
         checked.kernel,
         cast_operation,
         operations,
@@ -8003,7 +8354,7 @@ def test_ordered_writable_alias_write_is_visible_to_later_child_call(
 
     assert isinstance(production, experiment_runtime_module.EvaluationArtifacts)
     production_event = production.members["event-trace"].value["events"][0]
-    reference_event = _reference_execute_event(
+    reference_event = reference_execute_event(
         checked.kernel,
         cast_operation,
         operations,

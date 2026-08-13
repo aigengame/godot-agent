@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "roguelike.reward-build-feedback.baseline",
   "version": "1.0.0",
-  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
-  "language_bundle_identity": "sha256:02050310832c5068eb65a35887c6f601ad46e01272e709530ce5b4b1ea1aa9f2",
+  "kernel_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
+  "language_bundle_identity": "sha256:2784cf44379d7dcbcac43d633a1a35af404db060332289abdf55e27f5d77fce0",
   "model": {
-    "source_identity": "sha256:60fd44068b2b03fb6482d7e0db8682bba30cb6e2349ff9d13092cea83bcb4323",
-    "build_receipt_identity": "sha256:56e1a97088871ec7486455e7f8fe9d3ae9ca7f3293b25686465afa51bc5e37f0",
-    "resolved_model_identity": "sha256:01c86b8bd298fb5302fe7342f950f36eaea1d6afa1af960143ba65ce1c853931",
-    "package_lock_identity": "sha256:87a6d562b8bf030690e3adb5277d0e1d8fda0b90c8748909b3da1e93a589cb32",
-    "rir_identity": "sha256:6e73d1ace4882d6320f78544f62cf1643c5c26734ec01e07a2273e378fae35f1"
+    "source_identity": "sha256:127290ec462bc061097c6650d644739d73cd9fd3fbeed735eb06ed1cc286db2f",
+    "build_receipt_identity": "sha256:f2a1b0ba25212738ae91265520813c620353da0d45de7295c65e353b5e6ec170",
+    "resolved_model_identity": "sha256:54e80135c2574222693961ec768e309ee94711355fcc091a4200916a1091df08",
+    "package_lock_identity": "sha256:278055df2d7f67a9c50532354ef125e55f5b18184f00a112008f56a3eb9dea1b",
+    "rir_identity": "sha256:6db846db511d8a9336b618f83160163c6d9954c0dd4ee6f4b9199c465e900280"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -21,10 +21,13 @@
         "copy",
         "draw",
         "equal",
+        "guard-block",
         "if",
+        "is-empty",
         "less-than-or-equal",
         "lookup",
         "precondition-greater-than-or-equal",
+        "require",
         "write-state"
       ],
       "numeric_policies": ["exact-int64"],
@@ -43,30 +46,33 @@
           "value": {
             "type": {"package": "game.generation", "version": "1.0.0", "id": "RewardPool"},
             "value": {
-              "candidates": [
-                {"key": {"key": "steady_guard"}, "rarity": "common", "disposition": "build", "reward_score": 20},
-                {"key": {"key": "volatile_crown"}, "rarity": "rare", "disposition": "build", "reward_score": 80}
-              ],
-              "selections": [
+              "options": [
                 {
-                  "selected": {"key": "steady_guard"},
-                  "rarity": "common",
-                  "disposition": "build",
-                  "selected_index": 0,
-                  "policy_before": {"kind": "fixed-weight", "draw_count": 0},
-                  "policy_after": {"kind": "fixed-weight", "draw_count": 1},
-                  "reward_score": 20
+                  "candidate": {"key": {"key": "steady_guard"}, "rarity": "common", "disposition": "build", "reward_score": 20},
+                  "selection": {
+                    "selected": {"key": "steady_guard"},
+                    "rarity": "common",
+                    "disposition": "build",
+                    "selected_index": 0,
+                    "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                    "policy_after": {"kind": "fixed-weight", "draw_count": 1},
+                    "reward_score": 20
+                  }
                 },
                 {
-                  "selected": {"key": "volatile_crown"},
-                  "rarity": "rare",
-                  "disposition": "build",
-                  "selected_index": 1,
-                  "policy_before": {"kind": "fixed-weight", "draw_count": 0},
-                  "policy_after": {"kind": "fixed-weight", "draw_count": 1},
-                  "reward_score": 80
+                  "candidate": {"key": {"key": "volatile_crown"}, "rarity": "rare", "disposition": "build", "reward_score": 80},
+                  "selection": {
+                    "selected": {"key": "volatile_crown"},
+                    "rarity": "rare",
+                    "disposition": "build",
+                    "selected_index": 1,
+                    "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                    "policy_after": {"kind": "fixed-weight", "draw_count": 1},
+                    "reward_score": 80
+                  }
                 }
               ],
+              "no_reward_on_empty": [],
               "policy_before": {"kind": "fixed-weight", "draw_count": 0}
             }
           }

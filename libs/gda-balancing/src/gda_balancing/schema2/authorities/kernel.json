@@ -904,7 +904,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
+  "content_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3649,6 +3649,21 @@
                     "result_contract"
                   ],
                   "type": "closed-object"
+                },
+                "collection-is-empty": {
+                  "field_types": {
+                    "operator": {
+                      "const": "collection-is-empty"
+                    },
+                    "result_contract": {
+                      "const": "kernel-boolean"
+                    }
+                  },
+                  "required_members": [
+                    "operator",
+                    "result_contract"
+                  ],
+                  "type": "closed-object"
                 }
               }
             },
@@ -4246,17 +4261,7 @@
           ]
         },
         {
-          "expect_members": [
-            "outcome",
-            "rng_draws",
-            "state_after"
-          ],
-          "id": "runtime-scenario",
-          "input_members": [
-            "seed",
-            "state_names",
-            "values"
-          ],
+          "id": "operation-execution",
           "required_members": [
             "category",
             "expect",
@@ -4264,6 +4269,25 @@
             "input",
             "kind",
             "operation"
+          ],
+          "input_members": [
+            "seed",
+            "values"
+          ],
+          "expect_members": [
+            "completion",
+            "result",
+            "rng_draws",
+            "state_after"
+          ],
+          "completion_members": [
+            "id",
+            "kind",
+            "reason"
+          ],
+          "result_members": [
+            "kind",
+            "value"
           ],
           "rng_draw_members": [
             "candidate_hex",
@@ -4379,6 +4403,7 @@
           "actions": [
             "admit",
             "equal",
+            "is-empty",
             "lookup"
           ],
           "expect_members": [
@@ -5309,13 +5334,6 @@
     "runtime_program": {
       "closed": true,
       "version": "deterministic-event-v1",
-      "evaluation_order": [
-        "preconditions",
-        "named_draws",
-        "bindings",
-        "effects",
-        "facts"
-      ],
       "fixed_value_contracts": {
         "kernel-boolean": {
           "domain": {
@@ -5370,6 +5388,7 @@
         "less-than",
         "less-than-or-equal",
         "lookup",
+        "is-empty",
         "maximum",
         "multiply",
         "subtract",
@@ -5384,6 +5403,8 @@
       "control_nodes": [
         "draw",
         "precondition-greater-than-or-equal",
+        "require",
+        "guard-block",
         "invoke"
       ],
       "event_atomicity": {
@@ -5786,6 +5807,31 @@
         },
         {
           "family": "expression",
+          "id": "is-empty",
+          "operand_constraints": [],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "value"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local",
+            "typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
+          },
+          "semantics": {
+            "operator": "collection-is-empty"
+          }
+        },
+        {
+          "family": "expression",
           "id": "maximum",
           "operand_constraints": [
             {
@@ -6096,6 +6142,70 @@
           "semantics": {
             "comparison": "greater-than-or-equal",
             "operator": "gameplay-precondition"
+          }
+        },
+        {
+          "family": "control",
+          "id": "require",
+          "operand_constraints": [
+            {
+              "contract": "kernel-boolean",
+              "kind": "fixed-value-contract",
+              "members": [
+                "condition"
+              ]
+            }
+          ],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "condition",
+            "expected",
+            "reason"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "refusal"
+          },
+          "semantics": {
+            "operator": "typed-require",
+            "refusal_reference": {
+              "instruction_member": "reason",
+              "source": "enclosing-operation.refusals"
+            }
+          }
+        },
+        {
+          "family": "control",
+          "id": "guard-block",
+          "operand_constraints": [
+            {
+              "contract": "kernel-boolean",
+              "kind": "fixed-value-contract",
+              "members": [
+                "condition"
+              ]
+            }
+          ],
+          "refusals": [],
+          "required_members": [
+            "node",
+            "condition",
+            "body",
+            "outcome"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "outcome"
+          },
+          "semantics": {
+            "operator": "guarded-outcome-block"
           }
         },
         {
@@ -6526,6 +6636,28 @@
         {
           "expect": {
             "charge": 1,
+            "operand_constraints": [],
+            "operator": "collection-is-empty",
+            "result_kind": "local",
+            "result_typing": {
+              "contract": "kernel-boolean",
+              "kind": "fixed"
+            }
+          },
+          "id": "runtime.node.is-empty",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "value"
+            ]
+          },
+          "kind": "node",
+          "node": "is-empty"
+        },
+        {
+          "expect": {
+            "charge": 1,
             "operand_constraints": [
               {
                 "kind": "same-value-contract",
@@ -6801,6 +6933,60 @@
           },
           "kind": "node",
           "node": "precondition-greater-than-or-equal"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [
+              {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": [
+                  "condition"
+                ]
+              }
+            ],
+            "operator": "typed-require",
+            "result_kind": "refusal"
+          },
+          "id": "runtime.node.require",
+          "input": {
+            "contract-probe": [
+              "node",
+              "condition",
+              "expected",
+              "reason"
+            ]
+          },
+          "kind": "node",
+          "node": "require"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operand_constraints": [
+              {
+                "contract": "kernel-boolean",
+                "kind": "fixed-value-contract",
+                "members": [
+                  "condition"
+                ]
+              }
+            ],
+            "operator": "guarded-outcome-block",
+            "result_kind": "outcome"
+          },
+          "id": "runtime.node.guard-block",
+          "input": {
+            "contract-probe": [
+              "node",
+              "condition",
+              "body",
+              "outcome"
+            ]
+          },
+          "kind": "node",
+          "node": "guard-block"
         },
         {
           "expect": {

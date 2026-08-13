@@ -33,6 +33,29 @@ therefore requires a small closed type language and a constrained package extens
 > Immunity, stacking, dispel, buildup, multiple contributors and same-Event request precedence are
 > absent rather than partially interpreted and require their later owning package decisions.
 
+> **Amendment (2026-08-12, #640):** Package execution evidence uses the Kernel
+> `operation-execution` vector kind. It binds one exact Operation, supplies every declared input,
+> derives mutable state from `read-write` ports, and compares a closed completion, result,
+> Named-stream RNG draw projection, and final state. Scalar values follow their declared contracts;
+> nominal Enum, Record, List, and Ref values use exact typed envelopes and recursive LDB value
+> admission. LDB admission closes vector structure, identity, references, types, and manifest
+> binding.
+
+> Before a maintained release enters the checked-in LDB, the LDB maintenance workflow creates an
+> isolated candidate graph from the current exact Kernel, maintained releases, and proposed
+> replacements. Domain admission closes that complete graph. A development conformance harness then
+> executes every vector bound by every Package Release manifest through the production and
+> independent admission consumers. For each `operation-execution` vector, it also compares the
+> production evaluator adapter with an independent Runtime consumer over canonical completion,
+> result, state, and RNG observations. The workflow rebuilds and validates affected downstream
+> identities only against the admitted candidate graph. It publishes the complete replacement set
+> only after every check
+> passes. On failure, the existing admitted graph remains authoritative. Public Runtime, the package
+> resolver, and the identity rebuild tool do not discover or execute vectors. This workflow is a
+> maintenance commit boundary, not a new Runtime transaction service. bADR-0022 owns the Kernel
+> evolution rule; #640 applies it and therefore invalidates invariance evidence for the superseded
+> provisional Kernel.
+
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,
@@ -254,12 +277,16 @@ therefore requires a small closed type language and a constrained package extens
   receipt is conformance evidence, not a new semantic authority; its exact inputs and independent
   verifier are checked through the ordinary claim-closure path.
 
-- **Every package ships executable conformance evidence.** Positive, negative, boundary,
-  compatibility, deterministic replay, and declared-effect vectors are required before a package
-  enters the Language Definition Bundle. The Package Release manifest binds exactly one
+- **Every package ships executable conformance evidence.** Each package supplies the positive,
+  negative, boundary, compatibility, deterministic replay, and declared-effect vectors required by
+  its actual behavior before it enters the Language Definition Bundle. A package does not add an
+  empty vector category only for matrix symmetry. The Package Release manifest binds exactly one
   package-owned conformance-vector set, including a closed empty set when no vectors are currently
-  required. The resolver and reference evaluator derive vectors from admitted vector children, not
-  from inline manifest fields or a parallel test registry.
+  required. Execution vectors use the Kernel-declared `operation-execution` form; malformed typed
+  values, incompatible port or state contracts, undeclared completions, and mismatched expected
+  results or state cause refusal. The development conformance harness executes all vectors from the
+  admitted manifest-bound children, not from inline manifest fields, an inferred affected set, or a
+  parallel test registry.
 
 - **This decision supersedes the conflicting 2.x portions of bADR-0001, bADR-0002, and
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core
@@ -301,6 +328,12 @@ therefore requires a small closed type language and a constrained package extens
 
 ## Validation
 
+- Construct a complete candidate graph that contains vectors in multiple Package Releases. Verify
+  that the maintenance workflow executes every manifest-bound vector through both consumers before
+  publishing any replacement identity. Mutate one late vector to disagree and require a report that
+  identifies its Package Release, vector, and observed outcome; the previously admitted graph must
+  remain authoritative and no partial replacement artifact may become visible. The public Runtime,
+  resolver, and identity rebuild tool cannot bypass this workflow.
 - Resolve positive, missing, conflicting, cyclic, ambiguous-provider, incompatible-profile,
   type/conversion-closure, and operation-version fixtures; canonical Package Lock and Capability
   manifest bytes must agree across independent resolvers or produce the same bounded refusal set.

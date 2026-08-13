@@ -3,8 +3,8 @@
     "policy": "all-metrics-within-target"
   },
   "id": "standard.structured-selection",
-  "kernel_identity": "sha256:698166f148ab299bc2b906253bc69638ab4f4eaab6b2c3920d1a89316c1ee50c",
-  "language_bundle_identity": "sha256:02050310832c5068eb65a35887c6f601ad46e01272e709530ce5b4b1ea1aa9f2",
+  "kernel_identity": "sha256:eb6a2392afbfe6cfacfc57334137f3ddf5697d915cf0512b1d887904a40f5856",
+  "language_bundle_identity": "sha256:2784cf44379d7dcbcac43d633a1a35af404db060332289abdf55e27f5d77fce0",
   "metrics": [
     {
       "aggregation": "single",
@@ -33,11 +33,11 @@
     }
   ],
   "model": {
-    "build_receipt_identity": "sha256:e702048cb58f805c8e11c180a6cbccf108fd90d212f6bf2183a99533b41707d0",
-    "package_lock_identity": "sha256:15b97e447538a184c9ad4a8385dd3d262ef04530f02ad139d70dc7acbb86d468",
-    "resolved_model_identity": "sha256:8025e13587cc81849f526e23d069e1f3ae69ce82a2878858c255ee0398b4bdb1",
-    "rir_identity": "sha256:0d83cbb1d943144291c083e3e8fd7dcc55ebe12d2c9e015175ba7ae94222ee12",
-    "source_identity": "sha256:8fe4f1f3e35b11746513522f0b1364eaab4068c2cf5c2a5cf7f1ab9b1856b5a3"
+    "source_identity": "sha256:0d52ba5e64c754f665da82473d24a51744930146349a13c9cbc691d321cddf32",
+    "build_receipt_identity": "sha256:f0003dc21d341e44228f0fcc3e60e4ac30a4b1d3f867112eb495952ee1149ea3",
+    "resolved_model_identity": "sha256:156b86d8d74d5c2bbcf2179022517f8b17105906db45b9c86a93af9365c5f79d",
+    "package_lock_identity": "sha256:95b66689cd3fe873a81eadd4c5bd711dd8024d91f4757c63fb3cd47ec149f845",
+    "rir_identity": "sha256:0bd0f073d98070ad65f460e1ca18545ac2e91da205cb47b3a755d34de64b4f0a"
   },
   "runtime": {
     "profile": "standard.exact-int64-event-v1",
@@ -52,9 +52,11 @@
         "constant",
         "draw",
         "equal",
+        "guard-block",
         "if",
+        "is-empty",
         "lookup",
-        "precondition-greater-than-or-equal",
+        "require",
         "write-state"
       ],
       "numeric_policies": [
@@ -84,7 +86,7 @@
             "type": {
               "id": "SelectionState",
               "package": "standard.conformance.structured",
-              "version": "1.0.0"
+              "version": "2.0.0"
             },
             "value": {
               "candidates": [
@@ -133,7 +135,7 @@
             "type": {
               "id": "SelectionResult",
               "package": "standard.conformance.structured",
-              "version": "1.0.0"
+              "version": "2.0.0"
             },
             "value": {
               "kind": "secondary",
