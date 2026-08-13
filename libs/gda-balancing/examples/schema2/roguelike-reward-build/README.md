@@ -369,8 +369,8 @@ This maintained example preserves the stable facts that a reader needs to unders
 
 The replacement-baseline rerun confirms the `operation-execution`, `is-empty`, `require`, and
 `guard-block` additions as adopted contract refinements. It keeps Record construction as an open
-product and architecture input. The binary-selector limit belongs to this Package Operation and
-does not imply a general collection limit.
+product and architecture input. `game.generation.select-reward-v1` uses a binary selector in this
+release. This package-specific limit does not imply a general collection limit.
 
 Issue #585 owns the detailed observations, their four feedback classifications, the narrowest
 owner and action for each observation, and the human accept, condition, or reopen decision. An
