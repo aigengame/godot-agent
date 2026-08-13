@@ -53,6 +53,11 @@ from gda_balancing.domain.authority.package_semantics import (
 from schema2_authority_support import mutable_authorities
 
 
+_ROGUELIKE_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
+
+
 def _inject_authority_context(monkeypatch, kernel, language_bundle):
     context = authority_module.admit_authority_context(kernel, language_bundle)
     assert isinstance(context, authority_module.AdmittedAuthorityContext)
@@ -362,6 +367,107 @@ def test_structured_model_check_build_and_inspect_preserve_nominal_types(
             "value_kind": "nominal-structured",
         }
         for row in structured_declarations
+    ]
+
+
+def test_roguelike_model_build_publishes_the_reward_formula_boundary(tmp_path, run_cli):
+    source = _ROGUELIKE_EXAMPLE_DIR / "model-source.json"
+
+    check_exit, check_stdout, check_stderr = run_cli(["model", "check", str(source)])
+
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+    assert json.loads(check_stdout)["checked"] is True
+
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    artifact_dir = _artifact_directory(json.loads(build_stdout))
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    explanation = json.loads((artifact_dir / "model-explanation.json").read_text())
+    formula = next(row for row in rir["formulas"] if row["id"] == "rare-threshold")
+    binding = next(
+        row
+        for row in rir["formula_bindings"]
+        if row["site"].get("operation", {}).get("id")
+        == "game.generation.select-reward-v1"
+    )
+
+    assert formula["expression"] == "rare_weight"
+    assert binding["site"]["context"] == {
+        "frame": "pre-event-snapshot",
+        "phase": "event",
+    }
+    assert binding["site"]["slot"] == "rare-threshold-policy"
+    assert any(
+        row["id"] == "rare-threshold"
+        and row["evaluation_sites"][0]["binding_identity"] == binding["identity"]
+        for row in explanation["formula_explanations"]
+    )
+
+
+def test_roguelike_model_build_selects_the_atomic_build_operation(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_ROGUELIKE_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-roguelike-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    artifact_dir = _artifact_directory(json.loads(build_stdout))
+    rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
+    entrypoint = next(row for row in rir["entrypoints"] if row["id"] == "build.replace")
+    operation = next(
+        row["definition"]
+        for row in rir["selected_semantics"]["operations"]
+        if row["definition"]["id"] == "game.build.replace-reward-v1"
+    )
+
+    assert entrypoint["operation"] == {
+        "package": "game.build",
+        "version": "1.0.0",
+        "id": "game.build.replace-reward-v1",
+    }
+    assert [row["port"]["name"] for row in entrypoint["arguments"]] == [
+        "selected_reward",
+        "build_plans",
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+    assert operation["outcomes"] == [
+        {"id": "replaced", "kind": "success", "state_policy": "commit"},
+        {
+            "id": "build-conflict",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+        {
+            "id": "no-reward",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+    ]
+    writes = [row for row in operation["body"] if row["node"] == "write-state"]
+    assert [row["symbol"] for row in writes] == [
+        "build_state",
+        "build_decision",
+        "build_score",
     ]
 
 
@@ -5547,6 +5653,62 @@ def test_package_admission_requires_a_visible_integer_local_for_list_lookup(key)
         f"standard.conformance.structured.select-v1.body.{lookup_index}.typing"
         in composition_subjects
     )
+    assert admission.admitted is False
+
+
+def test_package_admission_rejects_canonical_equality_across_value_contracts():
+    baseline = model_checking_module.check_model_source_value(
+        json.loads(
+            (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    package = next(
+        package
+        for package in candidate_ldb["language"]["packages"]
+        if package["id"] == "game.generation"
+    )
+    owned_operations = next(
+        entry["definitions"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operations = (
+        next(
+            operation
+            for operation in candidate_ldb["language"]["operations"]
+            if operation["id"] == "game.generation.select-reward-v1"
+        ),
+        next(
+            operation
+            for operation in owned_operations
+            if operation["id"] == "game.generation.select-reward-v1"
+        ),
+    )
+    mutation_index = None
+    for operation in operations:
+        instruction_index, equality = next(
+            (instruction_index, instruction)
+            for instruction_index, instruction in enumerate(operation["body"])
+            if instruction.get("target") == "rarity_matches"
+        )
+        assert mutation_index in (None, instruction_index)
+        mutation_index = instruction_index
+        equality["right"] = "selected_key"
+    _reidentify_language_bundle(candidate_ldb)
+
+    assert mutation_index is not None
+    expected_subject = (
+        "language.operations.game.generation@1.0.0."
+        f"game.generation.select-reward-v1.body.{mutation_index}.typing"
+    )
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        baseline.kernel, candidate_ldb
+    )
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert expected_subject in composition_subjects
     assert admission.admitted is False
 
 

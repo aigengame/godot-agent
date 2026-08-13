@@ -272,10 +272,16 @@ def _formula_sources(
                     }
                 )
                 position += len(expression_operation["body"])
-            body = {
-                "nodes": nodes,
-                "result": {"kind": "local", "local": slot["target"]},
-            }
+            body = (
+                {"node": "parameter", "parameter": placeholder[0]["value"]}
+                if len(placeholder) == 1
+                and placeholder[0]["node"] == "copy"
+                and placeholder[0]["value"] in parameters
+                else {
+                    "nodes": nodes,
+                    "result": {"kind": "local", "local": slot["target"]},
+                }
+            )
             formula_id = f"{operation['id']}.{slot['id']}"
             formulas.append(
                 {
@@ -402,7 +408,7 @@ def _candidate_model_source(
     manifest_id = "standard.conformance.operation-execution-model"
     formulas, formula_bindings = _formula_sources(context, operation, aliases)
     requirements = sorted(
-        {operation_owner, quantity_coordinate[:2]},
+        {operation_owner, *(coordinate[:2] for coordinate in coordinates)},
         key=lambda row: tuple(member.encode("utf-8") for member in row),
     )
     return (

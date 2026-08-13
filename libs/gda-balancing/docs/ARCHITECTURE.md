@@ -1535,12 +1535,15 @@ issues own detailed observations, acceptance criteria, and live completion statu
     Issue #640 replaces the provisional Kernel design with `is-empty`, `require`, and a single-level
     `guard-block`, plus the `operation-execution` conformance vector.
   - Implementation evidence: The replacement Kernel and LDB export these generic capabilities as
-    `standard.schema@2.4.0` and `standard.conformance.structured@2.0.0`. Production and independent
-    consumers agree on the admitted Operation vectors, and affected authority and example identities
-    are rebuilt against the replacement Kernel.
-  - Open boundary: The #585 mechanic Package Releases, PR #639 product-path update, and HITL
-    acceptance remain open. Evidence bound to the superseded Kernel identity does not carry forward.
+    `standard.schema@2.4.0` and `standard.conformance.structured@2.0.0`. The LDB also exports the
+    `game.generation@1.0.0` and `game.build@1.0.0` mechanic Package Releases. Production and
+    independent consumers agree on the admitted Operation vectors. The maintained Roguelike path
+    runs these Operations, and affected authority and example identities are rebuilt against the
+    replacement Kernel.
+  - Open boundary: PR #639 must synchronize this replacement evidence before the #585 HITL
+    acceptance decision. Evidence bound to the superseded Kernel identity does not carry forward.
   - Evidence: [issue #640](https://github.com/aigengame/godot-agent/issues/640),
+    [roguelike-reward-build](../examples/schema2/roguelike-reward-build/),
     [bADR-0017](badr/0017-genre-templates-and-coverage-contract.md), and
     [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md).
 
@@ -1612,9 +1615,9 @@ those values through Model build, Experiment admission, Runtime execution, Snaps
 numeric Metric. It does not close the broader type system or Genre coverage gates.
 
 Issue #640 replaces the provisional Kernel identity used by the earlier slices. Its implementation
-must rebuild the affected Kernel/LDB authorities, consumers, vectors, and downstream exact
-identities before that evidence can apply to the replacement baseline. The #592 non-RPG witness and
-other superseded-Kernel invariance evidence do not carry forward.
+rebuilds the affected Kernel/LDB authorities, consumers, vectors, and downstream exact identities.
+This work makes the maintained Roguelike path applicable to the replacement baseline. The #592
+non-RPG witness and other superseded-Kernel invariance evidence do not carry forward.
 
 Gate 2 follows bADR-0012's dependency order:
 

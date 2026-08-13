@@ -30,6 +30,7 @@ from gda_balancing.infrastructure.input_bytes import (
 )
 from gda_balancing.domain.runtime.scheduler import RuntimeScheduler
 from gda_balancing.domain.structured_values import (
+    StructuredValueFault,
     package_structured_value_index,
 )
 from gda_balancing.interfaces.cli.surface import (
@@ -58,6 +59,9 @@ _PERIODIC_EXAMPLE_DIR = (
 _STRUCTURED_EXAMPLE_DIR = (
     Path(__file__).parents[1] / "examples" / "schema2" / "structured-selection"
 )
+_ROGUELIKE_EXAMPLE_DIR = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
 _AUTHORITY_DIR = (
     Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
 )
@@ -72,6 +76,113 @@ _REFERENCE_EVENT_RUNTIME_BINDINGS = {
     "external_input_identity",
     "observation",
 }
+
+
+def test_runtime_canonical_equality_rechecks_typed_envelope_identity():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_index(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        ),
+        kernel=authority_context.kernel,
+    )
+    equality_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "equal"
+    )
+    variables = {
+        "left": {
+            "type": {
+                "id": "Quantity",
+                "package": "core.quantity",
+                "version": "2.1.0",
+            },
+            "value": 1,
+        },
+        "right": {
+            "type": {
+                "id": "RewardRarity",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": 1,
+        },
+    }
+
+    with pytest.raises(StructuredValueFault) as fault:
+        experiment_runtime_module._execute_value_instruction(
+            {
+                "left": "left",
+                "node": "equal",
+                "right": "right",
+                "target": "result",
+            },
+            variables,
+            {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+            equality_contract,
+            structured_authority=structured_authority,
+            structured_resource_limit=1024,
+        )
+    assert fault.value == StructuredValueFault(
+        "language.structured_value_type_mismatch", "/type"
+    )
+
+
+def test_runtime_canonical_equality_compares_kernel_booleans():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = package_structured_value_index(
+        cast(
+            list[dict[str, Any]],
+            authority_context.language_bundle["language"]["packages"],
+        ),
+        kernel=authority_context.kernel,
+    )
+    equality_contract = next(
+        row
+        for row in authority_context.kernel["meta_format"]["runtime_program"]["nodes"]
+        if row["id"] == "equal"
+    )
+    variables = {"left": True, "right": True}
+
+    experiment_runtime_module._execute_value_instruction(
+        {
+            "left": "left",
+            "node": "equal",
+            "right": "right",
+            "target": "result",
+        },
+        variables,
+        {"maximum": (1 << 63) - 1, "minimum": -(1 << 63)},
+        equality_contract,
+        structured_authority=structured_authority,
+        structured_resource_limit=1024,
+    )
+
+    assert variables["result"] is True
+
+
+def test_runtime_integer_projection_without_an_envelope_profile_is_not_applicable():
+    authority_context = authority_module.packaged_authority_context()
+    structured_authority = replace(
+        package_structured_value_index(
+            cast(
+                list[dict[str, Any]],
+                authority_context.language_bundle["language"]["packages"],
+            ),
+            kernel=authority_context.kernel,
+        ),
+        typed_envelope_profile=None,
+    )
+
+    assert (
+        experiment_runtime_module._project_runtime_integer(
+            {"type": "not-an-admitted-envelope", "value": 1},
+            structured_authority,
+        )
+        is None
+    )
 
 
 def test_record_lookup_does_not_capture_an_unrelated_same_name_local():
@@ -835,6 +946,22 @@ def _reference_execute_event(
         def write_local(name: str, value: Any) -> None:
             locals_[name] = {"value": value}
 
+        def project_integer(value: Any) -> int | None:
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+            if (
+                isinstance(value, dict)
+                and isinstance(value.get("value"), int)
+                and not isinstance(value["value"], bool)
+            ):
+                return value["value"]
+            return None
+
+        def integer(value: Any) -> int:
+            projected = project_integer(value)
+            assert projected is not None
+            return projected
+
         try:
             for instruction in selected["body"]:
                 node = nodes[instruction["node"]]
@@ -911,8 +1038,8 @@ def _reference_execute_event(
                 if operator == "gameplay-precondition":
                     if not _reference_compare(
                         semantics["comparison"],
-                        cell(instruction["left"])["value"],
-                        cell(instruction["right"])["value"],
+                        integer(cell(instruction["left"])["value"]),
+                        integer(cell(instruction["right"])["value"]),
                     ):
                         outcome = instruction["outcome"]
                         break
@@ -974,19 +1101,38 @@ def _reference_execute_event(
                     )
                 elif operator == "bounded-lookup":
                     key = instruction["key"]
-                    if key in locals_:
+                    container = cell(instruction["value"])["value"]
+                    selector = structured_law(container["type"], "bounded-lookup")[
+                        "selector"
+                    ]
+                    if selector == "local-index":
                         key = locals_[key]["value"]
                     write_local(
                         instruction["target"],
-                        structured_lookup(cell(instruction["value"])["value"], key),
+                        structured_lookup(container, key),
                     )
                 elif operator == "canonical-equal":
                     left = cell(instruction["left"])["value"]
                     right = cell(instruction["right"])["value"]
-                    assert left["type"] == right["type"]
+                    left_integer = project_integer(left)
+                    right_integer = project_integer(right)
+                    if isinstance(left, bool) and isinstance(right, bool):
+                        equal = left == right
+                    elif isinstance(left, bool) or isinstance(right, bool):
+                        raise AssertionError(
+                            "admitted equality operands used different representations"
+                        )
+                    elif left_integer is not None and right_integer is not None:
+                        if isinstance(left, dict) and isinstance(right, dict):
+                            assert left["type"] == right["type"]
+                        equal = left_integer == right_integer
+                    else:
+                        assert isinstance(left, dict) and isinstance(right, dict)
+                        assert left["type"] == right["type"]
+                        equal = left["value"] == right["value"]
                     write_local(
                         instruction["target"],
-                        left["value"] == right["value"],
+                        equal,
                     )
                 elif operator == "collection-is-empty":
                     write_local(
@@ -999,8 +1145,8 @@ def _reference_execute_event(
                     "integer-multiply",
                     "integer-maximum",
                 }:
-                    left = cell(instruction["left"])["value"]
-                    right = cell(instruction["right"])["value"]
+                    left = integer(cell(instruction["left"])["value"])
+                    right = integer(cell(instruction["right"])["value"])
                     result = {
                         "integer-add": lambda: left + right,
                         "integer-subtract": lambda: left - right,
@@ -1013,8 +1159,8 @@ def _reference_execute_event(
                         instruction["target"],
                         _reference_compare(
                             semantics["comparison"],
-                            cell(instruction["left"])["value"],
-                            cell(instruction["right"])["value"],
+                            integer(cell(instruction["left"])["value"]),
+                            integer(cell(instruction["right"])["value"]),
                         ),
                     )
                 elif operator == "select-value":
@@ -1745,6 +1891,850 @@ def _write_built_structured_experiment(tmp_path, run_cli):
     specification_path = tmp_path / "structured-experiment.json"
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
     return specification_path, specification
+
+
+def _write_built_roguelike_experiment(tmp_path, run_cli):
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(_ROGUELIKE_EXAMPLE_DIR / "model-source.json"),
+            "--out",
+            str(tmp_path / "resolved-roguelike-model.json"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = json.loads(
+        (_ROGUELIKE_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
+    )
+    assert specification["kernel_identity"] == build_record["kernel_identity"]
+    assert (
+        specification["language_bundle_identity"]
+        == build_record["language_bundle_identity"]
+    )
+    assert specification["model"] == {
+        "source_identity": build_record["source_identity"],
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
+    specification_path = tmp_path / "roguelike-experiment.json"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+    return specification_path, specification
+
+
+def test_public_seeded_reward_selection_exposes_policy_and_disposition(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "roguelike-evaluation.json"),
+            "--invocation-key",
+            "3" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    event = _member(receipt, "event-trace")["events"][0]
+    metrics = _member(receipt, "metric-dataset")
+    reproduction = _member(receipt, "reproduction-receipt")
+    pool = next(row for row in event["facts"] if row["name"] == "reward_pool")["value"][
+        "value"
+    ]
+    result = next(row for row in event["facts"] if row["name"] == "reward_result")
+
+    assert event["outcome"] == {"id": "selected", "kind": "success"}
+    assert reproduction["seed_algorithm"] == specification["seed"]["algorithm"]
+    assert reproduction["seed_value"] == specification["seed"]["value"] == 20260812
+    assert event["rng_draws"] == [
+        {
+            "stream": "reward",
+            "index": 0,
+            "candidate_hex": "cb822c763bee22e2",
+            "accepted": True,
+            "minimum": 1,
+            "maximum": 100,
+            "value": 3,
+        }
+    ]
+    assert [row["candidate"]["key"]["key"] for row in pool["options"]] == [
+        "steady_guard",
+        "volatile_crown",
+    ]
+    assert result["value"]["value"] == pool["options"][1]["selection"]
+    assert result["value"]["value"]["disposition"] == "build"
+    assert result["value"]["value"]["policy_before"] == pool["policy_before"]
+    assert result["value"]["value"]["policy_after"]["draw_count"] == 1
+    assert metrics["samples"][0]["value"] == 80
+
+
+def test_public_reward_build_loop_exposes_the_atomic_replacement(tmp_path, run_cli):
+    specification_path, _specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "reward-build-evaluation.json"),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    trace = _member(receipt, "event-trace")
+    metrics = _member(receipt, "metric-dataset")
+    transitions = [event for event in trace["events"] if event["operation"] is not None]
+    assert [event["outcome"] for event in transitions] == [
+        {"id": "selected", "kind": "success"},
+        {"id": "replaced", "kind": "success"},
+    ]
+    build_event = transitions[1]
+    result = next(row for row in build_event["facts"] if row["name"] == "build_result")[
+        "value"
+    ]["value"]
+    assert result == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "volatile_crown"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 90,
+    }
+    state_before = {row["name"]: row["value"] for row in build_event["state_before"]}
+    state_after = {row["name"]: row["value"] for row in build_event["state_after"]}
+    assert state_before["build_state"]["value"] == {
+        "slot": {"key": "starter_blade"},
+        "power": 10,
+    }
+    assert state_after["build_state"]["value"] == {
+        "slot": {"key": "volatile_crown"},
+        "power": 90,
+    }
+    assert state_after["build_decision"]["value"] == result
+    assert state_after["build_score"] == 90
+    assert {row["metric"]: row["value"] for row in metrics["samples"]} == {
+        "build_score": 90,
+        "reward_score": 80,
+    }
+
+
+def test_public_reward_tuning_changes_selection_without_changing_the_rng_draw(
+    tmp_path, run_cli
+):
+    specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+
+    def run(specification, path, output, invocation_key):
+        path.write_text(json.dumps(specification), encoding="utf-8")
+        check_exit, check_stdout, check_stderr = run_cli(
+            ["experiment", "check", str(path)]
+        )
+        assert (check_exit, check_stderr) == (0, ""), (
+            check_stdout,
+            check_stderr,
+        )
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(path),
+                "--out",
+                str(output),
+                "--invocation-key",
+                invocation_key,
+            ]
+        )
+        assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+        receipt = json.loads(stdout)
+        trace = _member(receipt, "event-trace")
+        metrics = _member(receipt, "metric-dataset")
+        transitions = [
+            event for event in trace["events"] if event["operation"] is not None
+        ]
+        reward_result = next(
+            row for row in transitions[0]["facts"] if row["name"] == "reward_result"
+        )
+        build_result = next(
+            row for row in transitions[1]["facts"] if row["name"] == "build_result"
+        )
+        return trace, metrics, reward_result, build_result
+
+    baseline_trace, baseline_metrics, baseline_result, baseline_build = run(
+        baseline,
+        specification_path,
+        tmp_path / "baseline-evaluation.json",
+        "a" * 64,
+    )
+    tuned = deepcopy(baseline)
+    tuned["id"] = "roguelike.reward-build-feedback.lower-rare-weight"
+    rare_weight = next(
+        row
+        for row in tuned["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "rare_weight"
+    )
+    rare_weight["value"] = 2
+    tuned_trace, tuned_metrics, tuned_result, tuned_build = run(
+        tuned,
+        tmp_path / "tuned-experiment.json",
+        tmp_path / "tuned-evaluation.json",
+        "b" * 64,
+    )
+
+    assert tuned["kernel_identity"] == baseline["kernel_identity"]
+    assert tuned["language_bundle_identity"] == baseline["language_bundle_identity"]
+    assert tuned["model"] == baseline["model"]
+    assert tuned["runtime"] == baseline["runtime"]
+    assert tuned_trace["experiment_identity"] != baseline_trace["experiment_identity"]
+    assert tuned_trace["content_identity"] != baseline_trace["content_identity"]
+    assert (
+        tuned_trace["events"][0]["rng_draws"]
+        == baseline_trace["events"][0]["rng_draws"]
+    )
+    baseline_value = baseline_result["value"]["value"]
+    tuned_value = tuned_result["value"]["value"]
+    assert (
+        baseline_value["selected"],
+        baseline_value["selected_index"],
+        baseline_value["reward_score"],
+    ) == ({"key": "volatile_crown"}, 1, 80)
+    assert (
+        tuned_value["selected"],
+        tuned_value["selected_index"],
+        tuned_value["reward_score"],
+    ) == ({"key": "steady_guard"}, 0, 20)
+    assert baseline_build["value"]["value"] == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "volatile_crown"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 90,
+    }
+    assert tuned_build["value"]["value"] == {
+        "kind": "replaced",
+        "previous": {"key": "starter_blade"},
+        "selected": {"key": "steady_guard"},
+        "disposition": "build",
+        "power_before": 10,
+        "power_after": 30,
+    }
+    assert {row["metric"]: row["value"] for row in baseline_metrics["samples"]} == {
+        "build_score": 90,
+        "reward_score": 80,
+    }
+    assert {row["metric"]: row["value"] for row in tuned_metrics["samples"]} == {
+        "build_score": 30,
+        "reward_score": 20,
+    }
+
+
+def test_public_reward_selection_refuses_an_unsatisfied_pool_without_fallback(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["options"] = []
+    pool["no_reward_on_empty"] = []
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (check_stdout, check_stderr)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "unsatisfied-reward-pool.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [row["code"] for row in error["diagnostics"]] == [
+        "game.generation.selection_exhausted"
+    ]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == ("game.generation.selection_exhausted")
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+    assert audit["budget_counters"]["event_steps"] == 6
+
+
+def test_public_reward_selection_can_return_a_declared_no_reward_outcome(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["options"] = []
+    pool["no_reward_on_empty"] = [
+        {
+            "selected": {"key": "no_reward"},
+            "rarity": "common",
+            "disposition": "no-reward",
+            "selected_index": 0,
+            "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+            "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+            "reward_score": 0,
+        }
+    ]
+    fallback = pool["no_reward_on_empty"][0]
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans.clear()
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    check_exit, check_stdout, check_stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+    assert (check_exit, check_stderr) == (0, ""), (
+        check_stdout,
+        check_stderr,
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "declared-no-reward.json"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    transitions = [
+        event
+        for event in _member(receipt, "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    assert [event["outcome"] for event in transitions] == [
+        {"id": "no-reward", "kind": "gameplay-alternative"},
+        {"id": "no-reward", "kind": "gameplay-alternative"},
+    ]
+    assert transitions[0]["rng_draws"] == []
+    assert transitions[1]["rng_draws"] == []
+    assert transitions[1]["state_after"] == transitions[1]["state_before"]
+    assert not any(row["name"] == "reward_result" for row in transitions[0]["facts"])
+    selected = next(
+        row for row in transitions[0]["state_after"] if row["name"] == "selected_reward"
+    )
+    assert selected["value"]["value"] == fallback
+    assert {
+        row["metric"]: row["value"]
+        for row in _member(receipt, "metric-dataset")["samples"]
+    } == {"build_score": 10, "reward_score": 0}
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
+
+
+def test_public_reward_selection_refuses_a_fallback_with_contradictory_policy(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    for invocation_digit, contradiction in (
+        ("a", "policy-start"),
+        ("b", "policy-after"),
+    ):
+        specification = deepcopy(baseline)
+        pool = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "reward_pool"
+        )["value"]["value"]
+        pool["options"] = []
+        pool["no_reward_on_empty"] = [
+            {
+                "selected": {"key": "no_reward"},
+                "rarity": "common",
+                "disposition": "no-reward",
+                "selected_index": 0,
+                "policy_before": {"kind": "fixed-weight", "draw_count": 0},
+                "policy_after": {"kind": "fixed-weight", "draw_count": 0},
+                "reward_score": 0,
+            }
+        ]
+        fallback = pool["no_reward_on_empty"][0]
+        if contradiction == "policy-start":
+            # Keep the fallback's no-draw transition internally consistent while
+            # contradicting the pool's declared start state.
+            fallback["policy_before"]["draw_count"] = 1
+            fallback["policy_after"]["draw_count"] = 1
+        else:
+            fallback["policy_after"]["draw_count"] = 1
+        specification_path = tmp_path / f"invalid-fallback-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"invalid-fallback-{contradiction}-artifacts"),
+                "--invocation-key",
+                invocation_digit * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_fallback"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_fallback"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
+
+
+def test_public_reward_configuration_reports_an_unknown_disposition(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["options"][0]["candidate"]["disposition"] = "host-default"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/disposition"
+    )
+
+
+def test_public_reward_configuration_rejects_a_non_integer_quantity(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    pool = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    pool["options"][0]["candidate"]["reward_score"] = "twenty"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == (
+        "language.structured_value_type_mismatch"
+    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/0/value/value/options/0/candidate/reward_score"
+    )
+
+
+def test_public_reward_selection_rejects_contradictory_authored_results(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    contradictions = (
+        "rarity",
+        "disposition",
+        "selected-key",
+        "selected-index",
+        "reward-score",
+        "policy-start",
+        "draw-count",
+    )
+    for index, contradiction in enumerate(contradictions, start=1):
+        specification = deepcopy(baseline)
+        pool = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "reward_pool"
+        )["value"]["value"]
+        option = pool["options"][1]
+        candidate = option["candidate"]
+        selection = option["selection"]
+        if contradiction == "rarity":
+            candidate["rarity"] = "common"
+        elif contradiction == "disposition":
+            candidate["disposition"] = "no-reward"
+        elif contradiction == "selected-key":
+            selection["selected"] = {"key": "steady_guard"}
+        elif contradiction == "selected-index":
+            selection["selected_index"] = 0
+        elif contradiction == "reward-score":
+            candidate["reward_score"] = 79
+        elif contradiction == "policy-start":
+            # Keep the one-draw transition internally consistent while
+            # contradicting the pool's declared start state.
+            selection["policy_before"]["draw_count"] = 1
+            selection["policy_after"]["draw_count"] = 2
+        else:
+            selection["policy_after"]["draw_count"] = 2
+        specification_path = tmp_path / f"contradictory-reward-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"contradictory-reward-{contradiction}-artifacts"),
+                "--invocation-key",
+                str(index) * 64,
+            ]
+        )
+
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.generation.invalid_option"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == (
+            "game.generation.invalid_option"
+        ), contradiction
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
+        assert not any(
+            row["name"] == "reward_result" for row in audit["last_snapshot"]
+        ), contradiction
+
+
+def test_public_build_conflict_is_a_gameplay_outcome_with_atomic_rollback(
+    tmp_path, run_cli
+):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[1]["constraint"] = "conflict"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "build-conflict.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+    receipt = json.loads(stdout)
+    transitions = [
+        event
+        for event in _member(receipt, "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    conflict = transitions[1]
+    assert conflict["outcome"] == {
+        "id": "build-conflict",
+        "kind": "gameplay-alternative",
+    }
+    assert conflict["state_after"] == conflict["state_before"]
+    assert not any(row["name"] == "build_result" for row in conflict["facts"])
+    assert not any(
+        row["logical_name"] == "runtime-terminal-audit"
+        for row in receipt["member_locators"]
+    )
+
+
+def test_public_build_conflict_does_not_hide_a_contradictory_plan(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[1]["constraint"] = "conflict"
+    plans[1]["decision"]["selected"] = {"key": "steady_guard"}
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification_path),
+            "--out",
+            str(tmp_path / "contradictory-build-conflict.json"),
+            "--invocation-key",
+            "0" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert [row["code"] for row in error["diagnostics"]] == ["game.build.invalid_plan"]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan")
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
+def test_public_build_configuration_reports_an_unknown_constraint(tmp_path, run_cli):
+    specification_path, specification = _write_built_roguelike_experiment(
+        tmp_path, run_cli
+    )
+    plans = next(
+        row
+        for row in specification["scenarios"][0]["assignments"]
+        if row["target"]["name"] == "build_plans"
+    )["value"]["value"]["plans"]
+    plans[0]["constraint"] = "host-default"
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["code"] == ("language.structured_value_unknown_enum")
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments/4/value/value/plans/0/constraint"
+    )
+
+
+def test_public_build_replacement_rejects_contradictory_authored_plans(
+    tmp_path, run_cli
+):
+    _specification_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    contradictions = (
+        "next-slot",
+        "decision-kind",
+        "decision-previous",
+        "decision-selected",
+        "decision-disposition",
+        "power-before",
+        "power-after",
+        "score",
+    )
+    for index, contradiction in enumerate(contradictions, start=8):
+        specification = deepcopy(baseline)
+        plan = next(
+            row
+            for row in specification["scenarios"][0]["assignments"]
+            if row["target"]["name"] == "build_plans"
+        )["value"]["value"]["plans"][1]
+        if contradiction == "next-slot":
+            plan["next_state"]["slot"] = {"key": "steady_guard"}
+        elif contradiction == "decision-kind":
+            plan["decision"]["kind"] = "no-reward"
+        elif contradiction == "decision-previous":
+            plan["decision"]["previous"] = {"key": "steady_guard"}
+        elif contradiction == "decision-selected":
+            plan["decision"]["selected"] = {"key": "steady_guard"}
+        elif contradiction == "decision-disposition":
+            plan["decision"]["disposition"] = "no-reward"
+        elif contradiction == "power-before":
+            plan["decision"]["power_before"] = 11
+        elif contradiction == "power-after":
+            plan["decision"]["power_after"] = 89
+        else:
+            plan["score"] = 89
+        specification_path = tmp_path / f"contradictory-build-{contradiction}.json"
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(specification_path),
+                "--out",
+                str(tmp_path / f"contradictory-build-{contradiction}-artifacts"),
+                "--invocation-key",
+                f"{index:064x}",
+            ]
+        )
+
+        assert (exit_code, stderr) == (2, ""), (contradiction, stdout, stderr)
+        error = json.loads(stdout)["error"]
+        assert [row["code"] for row in error["diagnostics"]] == [
+            "game.build.invalid_plan"
+        ], contradiction
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["reason"] == ("game.build.invalid_plan"), (
+            contradiction
+        )
+        assert audit["rollback"]["committed"] is False, contradiction
+        assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"], (
+            contradiction
+        )
+        assert not any(row["name"] == "build_result" for row in audit["last_snapshot"])
+
+
+def test_public_formula_edit_requires_rebuild_and_exact_experiment_rebinding(
+    tmp_path, run_cli
+):
+    _baseline_path, baseline = _write_built_roguelike_experiment(tmp_path, run_cli)
+    edited_source = json.loads(
+        (_ROGUELIKE_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+    )
+    edited_source["manifest"]["version"] = "1.1.0"
+    formula = deepcopy(edited_source["modules"][0]["formulas"][0])
+    formula["id"] = "alternate-rare-threshold"
+    edited_source["modules"][0]["formulas"].append(formula)
+    edited_source["formula_bindings"][0]["formula"]["id"] = formula["id"]
+    edited_source_path = tmp_path / "edited-roguelike-model.json"
+    edited_source_path.write_text(json.dumps(edited_source), encoding="utf-8")
+
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(edited_source_path),
+            "--out",
+            str(tmp_path / "edited-roguelike-model"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, ""), (build_stdout, build_stderr)
+    edited_receipt = json.loads(build_stdout)
+    edited_build = _member(edited_receipt, "build-receipt")
+    edited_rir = _member(edited_receipt, "rir-semantic-payload")
+
+    assert edited_build["kernel_identity"] == baseline["kernel_identity"]
+    assert (
+        edited_build["language_bundle_identity"] == baseline["language_bundle_identity"]
+    )
+    assert (
+        edited_build["package_lock_identity"]
+        == baseline["model"]["package_lock_identity"]
+    )
+    assert edited_build["rir_identity"] != baseline["model"]["rir_identity"]
+    edited_formula = next(
+        row for row in edited_rir["formulas"] if row["id"] == formula["id"]
+    )
+    edited_binding = next(
+        row
+        for row in edited_rir["formula_bindings"]
+        if row["site"]["slot"] == "rare-threshold-policy"
+    )
+    assert edited_formula["expression"] == "rare_weight"
+    assert edited_binding["formula"]["id"] == formula["id"]
+
+    stale = deepcopy(baseline)
+    stale["model"]["source_identity"] = edited_build["source_identity"]
+    stale_path = tmp_path / "stale-formula-binding.json"
+    stale_path.write_text(json.dumps(stale), encoding="utf-8")
+    stale_exit, stale_stdout, stale_stderr = run_cli(
+        ["experiment", "check", str(stale_path)]
+    )
+    assert (stale_exit, stale_stderr) == (2, ""), (stale_stdout, stale_stderr)
+    stale_error = json.loads(stale_stdout)["error"]
+    assert stale_error["diagnostics"][0]["code"] == (
+        "language.resolved_authority_mismatch"
+    )
+    assert stale_error["diagnostics"][0]["primary"]["pointer"] == "/model"
+
+    rebound = deepcopy(baseline)
+    rebound["id"] = "roguelike.reward-build-feedback.identity-formula"
+    rebound["model"] = {
+        "source_identity": edited_build["source_identity"],
+        "build_receipt_identity": edited_build["content_identity"],
+        "resolved_model_identity": edited_build["resolved_model_identity"],
+        "package_lock_identity": edited_build["package_lock_identity"],
+        "rir_identity": edited_build["rir_identity"],
+    }
+    rebound_path = tmp_path / "rebound-formula.json"
+    rebound_path.write_text(json.dumps(rebound), encoding="utf-8")
+    run_exit, run_stdout, run_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(rebound_path),
+            "--out",
+            str(tmp_path / "rebound-formula-evaluation.json"),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+    assert (run_exit, run_stderr) == (0, ""), (run_stdout, run_stderr)
+    transitions = [
+        event
+        for event in _member(json.loads(run_stdout), "event-trace")["events"]
+        if event["operation"] is not None
+    ]
+    assert transitions[0]["formula_evaluations"][0]["result"] == 5
+    assert transitions[1]["outcome"] == {"id": "replaced", "kind": "success"}
 
 
 def test_public_structured_selection_is_reproducible_and_rolls_back_failed_write(
@@ -6023,6 +7013,46 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
         } == vector["expect"]
 
 
+def test_reference_runtime_canonical_equality_compares_kernel_booleans():
+    kernel, ldb = mutable_authorities()
+    operation = {
+        "body": [
+            {
+                "left": "left",
+                "node": "equal",
+                "right": "right",
+                "target": "same",
+            }
+        ],
+        "default_outcome": "equaled",
+        "id": "test.boolean-equality",
+        "inputs": [
+            {"access": "read", "id": "left"},
+            {"access": "read", "id": "right"},
+        ],
+        "outcomes": [{"id": "equaled", "kind": "success", "state_policy": "commit"}],
+        "result": {"source": {"kind": "local", "name": "same"}},
+    }
+
+    event = _reference_execute_event(
+        kernel,
+        operation,
+        {operation["id"]: operation},
+        {
+            "id": "boolean-equality",
+            "values": [
+                {"name": "left", "value": True},
+                {"name": "right", "value": True},
+            ],
+        },
+        seed=0,
+        state_names=set(),
+        language_bundle=ldb,
+    )
+
+    assert event["result"] is True
+
+
 def test_package_operation_execution_vectors_preserve_integer_runtime_behavior():
     kernel, ldb = mutable_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
@@ -6127,6 +7157,10 @@ def _reference_operation_execution_projection(
         },
         language_bundle=ldb,
     )
+    state_after = {row["name"]: row["value"] for row in event["state_after"]}
+    state_names = [
+        row["id"] for row in operation["inputs"] if row["access"] == "read-write"
+    ]
     if "refusal" in event:
         return {
             "completion": {
@@ -6135,7 +7169,9 @@ def _reference_operation_execution_projection(
             },
             "result": {"kind": "not-produced"},
             "rng_draws": [],
-            "state_after": event["state_after"],
+            "state_after": [
+                {"name": name, "value": state_after[name]} for name in state_names
+            ],
         }
     return {
         "completion": {
@@ -6154,7 +7190,9 @@ def _reference_operation_execution_projection(
             }
             for draw in event["rng_draws"]
         ],
-        "state_after": event["state_after"],
+        "state_after": [
+            {"name": name, "value": state_after[name]} for name in state_names
+        ],
     }
 
 
@@ -6236,6 +7274,177 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
             _reference_operation_execution_projection(kernel, ldb, operations, vector)
             == vector["expect"]
         )
+
+
+def test_generation_operation_vectors_cover_success_fallback_and_refusals():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]: vector["category"]
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "game.generation"
+    } == {
+        "generation.select.success": "deterministic-rng",
+        "generation.select.no-reward-outcome": "outcome",
+        "generation.select.empty-refusal": "boundary",
+        "generation.select.invalid-fallback-refusal": "semantic-mutation",
+        "generation.select.invalid-fallback-policy-before-refusal": "rollback-replay",
+        "generation.select.invalid-fallback-policy-after-refusal": "rollback-replay",
+        "generation.select.invalid-option-refusal": "semantic-mutation",
+    }
+
+
+def test_generation_operation_owns_the_no_reward_discriminator():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.generation.select-reward-v1"
+    )
+
+    assert [row["id"] for row in operation["inputs"]] == [
+        "reward_pool",
+        "rare_weight",
+        "selected_reward",
+        "reward_score",
+    ]
+    assert operation["result"]["source"] == {
+        "kind": "port",
+        "name": "selected_reward",
+    }
+    fallback = next(row for row in operation["body"] if row["node"] == "guard-block")
+    assert fallback["body"][4:6] == [
+        {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
+            "left": "fallback_disposition",
+            "node": "equal",
+            "right": "no_reward_disposition",
+            "target": "fallback_is_no_reward",
+        },
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 80}
+
+
+def test_build_operation_vectors_cover_success_alternatives_and_refusal():
+    _kernel, ldb = mutable_authorities()
+
+    assert {
+        vector["id"]: vector["category"]
+        for package_id, vector in _operation_execution_vectors(ldb)
+        if package_id == "game.build"
+    } == {
+        "build.replace.success": "positive",
+        "build.replace.no-reward-outcome": "boundary",
+        "build.replace.conflict-outcome": "outcome",
+        "build.replace.conflicting-invalid-plan-refusal": "semantic-mutation",
+        "build.replace.invalid-plan-refusal": "rollback-replay",
+    }
+
+
+def test_build_operation_guards_no_reward_before_plan_access_without_rng():
+    _kernel, ldb = mutable_authorities()
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "game.build.replace-reward-v1"
+    )
+
+    assert [row["id"] for row in operation["inputs"]] == [
+        "selected_reward",
+        "build_plans",
+        "build_state",
+        "build_decision",
+        "build_score",
+    ]
+    assert operation["body"][:4] == [
+        {
+            "key": "disposition",
+            "node": "lookup",
+            "target": "selected_disposition",
+            "value": "selected_reward",
+        },
+        {
+            "literal": {
+                "type": {
+                    "id": "RewardDisposition",
+                    "package": "game.generation",
+                    "version": "1.0.0",
+                },
+                "value": "no-reward",
+            },
+            "node": "constant",
+            "target": "no_reward_disposition",
+        },
+        {
+            "left": "selected_disposition",
+            "node": "equal",
+            "right": "no_reward_disposition",
+            "target": "no_reward_selected",
+        },
+        {
+            "body": [],
+            "condition": "no_reward_selected",
+            "node": "guard-block",
+            "outcome": "no-reward",
+        },
+    ]
+    assert operation["effects"] == [
+        "event.commit",
+        "metric.observe",
+        "snapshot.commit",
+    ]
+    assert operation["resource_bounds"] == {"max_steps": 54}
+
+    fixed_literals = {
+        row["target"]: row["literal"]
+        for row in operation["body"]
+        if row["node"] == "constant" and isinstance(row["literal"], dict)
+    }
+    assert fixed_literals == {
+        "no_reward_disposition": {
+            "type": {
+                "id": "RewardDisposition",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "no-reward",
+        },
+        "rare_rarity": {
+            "type": {
+                "id": "RewardRarity",
+                "package": "game.generation",
+                "version": "1.0.0",
+            },
+            "value": "rare",
+        },
+        "replace_constraint": {
+            "type": {
+                "id": "BuildConstraint",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replace",
+        },
+        "replaced_kind": {
+            "type": {
+                "id": "BuildDecisionKind",
+                "package": "game.build",
+                "version": "1.0.0",
+            },
+            "value": "replaced",
+        },
+    }
 
 
 def test_candidate_graph_executes_every_operation_vector_in_two_consumers():

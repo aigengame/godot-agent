@@ -115,6 +115,12 @@ structured formal judgments, and an honest proof/conformance boundary.
 > irreducible primitive, fact kind, term type, premise operator, or judgment construct requires the
 > next Schema major.
 
+> The #640 replacement LDB is unreleased. Its `standard.schema@2.4.0` release may be completed and
+> reidentified before publication only when the complete LDB and every
+> affected downstream identity are rebuilt together. After that Package Release is published, a
+> later semantic or accepted-input change follows bADR-0016 package versioning instead of rebinding
+> the published release in place.
+
 ## Decision
 
 - **The Kernel Specification is the non-self-hosted root of machine semantics.** It fixes the bundle
@@ -389,7 +395,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   and adds generic List emptiness. Record fields are exact, Lists are invariant and bounded, and
   each Ref owns a nominal target plus a canonical key pattern. The Kernel Runtime-node vocabulary
   admits typed literals, bounded Record/List lookup, List emptiness, exact-type canonical equality,
-  typed requirements, and single-level guard blocks.
+  typed requirements, and single-level guard blocks. A typed `constant.literal` and its Package
+  Release Wire Schema projection use the same admitted value union as structured ports. When
+  equality compares a Quantity projected from a structured envelope with an exact-contract scalar
+  operand,
+  Runtime projects the scalar payload only after static checking proves the same admitted value
+  contract. This representation step does not add numeric coercion or host-owned type semantics.
   Each constructor carries a machine-readable value rule. The selected typed-envelope profile owns
   recursive resource charging and exact type resolution. Record lookup always uses a static field
   literal; List lookup always uses a resolved integer local. RIR closes recursive nominal type and
