@@ -76,6 +76,29 @@ def independent_operation_execution_projection(
     }
 
 
+def operation_execution_observations(
+    kernel: dict[str, Any],
+    ldb: Any,
+    vector: dict[str, Any],
+    *,
+    context: AdmittedAuthorityContext | None = None,
+    operations: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Observe one vector through both adapters in the canonical shape."""
+    resolved_context = context or admit_authority_context(kernel, ldb)
+    assert isinstance(resolved_context, AdmittedAuthorityContext)
+    resolved_operations = operations or {
+        row["id"]: row for row in ldb["language"]["operations"]
+    }
+    return {
+        "expected": vector["expect"],
+        "production": evaluate_operation_execution_vector(resolved_context, vector),
+        "independent": independent_operation_execution_projection(
+            kernel, ldb, resolved_operations, vector
+        ),
+    }
+
+
 def candidate_conformance_failures(
     kernel: dict[str, Any],
     ldb: Any,
@@ -107,19 +130,23 @@ def candidate_conformance_failures(
     overrides = vector_overrides or {}
     for package_id, declared in operation_execution_vectors(ldb):
         vector = overrides.get(declared["id"], declared)
-        production = evaluate_operation_execution_vector(context, vector)
-        independent = independent_operation_execution_projection(
-            kernel, ldb, operations, vector
+        observations = operation_execution_observations(
+            kernel,
+            ldb,
+            vector,
+            context=context,
+            operations=operations,
         )
-        if production != independent or production != vector["expect"]:
+        if (
+            observations["production"] != observations["independent"]
+            or observations["production"] != observations["expected"]
+        ):
             failures.append(
                 {
                     "kind": "vector-divergence",
                     "package": package_id,
                     "vector": vector["id"],
-                    "expected": vector["expect"],
-                    "production": production,
-                    "independent": independent,
+                    **observations,
                 }
             )
     return failures

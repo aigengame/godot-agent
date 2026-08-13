@@ -54,7 +54,7 @@ from schema2_operation_execution_independent_support import (
 )
 from schema2_operation_execution_conformance_support import (
     candidate_conformance_failures,
-    independent_operation_execution_projection,
+    operation_execution_observations,
     operation_execution_vectors,
 )
 from schema2_bootstrap_production_support import (
@@ -6313,23 +6313,12 @@ def test_package_operation_execution_vectors_preserve_integer_runtime_behavior()
                 if row["access"] == "read-write"
             },
         )
-        projection = {
-            "completion": {"kind": "outcome", "id": event["outcome"]["id"]},
-            "result": (
-                {"kind": "value", "value": event["result"]}
-                if event["outcome"]["kind"] == "success"
-                else {"kind": "not-produced"}
-            ),
-            "rng_draws": [
-                {
-                    member: draw[member]
-                    for member in ("candidate_hex", "index", "stream", "value")
-                }
-                for draw in event["rng_draws"]
-            ],
-            "state_after": event["state_after"],
-        }
-        assert projection == vector["expect"]
+        observations = operation_execution_observations(
+            kernel, ldb, vector, operations=operations
+        )
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
+        projection = observations["production"]
         replay = reference_execute_event(
             kernel,
             operation,
@@ -6375,10 +6364,11 @@ def test_neutral_structured_operation_vectors_cover_control_paths():
     }
 
     for vector in vectors:
-        assert (
-            independent_operation_execution_projection(kernel, ldb, operations, vector)
-            == vector["expect"]
+        observations = operation_execution_observations(
+            kernel, ldb, vector, operations=operations
         )
+        assert observations["production"] == observations["independent"]
+        assert observations["production"] == observations["expected"]
 
 
 def test_operation_execution_conformance_adapters_remain_independent():
@@ -6453,12 +6443,21 @@ def test_mechanic_rollback_replay_vectors_repeat_without_state_or_rng_drift():
         assert vector["expect"]["rng_draws"] == []
 
         observed = [
-            evaluate_operation_execution_vector(context, vector),
-            evaluate_operation_execution_vector(context, vector),
-            independent_operation_execution_projection(kernel, ldb, operations, vector),
-            independent_operation_execution_projection(kernel, ldb, operations, vector),
+            operation_execution_observations(
+                kernel,
+                ldb,
+                vector,
+                context=context,
+                operations=operations,
+            )
+            for _ in range(2)
         ]
-        assert all(result == vector["expect"] for result in observed), vector["id"]
+        assert all(
+            observation["production"]
+            == observation["independent"]
+            == observation["expected"]
+            for observation in observed
+        ), vector["id"]
 
 
 def test_generation_operation_owns_the_no_reward_discriminator():
