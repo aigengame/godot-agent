@@ -16,6 +16,7 @@ import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
 import gda_balancing.domain.evidence as experiment_evidence_module
 import gda_balancing.domain.operation_program as operation_program_module
+import gda_balancing.domain.runtime.projections as runtime_projection_module
 import gda_balancing.domain.runtime.execution as experiment_runtime_module
 import gda_balancing.interfaces.cli.experiment_check as experiment_check_command_module
 import gda_balancing.interfaces.cli.experiment_run as experiment_command_module
@@ -8031,9 +8032,9 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
         base_damage=24,
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
-        "_SUPPORTED_RUNTIME_OPERATORS",
-        experiment_runtime_module._SUPPORTED_RUNTIME_OPERATORS - {"integer-multiply"},
+        runtime_projection_module,
+        "SUPPORTED_RUNTIME_OPERATORS",
+        runtime_projection_module.SUPPORTED_RUNTIME_OPERATORS - {"integer-multiply"},
     )
     spec_path = tmp_path / "runtime-refusal-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -8213,7 +8214,7 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
     checked = experiment_admission_module.check_experiment(str(specification))
     assert isinstance(checked, experiment_admission_module.CheckedExperiment)
 
-    first = experiment_runtime_module._evaluator_manifest(checked)
+    first = runtime_projection_module.evaluator_manifest(checked)
     operations = {
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
@@ -8229,14 +8230,14 @@ def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance
         )
     }
     assert first.value["evaluator_build_identity"] == (
-        experiment_runtime_module._evaluator_build_identity()
+        runtime_projection_module.evaluator_build_identity()
     )
     monkeypatch.setattr(
-        experiment_runtime_module,
-        "_evaluator_build_identity",
+        runtime_projection_module,
+        "evaluator_build_identity",
         lambda: "sha256:" + ("0" * 64),
     )
-    changed_build = experiment_runtime_module._evaluator_manifest(checked)
+    changed_build = runtime_projection_module.evaluator_manifest(checked)
     assert (
         changed_build.value["implementation_identity"]
         != (first.value["implementation_identity"])
