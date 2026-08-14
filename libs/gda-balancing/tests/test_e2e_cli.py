@@ -36,6 +36,9 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
 )
+_PLAYTEST_GENERATED = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "playtest" / "generated"
+)
 _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
@@ -469,6 +472,57 @@ class TestKeyUserPath:
         assert (
             baseline_trace["experiment_identity"] != tuned_trace["experiment_identity"]
         )
+
+        prepared = json.loads(
+            (_PLAYTEST_GENERATED / "reward_cases.json").read_text(encoding="utf-8")
+        )
+        provenance = json.loads(
+            (_PLAYTEST_GENERATED / "playtest_provenance.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        build_receipt = json.loads(
+            _receipt_members(json.loads(built.stdout))["build-receipt"].read_text(
+                encoding="utf-8"
+            )
+        )
+
+        for player_case, receipt, trace, metrics in zip(
+            prepared["trials"],
+            (baseline_receipt, tuned_receipt),
+            (baseline_trace, tuned_trace),
+            (baseline_metrics, tuned_metrics),
+            strict=True,
+        ):
+            events = [event for event in trace["events"] if event["operation"]]
+            reward = reward_result(events)
+            build = next(
+                row for row in events[1]["facts"] if row["name"] == "build_result"
+            )["value"]["value"]
+            assert player_case["reward"]["key"] == reward["selected"]["key"]
+            assert player_case["reward"]["rarity"] == reward["rarity"]
+            assert player_case["build"]["power_before"] == build["power_before"]
+            assert player_case["build"]["power_after"] == build["power_after"]
+
+            reference = provenance["entries"][
+                player_case["playtest_provenance_reference"]
+            ]
+            members = _receipt_members(receipt)
+            assert reference["experiment"]["identity"] == trace["experiment_identity"]
+            assert (
+                reference["model"]["build_receipt"]["identity"]
+                == (build_receipt["content_identity"])
+            )
+            assert (
+                reference["runtime"]["trace"]["identity"] == trace["content_identity"]
+            )
+            assert reference["metrics"]["identity"] == metrics["content_identity"]
+            assert (
+                reference["rng_observation"]["identity"]
+                == json.loads(
+                    members["reproduction-receipt"].read_text(encoding="utf-8")
+                )["content_identity"]
+            )
 
     def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
         _example, receipt = _build_reciprocal_example(
