@@ -510,6 +510,14 @@ class TestKeyUserPath:
                 reference["model"]["build_receipt"]["identity"]
                 == (build_receipt["content_identity"])
             )
+            assert (
+                reference["model"]["source"]["identity"]
+                == build_receipt["source_identity"]
+            )
+            assert (
+                reference["model"]["resolved_model"]["identity"]
+                == build_receipt["resolved_model_identity"]
+            )
 
             # Runtime, Metric, and reproduction identities bind the evaluator and
             # platform. The playtest projection test checks their exact checked-in
