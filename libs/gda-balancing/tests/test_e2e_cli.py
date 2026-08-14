@@ -357,7 +357,6 @@ class TestKeyUserPath:
             "5" * 64,
         )
         assert (built.returncode, built.stderr) == (0, ""), built.stdout
-        build_receipt = json.loads(built.stdout)
         receipt_path = tmp_path / "roguelike-model-set-receipt.json"
         receipt_path.write_text(built.stdout, encoding="utf-8")
 
@@ -373,26 +372,29 @@ class TestKeyUserPath:
         assert {row["id"] for row in explanation["formula_explanations"]} == {
             "rare-threshold"
         }
-        assert {row["id"] for row in explanation["operation_explanations"]}.issuperset(
-            {
-                "game.generation.select-reward-v1",
-                "game.build.replace-reward-v1",
-            }
-        )
+        assert {row["id"] for row in explanation["operation_explanations"]} == {
+            "game.generation.select-reward-v1",
+            "game.build.replace-reward-v1",
+            "quantity.floor-zero",
+            "quantity.identity",
+            "quantity.less-than",
+            "quantity.maximum",
+            "quantity.subtract",
+        }
 
-        experiment = json.loads(
-            (_ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json").read_text(
-                encoding="utf-8"
-            )
+        checked_in_experiment_path = (
+            _ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json"
         )
-        _bind_experiment_to_build(experiment, build_receipt)
-        experiment_path = tmp_path / "roguelike-experiment.json"
-        experiment_path.write_text(json.dumps(experiment), encoding="utf-8")
-        checked_experiment = _run("experiment", "check", str(experiment_path))
+        checked_experiment = _run(
+            "experiment", "check", str(checked_in_experiment_path)
+        )
         assert (checked_experiment.returncode, checked_experiment.stderr) == (
             0,
             "",
         ), checked_experiment.stdout
+        experiment = json.loads(
+            checked_in_experiment_path.read_text(encoding="utf-8")
+        )
 
         baseline_receipt, baseline_trace = _run_experiment_variant(
             tmp_path,
@@ -450,9 +452,11 @@ class TestKeyUserPath:
         ]
 
         def reward_result(events: list[dict]) -> dict:
-            return next(
+            reward_fact = next(
                 row for row in events[0]["facts"] if row["name"] == "reward_result"
-            )["value"]["value"]
+            )
+            typed_reward = reward_fact["value"]
+            return typed_reward["value"]
 
         assert reward_result(baseline_events)["selected"] == {"key": "volatile_crown"}
         assert reward_result(tuned_events)["selected"] == {"key": "steady_guard"}
