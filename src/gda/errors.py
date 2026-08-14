@@ -66,7 +66,7 @@ class Failure:
     exit_code: int
 
 
-def _failure(code: str, message: str, stderr: str) -> Failure:
+def make_failure(code: str, message: str, stderr: str) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
     Only ``code``, the per-occurrence ``message`` (it embeds the binary path,
@@ -132,7 +132,7 @@ def unresolvable_binary_failure(reason: str) -> Failure:
     reuse the exit code; discriminate via the envelope). Kept here beside the
     other environment failures so the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "binary_not_found",
         f"Godot binary could not be resolved: {reason}",
         "",
@@ -147,7 +147,7 @@ def conflicting_params_input_failure() -> Failure:
     command was invoked incorrectly — so it reuses that code rather than minting
     a new one (ADR-0002: reuse the code; discriminate via the message).
     """
-    return _failure(
+    return make_failure(
         "usage_error",
         "--params-json is mutually exclusive with the individual arguments; "
         "pass the params as one JSON object OR as individual arguments, not both.",
@@ -163,7 +163,7 @@ def invalid_params_json_failure(detail: str) -> Failure:
     ``invalid_params`` — params that do not match the command's contract — just
     detected CLI-side, so it reuses that code (ADR-0002).
     """
-    return _failure(
+    return make_failure(
         "invalid_params",
         f"--params-json is not a valid params object: {detail}",
         "",
@@ -187,13 +187,13 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
     mislabelled environment (issue #15).
     """
     if raw.launch_failure is LaunchFailure.NOT_FOUND:
-        return _failure(
+        return make_failure(
             "binary_not_found",
             f"Godot binary could not be launched: {binary}",
             raw.stderr,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
-        return _failure(
+        return make_failure(
             "launch_timeout",
             "Godot launched but did not return before the timeout",
             raw.stderr,
@@ -202,7 +202,7 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
         # subprocess reports a signal death as a negative return code; the
         # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
         # than the operation cleanly reporting an error.
-        return _failure(
+        return make_failure(
             "engine_crashed",
             f"Godot terminated abnormally (signal {-raw.exit_code})",
             raw.stderr,
@@ -233,7 +233,7 @@ def classify_run(
         if payload_error is not None:
             code, message = payload_error
             if code in OPERATION_ERROR_CODES:
-                return _failure(
+                return make_failure(
                     code,
                     message or "the headless operation reported an error",
                     result.stderr,
@@ -245,7 +245,7 @@ def classify_run(
             fallback_message = (
                 "the headless operation exited non-zero without a structured error"
             )
-        return _failure("operation_failed", fallback_message, result.stderr)
+        return make_failure("operation_failed", fallback_message, result.stderr)
     try:
         # The sentinel block must be present, hold valid JSON, AND match the
         # command's result shape. A missing/empty sentinel or malformed JSON
@@ -267,13 +267,13 @@ def classify_run(
         # real shape violation that merely happens to also be deep, so require
         # ALL errors to be recursion_loop before claiming depth as the cause.
         if isinstance(exc, ValidationError) and _is_too_deep(exc):
-            return _failure(
+            return make_failure(
                 "tree_too_deep",
                 "result tree nests too deep for gda to materialize "
                 f"(exceeds the recursion limit on {output_model.__name__})",
                 result.stderr,
             )
-        return _failure(
+        return make_failure(
             "contract_violation",
             f"structured-output contract violated: {exc}",
             result.stderr,
@@ -309,7 +309,7 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
         return None
     code, message = pair
     if code in _LIVE_CLIENT_CODES:
-        return _failure(code, message, result.stderr)
+        return make_failure(code, message, result.stderr)
     return None
 
 
@@ -332,7 +332,7 @@ def classify_live(
 
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
     """The classifier-source failure for an uncreatable export output parent (#402)."""
-    return _failure(
+    return make_failure(
         "export_output_parent_failed",
         "export output parent directory is not creatable: "
         f"{parent_path} (for output path {output_path})",
@@ -352,7 +352,7 @@ def export_path_unset_failure(preset: str) -> Failure:
     ``--output`` / ``export get``'s ``export_path``), kept here beside the other
     export failures so the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "export_path_unset",
         f'export preset "{preset}" has no destination: '
         "pass --output or set the preset's export_path",
@@ -373,7 +373,7 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
     a merely-misconfigured preset). Names the ``templates_version`` directory the
     agent must install.
     """
-    return _failure(
+    return make_failure(
         "export_templates_missing",
         f'export preset "{preset}" cannot be exported: the export templates for '
         f"the running engine version ({templates_version}) are not installed",
@@ -391,7 +391,7 @@ def script_path_invalid_failure(path: str) -> Failure:
     (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
     the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "invalid_path",
         f"script run requires a res:// script path, got: {path!r}",
         "",
@@ -407,7 +407,7 @@ def script_run_project_not_found_failure() -> Failure:
     the engine with this structured failure rather than launching projectless —
     the other explicit ABI edge of ADR-0031.
     """
-    return _failure(
+    return make_failure(
         "project_not_found",
         "script run requires a resolved Godot project: pass --project, set "
         "$GDA_PROJECT, or run from a project directory",
@@ -427,4 +427,4 @@ def invalid_project_failure(reason: str) -> Failure:
     Python traceback. It is the general, cross-cutting form of ``script run``'s own
     projectless ABI edge (#343); the two share the one ``project_not_found`` code.
     """
-    return _failure("project_not_found", reason, "")
+    return make_failure("project_not_found", reason, "")

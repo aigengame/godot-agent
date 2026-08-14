@@ -33,7 +33,7 @@ from gda.binary import resolve_godot_binary
 from gda.dispatch import _dispatch, _dispatch_recipe
 from gda.errors import (
     Failure,
-    _failure,
+    make_failure,
     classify_launch_or_crash,
     export_output_parent_failure,
     export_path_unset_failure,
@@ -352,7 +352,7 @@ def classify_export_run(
         # reaches here. Every non-zero native export is therefore the generic
         # classifier-source export_failed; the engine's stderr is preserved only
         # as advisory diagnostics (ADR-0002), never parsed to pick the code.
-        return _failure(
+        return make_failure(
             "export_failed",
             f'export of preset "{preset}" failed',
             output.stderr,

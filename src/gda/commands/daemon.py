@@ -47,7 +47,7 @@ from gda.display import windowed_unavailable_reason
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.dispatch import _dispatch_recipe
-from gda.errors import Failure, _failure, unresolvable_binary_failure
+from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
     install_harness,
@@ -214,6 +214,36 @@ def _is_unix() -> bool:
     return os.name == "posix"
 
 
+# The UNIX wording differs between `daemon start` and the other three lifecycle
+# operations; the two variants predate this extraction and are kept verbatim, so
+# `start` passes its own through ``unix_message``.
+_UNIX_REQUIRED = (
+    "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
+    "domain sockets, which are unavailable here"
+)
+
+
+def _lifecycle_preconditions(
+    project: Optional[Path], *, unix_message: str = _UNIX_REQUIRED
+) -> "Path | Failure":
+    """The two guards every daemon lifecycle operation opens with.
+
+    The platform gate first (a Unix domain socket is the daemon's transport,
+    ADR-0021), then the project gate — the daemon is per-project, so there is
+    nothing to address without one. Returns the project to operate on, or the
+    ``Failure`` that stops the operation before it touches any daemon state.
+    """
+    if not _is_unix():
+        return make_failure("live_unsupported_platform", unix_message, "")
+    if project is None:
+        return make_failure(
+            "project_not_found",
+            "gda daemon needs a Godot project; pass --project or run inside one",
+            "",
+        )
+    return project
+
+
 def _engine_version(binary: str) -> Optional[tuple]:
     """The running engine's (major, minor) via ``--version``, or None if unknown."""
     try:
@@ -308,26 +338,23 @@ def run_daemon_start_operation(
     version_check: Optional[VersionCheck] = None,
     display_check: Optional[DisplayCheck] = None,
 ) -> "DaemonStartResult | Failure":
-    if not _is_unix():
-        return _failure(
-            "live_unsupported_platform",
+    checked = _lifecycle_preconditions(
+        project,
+        unix_message=(
             "live operations require a UNIX platform (macOS/Linux); the daemon uses "
-            "Unix domain sockets, which are unavailable here",
-            "",
-        )
-    if project is None:
-        return _failure(
-            "project_not_found",
-            "gda daemon needs a Godot project; pass --project or run inside one",
-            "",
-        )
+            "Unix domain sockets, which are unavailable here"
+        ),
+    )
+    if isinstance(checked, Failure):
+        return checked
+    project = checked
     paths = daemon_paths(project)
     if not (
         within_uds_limit(paths.cli_socket) and within_uds_limit(paths.harness_socket)
     ):
         # Fail clearly here rather than letting the daemon's bind() overflow the
         # OS sun_path limit and the start time out into a vague error (ADR-0021).
-        return _failure(
+        return make_failure(
             "daemon_not_running",
             "the runtime directory yields a socket path longer than the OS limit "
             "for a Unix domain socket; set a shorter $XDG_RUNTIME_DIR",
@@ -340,7 +367,7 @@ def run_daemon_start_operation(
             # session it launches). A daemon is already up, so the chosen scene would
             # be silently ignored — surface a typed refusal instead of a quiet no-op
             # (#278 review finding 3). The remediation: stop, then start --scene.
-            return _failure(
+            return make_failure(
                 "daemon_already_running",
                 "a gda-daemon is already running for this project, so `--scene` would "
                 "be ignored — it only takes effect when the daemon starts. Run "
@@ -380,7 +407,7 @@ def run_daemon_start_operation(
     if version is None or tuple(version) < MIN_LIVE_VERSION:
         minimum = ".".join(str(part) for part in MIN_LIVE_VERSION)
         found = ".".join(str(part) for part in version) if version else "unknown"
-        return _failure(
+        return make_failure(
             "unsupported_version",
             f"live operations require Godot {minimum}+ (the daemon transport uses Unix "
             f"domain sockets, added in {minimum}); the engine reports {found}",
@@ -397,13 +424,13 @@ def run_daemon_start_operation(
         # precondition above. `daemon start` is where `windowed` already flows in.
         reason = (display_check or windowed_unavailable_reason)()
         if reason is not None:
-            return _failure("live_windowed_unavailable", reason, "")
+            return make_failure("live_windowed_unavailable", reason, "")
 
     installed = install_harness(project)
     (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
     pid = _await_ready(paths)
     if pid is None:
-        return _failure(
+        return make_failure(
             "daemon_not_running",
             "the gda-daemon did not start (it never began accepting on its socket)",
             "",
@@ -420,19 +447,10 @@ def run_daemon_start_operation(
 
 
 def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Failure":
-    if not _is_unix():
-        return _failure(
-            "live_unsupported_platform",
-            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
-            "domain sockets, which are unavailable here",
-            "",
-        )
-    if project is None:
-        return _failure(
-            "project_not_found",
-            "gda daemon needs a Godot project; pass --project or run inside one",
-            "",
-        )
+    checked = _lifecycle_preconditions(project)
+    if isinstance(checked, Failure):
+        return checked
+    project = checked
     paths = daemon_paths(project)
     pid = daemon_pid(paths)
     if pid is None:
@@ -445,19 +463,10 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
 def run_daemon_status_operation(
     project: Optional[Path],
 ) -> "DaemonStatusResult | Failure":
-    if not _is_unix():
-        return _failure(
-            "live_unsupported_platform",
-            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
-            "domain sockets, which are unavailable here",
-            "",
-        )
-    if project is None:
-        return _failure(
-            "project_not_found",
-            "gda daemon needs a Godot project; pass --project or run inside one",
-            "",
-        )
+    checked = _lifecycle_preconditions(project)
+    if isinstance(checked, Failure):
+        return checked
+    project = checked
     paths = daemon_paths(project)
     pid = daemon_pid(paths)
     # Liveness stays the pidfile's call (ADR-0021). When a daemon is up, round-trip
@@ -489,22 +498,13 @@ def run_daemon_uninstall_operation(
     session whose autoload this would yank out from under it. Idempotent: a no-op
     success when nothing is installed (mirrors ``daemon stop``).
     """
-    if not _is_unix():
-        return _failure(
-            "live_unsupported_platform",
-            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
-            "domain sockets, which are unavailable here",
-            "",
-        )
-    if project is None:
-        return _failure(
-            "project_not_found",
-            "gda daemon needs a Godot project; pass --project or run inside one",
-            "",
-        )
+    checked = _lifecycle_preconditions(project)
+    if isinstance(checked, Failure):
+        return checked
+    project = checked
     paths = daemon_paths(project)
     if daemon_pid(paths) is not None:
-        return _failure(
+        return make_failure(
             "daemon_running",
             "a gda-daemon is running for this project; stop it first with "
             "`gda daemon stop` before uninstalling the harness",

@@ -29,7 +29,7 @@ from gda.dispatch import _dispatch_meta, _dispatch_recipe
 from gda.errors import (
     MIN_GODOT_VERSION,
     Failure,
-    _failure,
+    make_failure,
     classify_run,
 )
 from gda.headless import (
@@ -196,7 +196,7 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         # "version too old" a programmatically detectable failure rather than an
         # implicit one — distinct from the environment-error case.
         minimum = ".".join(str(part) for part in MIN_GODOT_VERSION)
-        return _failure(
+        return make_failure(
             "unsupported_version",
             f"Godot {version.string} is below the minimum supported version {minimum}",
             result.stderr,
