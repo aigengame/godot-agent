@@ -27,6 +27,11 @@ if TYPE_CHECKING:
     # The result models are referenced only in string annotations on the renderers
     # below; since ADR-0023 removed the type-keyed dispatch table, nothing here
     # needs them at runtime. Keep them import-time only for type-checkers.
+    #
+    # ``SceneNode`` now lives with its own group module (ADR-0040); annotating
+    # against it here is a TYPE_CHECKING-only reference, so the runtime
+    # dependency direction (``commands`` → ``render``) is not inverted.
+    from gda.commands.scene import SceneNode
     from gda.models import (
         DaemonStartResult,
         DaemonStatusResult,
@@ -47,15 +52,6 @@ if TYPE_CHECKING:
         InputMouseResult,
         InputSequenceResult,
         LoggerTailResult,
-        NodeAddResult,
-        NodeConnectSignalResult,
-        NodeDisconnectSignalResult,
-        NodeDuplicateResult,
-        NodeGetResult,
-        NodeListResult,
-        NodeMoveResult,
-        NodeRemoveResult,
-        NodeSetResult,
         PerfMonitorResult,
         PerfMonitorsResult,
         ProjectAddAutoloadResult,
@@ -71,12 +67,6 @@ if TYPE_CHECKING:
         ResourceGetResult,
         ResourceSetResult,
         ResourceUidResult,
-        SceneCreateResult,
-        SceneDeleteResult,
-        SceneGetExportsResult,
-        SceneGetResult,
-        SceneListResult,
-        SceneNode,
         ScreenCaptureResult,
         ScreenFramesResult,
         ScriptAttachResult,
@@ -154,16 +144,6 @@ def render_node_tree(node: "SceneNode | GameNode", depth: int = 0) -> str:
         for child in reversed(current.children):
             stack.append((child, current_depth + 1))
     return "\n".join(lines)
-
-
-def render_scene_metadata(scene: "SceneCreateResult") -> str:
-    """Render a created scene as ``created <path> (root <type>)``."""
-    return f"created {scene.path} (root {scene.root_type})"
-
-
-def render_scene_tree(scene: "SceneGetResult") -> str:
-    """Render a read scene's node tree."""
-    return render_node_tree(scene.root)
 
 
 def render_game_tree(game: "GameTreeResult") -> str:
@@ -377,112 +357,6 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
     if uninstalled.removed:
         return "harness uninstalled"
     return "no harness was installed"
-
-
-def render_scene_exports(scene: "SceneGetExportsResult") -> str:
-    """Render a scene's per-node @export properties for humans.
-
-    One ``path (Type)`` header per node that declares exports, then a
-    ``name (Type) = value`` line per export — reusing :func:`format_value` for
-    the value, the same projection ``node get`` renders. An empty listing (no
-    exported variables anywhere) reads as ``(no exports)``.
-    """
-    if not scene.nodes:
-        return "(no exports)"
-    lines = []
-    for node in scene.nodes:
-        lines.append(f"{node.path} ({node.type})")
-        for export in node.exports:
-            lines.append(
-                f"  {export.name} ({export.type}) = {format_value(export.value)}"
-            )
-    return "\n".join(lines)
-
-
-def render_scene_list(listed: "SceneListResult") -> str:
-    """Render the enumerated scenes as ``path (root_name: root_type)`` lines."""
-    if not listed.scenes:
-        return "(no scenes)"
-    lines = []
-    for scene in listed.scenes:
-        if scene.root_name is not None and scene.root_type is not None:
-            lines.append(f"{scene.path} ({scene.root_name}: {scene.root_type})")
-        else:
-            lines.append(f"{scene.path} (unreadable)")
-    return "\n".join(lines)
-
-
-def render_scene_delete(removed: "SceneDeleteResult") -> str:
-    """Render a deleted scene as ``deleted <path> (root <name>: <type>)``."""
-    return f"deleted {removed.path} (root {removed.root_name}: {removed.root_type})"
-
-
-def render_node_add(added: "NodeAddResult") -> str:
-    """Render an added node as ``added <path> (<type>) to <scene>``.
-
-    A composition (#399) names its source too:
-    ``added <path> (<type>, instance of <src>) to <scene>``.
-    """
-    what = added.type
-    if added.instance is not None:
-        what = f"{added.type}, instance of {added.instance}"
-    return f"added {added.path} ({what}) to {added.scene_path}"
-
-
-def render_node_list(listed: "NodeListResult") -> str:
-    """Render a listed scene's node tree (with node paths)."""
-    return render_node_tree(listed.root)
-
-
-def render_node_properties(got: "NodeGetResult") -> str:
-    """Render a node's properties as ``name (Type) = value`` lines for humans."""
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
-
-
-def render_node_set(was_set: "NodeSetResult") -> str:
-    """Render a set property as ``set <path>.<prop> (<type>) = <value>``."""
-    return (
-        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-        f"{format_value(was_set.value)}"
-    )
-
-
-def render_node_remove(removed: "NodeRemoveResult") -> str:
-    """Render a removed node as ``removed <path> (<type>) from <scene>``."""
-    return f"removed {removed.path} ({removed.type}) from {removed.scene_path}"
-
-
-def render_node_duplicate(duplicated: "NodeDuplicateResult") -> str:
-    """Render a duplicated node as ``duplicated <source> to <path> (<type>)``."""
-    return (
-        f"duplicated {duplicated.source_path} to {duplicated.path} ({duplicated.type})"
-    )
-
-
-def render_node_move(moved: "NodeMoveResult") -> str:
-    """Render a moved node as ``moved <source> to <path> (<type>)``."""
-    return f"moved {moved.source_path} to {moved.path} ({moved.type})"
-
-
-def render_node_connect_signal(connected: "NodeConnectSignalResult") -> str:
-    """Render a wired connection as ``connected <from>.<signal> -> <to>.<method>``."""
-    return (
-        f"connected {connected.from_node}.{connected.signal} -> "
-        f"{connected.to}.{connected.method}"
-    )
-
-
-def render_node_disconnect_signal(disconnected: "NodeDisconnectSignalResult") -> str:
-    """Render an unwired connection as ``disconnected <from>.<signal> -> <to>.<method>``."""
-    return (
-        f"disconnected {disconnected.from_node}.{disconnected.signal} -> "
-        f"{disconnected.to}.{disconnected.method}"
-    )
 
 
 def render_script_metadata(script: ScriptMetadata) -> str:

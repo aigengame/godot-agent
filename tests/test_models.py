@@ -4,6 +4,25 @@ import json
 
 import jsonschema
 
+from gda.commands.node import (
+    NodeAddResult,
+    NodeConnectSignalResult,
+    NodeDisconnectSignalResult,
+    NodeDuplicateResult,
+    NodeGetResult,
+    NodeListResult,
+    NodeMoveResult,
+    NodeRemoveResult,
+    NodeSetResult,
+)
+from gda.commands.scene import (
+    SceneCreateResult,
+    SceneDeleteResult,
+    SceneExport,
+    SceneGetExportsResult,
+    SceneGetResult,
+    SceneListResult,
+)
 from gda.models import (
     EngineVersion,
     ExportGetResult,
@@ -15,16 +34,7 @@ from gda.models import (
     GdaErrorEnvelope,
     InlineValueProjection,
     ListedProjectSetting,
-    NodeAddResult,
-    NodeConnectSignalResult,
-    NodeDisconnectSignalResult,
-    NodeDuplicateResult,
-    NodeGetResult,
-    NodeListResult,
-    NodeMoveResult,
     NodeProperty,
-    NodeRemoveResult,
-    NodeSetResult,
     ProjectAddAutoloadResult,
     ProjectAddInputActionResult,
     ProjectGetResult,
@@ -36,12 +46,6 @@ from gda.models import (
     ResourceCreateResult,
     ResourceGetResult,
     ResourceSetResult,
-    SceneCreateResult,
-    SceneDeleteResult,
-    SceneExport,
-    SceneGetExportsResult,
-    SceneGetResult,
-    SceneListResult,
     ScriptCreateResult,
     ScriptDeleteResult,
     ScriptGetResult,

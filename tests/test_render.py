@@ -16,6 +16,14 @@ unchanged.
 
 import pytest
 
+from gda.commands.node import (
+    ListedNode,
+    NodeGetResult,
+    NodeSetResult,
+    render_node_properties,
+    render_node_set,
+)
+from gda.commands.scene import SceneNode
 from gda.models import (
     DaemonStartResult,
     DaemonStatusResult,
@@ -24,17 +32,13 @@ from gda.models import (
     GameGetResult,
     GameRectResult,
     GameSetResult,
-    ListedNode,
     ListedScript,
-    NodeGetResult,
     NodeProperty,
-    NodeSetResult,
     PerfMonitor,
     PerfMonitorResult,
     PerfMonitorsResult,
     PerfPropertySample,
     PerfSignalEmission,
-    SceneNode,
     ScriptCreateResult,
     ScriptDeleteResult,
     ScriptGetResult,
@@ -50,8 +54,6 @@ from gda.render import (
     render_game_get,
     render_game_rect,
     render_game_set,
-    render_node_properties,
-    render_node_set,
     render_node_tree,
     render_perf_monitor,
     render_perf_monitors,

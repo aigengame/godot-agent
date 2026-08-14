@@ -9,8 +9,12 @@ in :mod:`gda.render` is orphaned. This turns the former first-invocation
 ``KeyError`` ("command wired without a renderer") into a test-time guarantee.
 """
 
+import importlib
+import pkgutil
+
 import typer
 
+import gda.commands
 import gda.render as render_mod
 from gda.cli import app
 
@@ -63,14 +67,29 @@ _HELPER_RENDERERS = {
 }
 
 
+def _renderer_modules():
+    """Every module a renderer can live in: the shared helpers plus each group.
+
+    Since ADR-0040 a group's renderers live in its own ``gda.commands.<group>``
+    module, next to the descriptors that bind them; ``gda.render`` keeps only the
+    helpers shared across groups. The package is walked rather than listed, so a
+    group moved in a later slice is covered without editing this test.
+    """
+    modules = [render_mod]
+    for info in pkgutil.iter_modules(gda.commands.__path__):
+        modules.append(importlib.import_module(f"gda.commands.{info.name}"))
+    return modules
+
+
 def test_no_renderer_is_orphaned():
-    # Every ``render_*`` in gda.render is either bound to a command (reachable via a
-    # descriptor) or a known internal helper — no dead renderer survives the move off
-    # the type-keyed table.
+    # Every ``render_*`` in gda.render or a group module is either bound to a command
+    # (reachable via a descriptor) or a known internal helper — no dead renderer
+    # survives the move off the type-keyed table.
     defined = {
         name
-        for name in dir(render_mod)
-        if name.startswith("render_") and callable(getattr(render_mod, name))
+        for module in _renderer_modules()
+        for name in dir(module)
+        if name.startswith("render_") and callable(getattr(module, name))
     }
     bound = {cmd.render.__name__ for _, cmd in _dispatchable()}
     orphaned = defined - bound - _HELPER_RENDERERS
