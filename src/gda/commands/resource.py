@@ -20,7 +20,7 @@ from typing import Any, Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -31,8 +31,8 @@ from gda.headless import (
 from gda.models import (
     NodeProperty,
     NormalizedPath,
-    _OBJECT_SET_ECHO_DESC,
-    _projected_value_schema_extra,
+    OBJECT_SET_ECHO_DESC,
+    projected_value_schema_extra,
 )
 from gda.render import format_value
 
@@ -151,9 +151,9 @@ class ResourceSetResult(BaseModel):
     value: Any = Field(
         description=(
             "The coerced value as JSON, as the resource now holds it. "
-            + _OBJECT_SET_ECHO_DESC
+            + OBJECT_SET_ECHO_DESC
         ),
-        json_schema_extra=_projected_value_schema_extra,
+        json_schema_extra=projected_value_schema_extra,
     )
 
 
@@ -324,7 +324,7 @@ def create(
     project: Optional[str] = project_option(),
 ) -> None:
     """Create a new .tres resource file of the given resource type."""
-    _dispatch(
+    dispatch_domain(
         RESOURCE_CREATE_COMMAND,
         ResourceCreateParams(path=path, type=resource_type),
         json_output=json_output,
@@ -343,7 +343,7 @@ def get_resource(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a .tres resource and report its properties as typed JSON."""
-    _dispatch(
+    dispatch_domain(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=path),
         json_output=json_output,
@@ -378,7 +378,7 @@ def set_resource(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a .tres property, coercing the value to its declared Godot type, then save."""
-    _dispatch(
+    dispatch_domain(
         RESOURCE_SET_COMMAND,
         ResourceSetParams(path=path, property=property, value=value),
         json_output=json_output,
@@ -397,7 +397,7 @@ def delete_resource(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a .tres resource file and report what was removed."""
-    _dispatch(
+    dispatch_domain(
         RESOURCE_DELETE_COMMAND,
         ResourceDeleteParams(path=path),
         json_output=json_output,
@@ -423,7 +423,7 @@ def resolve_uid(
     project: Optional[str] = project_option(),
 ) -> None:
     """Resolve a resource UID to/from its res:// path via the engine's UID cache."""
-    _dispatch(
+    dispatch_domain(
         RESOURCE_UID_COMMAND,
         ResourceUidParams(target=target),
         json_output=json_output,

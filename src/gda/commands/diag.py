@@ -28,7 +28,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -42,7 +42,7 @@ from gda.headless import (
 # logger tail`` (which imports it from here, the one-way sibling edge of
 # ADR-0040 §5, following the ADR-0022/0026 lineage that made `logger` the
 # structured successor of this group's raw view).
-_DIAG_LIMIT_DESC = (
+DIAG_LIMIT_DESC = (
     "If set, tail only the most recent N entries (newest last); must be >= 1. "
     "Omit for all entries."
 )
@@ -113,7 +113,7 @@ class DiagErrorsParams(BaseModel):
     incremental offset. Omitting ``limit`` returns all entries.
     """
 
-    limit: int | None = Field(default=None, ge=1, description=_DIAG_LIMIT_DESC)
+    limit: int | None = Field(default=None, ge=1, description=DIAG_LIMIT_DESC)
 
 
 class DiagErrorsResult(BaseModel):
@@ -153,7 +153,7 @@ def render_diag_errors(diag: "DiagErrorsResult") -> str:
     return "\n".join(lines)
 
 
-def _diag_limit_option() -> Optional[int]:
+def diag_limit_option() -> Optional[int]:
     """The shared `--limit N` option for the log-reading live commands: tail N.
 
     Used by both ``gda diag errors`` and ``gda logger tail``. Bound to ``>= 1``
@@ -193,7 +193,7 @@ _app = typer.Typer(
 
 @_app.command(name="errors", cls=DIAG_ERRORS_COMMAND.command_class())
 def diag_errors(
-    limit: Optional[int] = _diag_limit_option(),
+    limit: Optional[int] = diag_limit_option(),
     json_output: bool = json_option(),
     schema: bool = DIAG_ERRORS_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -212,7 +212,7 @@ def diag_errors(
     `engine_session_not_running`; with a session whose log file is gone,
     `live_log_unavailable`. An empty log is an empty result, not an error.
     """
-    _dispatch(
+    dispatch_domain(
         DIAG_ERRORS_COMMAND,
         DiagErrorsParams(limit=limit),
         json_output=json_output,

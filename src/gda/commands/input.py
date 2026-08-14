@@ -33,9 +33,9 @@ from enum import Enum
 from typing import Optional
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -641,11 +641,10 @@ def input_key(
     unresolvable name is `live_invalid_key`. With no daemon it reports
     `daemon_not_running`.
     """
-    try:
-        params = InputKeyParams(key=key, modifiers=modifiers, released=released)
-    except (ValueError, ValidationError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _dispatch(
+    params = params_or_bad_parameter(
+        InputKeyParams, key=key, modifiers=modifiers, released=released
+    )
+    dispatch_domain(
         INPUT_KEY_COMMAND,
         params,
         json_output=json_output,
@@ -681,7 +680,7 @@ def input_mouse_click(
     Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
     reports `daemon_not_running`.
     """
-    _dispatch(
+    dispatch_domain(
         INPUT_MOUSE_CLICK_COMMAND,
         InputMouseClickParams(x=x, y=y, button=button, double=double),
         json_output=json_output,
@@ -713,7 +712,7 @@ def input_mouse_move(
     Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
     reports `daemon_not_running`.
     """
-    _dispatch(
+    dispatch_domain(
         INPUT_MOUSE_MOVE_COMMAND,
         InputMouseMoveParams(x=x, y=y),
         json_output=json_output,
@@ -751,11 +750,10 @@ def input_action(
     from the InputMap is `live_unknown_action`. With no daemon it reports
     `daemon_not_running`.
     """
-    try:
-        params = InputActionParams(action=action, release=release, strength=strength)
-    except (ValueError, ValidationError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _dispatch(
+    params = params_or_bad_parameter(
+        InputActionParams, action=action, release=release, strength=strength
+    )
+    dispatch_domain(
         INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -812,11 +810,8 @@ def input_sequence(
         decoded = json.loads(events)
     except json.JSONDecodeError as exc:
         raise typer.BadParameter(f"--events is not valid JSON: {exc}") from exc
-    try:
-        params = InputSequenceParams(events=decoded)
-    except (ValueError, ValidationError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _dispatch(
+    params = params_or_bad_parameter(InputSequenceParams, events=decoded)
+    dispatch_domain(
         INPUT_SEQUENCE_COMMAND,
         params,
         json_output=json_output,

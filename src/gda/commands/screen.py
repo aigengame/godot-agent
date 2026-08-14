@@ -25,7 +25,7 @@ import typer
 from pydantic import BaseModel, Field
 
 from gda import dispatch
-from gda.dispatch import _dispatch_recipe
+from gda.dispatch import dispatch_recipe
 from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
@@ -310,10 +310,10 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
 # --- Recipe channels (ADR-0023) -----------------------------------------------
 # Each ``screen`` command carries one of these on its descriptor (``recipe=``). A
 # recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch._dispatch_recipe`, kept
+# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_recipe`, kept
 # CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch._dispatch_recipe` → ``cmd.render``), so a
+# stays the shared tail (:func:`gda.dispatch.dispatch_recipe` → ``cmd.render``), so a
 # recipe command renders exactly like a sentinel one. The runner seam
 # (``dispatch._make_live_runner``) is referenced at call time — as an attribute on the
 # module, never imported by name — so test monkeypatches on
@@ -409,7 +409,7 @@ def screen_capture(
     # ~-normalized through the SAME single source of truth the --params-json path
     # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path. Dispatch through the
     # descriptor's recipe, exactly as the --params-json path does (ADR-0023).
-    _dispatch_recipe(
+    dispatch_recipe(
         SCREEN_CAPTURE_COMMAND,
         ScreenCaptureParams(output=str(output), inline=inline),
         json_output=json_output,
@@ -454,7 +454,7 @@ def screen_frames(
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
     # validated and ~-normalized through it, not passed as a raw Path. Dispatch
     # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
-    _dispatch_recipe(
+    dispatch_recipe(
         SCREEN_FRAMES_COMMAND,
         ScreenFramesParams(frames=frames, output_dir=str(output_dir)),
         json_output=json_output,

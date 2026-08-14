@@ -68,9 +68,10 @@ src/gda/
    `add_typer` order, so `--help` output is unchanged. Mounting **is** the
    registration — the live Typer tree stays the only registry (ADR-0012/0023).
 3. **`gda/dispatch.py` owns the CLI dispatch tails** — `_emit`,
-   `_resolve_project_or_fail`, `_dispatch`, `_dispatch_meta`,
-   `_dispatch_recipe`, `_run_params_json` plus its
-   `register_params_json_dispatch` call, and the runner seams `_make_runner` /
+   `_resolve_project_or_fail`, `dispatch_domain`, `dispatch_meta`,
+   `dispatch_recipe`, `_run_params_json` plus its
+   `register_params_json_dispatch` call, the argv params-building rule
+   `params_or_bad_parameter`, and the runner seams `_make_runner` /
    `_make_export_runner` / `_make_live_runner`. It sits below the group modules
    (which call the tails) and above `headless.py` (which stays free of CLI
    imports, ADR-0015). Seams are referenced late (`dispatch._make_runner` at

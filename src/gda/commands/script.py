@@ -25,7 +25,7 @@ import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.binary import resolve_godot_binary
-from gda.dispatch import _dispatch, _dispatch_recipe
+from gda.dispatch import dispatch_domain, dispatch_recipe
 from gda.errors import (
     Failure,
     classify_launch_or_crash,
@@ -928,7 +928,7 @@ SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand
 
 
 def _script_run_recipe(params, *, project, godot):
-    # ``project`` arrives ALREADY resolved by _dispatch_recipe — an invalid
+    # ``project`` arrives ALREADY resolved by dispatch_recipe — an invalid
     # --project/$GDA_PROJECT was converted to a structured project_not_found before
     # this runs, so no per-recipe ValueError handling is needed here (#353 folded in
     # script run's former try/except). A projectless None remains the op's own ABI
@@ -948,7 +948,7 @@ def _script_run_recipe(params, *, project, godot):
 # self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
 # runner-selection branch. The descriptor lives with its group (ADR-0040 §1),
 # beside the operation its recipe drives; project resolution stays in the shared
-# dispatch tail (``gda.dispatch._dispatch_recipe``), so the recipe needs no seam of
+# dispatch tail (``gda.dispatch.dispatch_recipe``), so the recipe needs no seam of
 # its own.
 SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
     operation="script-run",
@@ -995,7 +995,7 @@ def create(
     """Create a new .gd script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    _dispatch(
+    dispatch_domain(
         SCRIPT_CREATE_COMMAND,
         ScriptCreateParams(
             path=path,
@@ -1018,7 +1018,7 @@ def get_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a script's source and report its class_name/extends metadata."""
-    _dispatch(
+    dispatch_domain(
         SCRIPT_GET_COMMAND,
         ScriptGetParams(path=path),
         json_output=json_output,
@@ -1036,7 +1036,7 @@ def list_scripts(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .gd scripts in the resolved project."""
-    _dispatch(
+    dispatch_domain(
         SCRIPT_LIST_COMMAND,
         ScriptListParams(),
         json_output=json_output,
@@ -1055,7 +1055,7 @@ def delete_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a script file and report what was removed."""
-    _dispatch(
+    dispatch_domain(
         SCRIPT_DELETE_COMMAND,
         ScriptDeleteParams(path=path),
         json_output=json_output,
@@ -1111,8 +1111,8 @@ def set_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
-    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
-    _dispatch(
+    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    dispatch_domain(
         SCRIPT_SET_COMMAND,
         ScriptSetParams(
             path=path,
@@ -1129,7 +1129,7 @@ def set_script(
     )
 
 
-def _resolve_set_mode(
+def parse_set_mode_argv(
     search: Optional[str],
     replace: Optional[str],
     start_line: Optional[int],
@@ -1171,7 +1171,7 @@ def attach_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Attach a .gd script to a node (by node path) in a scene and save."""
-    _dispatch(
+    dispatch_domain(
         SCRIPT_ATTACH_COMMAND,
         ScriptAttachParams(
             path=path,
@@ -1194,7 +1194,7 @@ def validate_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Syntax/compile-check a .gd script; invalid exits 0 with valid=false."""
-    _dispatch(
+    dispatch_domain(
         SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=path),
         json_output=json_output,
@@ -1227,7 +1227,7 @@ def run_script(
     (``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``). A non-res://
     path or no resolved project is a structured ``invalid_path`` / ``project_not_found``.
     """
-    _dispatch_recipe(
+    dispatch_recipe(
         SCRIPT_RUN_COMMAND,
         ScriptRunParams(path=path),
         json_output=json_output,

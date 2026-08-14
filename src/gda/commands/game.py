@@ -21,7 +21,7 @@ from typing import Any, Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -32,9 +32,9 @@ from gda.headless import (
 )
 from gda.models import (
     NodeProperty,
-    _LIVE_SET_READ_BACK_VALUE_DESC,
-    _RUNTIME_NODE_DESC,
-    _projected_value_schema_extra,
+    LIVE_SET_READ_BACK_VALUE_DESC,
+    RUNTIME_NODE_DESC,
+    projected_value_schema_extra,
 )
 from gda.render import format_value, render_node_tree
 
@@ -82,7 +82,7 @@ class GameGetParams(BaseModel):
     unfiltered reads still list only the storage-property surface.
     """
 
-    node: str = Field(description=_RUNTIME_NODE_DESC)
+    node: str = Field(description=RUNTIME_NODE_DESC)
     property: str | None = Field(
         default=None,
         description=(
@@ -123,7 +123,7 @@ class GameRectParams(BaseModel):
     the running SceneTree.
     """
 
-    node: str = Field(description=_RUNTIME_NODE_DESC)
+    node: str = Field(description=RUNTIME_NODE_DESC)
 
 
 class GameRectResult(BaseModel):
@@ -157,7 +157,7 @@ class GameSetParams(BaseModel):
     are bound to the session, not persisted.
     """
 
-    node: str = Field(description=_RUNTIME_NODE_DESC)
+    node: str = Field(description=RUNTIME_NODE_DESC)
     property: str = Field(
         description=(
             "The property to set (e.g. position, visible). Explicit names first "
@@ -196,9 +196,9 @@ class GameSetResult(BaseModel):
     value: Any = Field(
         description=(
             "The observed read-back value as JSON, as the running node now holds it. "
-            + _LIVE_SET_READ_BACK_VALUE_DESC
+            + LIVE_SET_READ_BACK_VALUE_DESC
         ),
-        json_schema_extra=_projected_value_schema_extra,
+        json_schema_extra=projected_value_schema_extra,
     )
     verified: bool = Field(
         description=(
@@ -314,7 +314,7 @@ def game_tree(
     `live_unsupported_platform`. The platform/Godot-version precondition is the
     structured `constraints` field of `--schema` (ADR-0021), not restated here.
     """
-    _dispatch(
+    dispatch_domain(
         GAME_TREE_COMMAND,
         GameTreeParams(),
         json_output=json_output,
@@ -354,7 +354,7 @@ def game_get(
     script is addressable explicitly after storage properties are checked; unfiltered
     reads keep the storage-property listing and do not dump script variables.
     """
-    _dispatch(
+    dispatch_domain(
         GAME_GET_COMMAND,
         GameGetParams(node=node, property=property),
         json_output=json_output,
@@ -384,7 +384,7 @@ def game_rect(
     `daemon_not_running`; a path that resolves to no running node is
     `live_node_not_found`; a non-Control node is `live_not_control`.
     """
-    _dispatch(
+    dispatch_domain(
         GAME_RECT_COMMAND,
         GameRectParams(node=node),
         json_output=json_output,
@@ -438,7 +438,7 @@ def game_set(
     reports `daemon_not_running`; an absent node is `live_node_not_found`, an absent
     property `live_unknown_property`, an uncoercible input value `live_uncoercible_value`.
     """
-    _dispatch(
+    dispatch_domain(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
         json_output=json_output,

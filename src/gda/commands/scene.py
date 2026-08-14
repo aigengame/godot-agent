@@ -17,7 +17,7 @@ from typing import Any, Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -27,8 +27,8 @@ from gda.headless import (
 )
 from gda.models import (
     NormalizedPath,
-    _projected_value_schema_extra,
-    _VALUE_PROJECTION_DESC,
+    projected_value_schema_extra,
+    VALUE_PROJECTION_DESC,
 )
 from gda.render import format_value, render_node_tree
 
@@ -175,9 +175,9 @@ class SceneExport(BaseModel):
     value: Any = Field(
         description=(
             "The export's current value as JSON (its default on a freshly-loaded "
-            "node). " + _VALUE_PROJECTION_DESC
+            "node). " + VALUE_PROJECTION_DESC
         ),
-        json_schema_extra=_projected_value_schema_extra,
+        json_schema_extra=projected_value_schema_extra,
     )
 
 
@@ -425,7 +425,7 @@ def create(
     """Create a new .tscn scene file with the given root node type."""
     # Normalization + root-name derivation live in SceneCreateParams (ADR-0015),
     # so this body is a thin argv→model adapter and the --params-json path agrees.
-    _dispatch(
+    dispatch_domain(
         SCENE_CREATE_COMMAND,
         SceneCreateParams(path=path, root_type=root_type, root_name=root_name),
         json_output=json_output,
@@ -444,7 +444,7 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
-    _dispatch(
+    dispatch_domain(
         SCENE_GET_COMMAND,
         SceneGetParams(path=path),
         json_output=json_output,
@@ -463,7 +463,7 @@ def get_exports(
     project: Optional[str] = project_option(),
 ) -> None:
     """List the @export properties a scene's nodes' scripts declare, per node path."""
-    _dispatch(
+    dispatch_domain(
         SCENE_GET_EXPORTS_COMMAND,
         SceneGetExportsParams(path=path),
         json_output=json_output,
@@ -481,7 +481,7 @@ def list_scenes(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .tscn scenes in the resolved project."""
-    _dispatch(
+    dispatch_domain(
         SCENE_LIST_COMMAND,
         SceneListParams(),
         json_output=json_output,
@@ -500,7 +500,7 @@ def delete(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a scene file and report what was removed."""
-    _dispatch(
+    dispatch_domain(
         SCENE_DELETE_COMMAND,
         SceneDeleteParams(path=path),
         json_output=json_output,

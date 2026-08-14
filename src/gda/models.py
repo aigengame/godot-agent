@@ -279,7 +279,7 @@ NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
 # knowable, a deliberate, bounded exception to ADR-0004's model-driven-output
 # rule — so the stable parts are surfaced here and by the two named projection
 # models (ReferenceProjection / InlineValueProjection) below.
-_VALUE_PROJECTION_DESC = (
+VALUE_PROJECTION_DESC = (
     "Rendered through the one recursive read-side value projection "
     "(ADR-0035): a scalar for a scalar type; a flat number list for a "
     "fixed-shape type (Vector2 → [x, y], Color → [r, g, b, a]); a JSON "
@@ -294,12 +294,12 @@ _VALUE_PROJECTION_DESC = (
 
 # The set-echo variant: the set commands echo the value they set through the
 # SAME projection (they read it back off the subject and _jsonify it).
-_SET_ECHO_VALUE_DESC = (
+SET_ECHO_VALUE_DESC = (
     "The coerced value as JSON, in the same recursive value projection the "
     "corresponding get reports (ADR-0035)."
 )
 
-_LIVE_SET_READ_BACK_VALUE_DESC = (
+LIVE_SET_READ_BACK_VALUE_DESC = (
     "The observed read-back value as JSON, in the same recursive value projection "
     "that game get reports (ADR-0035)."
 )
@@ -307,7 +307,7 @@ _LIVE_SET_READ_BACK_VALUE_DESC = (
 # node/resource set additionally have the ADR-0033 Object-typed set path;
 # its echo flows through the same projection, so the assigned resource echoes
 # as the reference projection a subsequent get reads back.
-_OBJECT_SET_ECHO_DESC = _SET_ECHO_VALUE_DESC + (
+OBJECT_SET_ECHO_DESC = SET_ECHO_VALUE_DESC + (
     " Setting an Object-typed property by res:// path (ADR-0033) echoes the "
     "assigned resource as a ReferenceProjection ({type, resource_path}) — "
     "the same shape a subsequent get reads back."
@@ -358,7 +358,7 @@ class InlineValueProjection(BaseModel):
     )
 
 
-def _projected_value_schema_extra(schema: dict[str, Any]) -> None:
+def projected_value_schema_extra(schema: dict[str, Any]) -> None:
     """Attach the named Object-projection shapes to a projected ``value`` field.
 
     A projected ``value`` stays ``Any`` — its shape is not statically knowable,
@@ -395,8 +395,8 @@ class NodeProperty(BaseModel):
         description="The property's declared Godot type name (e.g. int, Vector2, Color)."
     )
     value: Any = Field(
-        description="The property's value as JSON. " + _VALUE_PROJECTION_DESC,
-        json_schema_extra=_projected_value_schema_extra,
+        description="The property's value as JSON. " + VALUE_PROJECTION_DESC,
+        json_schema_extra=projected_value_schema_extra,
     )
 
 
@@ -464,7 +464,7 @@ class EngineVersion(BaseModel):
 # tree's ``Node.get_path()``. This is the live counterpart of the node group's
 # root-relative ``node`` param — the headless resolver rejects absolute paths,
 # so the live layer addresses off the running SceneTree root instead (ADR-0019).
-_RUNTIME_NODE_DESC = (
+RUNTIME_NODE_DESC = (
     "Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player)."
 )
 

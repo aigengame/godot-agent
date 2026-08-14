@@ -23,7 +23,7 @@ from typing import Any, Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -32,7 +32,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import MAX_WINDOW_FRAMES, _RUNTIME_NODE_DESC
+from gda.models import MAX_WINDOW_FRAMES, RUNTIME_NODE_DESC
 from gda.render import format_value
 
 
@@ -92,7 +92,7 @@ class PerfMonitorParams(BaseModel):
     silently preferring one selector or clamping an over-range ``frames``.
     """
 
-    node: str = Field(description=_RUNTIME_NODE_DESC)
+    node: str = Field(description=RUNTIME_NODE_DESC)
     property: str | None = Field(
         default=None,
         description="The property to sample each frame (mutually exclusive with --signal).",
@@ -254,7 +254,7 @@ def perf_monitors(
     the values are mutually coherent (ADR-0020). Live ops need a running daemon:
     with none, it reports `daemon_not_running`.
     """
-    _dispatch(
+    dispatch_domain(
         PERF_MONITORS_COMMAND,
         PerfMonitorsParams(),
         json_output=json_output,
@@ -314,7 +314,7 @@ def perf_monitor(
         raise typer.BadParameter("--property and --signal are mutually exclusive.")
     if property is None and signal is None:
         raise typer.BadParameter("perf monitor needs --property or --signal.")
-    _dispatch(
+    dispatch_domain(
         PERF_MONITOR_COMMAND,
         PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),
         json_output=json_output,

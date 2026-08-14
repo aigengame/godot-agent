@@ -24,8 +24,8 @@ from typing import Any, Optional
 import typer
 from pydantic import BaseModel, Field
 
-from gda.commands.diag import SourceFrame, _diag_limit_option, _DIAG_LIMIT_DESC
-from gda.dispatch import _dispatch
+from gda.commands.diag import SourceFrame, diag_limit_option, DIAG_LIMIT_DESC
+from gda.dispatch import dispatch_domain
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -125,7 +125,7 @@ class LoggerTailParams(BaseModel):
             "closed ordering debug < info < warning < error. Omit for all."
         ),
     )
-    limit: int | None = Field(default=None, ge=1, description=_DIAG_LIMIT_DESC)
+    limit: int | None = Field(default=None, ge=1, description=DIAG_LIMIT_DESC)
     raw: bool = Field(
         default=False,
         description=(
@@ -240,7 +240,7 @@ _app = typer.Typer(
 @_app.command(name="tail", cls=LOGGER_TAIL_COMMAND.command_class())
 def logger_tail(
     level: Optional[LogLevel] = _logger_level_option(),
-    limit: Optional[int] = _diag_limit_option(),
+    limit: Optional[int] = diag_limit_option(),
     raw: bool = _logger_raw_option(),
     json_output: bool = json_option(),
     schema: bool = LOGGER_TAIL_COMMAND.schema_option(),
@@ -263,7 +263,7 @@ def logger_tail(
     ever launched, `engine_session_not_running`; with a session whose log file is
     gone, `live_log_unavailable`. An empty log is an empty result, not an error.
     """
-    _dispatch(
+    dispatch_domain(
         LOGGER_TAIL_COMMAND,
         LoggerTailParams(level=level, limit=limit, raw=raw),
         json_output=json_output,

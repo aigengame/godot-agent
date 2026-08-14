@@ -46,7 +46,7 @@ from gda.daemon.discovery import (
 from gda.display import windowed_unavailable_reason
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
-from gda.dispatch import _dispatch_recipe
+from gda.dispatch import dispatch_recipe
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
@@ -556,10 +556,10 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
 # --- Recipe channels (ADR-0023) -----------------------------------------------
 # Each daemon lifecycle command carries one of these on its descriptor (``recipe=``).
 # A recipe PRODUCES the outcome — run the CLI-side operation over the ALREADY-resolved
-# ``project`` (resolution happens once in :func:`gda.dispatch._dispatch_recipe`, kept
+# ``project`` (resolution happens once in :func:`gda.dispatch.dispatch_recipe`, kept
 # CLI-side per ADR-0006, so an invalid --project is a structured project_not_found
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
-# stays the shared tail (:func:`gda.dispatch._dispatch_recipe` → ``cmd.render``), so a
+# stays the shared tail (:func:`gda.dispatch.dispatch_recipe` → ``cmd.render``), so a
 # recipe command renders exactly like a sentinel one. ``params`` is the built model —
 # the single source of truth (ADR-0015), identical on the argv and ``--params-json``
 # paths — so windowed/scene are read off it, never special-cased.
@@ -670,7 +670,7 @@ def daemon_start(
     # Build the params model from the argv options (the single source of truth,
     # ADR-0015) so the recipe reads `windowed`/`scene` off it on BOTH the argv and
     # --params-json paths — no special-casing.
-    _dispatch_recipe(
+    dispatch_recipe(
         DAEMON_START_COMMAND,
         DaemonStartParams(windowed=windowed, scene=scene),
         json_output=json_output,
@@ -692,7 +692,7 @@ def daemon_stop(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _dispatch_recipe(
+    dispatch_recipe(
         DAEMON_STOP_COMMAND,
         DaemonStopParams(),
         json_output=json_output,
@@ -714,7 +714,7 @@ def daemon_status(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _dispatch_recipe(
+    dispatch_recipe(
         DAEMON_STATUS_COMMAND,
         DaemonStatusParams(),
         json_output=json_output,
@@ -741,7 +741,7 @@ def daemon_uninstall(
     with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.
     """
-    _dispatch_recipe(
+    dispatch_recipe(
         DAEMON_UNINSTALL_COMMAND,
         DaemonUninstallParams(),
         json_output=json_output,

@@ -17,8 +17,8 @@ from typing import Optional, Protocol, runtime_checkable
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.commands.script import ScriptSetMode, _resolve_set_mode, resolve_set_mode
-from gda.dispatch import _dispatch
+from gda.commands.script import ScriptSetMode, parse_set_mode_argv, resolve_set_mode
+from gda.dispatch import dispatch_domain
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -339,7 +339,7 @@ def create(
     """Create a new .gdshader from a template or verbatim --content."""
     if content is not None and shader_type is not None:
         raise typer.BadParameter("--content and --shader-type are mutually exclusive.")
-    _dispatch(
+    dispatch_domain(
         SHADER_CREATE_COMMAND,
         ShaderCreateParams(
             path=path,
@@ -362,7 +362,7 @@ def get_shader(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a shader's source and report its shader_type metadata."""
-    _dispatch(
+    dispatch_domain(
         SHADER_GET_COMMAND,
         ShaderGetParams(path=path),
         json_output=json_output,
@@ -420,8 +420,8 @@ def set_shader(
     """Edit a .gdshader via search-replace, line-range, or full overwrite."""
     # shader set reuses the script set edit-mode interface (issue #115): the same
     # mutual-exclusion resolver decides the single ScriptSetMode discriminator.
-    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
-    _dispatch(
+    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    dispatch_domain(
         SHADER_SET_COMMAND,
         ShaderSetParams(
             path=path,

@@ -25,7 +25,7 @@ from typing import Optional
 import typer
 from pydantic import BaseModel, Field, model_validator
 
-from gda.dispatch import _dispatch_meta, _dispatch_recipe
+from gda.dispatch import dispatch_meta, dispatch_recipe
 from gda.errors import (
     MIN_GODOT_VERSION,
     Failure,
@@ -242,7 +242,7 @@ def _skill_recipe(params, *, project, godot):
 # `gda skill` is a pure emitter meta command (ADR-0024): it reads the in-package
 # SKILL.md and emits or installs it, spawning no Godot — so, like `export run` and
 # the daemon lifecycle, it carries a `recipe` on its descriptor and dispatches
-# through it (`_dispatch_recipe`) rather than the sentinel pipeline. It stays
+# through it (`dispatch_recipe`) rather than the sentinel pipeline. It stays
 # HEADLESS `kind` (the default) and meta (no --project), a sibling of info/schema.
 SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     operation="skill",
@@ -275,7 +275,7 @@ def register(root: typer.Typer) -> None:
         godot: Optional[str] = godot_option(),
     ) -> None:
         """Report the Godot engine version info."""
-        _dispatch_meta(
+        dispatch_meta(
             INFO_COMMAND,
             InfoParams(),
             json_output=json_output,
@@ -338,7 +338,7 @@ def register(root: typer.Typer) -> None:
             raise typer.BadParameter(
                 "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
             )
-        _dispatch_recipe(
+        dispatch_recipe(
             SKILL_COMMAND,
             SkillParams(
                 install=install, install_dir=dir, provider=provider, scope=scope

@@ -1,8 +1,9 @@
 """The CLI-layer dispatch tails and runner seams.
 
-This module owns the dispatch tails (``_emit`` / ``_dispatch`` /
-``_dispatch_meta`` / ``_dispatch_recipe`` / ``_run_params_json``) and the runner
-seams (``_make_runner`` / ``_make_export_runner`` / ``_make_live_runner``)
+This module owns the dispatch tails (``_emit`` / ``dispatch_domain`` /
+``dispatch_meta`` / ``dispatch_recipe`` / ``_run_params_json``), the argv
+params-building rule (``params_or_bad_parameter``) and the runner seams
+(``_make_runner`` / ``_make_export_runner`` / ``_make_live_runner``)
 shared by every command module. The descriptor machinery itself stays in
 ``gda.headless``, which holds no CLI import (ADR-0015); this module sits between
 the two — below the command modules that call the tails, above ``headless``.
@@ -10,10 +11,10 @@ Extracted from ``gda.cli`` per ADR-0040.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, TypeVar
 
 import typer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from gda.errors import (
     Failure,
@@ -32,6 +33,25 @@ from gda.headless import (
 from gda.live_runner import make_daemon_runner
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
+
+P = TypeVar("P", bound=BaseModel)
+
+
+def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
+    """Build a command's params model from argv, or raise the Click usage error.
+
+    The one rule for the argv path: a model-construction failure is a CLI usage
+    error. The model is the single source of truth for a request's shape
+    (ADR-0015), so the argv body builds it and translates its ``ValueError`` /
+    ``ValidationError`` into ``typer.BadParameter`` (exit 2), keeping the argv
+    usage-error ergonomics — while ``--params-json``, which builds the SAME model
+    in the command class, surfaces the same rule as a structured
+    ``invalid_params``. Stated here once so no argv body restates it.
+    """
+    try:
+        return model_cls(**kwargs)
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
@@ -78,7 +98,7 @@ def _emit(
     client), every other through :func:`_make_runner`. Both seams are referenced
     here at call time, so a test monkeypatch on ``gda.dispatch._make_runner`` /
     ``gda.dispatch._make_live_runner`` still binds. Both the domain dispatch
-    (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
+    (:func:`dispatch_domain`) and the meta dispatch (:func:`dispatch_meta`) funnel
     through here; they differ only in how ``project`` is obtained.
     """
     make_runner = _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
@@ -98,8 +118,8 @@ def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
     ``resolve_project_dir`` raises ``ValueError`` for an explicit ``--project`` or
     ``$GDA_PROJECT`` that is empty or is not a Godot project. This is the ONE shared
     project-resolution point on the CLI dispatch path, so converting the raise here
-    gives every channel — sentinel (:func:`_dispatch`) and recipe
-    (:func:`_dispatch_recipe`) — the structured envelope in a single place.
+    gives every channel — sentinel (:func:`dispatch_domain`) and recipe
+    (:func:`dispatch_recipe`) — the structured envelope in a single place.
     """
     try:
         return resolve_project_dir(project)
@@ -107,7 +127,7 @@ def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
         emit_failure(invalid_project_failure(str(exc)))
 
 
-def _dispatch(
+def dispatch_domain(
     cmd: HeadlessCommand[M],
     params: BaseModel,
     *,
@@ -134,7 +154,7 @@ def _dispatch(
     )
 
 
-def _dispatch_meta(
+def dispatch_meta(
     cmd: HeadlessCommand[M],
     params: BaseModel,
     *,
@@ -143,7 +163,7 @@ def _dispatch_meta(
 ) -> None:
     """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
 
-    Unlike :func:`_dispatch`, this never calls ``resolve_project_dir``: a meta
+    Unlike :func:`dispatch_domain`, this never calls ``resolve_project_dir``: a meta
     command (``gda info``) is about ``gda``/the engine itself, so it runs
     projectless rather than resolving a project context.
     """
@@ -156,7 +176,7 @@ def _dispatch_meta(
     )
 
 
-def _dispatch_recipe(
+def dispatch_recipe(
     cmd: HeadlessCommand[M],
     params: BaseModel,
     *,
@@ -204,7 +224,7 @@ def _run_params_json(
     the two input paths are indistinguishable downstream. The global
     ``--json`` / ``--godot`` / ``--project`` options parsed alongside
     ``--params-json`` are honored; a meta command (no ``--project`` option)
-    dispatches projectless, mirroring :func:`_dispatch_meta`.
+    dispatches projectless, mirroring :func:`dispatch_meta`.
     """
     options = ctx.params
     json_output = bool(options.get("json_output", False))
@@ -215,7 +235,7 @@ def _run_params_json(
         # branch, no kind/identity selection (ADR-0023). The recipe reads everything
         # from the built params model (windowed/output/…), so --params-json drives the
         # SAME path as the argv body.
-        _dispatch_recipe(
+        dispatch_recipe(
             cmd,
             params,
             json_output=json_output,
@@ -224,7 +244,7 @@ def _run_params_json(
         )
         return
     if "project" in options:
-        _dispatch(
+        dispatch_domain(
             cmd,
             params,
             json_output=json_output,
@@ -232,7 +252,7 @@ def _run_params_json(
             project=options.get("project"),
         )
     else:
-        _dispatch_meta(cmd, params, json_output=json_output, godot=godot)
+        dispatch_meta(cmd, params, json_output=json_output, godot=godot)
 
 
 register_params_json_dispatch(_run_params_json)

@@ -17,9 +17,9 @@ the absolute imports keep the two names apart.
 from typing import Any, Optional
 
 import typer
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from gda.dispatch import _dispatch
+from gda.dispatch import dispatch_domain, params_or_bad_parameter
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -31,9 +31,9 @@ from gda.models import (
     EngineVersion,
     NormalizedPath,
     ResourceReference,
-    _projected_value_schema_extra,
-    _SET_ECHO_VALUE_DESC,
-    _VALUE_PROJECTION_DESC,
+    projected_value_schema_extra,
+    SET_ECHO_VALUE_DESC,
+    VALUE_PROJECTION_DESC,
 )
 from gda.render import format_value
 
@@ -278,8 +278,8 @@ class ProjectGetResult(BaseModel):
         description="The setting's declared Godot type name (e.g. String, int, Vector2)."
     )
     value: Any = Field(
-        description="The setting's value as JSON. " + _VALUE_PROJECTION_DESC,
-        json_schema_extra=_projected_value_schema_extra,
+        description="The setting's value as JSON. " + VALUE_PROJECTION_DESC,
+        json_schema_extra=projected_value_schema_extra,
     )
 
 
@@ -326,8 +326,8 @@ class ListedProjectSetting(BaseModel):
         description="The setting's declared Godot type name (e.g. String, int, Vector2)."
     )
     value: Any = Field(
-        description="The setting's value as JSON. " + _VALUE_PROJECTION_DESC,
-        json_schema_extra=_projected_value_schema_extra,
+        description="The setting's value as JSON. " + VALUE_PROJECTION_DESC,
+        json_schema_extra=projected_value_schema_extra,
     )
     is_default: bool = Field(
         description=(
@@ -394,9 +394,9 @@ class ProjectSetResult(BaseModel):
     value: Any = Field(
         description=(
             "The coerced value as JSON, as ProjectSettings now holds it. "
-            + _SET_ECHO_VALUE_DESC
+            + SET_ECHO_VALUE_DESC
         ),
-        json_schema_extra=_projected_value_schema_extra,
+        json_schema_extra=projected_value_schema_extra,
     )
 
 
@@ -807,7 +807,7 @@ def project_info(
     project: Optional[str] = project_option(),
 ) -> None:
     """Report the resolved project's metadata (name, main scene, viewport, engine)."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_INFO_COMMAND,
         ProjectInfoParams(),
         json_output=json_output,
@@ -829,7 +829,7 @@ def project_get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a single project setting by section/key as typed JSON."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_GET_COMMAND,
         ProjectGetParams(setting=setting),
         json_output=json_output,
@@ -863,7 +863,7 @@ def project_list(
     project: Optional[str] = project_option(),
 ) -> None:
     """List the project's settings keys (customized only by default; --all adds defaults)."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_LIST_COMMAND,
         ProjectListParams(include_defaults=all_settings, section=section),
         json_output=json_output,
@@ -890,7 +890,7 @@ def find_references(
     project: Optional[str] = project_option(),
 ) -> None:
     """Find every project file that references a given resource path or class_name."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_FIND_REFERENCES_COMMAND,
         ProjectFindReferencesParams(target=target),
         json_output=json_output,
@@ -908,7 +908,7 @@ def dependencies(
     project: Optional[str] = project_option(),
 ) -> None:
     """Map each scene/resource in the project to the resources it references."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_DEPENDENCIES_COMMAND,
         ProjectDependenciesParams(),
         json_output=json_output,
@@ -929,7 +929,7 @@ def find_unused_resources(
     project: Optional[str] = project_option(),
 ) -> None:
     """Find resource files that nothing references (built on the reference graph)."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_FIND_UNUSED_RESOURCES_COMMAND,
         ProjectFindUnusedResourcesParams(),
         json_output=json_output,
@@ -959,7 +959,7 @@ def project_set(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a project setting, coercing the value to its declared Godot type, then save."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
         json_output=json_output,
@@ -984,7 +984,7 @@ def project_add_autoload(
     project: Optional[str] = project_option(),
 ) -> None:
     """Register an autoload singleton (name → script/scene path), then save project.godot."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_ADD_AUTOLOAD_COMMAND,
         ProjectAddAutoloadParams(name=name, path=path),
         json_output=json_output,
@@ -1007,7 +1007,7 @@ def project_remove_autoload(
     project: Optional[str] = project_option(),
 ) -> None:
     """Unregister an autoload singleton by name, then save project.godot."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
         json_output=json_output,
@@ -1051,13 +1051,14 @@ def project_add_input_action(
     project: Optional[str] = project_option(),
 ) -> None:
     """Register an InputMap action bound to one or more keys, then save project.godot."""
-    try:
-        params = ProjectAddInputActionParams(
-            name=name, keys=keys, deadzone=deadzone, physical=physical
-        )
-    except (ValueError, ValidationError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _dispatch(
+    params = params_or_bad_parameter(
+        ProjectAddInputActionParams,
+        name=name,
+        keys=keys,
+        deadzone=deadzone,
+        physical=physical,
+    )
+    dispatch_domain(
         PROJECT_ADD_INPUT_ACTION_COMMAND,
         params,
         json_output=json_output,
@@ -1078,7 +1079,7 @@ def project_remove_input_action(
     project: Optional[str] = project_option(),
 ) -> None:
     """Unregister an InputMap action by name, then save project.godot."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),
         json_output=json_output,
@@ -1096,7 +1097,7 @@ def statistics(
     project: Optional[str] = project_option(),
 ) -> None:
     """Report the project's file/line counts, autoloads and plugins."""
-    _dispatch(
+    dispatch_domain(
         PROJECT_STATISTICS_COMMAND,
         ProjectStatisticsParams(),
         json_output=json_output,
