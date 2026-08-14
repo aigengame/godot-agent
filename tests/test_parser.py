@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from gda.errors import parse_validate_diagnostics
+from gda.commands.script import parse_validate_diagnostics
 from gda.parser import parse_result
 
 

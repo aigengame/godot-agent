@@ -12,5 +12,7 @@ mounting IS the registration, keeping the live Typer tree the only registry
 Dependency direction (ADR-0040 §5): ``cli`` → ``commands/*`` → ``dispatch`` →
 ``headless`` → runners / ``errors`` / ``models``. A group module may import
 another group's public model one-way where the language genuinely shares a
-shape (``node`` → ``scene`` for ``SceneNode``); no reciprocal group imports.
+shape — ``node`` → ``scene`` for ``SceneNode``, ``shader`` → ``script`` for the
+``ScriptSetMode`` edit interface ``shader set`` reuses; no reciprocal group
+imports.
 """

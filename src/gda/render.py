@@ -8,20 +8,19 @@ across a union of result types. A command binds its renderer on its own
 ``HeadlessCommand`` descriptor (``render=``, ADR-0023) — there is no central
 type-keyed dispatch table here; emission calls the descriptor's renderer.
 
-Two seams are deliberately funnelled through one place here:
+Since ADR-0040 a group's own renderers live in its ``gda.commands.<group>``
+module, beside the descriptors that bind them; what stays here are the renderers
+of groups not yet moved plus the helpers shared ACROSS groups. One such seam is
+deliberately funnelled through one place here:
 
 - **Value-to-text.** A node property's ``value`` is arbitrary JSON (every Godot
   type carried uniformly, :class:`~gda.models.NodeProperty`). :func:`format_value`
   owns the JSON projection so no renderer reaches into ``.value`` with a raw
   ``json.dumps``.
-- **Script metadata.** Five script result types share the same human-facing
-  ``path``/``class_name``/``extends`` surface. :class:`ScriptMetadata` is the
-  structural interface the metadata renderer reads, so the renderer types against
-  one surface rather than a five-way union.
 """
 
 import json
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # The result models are referenced only in string annotations on the renderers
@@ -62,51 +61,14 @@ if TYPE_CHECKING:
         ProjectRemoveAutoloadResult,
         ProjectRemoveInputActionResult,
         ProjectSetResult,
-        ResourceCreateResult,
-        ResourceDeleteResult,
-        ResourceGetResult,
-        ResourceSetResult,
-        ResourceUidResult,
         ScreenCaptureResult,
         ScreenFramesResult,
-        ScriptAttachResult,
-        ScriptCreateResult,
-        ScriptDeleteResult,
-        ScriptGetResult,
-        ScriptListResult,
-        ScriptRunResult,
-        ScriptSetResult,
-        ScriptValidateResult,
-        ShaderCreateResult,
-        ShaderGetResult,
-        ShaderSetResult,
         SkillResult,
-        ThemeCreateResult,
         ProjectDependenciesResult,
         ProjectFindReferencesResult,
         ProjectFindUnusedResourcesResult,
         ProjectStatisticsResult,
     )
-
-
-@runtime_checkable
-class ScriptMetadata(Protocol):
-    """The shared human-facing surface of every script result type.
-
-    A structural (typing-only) interface — fields, no methods — over the
-    ``path``/``class_name``/``extends`` that :class:`~gda.models.ScriptCreateResult`,
-    :class:`~gda.models.ScriptGetResult`, :class:`~gda.models.ListedScript`,
-    :class:`~gda.models.ScriptDeleteResult` and :class:`~gda.models.ScriptSetResult`
-    all carry. The metadata renderer types against this surface, so adding a
-    script result type that carries the same fields needs no renderer change and
-    the renderer never reads across a union. It is a ``Protocol`` rather than a
-    shared base model so it imposes nothing on the models' JSON Schema or field
-    order (the ``--schema`` contract stays byte-for-byte unchanged).
-    """
-
-    path: str
-    class_name: str | None
-    extends: str | None
 
 
 def format_value(value: Any) -> str:
@@ -359,116 +321,6 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
     return "no harness was installed"
 
 
-def render_script_metadata(script: ScriptMetadata) -> str:
-    """Render a script's path plus its class_name/extends for humans.
-
-    Reads the shared :class:`ScriptMetadata` surface, so it serves every script
-    result type without naming the union.
-    """
-    meta = []
-    if script.extends is not None:
-        meta.append(f"extends {script.extends}")
-    if script.class_name is not None:
-        meta.append(f"class_name {script.class_name}")
-    if not meta:
-        return script.path
-    return f"{script.path} ({', '.join(meta)})"
-
-
-def render_script_create(created: "ScriptCreateResult") -> str:
-    """Render a created script as ``created <metadata>``."""
-    return f"created {render_script_metadata(created)}"
-
-
-def render_script_get(got: "ScriptGetResult") -> str:
-    """Render a read script as its metadata line followed by its source."""
-    return "\n".join([render_script_metadata(got), got.source])
-
-
-def render_script_list(listed: "ScriptListResult") -> str:
-    """Render the enumerated scripts as ``path (extends X, class_name Y)`` lines."""
-    if not listed.scripts:
-        return "(no scripts)"
-    return "\n".join(render_script_metadata(script) for script in listed.scripts)
-
-
-def render_script_delete(removed: "ScriptDeleteResult") -> str:
-    """Render a deleted script as ``deleted <metadata>``."""
-    return f"deleted {render_script_metadata(removed)}"
-
-
-def render_script_set(edited: "ScriptSetResult") -> str:
-    """Render an edited script as ``set <metadata>``."""
-    return f"set {render_script_metadata(edited)}"
-
-
-def render_script_attach(attached: "ScriptAttachResult") -> str:
-    """Render an attached script as ``attached <script> to <node> in <scene>``."""
-    return f"attached {attached.script} to {attached.node} in {attached.scene_path}"
-
-
-def render_script_validate(validated: "ScriptValidateResult") -> str:
-    """Render a validate result: valid/invalid plus best-effort diagnostics."""
-    if validated.valid:
-        return f"valid {validated.path}"
-    lines = [f"invalid {validated.path}"]
-    if validated.error_string is not None:
-        lines.append(f"  {validated.error_string}")
-    for diag in validated.diagnostics:
-        location = f"line {diag.line}" if diag.line is not None else "unknown line"
-        lines.append(f"  {location}: {diag.message}")
-    return "\n".join(lines)
-
-
-def render_script_run(ran: "ScriptRunResult") -> str:
-    """Render a passed-through script run: its exit status then its captured output.
-
-    ``script run`` passes the user script's own output through verbatim (ADR-0031),
-    so the human view leads with the ``exit_status`` — which can be non-zero on a
-    SUCCESS (a deliberate ``quit(1)``) — then the script's stdout and stderr as it
-    emitted them (each trailing newline trimmed; empty streams are omitted).
-    """
-    parts = [f"exit_status: {ran.exit_status}"]
-    if ran.stdout:
-        parts.append(ran.stdout.rstrip("\n"))
-    if ran.stderr:
-        parts.append(ran.stderr.rstrip("\n"))
-    return "\n".join(parts)
-
-
-def render_resource_create(created: "ResourceCreateResult") -> str:
-    """Render a created resource as ``created <path> (<type>)``."""
-    return f"created {created.path} ({created.type})"
-
-
-def render_resource_properties(got: "ResourceGetResult") -> str:
-    """Render a resource's properties as ``name (Type) = value`` lines for humans.
-
-    Mirrors :func:`render_node_properties`: a header naming the resource and its
-    type, then one typed line per storage property — the same human surface a
-    node's properties get, since both read the shared :class:`NodeProperty`.
-    """
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
-
-
-def render_resource_set(was_set: "ResourceSetResult") -> str:
-    """Render a set property as ``set <path>.<property> (<type>) = <value>``."""
-    return (
-        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-        f"{format_value(was_set.value)}"
-    )
-
-
-def render_resource_delete(removed: "ResourceDeleteResult") -> str:
-    """Render a deleted resource as ``deleted <path> (<type>)``."""
-    return f"deleted {removed.path} ({removed.type})"
-
-
 def render_export_list(listed: "ExportListResult") -> str:
     """Render the enumerated presets as ``name (platform) [runnable]`` lines."""
     if not listed.presets:
@@ -504,11 +356,6 @@ def render_export_run(ran: "ExportRunResult") -> str:
     if not ran.warnings:
         return header
     return "\n".join([header, *[f"  warning: {w}" for w in ran.warnings]])
-
-
-def render_resource_uid(resolved: "ResourceUidResult") -> str:
-    """Render a resolved UID↔path mapping as ``<uid> -> <path>`` for humans."""
-    return f"{resolved.uid} -> {resolved.path}"
 
 
 def render_project_info(info: "ProjectInfoResult") -> str:
@@ -581,52 +428,6 @@ def render_project_remove_input_action(
 ) -> str:
     """Render an unregistered input action as ``removed input action <name>``."""
     return f"removed input action {removed.name}"
-
-
-@runtime_checkable
-class ShaderMetadata(Protocol):
-    """The shared human-facing surface of every shader result type.
-
-    A structural (typing-only) interface over the ``path``/``shader_type`` that
-    :class:`~gda.models.ShaderCreateResult`, :class:`~gda.models.ShaderGetResult`
-    and :class:`~gda.models.ShaderSetResult` all carry, so the shader-metadata
-    renderer types against one surface rather than a three-way union (mirrors
-    :class:`ScriptMetadata`).
-    """
-
-    path: str
-    shader_type: str | None
-
-
-def render_shader_metadata(shader: ShaderMetadata) -> str:
-    """Render a shader's path plus its shader_type for humans.
-
-    Reads the shared :class:`ShaderMetadata` surface, so it serves every shader
-    result type without naming the union.
-    """
-    if shader.shader_type is not None:
-        return f"{shader.path} (shader_type {shader.shader_type})"
-    return shader.path
-
-
-def render_shader_create(created: "ShaderCreateResult") -> str:
-    """Render a created shader as ``created <metadata>``."""
-    return f"created {render_shader_metadata(created)}"
-
-
-def render_shader_get(got: "ShaderGetResult") -> str:
-    """Render a read shader as its metadata line followed by its source."""
-    return "\n".join([render_shader_metadata(got), got.source])
-
-
-def render_shader_set(edited: "ShaderSetResult") -> str:
-    """Render an edited shader as ``set <metadata>``."""
-    return f"set {render_shader_metadata(edited)}"
-
-
-def render_theme_create(created: "ThemeCreateResult") -> str:
-    """Render a created theme as ``created <path> (<type>)``."""
-    return f"created {created.path} ({created.type})"
 
 
 def render_project_find_references(found: "ProjectFindReferencesResult") -> str:

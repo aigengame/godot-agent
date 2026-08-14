@@ -11,7 +11,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import ScriptSetMode
+from gda.commands.script import ScriptSetMode
 from gda.runner import RunResult
 from tests.support import (
     SCRIPT_CREATE_RESULT as CREATE_RESULT,

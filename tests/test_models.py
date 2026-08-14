@@ -23,6 +23,20 @@ from gda.commands.scene import (
     SceneGetResult,
     SceneListResult,
 )
+from gda.commands.resource import (
+    ResourceCreateResult,
+    ResourceGetResult,
+    ResourceSetResult,
+)
+from gda.commands.script import (
+    ScriptCreateResult,
+    ScriptDeleteResult,
+    ScriptGetResult,
+    ScriptAttachResult,
+    ScriptListResult,
+    ScriptSetResult,
+    ScriptValidateResult,
+)
 from gda.models import (
     EngineVersion,
     ExportGetResult,
@@ -43,16 +57,6 @@ from gda.models import (
     ProjectRemoveInputActionResult,
     ProjectSetResult,
     ReferenceProjection,
-    ResourceCreateResult,
-    ResourceGetResult,
-    ResourceSetResult,
-    ScriptCreateResult,
-    ScriptDeleteResult,
-    ScriptGetResult,
-    ScriptAttachResult,
-    ScriptListResult,
-    ScriptSetResult,
-    ScriptValidateResult,
 )
 
 
@@ -1073,7 +1077,7 @@ def test_shader_create_result_round_trips_path_and_metadata():
     # shader create echoes what it wrote (issue #115): the saved path, the
     # shader_type parsed from the written source, and the parent dirs created —
     # so an agent asserts the effect without a second call.
-    from gda.models import ShaderCreateResult
+    from gda.commands.shader import ShaderCreateResult
 
     payload = {
         "path": "/p/wave.gdshader",
@@ -1092,7 +1096,7 @@ def test_shader_create_result_round_trips_path_and_metadata():
 def test_shader_get_result_carries_source_verbatim():
     # shader get is the verifier (issue #115): it echoes the source byte-for-byte
     # plus the shader_type the source declares, so a create round-trips.
-    from gda.models import ShaderGetResult
+    from gda.commands.shader import ShaderGetResult
 
     payload = {
         "path": "/p/wave.gdshader",
@@ -1110,7 +1114,8 @@ def test_shader_get_result_carries_source_verbatim():
 def test_shader_set_params_reuse_the_script_set_edit_mode_enum():
     # shader set reuses the script set edit-mode interface (issue #115): the mode
     # discriminator is the SAME ScriptSetMode enum, not a parallel one.
-    from gda.models import ScriptSetMode, ShaderSetParams
+    from gda.commands.script import ScriptSetMode
+    from gda.commands.shader import ShaderSetParams
 
     params = ShaderSetParams(
         path="/p/wave.gdshader",
@@ -1125,7 +1130,7 @@ def test_shader_set_params_reuse_the_script_set_edit_mode_enum():
 
 
 def test_shader_set_result_round_trips_path_and_metadata():
-    from gda.models import ShaderSetResult
+    from gda.commands.shader import ShaderSetResult
 
     payload = {"path": "/p/wave.gdshader", "shader_type": "spatial"}
 
@@ -1139,7 +1144,7 @@ def test_shader_set_result_round_trips_path_and_metadata():
 def test_theme_create_result_round_trips_path_type_and_dirs():
     # theme create echoes the saved .tres path, the resource type written
     # (Theme), and the parent dirs created (issue #115).
-    from gda.models import ThemeCreateResult
+    from gda.commands.theme import ThemeCreateResult
 
     payload = {
         "path": "/p/ui.tres",

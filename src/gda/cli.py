@@ -23,7 +23,14 @@ import typer
 from pydantic import ValidationError
 
 from gda import dispatch
-from gda.commands import node as node_commands, scene as scene_commands
+from gda.commands import (
+    node as node_commands,
+    resource as resource_commands,
+    scene as scene_commands,
+    script as script_commands,
+    shader as shader_commands,
+    theme as theme_commands,
+)
 from gda.daemon_ops import (
     run_daemon_start_operation,
     run_daemon_status_operation,
@@ -45,7 +52,6 @@ from gda.errors import (
     classify_logger_tail,
     classify_perf_monitor,
     classify_perf_monitors,
-    classify_script_validate,
 )
 from gda.execution import ExecutionKind
 from gda.export_run import (
@@ -130,50 +136,14 @@ from gda.models import (
     ProjectRemoveInputActionResult,
     ProjectSetParams,
     ProjectSetResult,
-    ResourceCreateParams,
-    ResourceCreateResult,
-    ResourceDeleteParams,
-    ResourceDeleteResult,
-    ResourceGetParams,
-    ResourceGetResult,
-    ResourceSetParams,
-    ResourceSetResult,
-    ResourceUidParams,
-    ResourceUidResult,
     SchemaAllParams,
     ScreenCaptureParams,
     ScreenCaptureResult,
     ScreenFramesParams,
     ScreenFramesResult,
-    ScriptAttachParams,
-    ScriptAttachResult,
-    ScriptCreateParams,
-    ScriptCreateResult,
-    ScriptDeleteParams,
-    ScriptDeleteResult,
-    ScriptGetParams,
-    ScriptGetResult,
-    ScriptListParams,
-    ScriptListResult,
-    ScriptRunParams,
-    ScriptRunResult,
-    ScriptSetMode,
-    ScriptSetParams,
-    ScriptSetResult,
-    ScriptValidateParams,
-    ScriptValidateResult,
-    ShaderCreateParams,
-    ShaderCreateResult,
-    ShaderGetParams,
-    ShaderGetResult,
-    ShaderSetParams,
-    ShaderSetResult,
     SkillParams,
     SkillResult,
     SurfaceManifest,
-    ThemeCreateParams,
-    ThemeCreateResult,
-    resolve_set_mode,
 )
 from gda.render import (
     render_daemon_start,
@@ -207,32 +177,14 @@ from gda.render import (
     render_project_remove_input_action,
     render_project_set,
     render_project_statistics,
-    render_resource_create,
-    render_resource_delete,
-    render_resource_properties,
-    render_resource_set,
-    render_resource_uid,
     render_screen_capture,
     render_screen_frames,
-    render_script_attach,
-    render_script_create,
-    render_script_delete,
-    render_script_get,
-    render_script_list,
-    render_script_run,
-    render_script_set,
-    render_script_validate,
-    render_shader_create,
-    render_shader_get,
-    render_shader_set,
     render_skill,
-    render_theme_create,
 )
 from gda.screen_ops import (
     run_screen_capture_operation,
     run_screen_frames_operation,
 )
-from gda.script_run import run_script_run_operation
 from gda.skill_ops import build_skill_result
 from gda.skill_targets import SkillProvider, SkillScope
 from gda.surface import build_surface_manifest
@@ -244,24 +196,15 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# The scene and node groups own their sub-apps (ADR-0040) and mount them here,
-# at the same point in the sequence the old `add_typer` calls occupied, so the
-# registration order — and therefore `gda --help` — is unchanged.
+# Each moved group owns its sub-app (ADR-0040) and mounts it here, at the same
+# point in the sequence the old `add_typer` call occupied, so the registration
+# order — and therefore `gda --help` — is unchanged.
 scene_commands.register(app)
 node_commands.register(app)
 
-# The script command group (issue #110): commands acting on .gd script files on
-# disk (write text / read text back), so they stay headless. C# (.cs) is out of
-# scope for now — it needs the .NET build of Godot (ADR-0003 targets the standard
-# build) and a dedicated decision.
-script_app = typer.Typer(help="Act on script files (.gd).", no_args_is_help=True)
-app.add_typer(script_app, name="script")
+script_commands.register(app)
 
-# The resource command group (issue #112): commands acting on .tres resource
-# files on disk (load/save plumbing), so they stay headless. The group is a
-# .tres tracer; the binary .res form is out of scope for this slice.
-resource_app = typer.Typer(help="Act on resource files (.tres).", no_args_is_help=True)
-app.add_typer(resource_app, name="resource")
+resource_commands.register(app)
 
 # The export command group (issue #114): read-only discovery of the project's
 # export presets (from export_presets.cfg) and export-template readiness. These
@@ -286,21 +229,9 @@ project_app = typer.Typer(
 )
 app.add_typer(project_app, name="project")
 
-# The asset-file groups (issue #115): headless authoring of the asset-file types.
-# A .gdshader is plain shader source authored as text (create / get / set author
-# the file directly and never load or compile the shader at the operation level),
-# while theme create produces a loadable .tres Theme resource (engine-backed) —
-# the same file-level vs engine-backed split the script group draws between
-# create/get/set and attach/validate. This bounds the operation, not the run:
-# every command still goes through the headless runner, so resolving --project
-# still constructs the project's autoloads at engine startup (ADR-0009).
-shader_app = typer.Typer(help="Act on shader files (.gdshader).", no_args_is_help=True)
-app.add_typer(shader_app, name="shader")
+shader_commands.register(app)
 
-theme_app = typer.Typer(
-    help="Act on theme resource files (.tres).", no_args_is_help=True
-)
-app.add_typer(theme_app, name="theme")
+theme_commands.register(app)
 
 # The game command group (Phase 2, ADR-0019): the RUNNING game's runtime scene
 # graph, served LIVE through gda-daemon (`kind = LIVE`). `game tree` reads the
@@ -498,38 +429,6 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
     kind=ExecutionKind.EXPORT,
     render=render_export_run,
     recipe=_export_run_recipe,
-)
-
-
-def _script_run_recipe(params, *, project, godot):
-    # ``project`` arrives ALREADY resolved by _dispatch_recipe — an invalid
-    # --project/$GDA_PROJECT was converted to a structured project_not_found before
-    # this runs, so no per-recipe ValueError handling is needed here (#353 folded in
-    # script run's former try/except). A projectless None remains the op's own ABI
-    # edge: run_script_run_operation returns script_run_project_not_found_failure()
-    # for it (ADR-0031).
-    return run_script_run_operation(
-        script=params.path,
-        godot=godot,
-        project=project,
-    )
-
-
-# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
-# run. Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda
-# does not know the script's semantics — so it routes through the recipe channel
-# (ADR-0023) like ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is
-# self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
-# runner-selection branch. The descriptor is defined HERE, not beside the operation
-# (gda.script_run), because its recipe needs cli's project-resolution seam and cli.py
-# is the dispatch composition root (ADR-0023).
-SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
-    operation="script-run",
-    input_model=ScriptRunParams,
-    output_model=ScriptRunResult,
-    kind=ExecutionKind.SCRIPT_RUN,
-    render=render_script_run,
-    recipe=_script_run_recipe,
 )
 
 
@@ -1512,84 +1411,6 @@ def screen_frames(
     )
 
 
-SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
-    operation="script-create",
-    input_model=ScriptCreateParams,
-    output_model=ScriptCreateResult,
-    render=render_script_create,
-)
-
-SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
-    operation="script-get",
-    input_model=ScriptGetParams,
-    output_model=ScriptGetResult,
-    render=render_script_get,
-)
-
-SCRIPT_LIST_COMMAND: HeadlessCommand[ScriptListResult] = HeadlessCommand(
-    operation="script-list",
-    input_model=ScriptListParams,
-    output_model=ScriptListResult,
-    render=render_script_list,
-)
-
-SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
-    operation="script-delete",
-    input_model=ScriptDeleteParams,
-    output_model=ScriptDeleteResult,
-    render=render_script_delete,
-)
-
-SCRIPT_SET_COMMAND: HeadlessCommand[ScriptSetResult] = HeadlessCommand(
-    operation="script-set",
-    input_model=ScriptSetParams,
-    output_model=ScriptSetResult,
-    render=render_script_set,
-)
-
-SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
-    operation="script-attach",
-    input_model=ScriptAttachParams,
-    output_model=ScriptAttachResult,
-    render=render_script_attach,
-)
-
-SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
-    operation="script-validate",
-    input_model=ScriptValidateParams,
-    output_model=ScriptValidateResult,
-    render=render_script_validate,
-    classify=classify_script_validate,
-)
-
-RESOURCE_CREATE_COMMAND: HeadlessCommand[ResourceCreateResult] = HeadlessCommand(
-    operation="resource-create",
-    input_model=ResourceCreateParams,
-    output_model=ResourceCreateResult,
-    render=render_resource_create,
-)
-
-RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
-    operation="resource-get",
-    input_model=ResourceGetParams,
-    output_model=ResourceGetResult,
-    render=render_resource_properties,
-)
-
-RESOURCE_SET_COMMAND: HeadlessCommand[ResourceSetResult] = HeadlessCommand(
-    operation="resource-set",
-    input_model=ResourceSetParams,
-    output_model=ResourceSetResult,
-    render=render_resource_set,
-)
-
-RESOURCE_DELETE_COMMAND: HeadlessCommand[ResourceDeleteResult] = HeadlessCommand(
-    operation="resource-delete",
-    input_model=ResourceDeleteParams,
-    output_model=ResourceDeleteResult,
-    render=render_resource_delete,
-)
-
 EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
     operation="export-list",
     input_model=ExportListParams,
@@ -1601,13 +1422,6 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
 # run_export_operation, which drives export-get to resolve the preset without an
 # export_run ↔ cli import cycle (issue #187). EXPORT_RUN_COMMAND is defined above in
 # this module instead (its recipe needs cli's runner seams, ADR-0023).
-
-RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
-    operation="resource-uid",
-    input_model=ResourceUidParams,
-    output_model=ResourceUidResult,
-    render=render_resource_uid,
-)
 
 PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
     operation="project-info",
@@ -1673,34 +1487,6 @@ PROJECT_REMOVE_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectRemoveInputActionRes
     )
 )
 
-SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
-    operation="shader-create",
-    input_model=ShaderCreateParams,
-    output_model=ShaderCreateResult,
-    render=render_shader_create,
-)
-
-SHADER_GET_COMMAND: HeadlessCommand[ShaderGetResult] = HeadlessCommand(
-    operation="shader-get",
-    input_model=ShaderGetParams,
-    output_model=ShaderGetResult,
-    render=render_shader_get,
-)
-
-SHADER_SET_COMMAND: HeadlessCommand[ShaderSetResult] = HeadlessCommand(
-    operation="shader-set",
-    input_model=ShaderSetParams,
-    output_model=ShaderSetResult,
-    render=render_shader_set,
-)
-
-THEME_CREATE_COMMAND: HeadlessCommand[ThemeCreateResult] = HeadlessCommand(
-    operation="theme-create",
-    input_model=ThemeCreateParams,
-    output_model=ThemeCreateResult,
-    render=render_theme_create,
-)
-
 PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = (
     HeadlessCommand(
         operation="project-find-references",
@@ -1741,303 +1527,6 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 # command's body (``export run`` included, since ADR-0023 routed it through a built
 # ``ExportRunParams``) passes its raw path straight to the params model, which
 # ~-expands it. There is no CLI-layer normalization step left to share.
-
-
-@script_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
-def create(
-    path: str = typer.Argument(..., help="Target .gd script path to write."),
-    content: Optional[str] = typer.Option(
-        None,
-        "--content",
-        help=(
-            "Verbatim script source to write. Mutually exclusive with --extends; "
-            "when omitted, a minimal template extending --extends is written."
-        ),
-    ),
-    extends_type: Optional[str] = typer.Option(
-        None,
-        "--extends",
-        help=(
-            "Base class for the built-in template's 'extends' line (e.g. Node, "
-            "Node2D). Defaults to Node. Ignored — and rejected — with --content."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_CREATE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Create a new .gd script from a template or verbatim --content."""
-    if content is not None and extends_type is not None:
-        raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    _dispatch(
-        SCRIPT_CREATE_COMMAND,
-        ScriptCreateParams(
-            path=path,
-            content=content,
-            extends_type=extends_type,
-        ),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="get", cls=SCRIPT_GET_COMMAND.command_class())
-def get_script(
-    path: str = typer.Argument(..., help="The .gd script file to read."),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_GET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Read a script's source and report its class_name/extends metadata."""
-    _dispatch(
-        SCRIPT_GET_COMMAND,
-        ScriptGetParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="list", cls=SCRIPT_LIST_COMMAND.command_class())
-def list_scripts(
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_LIST_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Enumerate the .gd scripts in the resolved project."""
-    _dispatch(
-        SCRIPT_LIST_COMMAND,
-        ScriptListParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="delete", cls=SCRIPT_DELETE_COMMAND.command_class())
-def delete_script(
-    path: str = typer.Argument(..., help="The .gd script file to delete."),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_DELETE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Delete a script file and report what was removed."""
-    _dispatch(
-        SCRIPT_DELETE_COMMAND,
-        ScriptDeleteParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="set", cls=SCRIPT_SET_COMMAND.command_class())
-def set_script(
-    path: str = typer.Argument(..., help="The .gd script file to edit."),
-    search: Optional[str] = typer.Option(
-        None,
-        "--search",
-        help=(
-            "search-replace mode: literal substring to find (not regex); all "
-            "occurrences are replaced. Requires --replace."
-        ),
-    ),
-    replace: Optional[str] = typer.Option(
-        None,
-        "--replace",
-        help="search-replace mode: literal replacement text. Requires --search.",
-    ),
-    start_line: Optional[int] = typer.Option(
-        None,
-        "--start-line",
-        help=(
-            "line-range mode: first line to replace (1-based, inclusive). "
-            "Requires --content."
-        ),
-    ),
-    end_line: Optional[int] = typer.Option(
-        None,
-        "--end-line",
-        help=(
-            "line-range mode: last line to replace (1-based, inclusive); "
-            "defaults to --start-line. Requires --content and --start-line."
-        ),
-    ),
-    content: Optional[str] = typer.Option(
-        None,
-        "--content",
-        help=(
-            "Replacement text: the line span in line-range mode, or the whole "
-            "file (full mode) when --start-line is omitted."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_SET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Edit a .gd script via search-replace, line-range, or full overwrite."""
-    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
-    _dispatch(
-        SCRIPT_SET_COMMAND,
-        ScriptSetParams(
-            path=path,
-            mode=mode,
-            search=search,
-            replace=replace,
-            start_line=start_line,
-            end_line=end_line,
-            content=content,
-        ),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-def _resolve_set_mode(
-    search: Optional[str],
-    replace: Optional[str],
-    start_line: Optional[int],
-    end_line: Optional[int],
-    content: Optional[str],
-) -> ScriptSetMode:
-    """Resolve a set command's edit mode for the argv path (issue #133).
-
-    The rule itself lives in :func:`gda.models.resolve_set_mode` — the single
-    source shared with ``ScriptSetParams`` / ``ShaderSetParams`` (ADR-0015). This
-    thin wrapper translates its ``ValueError`` into a Click usage error (exit 2)
-    so the argv path keeps its usage-error ergonomics, while ``--params-json``
-    surfaces the same rule as a structured ``invalid_params`` via the model.
-    """
-    try:
-        return resolve_set_mode(search, replace, start_line, end_line, content)
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-
-
-@script_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())
-def attach_script(
-    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
-    node: str = typer.Option(
-        ...,
-        "--node",
-        help=(
-            "Node path, relative to the scene root: '.' addresses the root "
-            "itself, 'Player/Arm' a nested node."
-        ),
-    ),
-    script: str = typer.Option(
-        ..., "--script", help="The .gd script file to attach to the node."
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_ATTACH_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Attach a .gd script to a node (by node path) in a scene and save."""
-    _dispatch(
-        SCRIPT_ATTACH_COMMAND,
-        ScriptAttachParams(
-            path=path,
-            node=node,
-            script=script,
-        ),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="validate", cls=SCRIPT_VALIDATE_COMMAND.command_class())
-def validate_script(
-    path: str = typer.Argument(..., help="The .gd script file to validate."),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_VALIDATE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false."""
-    _dispatch(
-        SCRIPT_VALIDATE_COMMAND,
-        ScriptValidateParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@script_app.command(name="run", cls=SCRIPT_RUN_COMMAND.command_class())
-def run_script(
-    path: str = typer.Argument(
-        ...,
-        help="The res:// path of the script to run (e.g. res://tests/logic.gd).",
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SCRIPT_RUN_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Run a user script one-shot and pass its exit_status/stdout/stderr through.
-
-    Runs the user's own res:// script as ``godot --headless --path <project>
-    --script <res://…>`` and returns its result verbatim (ADR-0031). This is the
-    ONE command whose success result can carry a non-zero ``exit_status``: gda does
-    not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
-    assertion-failed logic-seam test) is data the agent reads, not a gda failure —
-    read ``exit_status``, do not assume ``success == zero``. Only a gda-/engine-level
-    failure (binary not launchable, timeout, or a signal crash) is an Error envelope
-    (``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``). A non-res://
-    path or no resolved project is a structured ``invalid_path`` / ``project_not_found``.
-    """
-    _dispatch_recipe(
-        SCRIPT_RUN_COMMAND,
-        ScriptRunParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@resource_app.command(cls=RESOURCE_CREATE_COMMAND.command_class())
-def create(
-    path: str = typer.Argument(..., help="Target .tres resource path to write."),
-    resource_type: str = typer.Option(
-        ...,
-        "--type",
-        help=(
-            "Resource type of the new .tres: a built-in Resource class (e.g. "
-            "Gradient, Curve) or a registered Resource class_name (a GDScript "
-            "class_name Foo extends Resource)."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = RESOURCE_CREATE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Create a new .tres resource file of the given resource type."""
-    _dispatch(
-        RESOURCE_CREATE_COMMAND,
-        ResourceCreateParams(path=path, type=resource_type),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
 
 
 @project_app.command(name="info", cls=PROJECT_INFO_COMMAND.command_class())
@@ -2135,141 +1624,6 @@ def find_references(
     _dispatch(
         PROJECT_FIND_REFERENCES_COMMAND,
         ProjectFindReferencesParams(target=target),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@shader_app.command(cls=SHADER_CREATE_COMMAND.command_class())
-def create(
-    path: str = typer.Argument(..., help="Target .gdshader path to write."),
-    content: Optional[str] = typer.Option(
-        None,
-        "--content",
-        help=(
-            "Verbatim shader source to write. Mutually exclusive with "
-            "--shader-type; when omitted, a minimal template declaring the "
-            "--shader-type is written."
-        ),
-    ),
-    shader_type: Optional[str] = typer.Option(
-        None,
-        "--shader-type",
-        help=(
-            "Shader type for the built-in template's 'shader_type' line (e.g. "
-            "canvas_item, spatial). Defaults to canvas_item. Ignored — and "
-            "rejected — with --content."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SHADER_CREATE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Create a new .gdshader from a template or verbatim --content."""
-    if content is not None and shader_type is not None:
-        raise typer.BadParameter("--content and --shader-type are mutually exclusive.")
-    _dispatch(
-        SHADER_CREATE_COMMAND,
-        ShaderCreateParams(
-            path=path,
-            content=content,
-            shader_type=shader_type,
-        ),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@resource_app.command(name="get", cls=RESOURCE_GET_COMMAND.command_class())
-def get_resource(
-    path: str = typer.Argument(..., help="The .tres resource file to read."),
-    json_output: bool = json_option(),
-    schema: bool = RESOURCE_GET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Read a .tres resource and report its properties as typed JSON."""
-    _dispatch(
-        RESOURCE_GET_COMMAND,
-        ResourceGetParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@resource_app.command(name="set", cls=RESOURCE_SET_COMMAND.command_class())
-def set_resource(
-    path: str = typer.Argument(..., help="The .tres resource file to mutate."),
-    property: str = typer.Option(
-        ...,
-        "--property",
-        help="The resource property to set (e.g. interpolation_mode).",
-    ),
-    value: str = typer.Option(
-        ...,
-        "--value",
-        help=(
-            "The value to set, as a string. Coerced to the property's declared "
-            "Godot type: Vector2/Vector2i/Color take comma-separated components "
-            '(e.g. "48,72", "0.2,0.6,1,1"), and a property expecting a Resource '
-            "(sub)class takes a res:// path to an existing Resource of that class. "
-            "An uncoercible value is a clean error."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = RESOURCE_SET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Set a .tres property, coercing the value to its declared Godot type, then save."""
-    _dispatch(
-        RESOURCE_SET_COMMAND,
-        ResourceSetParams(path=path, property=property, value=value),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@resource_app.command(name="delete", cls=RESOURCE_DELETE_COMMAND.command_class())
-def delete_resource(
-    path: str = typer.Argument(..., help="The .tres resource file to delete."),
-    json_output: bool = json_option(),
-    schema: bool = RESOURCE_DELETE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Delete a .tres resource file and report what was removed."""
-    _dispatch(
-        RESOURCE_DELETE_COMMAND,
-        ResourceDeleteParams(path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@shader_app.command(name="get", cls=SHADER_GET_COMMAND.command_class())
-def get_shader(
-    path: str = typer.Argument(..., help="The .gdshader file to read."),
-    json_output: bool = json_option(),
-    schema: bool = SHADER_GET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Read a shader's source and report its shader_type metadata."""
-    _dispatch(
-        SHADER_GET_COMMAND,
-        ShaderGetParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -2424,99 +1778,6 @@ def run_export(
     )
 
 
-@resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())
-def resolve_uid(
-    target: str = typer.Argument(
-        ...,
-        help=(
-            "A 'uid://…' value to resolve to its res:// path, or a 'res://…' / "
-            "filesystem path to resolve to its 'uid://…'. The direction is chosen "
-            "by whether the target begins with 'uid://'."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = RESOURCE_UID_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Resolve a resource UID to/from its res:// path via the engine's UID cache."""
-    _dispatch(
-        RESOURCE_UID_COMMAND,
-        ResourceUidParams(target=target),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@shader_app.command(name="set", cls=SHADER_SET_COMMAND.command_class())
-def set_shader(
-    path: str = typer.Argument(..., help="The .gdshader file to edit."),
-    search: Optional[str] = typer.Option(
-        None,
-        "--search",
-        help=(
-            "search-replace mode: literal substring to find (not regex); all "
-            "occurrences are replaced. Requires --replace."
-        ),
-    ),
-    replace: Optional[str] = typer.Option(
-        None,
-        "--replace",
-        help="search-replace mode: literal replacement text. Requires --search.",
-    ),
-    start_line: Optional[int] = typer.Option(
-        None,
-        "--start-line",
-        help=(
-            "line-range mode: first line to replace (1-based, inclusive). "
-            "Requires --content."
-        ),
-    ),
-    end_line: Optional[int] = typer.Option(
-        None,
-        "--end-line",
-        help=(
-            "line-range mode: last line to replace (1-based, inclusive); "
-            "defaults to --start-line. Requires --content and --start-line."
-        ),
-    ),
-    content: Optional[str] = typer.Option(
-        None,
-        "--content",
-        help=(
-            "Replacement text: the line span in line-range mode, or the whole "
-            "file (full mode) when --start-line is omitted."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SHADER_SET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Edit a .gdshader via search-replace, line-range, or full overwrite."""
-    # shader set reuses the script set edit-mode interface (issue #115): the same
-    # mutual-exclusion resolver decides the single ScriptSetMode discriminator.
-    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
-    _dispatch(
-        SHADER_SET_COMMAND,
-        ShaderSetParams(
-            path=path,
-            mode=mode,
-            search=search,
-            replace=replace,
-            start_line=start_line,
-            end_line=end_line,
-            content=content,
-        ),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
 @project_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
 def project_set(
     setting: str = typer.Argument(
@@ -2662,25 +1923,6 @@ def project_remove_input_action(
     _dispatch(
         PROJECT_REMOVE_INPUT_ACTION_COMMAND,
         ProjectRemoveInputActionParams(name=name),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@theme_app.command(name="create", cls=THEME_CREATE_COMMAND.command_class())
-def create_theme(
-    path: str = typer.Argument(..., help="Target .tres Theme path to write."),
-    json_output: bool = json_option(),
-    schema: bool = THEME_CREATE_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Create a new, loadable .tres Theme resource (no-clobber)."""
-    _dispatch(
-        THEME_CREATE_COMMAND,
-        ThemeCreateParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,

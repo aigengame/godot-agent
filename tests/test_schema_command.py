@@ -514,7 +514,7 @@ def test_script_create_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the script group (issue #110): the bare
     # --schema flag — no path — short-circuits into the self-description,
     # derived from the same typed models that back --json.
-    from gda.models import ScriptCreateParams, ScriptCreateResult
+    from gda.commands.script import ScriptCreateParams, ScriptCreateResult
 
     result = CliRunner().invoke(app, ["script", "create", "--schema"])
 
@@ -532,7 +532,7 @@ def test_script_create_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_script_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptGetParams, ScriptGetResult
+    from gda.commands.script import ScriptGetParams, ScriptGetResult
 
     result = CliRunner().invoke(app, ["script", "get", "--schema"])
 
@@ -552,7 +552,7 @@ def test_script_list_schema_emits_model_derived_contract_without_a_project():
     # same typed models that back --json. script list takes no operation params,
     # so its input schema is trivially empty (the project is process context,
     # ADR-0006), exactly like scene list.
-    from gda.models import ScriptListParams, ScriptListResult
+    from gda.commands.script import ScriptListParams, ScriptListResult
 
     result = CliRunner().invoke(app, ["script", "list", "--schema"])
 
@@ -567,7 +567,7 @@ def test_script_list_schema_emits_model_derived_contract_without_a_project():
 
 
 def test_script_delete_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptDeleteParams, ScriptDeleteResult
+    from gda.commands.script import ScriptDeleteParams, ScriptDeleteResult
 
     result = CliRunner().invoke(app, ["script", "delete", "--schema"])
 
@@ -585,7 +585,7 @@ def test_script_set_schema_emits_model_derived_contract_without_other_args():
     # no path, no edit mode — short-circuits into the self-description, derived
     # from the same typed models that back --json. The line-range 1-based-over-
     # split rule is documented in the contract itself.
-    from gda.models import ScriptSetParams, ScriptSetResult
+    from gda.commands.script import ScriptSetParams, ScriptSetResult
 
     result = CliRunner().invoke(app, ["script", "set", "--schema"])
 
@@ -607,7 +607,7 @@ def test_script_set_schema_emits_model_derived_contract_without_other_args():
 def test_script_attach_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for script attach (issue #118): the node param
     # documents the root-relative node-path addressing agents must use.
-    from gda.models import ScriptAttachParams, ScriptAttachResult
+    from gda.commands.script import ScriptAttachParams, ScriptAttachResult
 
     result = CliRunner().invoke(app, ["script", "attach", "--schema"])
 
@@ -624,7 +624,7 @@ def test_script_attach_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_script_validate_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptValidateParams, ScriptValidateResult
+    from gda.commands.script import ScriptValidateParams, ScriptValidateResult
 
     result = CliRunner().invoke(app, ["script", "validate", "--schema"])
 
@@ -701,7 +701,7 @@ def test_resource_uid_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for resource uid (issue #113): the bare --schema
     # flag — no target, no --project — short-circuits into the self-description,
     # derived from the same typed models that back --json.
-    from gda.models import ResourceUidParams, ResourceUidResult
+    from gda.commands.resource import ResourceUidParams, ResourceUidResult
 
     result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
 
@@ -768,7 +768,7 @@ def test_resource_create_schema_emits_model_derived_contract_without_other_args(
     # The ADR-0004 hard gate for the resource group (issue #112): the bare
     # --schema flag — no path, no --type — short-circuits into the
     # self-description, derived from the same typed models that back --json.
-    from gda.models import ResourceCreateParams, ResourceCreateResult
+    from gda.commands.resource import ResourceCreateParams, ResourceCreateResult
 
     result = CliRunner().invoke(app, ["resource", "create", "--schema"])
 
@@ -847,7 +847,7 @@ def test_project_dependencies_schema_emits_model_derived_contract_without_a_proj
 
 
 def test_resource_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ResourceGetParams, ResourceGetResult
+    from gda.commands.resource import ResourceGetParams, ResourceGetResult
 
     result = CliRunner().invoke(app, ["resource", "get", "--schema"])
 
@@ -866,7 +866,7 @@ def test_resource_set_schema_emits_model_derived_contract_without_other_args():
     # — no path, no --property/--value — short-circuits into the self-description,
     # derived from the same typed models that back --json. The value param
     # documents the type-coercion contract agents must rely on.
-    from gda.models import ResourceSetParams, ResourceSetResult
+    from gda.commands.resource import ResourceSetParams, ResourceSetResult
 
     result = CliRunner().invoke(app, ["resource", "set", "--schema"])
 
@@ -906,7 +906,7 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
 def test_resource_delete_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for resource delete (issue #120): the bare --schema
     # flag — no path — short-circuits into the self-description.
-    from gda.models import ResourceDeleteParams, ResourceDeleteResult
+    from gda.commands.resource import ResourceDeleteParams, ResourceDeleteResult
 
     result = CliRunner().invoke(app, ["resource", "delete", "--schema"])
 
@@ -1163,7 +1163,7 @@ def test_script_run_command_schema_is_model_derived():
     # `script run` self-describes like any command (ADR-0004): input/output from its
     # typed models, the uniform error envelope. Its output carries the passthrough
     # {exit_status, stdout, stderr} — the public promotion of the Raw run.
-    from gda.models import ScriptRunParams, ScriptRunResult
+    from gda.commands.script import ScriptRunParams, ScriptRunResult
 
     doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
 
@@ -1508,7 +1508,7 @@ def test_shader_create_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the shader group (issue #115): the bare --schema
     # flag — no path — short-circuits into the self-description, derived from the
     # same typed models that back --json.
-    from gda.models import ShaderCreateParams, ShaderCreateResult
+    from gda.commands.shader import ShaderCreateParams, ShaderCreateResult
 
     result = CliRunner().invoke(app, ["shader", "create", "--schema"])
 
@@ -1524,7 +1524,7 @@ def test_shader_create_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_shader_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ShaderGetParams, ShaderGetResult
+    from gda.commands.shader import ShaderGetParams, ShaderGetResult
 
     result = CliRunner().invoke(app, ["shader", "get", "--schema"])
 
@@ -1541,7 +1541,7 @@ def test_shader_get_schema_emits_model_derived_contract_without_other_args():
 def test_shader_set_schema_emits_model_derived_contract_without_other_args():
     # The shader set edit-mode interface is the script set interface reused
     # (issue #115); the line-range 1-based rule is documented in the contract.
-    from gda.models import ShaderSetParams, ShaderSetResult
+    from gda.commands.shader import ShaderSetParams, ShaderSetResult
 
     result = CliRunner().invoke(app, ["shader", "set", "--schema"])
 
@@ -1559,7 +1559,7 @@ def test_shader_set_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_theme_create_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ThemeCreateParams, ThemeCreateResult
+    from gda.commands.theme import ThemeCreateParams, ThemeCreateResult
 
     result = CliRunner().invoke(app, ["theme", "create", "--schema"])
 
