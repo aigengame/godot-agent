@@ -21,7 +21,9 @@ def test_playtest_runtime_dependencies_point_downward():
             assert dependencies <= allowed, (script, dependencies - allowed)
 
     assert not (_PLAYTEST / "addons").exists()
-    assert "[autoload]" not in (_PLAYTEST / "project.godot").read_text()
+    project_settings = list(_PLAYTEST.glob("project.*"))
+    assert len(project_settings) == 1
+    assert "[autoload]" not in project_settings[0].read_text()
 
 
 def test_playtest_player_cases_hide_balancing_artifacts():
@@ -56,7 +58,11 @@ def test_playtest_provenance_references_resolve_to_checked_in_evidence():
 
     def assert_artifact_reference(reference):
         assert reference["identity"].startswith("sha256:")
-        assert (_GENERATED / reference["locator"]).resolve().is_file()
+        artifact_path = (_GENERATED / reference["locator"]).resolve()
+        assert artifact_path.is_file()
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        if "content_identity" in artifact:
+            assert reference["identity"] == artifact["content_identity"]
 
     for entry in provenance["entries"].values():
         assert_artifact_reference(entry["experiment"])

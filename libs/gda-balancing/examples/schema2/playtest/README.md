@@ -63,6 +63,11 @@ Check that the committed projection is current without rewriting it:
 uv run python examples/schema2/playtest/tools/generate_reward_cases.py --check
 ```
 
+Runtime, Metric, and reproduction identities bind the exact evaluator and platform. The
+byte-for-byte check therefore applies to the recorded generation environment. Cross-platform CI
+checks the player values and the stable Model and Experiment relationships, while a separate test
+checks every committed provenance reference against its located artifact.
+
 The generator imports no gda-balancing Python module. It runs `model check`, `model build`,
 `experiment check`, and `experiment run` as subprocesses.
 
