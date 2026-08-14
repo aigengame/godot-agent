@@ -375,6 +375,9 @@ def _projected_value_schema_extra(schema: dict[str, Any]) -> None:
     }
 
 
+# Stays in the shared core (ADR-0040 §4): three groups read the SAME typed
+# property shape — ``node get``, ``resource get`` and the live ``game get`` — so
+# it is a cross-command contract, not one group's model.
 class NodeProperty(BaseModel):
     """One of a node's properties as ``gda node get`` reports it (issue #55).
 
@@ -385,10 +388,6 @@ class NodeProperty(BaseModel):
     becomes ``[x, y]``, a Dictionary a JSON object, an Object a
     :class:`ReferenceProjection` / :class:`InlineValueProjection` / ``str()``
     fallback.
-
-    Stays in the shared core (ADR-0040 §4): three groups read the SAME typed
-    property shape — ``node get``, ``resource get`` and the live ``game get`` —
-    so it is a cross-command contract, not one group's model.
     """
 
     name: str
@@ -401,6 +400,10 @@ class NodeProperty(BaseModel):
     )
 
 
+# Stays in the shared core (ADR-0040 §4): its name says ``Resource`` but its
+# group does not — it is ``project find-references``'s result shape, so it
+# belongs beside :class:`ProjectFindReferencesResult`, not in the ``resource``
+# group's module.
 class ResourceReference(BaseModel):
     """One referencing site found by ``gda project find-references`` (issue #116).
 
@@ -414,11 +417,6 @@ class ResourceReference(BaseModel):
     project-level reference in ``project.godot``). ``context`` is the matched
     line/snippet, best-effort, so an agent can locate the reference without
     re-reading the file.
-
-    Stays in the shared core (ADR-0040 §4): its name says ``Resource`` but its
-    group does not — it is ``project find-references``'s result shape, so it
-    belongs beside :class:`ProjectFindReferencesResult`, not in the ``resource``
-    group's module.
     """
 
     path: str = Field(

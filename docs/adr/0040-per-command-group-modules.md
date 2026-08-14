@@ -86,9 +86,16 @@ src/gda/
    `binary`/`display` are also imported by the Panda Adventure e2e tier.
 5. **Dependency direction**: `cli` → `commands/*` → `dispatch` → `headless` →
    runners / `errors` / `models` → foundation. A group may import another
-   group's public model one-way where the language genuinely shares a shape
-   (`node` → `scene` for `SceneNode`; `project` → `resource` for
-   `ResourceReference`); no reciprocal group imports.
+   group's public symbol one-way where the language genuinely shares a shape —
+   three such edges exist: `node` → `scene` for `SceneNode`; `shader` →
+   `script` for the `ScriptSetMode` edit interface `shader set` reuses; and
+   `logger` → `diag` for the `SourceFrame` location and the `--limit` option
+   the two log-reading groups share (the ADR-0022/0026 lineage). No reciprocal
+   group imports. A shape **no single group owns** stays in the `gda.models`
+   core rather than moving into one — because several groups read it
+   (`NodeProperty`, `EngineVersion`, `MAX_WINDOW_FRAMES`) or because its name
+   points at a different group than its owner (`ResourceReference`, which is
+   `project find-references`'s result shape).
 
 ## Considered options
 

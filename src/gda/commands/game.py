@@ -43,14 +43,16 @@ from gda.render import format_value, render_node_tree
 from gda.runner import RunResult
 
 
+# The ``SceneNode`` the docstring contrasts with is the ``scene`` group's on-disk
+# shape (``gda.commands.scene``). It is named, not imported: the two are different
+# objects (ADR-0019), so there is no group dependency here.
 class GameNode(BaseModel):
     """One node of the RUNNING game's runtime scene tree (Phase 2, ADR-0019).
 
-    The runtime counterpart of :class:`~gda.commands.scene.SceneNode`: ``gda game
-    tree`` reports the live ``SceneTree`` after ``_ready`` and dynamic
-    instantiation, so it carries the runtime node ``path`` alongside
-    ``name``/``type``/``children``. Distinct from the on-disk ``.tscn`` read by
-    ``scene get`` (a different object, ADR-0019).
+    The runtime counterpart of :class:`SceneNode`: ``gda game tree`` reports the
+    live ``SceneTree`` after ``_ready`` and dynamic instantiation, so it carries
+    the runtime node ``path`` alongside ``name``/``type``/``children``. Distinct
+    from the on-disk ``.tscn`` read by ``scene get`` (a different object, ADR-0019).
     """
 
     name: str

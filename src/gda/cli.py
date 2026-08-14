@@ -7,13 +7,6 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
-# Typer attaches same-named subcommands (create/get/...) to different sub-apps,
-# so reusing the function name is intentional — the descriptor-driven command
-# surface (ADR-0023). pyright's reportRedeclaration is a false positive for that
-# idiom (the type-checker analogue of the ruff F811 per-file ignore for this
-# module), so it is suppressed file-wide here.
-# pyright: reportRedeclaration=false
-
 from importlib.metadata import version as package_version
 from typing import Optional
 
