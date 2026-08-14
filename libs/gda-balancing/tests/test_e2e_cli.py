@@ -382,9 +382,7 @@ class TestKeyUserPath:
             "quantity.subtract",
         }
 
-        checked_in_experiment_path = (
-            _ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json"
-        )
+        checked_in_experiment_path = _ROGUELIKE_REWARD_BUILD_EXAMPLE / "experiment.json"
         checked_experiment = _run(
             "experiment", "check", str(checked_in_experiment_path)
         )
@@ -392,9 +390,7 @@ class TestKeyUserPath:
             0,
             "",
         ), checked_experiment.stdout
-        experiment = json.loads(
-            checked_in_experiment_path.read_text(encoding="utf-8")
-        )
+        experiment = json.loads(checked_in_experiment_path.read_text(encoding="utf-8"))
 
         baseline_receipt, baseline_trace = _run_experiment_variant(
             tmp_path,
