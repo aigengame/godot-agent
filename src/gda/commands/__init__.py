@@ -14,9 +14,11 @@ top-level and ungrouped (ADR-0005), so its ``register`` attaches them to
 Dependency direction (ADR-0040 §5): ``cli`` → ``commands/*`` → ``dispatch`` →
 ``headless`` → runners / ``errors`` / ``models``. A group module may import
 another group's public model one-way where the language genuinely shares a
-shape — ``node`` → ``scene`` for ``SceneNode``, ``shader`` → ``script`` for the
-``ScriptSetMode`` edit interface ``shader set`` reuses, ``logger`` → ``diag``
-for the ``SourceFrame`` location and the ``--limit`` tail option the two
-log-reading groups share (the ADR-0022/0026 lineage that made ``logger`` the
-structured successor of ``diag``'s raw view); no reciprocal group imports.
+shape — ``node`` → ``scene`` for ``SceneNode`` and ``derive_scene_root_name``
+(the filename-stem default an ``--instance`` composition reuses), ``shader`` →
+``script`` for the ``ScriptSetMode`` edit interface ``shader set`` reuses,
+``logger`` → ``diag`` for the ``SourceFrame`` location and the ``--limit`` tail
+option the two log-reading groups share (the ADR-0022/0026 lineage that made
+``logger`` the structured successor of ``diag``'s raw view); no reciprocal
+group imports.
 """

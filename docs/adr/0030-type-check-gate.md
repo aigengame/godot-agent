@@ -48,6 +48,11 @@ in stages (issues #307–#309); this ADR covers the Stage 1 `src/` gate.
     invariant ([ADR-0023](0023-command-descriptor-single-registration.md)); a guard restructured
     to narrow a `Path | None`; `render_node_tree` widened to `SceneNode | GameNode` (the two share
     `name`/`type`/`children`); and `surface.py` switched to the `getattr` idiom it already uses.
+
+    > **Outcome (2026-08-15, ADR-0040):** `render_node_tree` now types against the structural
+    > `NodeOutline` protocol in `gda.render` (the shared `name`/`type`/`children` view), so the
+    > union of the two concrete models — which became an upward edge after the group split —
+    > is gone.
   - *Honest annotation widening*: the `classify_*` functions that only interpolate `binary` into
     a message take `Path | None`, since live ops legitimately pass `None`.
   - *Two reasoned suppressions*: the `reportRedeclaration` analogue of ruff's `F811` cli.py
@@ -56,6 +61,11 @@ in stages (issues #307–#309); this ADR covers the Stage 1 `src/` gate.
     dispatch seam, where `binary` is `None` only for live ops whose injected runner/classifier
     ignore it ([ADR-0017](0017-gda-daemon-live-execution-mechanism.md)) — a precise type there
     would cascade across ~15 sites.
+
+    > **Outcome (2026-08-15, [ADR-0040](0040-per-command-group-modules.md)):** the file-wide
+    > `cli.py` `reportRedeclaration` suppression was removed with the per-command-group split
+    > — command function names are unique per group module, so `cli.py` no longer redefines
+    > names. The two `headless.py` seam ignores stand.
 
 ## Considered options
 
@@ -78,6 +88,9 @@ in stages (issues #307–#309); this ADR covers the Stage 1 `src/` gate.
   *genuine* accidental redefinition in that one module. Accepted: `cli.py` is the
   command-registration module, dominated by the intentional idiom; a real clash would surface as
   a broken command, not silently.
+  > **Outcome (2026-08-15, [ADR-0040](0040-per-command-group-modules.md)):** this risk ended
+  > when the suppression was removed — `reportRedeclaration` now covers `src/` without
+  > exception.
 - The two `headless.py` seam ignores are the one place a finding is suppressed rather than fixed
   in `src/`; both carry the invariant in a comment. Tightening the `RunnerFactory`/`Classifier`
   seam to express the per-kind binary invariant is possible but deliberately not taken now.

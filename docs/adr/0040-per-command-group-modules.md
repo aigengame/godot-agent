@@ -40,8 +40,10 @@ src/gda/
   commands/
     scene.py node.py script.py resource.py shader.py theme.py
     project.py export.py                      # headless domain groups
-    game.py diag.py logger.py perf.py input.py screen.py
-    daemon.py                                 # live groups (ADR-0017/0019)
+    game.py diag.py logger.py perf.py
+    input.py screen.py                        # live groups (ADR-0017/0019)
+    daemon.py                                 # gda's own daemon lifecycle group
+                                              #   (ADR-0017; recipe-backed, not LIVE)
     meta.py                                   # info, skill, schema (ADR-0005)
   models.py          # shared contract core (shrunk; see below)
   errors.py          # shared classifier machinery (shrunk)
@@ -71,32 +73,39 @@ src/gda/
    `_resolve_project_or_fail`, `dispatch_domain`, `dispatch_meta`,
    `dispatch_recipe`, `_run_params_json` plus its
    `register_params_json_dispatch` call, the argv params-building rule
-   `params_or_bad_parameter`, and the runner seams `_make_runner` /
-   `_make_export_runner` / `_make_live_runner`. It sits below the group modules
+   `params_or_bad_parameter`, and the runner seams `make_runner` /
+   `make_export_runner` / `make_live_runner`. It sits below the group modules
    (which call the tails) and above `headless.py` (which stays free of CLI
-   imports, ADR-0015). Seams are referenced late (`dispatch._make_runner` at
+   imports, ADR-0015). Seams are referenced late (`dispatch.make_runner` at
    call time), so test monkeypatches keep binding.
 4. **The shared core keeps every single authority where it is.** `models.py`
    shrinks to the cross-command contract core: error/envelope models,
    schema/manifest models, path normalization, the value-projection models
    (ADR-0035), and shared field-description constants. `errors.py` keeps the
    shared decision tree (`Failure`, `classify_run`, `classify_launch_or_crash`);
-   a classifier moves out only when a single group consumes it. `error_codes.py`,
-   `exit_codes.py`, `parser.py`, `execution.py`, `skill_targets.py` (ADR-0027
-   quarantine), `binary.py`, `display.py`, and `project.py` do not move —
-   `binary`/`display` are also imported by the Panda Adventure e2e tier.
+   a classifier moves out only when a single group consumes it. The
+   failure-CONSTRUCTOR taxonomy (the `*_failure` builders over `make_failure`)
+   stays in `errors.py` whole, single-consumer ones included, so the taxonomy
+   still reads from one place (ADR-0002's registry framing) — only *classifiers*
+   are group-local. `error_codes.py`, `exit_codes.py`, `parser.py`,
+   `execution.py`, `skill_targets.py` (ADR-0027 quarantine), `binary.py`,
+   `display.py`, and `project.py` do not move — `binary`/`display` are also
+   imported by the Panda Adventure e2e tier.
 5. **Dependency direction**: `cli` → `commands/*` → `dispatch` → `headless` →
    runners / `errors` / `models` → foundation. A group may import another
    group's public symbol one-way where the language genuinely shares a shape —
-   three such edges exist: `node` → `scene` for `SceneNode`; `shader` →
-   `script` for the `ScriptSetMode` edit interface `shader set` reuses; and
-   `logger` → `diag` for the `SourceFrame` location and the `--limit` option
-   the two log-reading groups share (the ADR-0022/0026 lineage). No reciprocal
-   group imports. A shape **no single group owns** stays in the `gda.models`
-   core rather than moving into one — because several groups read it
-   (`NodeProperty`, `EngineVersion`, `MAX_WINDOW_FRAMES`) or because its name
-   points at a different group than its owner (`ResourceReference`, which is
-   `project find-references`'s result shape).
+   three such edges exist: `node` → `scene` for `SceneNode` and
+   `derive_scene_root_name` (the filename-stem default an `--instance`
+   composition reuses); `shader` → `script` for the `ScriptSetMode` edit
+   interface `shader set` reuses; and `logger` → `diag` for the `SourceFrame`
+   location and the `--limit` option the two log-reading groups share (the
+   ADR-0022/0026 lineage). No reciprocal group imports. A shape **no single
+   group owns** stays in the `gda.models` core rather than moving into one,
+   because several groups read it (`NodeProperty`, `EngineVersion`,
+   `MAX_WINDOW_FRAMES`). A shape a **single group does own** moves to that
+   group even when its name points elsewhere: `ResourceReference` reads as the
+   `resource` group's but is `project find-references`'s result shape, so it
+   lives in `commands/project.py`.
 
 ## Considered options
 
@@ -114,8 +123,10 @@ src/gda/
 
 ## Consequences
 
-- Adding a command touches its group module and its test file. The five-file
-  change amplification is gone.
+- Adding a command touches its group module, the SKILL.md command table (CI-gated
+  by `tests/test_skill_surface_sync.py`), and its test file — plus
+  `ops/operations.gd` for a sentinel op (out of scope here). The five-file change
+  amplification across the shared core is gone.
 - The `cli.py` whole-file suppressions (`F811`, `reportRedeclaration`) are
   dropped; command function names are unique within each group module.
 - Tests keep driving the same public surface; per-group test files update
