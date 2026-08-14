@@ -27,7 +27,8 @@ def test_playtest_runtime_dependencies_point_downward():
 
 
 def test_playtest_player_settings_have_explicit_defaults_and_translations():
-    project = (_PLAYTEST / "project.godot").read_text(encoding="utf-8")
+    project_path = next(_PLAYTEST.glob("project.*"))
+    project = project_path.read_text(encoding="utf-8")
     assert "window/size/viewport_width=1920" in project
     assert "window/size/viewport_height=1080" in project
     assert "window/size/window_width_override=2560" in project
