@@ -132,9 +132,9 @@ def params_json_option() -> Optional[str]:
     )
 
 
-# A hook registered by gda.cli that runs a command from a params model built off
-# ``--params-json``, through the same project-resolution + runner seam the argv
-# path uses. Held as a hook so this module need not import gda.cli (ADR-0015).
+# A hook registered by gda.dispatch that runs a command from a params model built
+# off ``--params-json``, through the same project-resolution + runner seam the argv
+# path uses. Held as a hook so this module need not import the CLI layer (ADR-0015).
 ParamsJsonDispatch = Callable[["HeadlessCommand", BaseModel, "typer.Context"], None]
 _params_json_dispatch: Optional[ParamsJsonDispatch] = None
 

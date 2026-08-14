@@ -30,9 +30,9 @@ from gda.models import (
 )
 from gda.runner import GodotRunner
 
-# The LIVE runner factory seam, the SAME shape gda.cli._make_live_runner has —
+# The LIVE runner factory seam, the SAME shape gda.dispatch._make_live_runner has —
 # ``(binary, project) -> GodotRunner`` — so the CLI threads its own seam in and a
-# test's ``inject_live_runner`` (which patches ``gda.cli._make_live_runner``) binds
+# test's ``inject_live_runner`` (which patches ``gda.dispatch._make_live_runner``) binds
 # without a second injection point. ``binary`` is unused (a live op reaches the
 # daemon, not a fresh engine), matching the live channel.
 LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]

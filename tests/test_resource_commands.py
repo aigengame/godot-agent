@@ -106,7 +106,7 @@ def test_resource_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
     fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app, ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"]
@@ -118,7 +118,7 @@ def test_resource_set_requires_value(monkeypatch):
 
 def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
     fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app,
@@ -175,7 +175,7 @@ def test_resource_delete_human_output_names_path_and_type(monkeypatch):
 
 def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
     fake = FakeRunner(RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app, ["resource", "delete", "res://palette.tres", "--json"]
@@ -269,7 +269,7 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
     # A filesystem path gets ~ expanded at the CLI layer (issue #32); res://
     # virtual paths pass through untouched. Exercise the expansion seam.
     fake = FakeRunner(RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app, ["resource", "create", "~/palette.tres", "--type", "Gradient", "--json"]
@@ -283,7 +283,7 @@ def test_resource_create_expands_user_home_in_filesystem_path(monkeypatch):
 
 def test_resource_get_res_path_passes_through_untouched(monkeypatch):
     fake = FakeRunner(RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app, ["resource", "get", "res://palette.tres", "--json"]
@@ -349,7 +349,7 @@ def test_resource_uid_passes_resolved_project_to_the_runner(monkeypatch, tmp_pat
             RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0)
         )
 
-    monkeypatch.setattr("gda.cli._make_runner", record)
+    monkeypatch.setattr("gda.dispatch._make_runner", record)
 
     result = CliRunner().invoke(
         app, ["resource", "uid", UID, "--project", str(tmp_path), "--json"]

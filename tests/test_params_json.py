@@ -129,7 +129,7 @@ def test_schema_takes_precedence_over_params_json(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not dispatch the operation")
 
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch._make_runner", boom)
 
     result = CliRunner().invoke(
         app,

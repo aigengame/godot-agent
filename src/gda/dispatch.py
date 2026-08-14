@@ -1,0 +1,238 @@
+"""The CLI-layer dispatch tails and runner seams.
+
+This module owns the dispatch tails (``_emit`` / ``_dispatch`` /
+``_dispatch_meta`` / ``_dispatch_recipe`` / ``_run_params_json``) and the runner
+seams (``_make_runner`` / ``_make_export_runner`` / ``_make_live_runner``)
+shared by every command module. The descriptor machinery itself stays in
+``gda.headless``, which holds no CLI import (ADR-0015); this module sits between
+the two — below the command modules that call the tails, above ``headless``.
+Extracted from ``gda.cli`` per ADR-0040.
+"""
+
+from pathlib import Path
+from typing import Optional
+
+import typer
+from pydantic import BaseModel
+
+from gda.errors import (
+    Failure,
+    invalid_project_failure,
+)
+from gda.execution import ExecutionKind
+from gda.export_runner import ExportRunner, make_subprocess_export_runner
+from gda.headless import (
+    HeadlessCommand,
+    M,
+    emit_failure,
+    emit_result,
+    make_subprocess_runner,
+    register_params_json_dispatch,
+)
+from gda.live_runner import make_daemon_runner
+from gda.project import resolve_project_dir
+from gda.runner import GodotRunner
+
+
+def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
+    """Build the default (real) Godot runner for ``binary`` and ``project``.
+
+    A seam tests override (via monkeypatch) to inject a fake runner.
+    """
+    return make_subprocess_runner(binary, project)
+
+
+def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
+    """Build the default (real) native-export runner for ``binary`` and ``project``.
+
+    The ``export run``-only twin of :func:`_make_runner`: a seam tests override
+    to inject a fake export runner, since ``export run`` spawns Godot with native
+    ``--export-<mode>`` flags rather than the ``operations.gd`` payload.
+    """
+    return make_subprocess_export_runner(binary, project)
+
+
+def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
+    """Build the LIVE runner — the per-project gda-daemon IPC client (ADR-0017).
+
+    The ``kind = LIVE`` twin of :func:`_make_runner`, a seam tests override to
+    inject a fake daemon runner. ``binary`` is unused: a live op reaches the
+    running daemon, not a fresh engine, so the daemon (not the CLI) owns the
+    engine session.
+    """
+    return make_daemon_runner(project)
+
+
+def _emit(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[Path],
+) -> None:
+    """Drive ``cmd.emit`` with the shared CLI execution tail.
+
+    Selects the runner seam by the command's execution channel ``kind`` (ADR-0017):
+    a ``LIVE`` command goes through :func:`_make_live_runner` (the daemon IPC
+    client), every other through :func:`_make_runner`. Both seams are referenced
+    here at call time, so a test monkeypatch on ``gda.dispatch._make_runner`` /
+    ``gda.dispatch._make_live_runner`` still binds. Both the domain dispatch
+    (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
+    through here; they differ only in how ``project`` is obtained.
+    """
+    make_runner = _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
+    cmd.emit(
+        params,
+        godot=godot,
+        project=project,
+        json_output=json_output,
+        make_runner=make_runner,
+    )
+
+
+def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
+    """Resolve ``--project`` (ADR-0006), or emit a structured ``project_not_found``
+    and exit — never leak the raise as a traceback (#353).
+
+    ``resolve_project_dir`` raises ``ValueError`` for an explicit ``--project`` or
+    ``$GDA_PROJECT`` that is empty or is not a Godot project. This is the ONE shared
+    project-resolution point on the CLI dispatch path, so converting the raise here
+    gives every channel — sentinel (:func:`_dispatch`) and recipe
+    (:func:`_dispatch_recipe`) — the structured envelope in a single place.
+    """
+    try:
+        return resolve_project_dir(project)
+    except ValueError as exc:
+        emit_failure(invalid_project_failure(str(exc)))
+
+
+def _dispatch(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a domain command through the shared CLI execution tail.
+
+    Owns the per-command-repeated wiring: project resolution
+    (``resolve_project_dir``, kept at the CLI layer per ADR-0006), the runner
+    seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
+    command keeps its own Typer signature, params construction, and
+    pre-dispatch validation; only this execution tail is shared. Human
+    rendering is done by the command's own renderer (``cmd.render``, ADR-0023)
+    inside ``cmd.emit``, so no renderer is threaded here.
+    """
+    _emit(
+        cmd,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=_resolve_project_or_fail(project),
+    )
+
+
+def _dispatch_meta(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+) -> None:
+    """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
+
+    Unlike :func:`_dispatch`, this never calls ``resolve_project_dir``: a meta
+    command (``gda info``) is about ``gda``/the engine itself, so it runs
+    projectless rather than resolving a project context.
+    """
+    _emit(
+        cmd,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=None,
+    )
+
+
+def _dispatch_recipe(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a recipe command through its descriptor's ``recipe``, then emit (ADR-0023).
+
+    A recipe command (``export run`` / the ``daemon`` lifecycle / ``screen``) is
+    fulfilled by a CLI-side recipe that PRODUCES the outcome, not the sentinel
+    ``cmd.emit``. Emission is the SAME shared tail every command uses —
+    :func:`emit_result` with the command's own ``cmd.render`` — so a recipe command
+    renders identically to a sentinel one; only outcome production differs. Shared by
+    the argv bodies and the ``--params-json`` path, so the two forms are
+    indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
+    (ADR-0006) and happens HERE, once, for every PROJECT-USING recipe — so an
+    invalid ``--project`` yields the structured ``project_not_found`` envelope on
+    this channel exactly as on the sentinel one, and no recipe re-resolves (#353).
+    A ``projectless`` recipe (a pure meta emitter like ``gda skill``, ADR-0024) is
+    NOT resolved: it takes no project, so an inherited invalid ``$GDA_PROJECT``
+    must not make it fail (#357).
+    """
+    # A recipe command always carries a recipe channel — that is what routes it
+    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023). A project-using
+    # recipe receives the ALREADY-resolved project (or a structured project_not_found
+    # is emitted before it runs); a projectless meta recipe receives None and never
+    # touches ``resolve_project_dir``.
+    assert cmd.recipe is not None
+    resolved = None if cmd.projectless else _resolve_project_or_fail(project)
+    outcome = cmd.recipe(params, project=resolved, godot=godot)
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output, cmd.render)
+
+
+def _run_params_json(
+    cmd: HeadlessCommand[M], params: BaseModel, ctx: typer.Context
+) -> None:
+    """Dispatch a ``--params-json`` invocation through the shared CLI tail (ADR-0015).
+
+    Registered with :func:`gda.headless.register_params_json_dispatch`. The model
+    is already built from the JSON object by the command class; this only routes
+    it through the *same* project resolution + runner seam the argv path uses, so
+    the two input paths are indistinguishable downstream. The global
+    ``--json`` / ``--godot`` / ``--project`` options parsed alongside
+    ``--params-json`` are honored; a meta command (no ``--project`` option)
+    dispatches projectless, mirroring :func:`_dispatch_meta`.
+    """
+    options = ctx.params
+    json_output = bool(options.get("json_output", False))
+    godot = options.get("godot")
+    if cmd.recipe is not None:
+        # A recipe command (export run / daemon lifecycle / screen) is fulfilled by
+        # its descriptor's recipe, not the sentinel cmd.emit — ONE descriptor-driven
+        # branch, no kind/identity selection (ADR-0023). The recipe reads everything
+        # from the built params model (windowed/output/…), so --params-json drives the
+        # SAME path as the argv body.
+        _dispatch_recipe(
+            cmd,
+            params,
+            json_output=json_output,
+            godot=godot,
+            project=options.get("project"),
+        )
+        return
+    if "project" in options:
+        _dispatch(
+            cmd,
+            params,
+            json_output=json_output,
+            godot=godot,
+            project=options.get("project"),
+        )
+    else:
+        _dispatch_meta(cmd, params, json_output=json_output, godot=godot)
+
+
+register_params_json_dispatch(_run_params_json)

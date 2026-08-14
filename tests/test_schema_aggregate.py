@@ -124,7 +124,7 @@ def test_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("gda schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch._make_runner", boom)
 
     result = CliRunner().invoke(app, ["schema"])
 
