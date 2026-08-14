@@ -26,6 +26,7 @@ from gda.headless import (
     project_option,
 )
 from gda.models import (
+    CREATED_DIRS_DESC,
     NormalizedPath,
     projected_value_schema_extra,
     VALUE_PROJECTION_DESC,
@@ -84,11 +85,7 @@ class SceneCreateResult(BaseModel):
     path: str
     root_name: str
     root_type: str
-    created_dirs: list[str] = Field(
-        description=(
-            "Parent directories created before saving, from outermost to innermost."
-        )
-    )
+    created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
 
 
 class SceneInstanceStatus(str, Enum):

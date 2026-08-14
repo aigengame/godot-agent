@@ -35,7 +35,7 @@ from gda.models import (
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.render import format_value, render_node_tree
+from gda.render import render_node_tree, render_property_lines, render_set_echo
 
 
 class NodeAddParams(BaseModel):
@@ -544,20 +544,12 @@ def render_node_list(listed: "NodeListResult") -> str:
 
 def render_node_properties(got: "NodeGetResult") -> str:
     """Render a node's properties as ``name (Type) = value`` lines for humans."""
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
+    return render_property_lines(got.path, got.type, got.properties)
 
 
 def render_node_set(was_set: "NodeSetResult") -> str:
     """Render a set property as ``set <path>.<prop> (<type>) = <value>``."""
-    return (
-        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-        f"{format_value(was_set.value)}"
-    )
+    return render_set_echo(was_set.path, was_set.property, was_set.type, was_set.value)
 
 
 def render_node_remove(removed: "NodeRemoveResult") -> str:

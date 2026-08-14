@@ -42,7 +42,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import NormalizedPath
+from gda.models import CREATED_DIRS_DESC, NormalizedPath
 from gda.runner import RunResult, launch
 
 
@@ -108,11 +108,7 @@ class ScriptCreateResult(BaseModel):
             "The base class the written script extends, or null when it declares none."
         ),
     )
-    created_dirs: list[str] = Field(
-        description=(
-            "Parent directories created before saving, from outermost to innermost."
-        )
-    )
+    created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
 
 
 class ScriptGetParams(BaseModel):

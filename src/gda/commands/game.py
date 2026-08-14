@@ -8,7 +8,7 @@ params/result models, its human renderers, its ``HeadlessCommand`` descriptors
 LIVE descriptor's classifier to the ``classify_live`` every live group shares),
 the cross-command contract core (``gda.models``) and the shared render helpers
 (``gda.render``) — and is imported by nothing but the composition root
-(``gda.cli``) and ``gda.render``'s TYPE_CHECKING-only annotation of ``GameNode``.
+(``gda.cli``).
 
 The whole group is LIVE (``kind = LIVE``): it is served through ``gda-daemon``
 against the engine session it holds, reading the runtime ``SceneTree`` after
@@ -32,11 +32,19 @@ from gda.headless import (
 )
 from gda.models import (
     NodeProperty,
-    LIVE_SET_READ_BACK_VALUE_DESC,
     RUNTIME_NODE_DESC,
     projected_value_schema_extra,
 )
-from gda.render import format_value, render_node_tree
+from gda.render import format_value, render_node_tree, render_property_lines
+
+# The live set-echo variant of the shared value-projection description
+# (``gda.models.SET_ECHO_VALUE_DESC``): ``game set`` echoes what it OBSERVED on
+# the running node after the write, not the value it coerced, so it names the
+# read-back explicitly. Lives here — this group is its only consumer (ADR-0040 §5).
+LIVE_SET_READ_BACK_VALUE_DESC = (
+    "The observed read-back value as JSON, in the same recursive value projection "
+    "that game get reports (ADR-0035)."
+)
 
 
 # The ``SceneNode`` the docstring contrasts with is the ``scene`` group's on-disk
@@ -225,12 +233,7 @@ def render_game_get(got: "GameGetResult") -> str:
     The runtime counterpart of ``render_node_properties``: same ``path (Type)``
     header + ``name (Type) = value`` lines, addressed by the runtime path.
     """
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
+    return render_property_lines(got.path, got.type, got.properties)
 
 
 def render_game_rect(rect: "GameRectResult") -> str:

@@ -248,7 +248,7 @@ def test_project_set_requires_value(monkeypatch):
     # --value is required: a set with no value is a usage error (exit 2), not a
     # silent no-op or an empty write.
     fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
-    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(app, ["project", "set", "application/config/name"])
 
@@ -516,7 +516,7 @@ def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
     fake = FakeRunner(
         RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
     )
-    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(app, ["project", "add-input-action", "jump"])
 
@@ -530,7 +530,7 @@ def test_project_add_input_action_rejects_out_of_range_deadzone(monkeypatch):
     fake = FakeRunner(
         RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
     )
-    monkeypatch.setattr("gda.dispatch._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
 
     result = CliRunner().invoke(
         app,
@@ -780,7 +780,7 @@ def test_project_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.dispatch._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["project", "info"],

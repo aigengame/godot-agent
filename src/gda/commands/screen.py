@@ -169,9 +169,9 @@ class ScreenFramesResult(BaseModel):
 # then decodes the base64 PNG(s) and writes them under the agent's chosen path. A
 # failed capture writes nothing.
 
-# The LIVE runner factory seam, the SAME shape gda.dispatch._make_live_runner has —
+# The LIVE runner factory seam, the SAME shape gda.dispatch.make_live_runner has —
 # ``(binary, project) -> GodotRunner`` — so the CLI threads its own seam in and a
-# test's ``inject_live_runner`` (which patches ``gda.dispatch._make_live_runner``) binds
+# test's ``inject_live_runner`` (which patches ``gda.dispatch.make_live_runner``) binds
 # without a second injection point. ``binary`` is unused (a live op reaches the
 # daemon, not a fresh engine), matching the live channel.
 LiveRunnerFactory = Callable[[Optional[Path], Optional[Path]], GodotRunner]
@@ -209,7 +209,7 @@ def _default_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRun
     """Build the LIVE runner for ``project`` — the daemon-channel runner factory.
 
     Matches the ``(binary, project)`` factory shape so the CLI's
-    ``_make_live_runner`` is a drop-in; ``binary`` is unused (the daemon owns the
+    ``make_live_runner`` is a drop-in; ``binary`` is unused (the daemon owns the
     engine session).
     """
     return make_daemon_runner(project)
@@ -315,9 +315,9 @@ def render_screen_frames(captured: "ScreenFramesResult") -> str:
 # before any recipe runs, #353) — and RETURNS the typed result or a Failure; emission
 # stays the shared tail (:func:`gda.dispatch.dispatch_recipe` → ``cmd.render``), so a
 # recipe command renders exactly like a sentinel one. The runner seam
-# (``dispatch._make_live_runner``) is referenced at call time — as an attribute on the
+# (``dispatch.make_live_runner``) is referenced at call time — as an attribute on the
 # module, never imported by name — so test monkeypatches on
-# ``gda.dispatch._make_live_runner`` still bind. ``params`` is the built model — the
+# ``gda.dispatch.make_live_runner`` still bind. ``params`` is the built model — the
 # single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
 # — so output/inline/frames are read off it, never special-cased.
 
@@ -327,7 +327,7 @@ def _screen_capture_recipe(params, *, project, godot):
         project,
         Path(params.output),
         inline=params.inline,
-        make_runner=dispatch._make_live_runner,
+        make_runner=dispatch.make_live_runner,
     )
 
 
@@ -336,7 +336,7 @@ def _screen_frames_recipe(params, *, project, godot):
         project,
         params.frames,
         Path(params.output_dir),
-        make_runner=dispatch._make_live_runner,
+        make_runner=dispatch.make_live_runner,
     )
 
 

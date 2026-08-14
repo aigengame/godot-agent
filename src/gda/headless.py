@@ -257,7 +257,7 @@ def schema_command_class(
                     emit_failure(invalid_params_json_failure(str(exc)))
                 if _params_json_dispatch is None:  # pragma: no cover - misconfig
                     raise RuntimeError(
-                        "no --params-json dispatcher registered; gda.cli must call "
+                        "no --params-json dispatcher registered; gda.dispatch must call "
                         "register_params_json_dispatch()"
                     )
                 _params_json_dispatch(command, model, ctx)
@@ -393,7 +393,7 @@ class HeadlessCommand(Generic[M]):
                 # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
                 return unresolvable_binary_failure(str(exc))
         # ``binary`` is ``None`` only on the LIVE branch above, where the injected
-        # runner (`_make_live_runner`) and classifier ignore it — a live op reaches
+        # runner (`make_live_runner`) and classifier ignore it — a live op reaches
         # the daemon, not a fresh engine (ADR-0017); the headless path always passes
         # a resolved ``Path``. The RunnerFactory/Classifier seam is shared across
         # both kinds and can't express that per-kind invariant, so the two

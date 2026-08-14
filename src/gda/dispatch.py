@@ -3,7 +3,7 @@
 This module owns the dispatch tails (``_emit`` / ``dispatch_domain`` /
 ``dispatch_meta`` / ``dispatch_recipe`` / ``_run_params_json``), the argv
 params-building rule (``params_or_bad_parameter``) and the runner seams
-(``_make_runner`` / ``_make_export_runner`` / ``_make_live_runner``)
+(``make_runner`` / ``make_export_runner`` / ``make_live_runner``)
 shared by every command module. The descriptor machinery itself stays in
 ``gda.headless``, which holds no CLI import (ADR-0015); this module sits between
 the two — below the command modules that call the tails, above ``headless``.
@@ -54,7 +54,7 @@ def params_or_bad_parameter(model_cls: type[P], /, **kwargs: Any) -> P:
         raise typer.BadParameter(str(exc)) from exc
 
 
-def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
+def make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     """Build the default (real) Godot runner for ``binary`` and ``project``.
 
     A seam tests override (via monkeypatch) to inject a fake runner.
@@ -62,20 +62,20 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     return make_subprocess_runner(binary, project)
 
 
-def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
+def make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
     """Build the default (real) native-export runner for ``binary`` and ``project``.
 
-    The ``export run``-only twin of :func:`_make_runner`: a seam tests override
+    The ``export run``-only twin of :func:`make_runner`: a seam tests override
     to inject a fake export runner, since ``export run`` spawns Godot with native
     ``--export-<mode>`` flags rather than the ``operations.gd`` payload.
     """
     return make_subprocess_export_runner(binary, project)
 
 
-def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
+def make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
     """Build the LIVE runner — the per-project gda-daemon IPC client (ADR-0017).
 
-    The ``kind = LIVE`` twin of :func:`_make_runner`, a seam tests override to
+    The ``kind = LIVE`` twin of :func:`make_runner`, a seam tests override to
     inject a fake daemon runner. ``binary`` is unused: a live op reaches the
     running daemon, not a fresh engine, so the daemon (not the CLI) owns the
     engine session.
@@ -94,20 +94,20 @@ def _emit(
     """Drive ``cmd.emit`` with the shared CLI execution tail.
 
     Selects the runner seam by the command's execution channel ``kind`` (ADR-0017):
-    a ``LIVE`` command goes through :func:`_make_live_runner` (the daemon IPC
-    client), every other through :func:`_make_runner`. Both seams are referenced
-    here at call time, so a test monkeypatch on ``gda.dispatch._make_runner`` /
-    ``gda.dispatch._make_live_runner`` still binds. Both the domain dispatch
+    a ``LIVE`` command goes through :func:`make_live_runner` (the daemon IPC
+    client), every other through :func:`make_runner`. Both seams are referenced
+    here at call time, so a test monkeypatch on ``gda.dispatch.make_runner`` /
+    ``gda.dispatch.make_live_runner`` still binds. Both the domain dispatch
     (:func:`dispatch_domain`) and the meta dispatch (:func:`dispatch_meta`) funnel
     through here; they differ only in how ``project`` is obtained.
     """
-    make_runner = _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
+    runner_factory = make_live_runner if cmd.kind is ExecutionKind.LIVE else make_runner
     cmd.emit(
         params,
         godot=godot,
         project=project,
         json_output=json_output,
-        make_runner=make_runner,
+        make_runner=runner_factory,
     )
 
 

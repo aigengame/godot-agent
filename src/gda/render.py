@@ -10,8 +10,8 @@ type-keyed dispatch table here; emission calls the descriptor's renderer.
 
 Since ADR-0040 a group's own renderers live in its ``gda.commands.<group>``
 module, beside the descriptors that bind them; what stays here are the helpers
-shared ACROSS groups. Two such seams are deliberately funnelled through one
-place here:
+shared ACROSS groups — value-to-text, the node-tree outline, and the property
+read / set-echo lines. Two of them carry rationale worth stating here:
 
 - **Value-to-text.** A node property's ``value`` is arbitrary JSON (every Godot
   type carried uniformly, :class:`~gda.models.NodeProperty`). :func:`format_value`
@@ -23,18 +23,10 @@ place here:
 """
 
 import json
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import Any, Protocol
 
-if TYPE_CHECKING:
-    # The node shapes are referenced only in string annotations on the tree
-    # renderer below; nothing here needs them at runtime. Keep them import-time
-    # only for type-checkers.
-    #
-    # Both now live with their own group modules (ADR-0040); annotating against
-    # them here is a TYPE_CHECKING-only reference, so the runtime dependency
-    # direction (``commands`` → ``render``) is not inverted.
-    from gda.commands.game import GameNode
-    from gda.commands.scene import SceneNode
+from gda.models import NodeProperty
 
 
 def format_value(value: Any) -> str:
@@ -48,13 +40,34 @@ def format_value(value: Any) -> str:
     return json.dumps(value)
 
 
-def render_node_tree(node: "SceneNode | GameNode", depth: int = 0) -> str:
+class NodeOutline(Protocol):
+    """The shared tree surface every renderable node shape carries.
+
+    A structural (typing-only) interface over the ``name``/``type``/``children``
+    that the on-disk ``SceneNode``/``ListedNode`` and the runtime ``GameNode``
+    all have. :func:`render_node_tree` types against this surface, so the shared
+    renderer names no group model and the ``commands`` → ``render`` dependency
+    direction stays one-way (ADR-0040 §5). Read-only properties, so a model
+    whose ``children`` is a concrete ``list`` of its own node type satisfies it.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def children(self) -> Sequence["NodeOutline"]: ...
+
+
+def render_node_tree(node: NodeOutline, depth: int = 0) -> str:
     """Render a node tree as an indented ``name (Type)`` outline for humans.
 
-    Types against ``SceneNode`` alone: ``ListedNode`` is a ``SceneNode`` subclass
-    (one tree shape), so node list's tree flows through here without naming a
-    union — the renderer reads only ``name``/``type``/``children``, which every
-    node in the tree carries.
+    Types against the structural :class:`NodeOutline` surface: the renderer reads
+    only ``name``/``type``/``children``, which every node in every tree shape
+    carries, so one walk serves the on-disk ``scene``/``node`` trees and the
+    runtime ``game`` tree without naming a union of group models.
 
     Iterative on purpose (issue #37): a legitimately deep scene tree can nest far
     past Python's recursion limit, so this walks the tree with an explicit stack
@@ -65,10 +78,23 @@ def render_node_tree(node: "SceneNode | GameNode", depth: int = 0) -> str:
     lines: list[str] = []
     # Stack of (node, depth); pushing children in reverse so the leftmost child
     # is popped first preserves the recursive pre-order, in-order traversal.
-    stack: list[tuple["SceneNode | GameNode", int]] = [(node, depth)]
+    stack: list[tuple[NodeOutline, int]] = [(node, depth)]
     while stack:
         current, current_depth = stack.pop()
         lines.append(f"{'  ' * current_depth}{current.name} ({current.type})")
         for child in reversed(current.children):
             stack.append((child, current_depth + 1))
     return "\n".join(lines)
+
+
+def render_property_lines(
+    path: str, type_name: str, properties: Sequence[NodeProperty]
+) -> str:
+    """Render a ``path (Type)`` header plus one typed line per property — the shared get surface."""
+    body = (f"  {p.name} ({p.type}) = {format_value(p.value)}" for p in properties)
+    return "\n".join([f"{path} ({type_name})", *body])
+
+
+def render_set_echo(path: str, property_name: str, type_name: str, value: Any) -> str:
+    """Render ``set <path>.<property> (<type>) = <value>`` — the shared node/resource set echo."""
+    return f"set {path}.{property_name} ({type_name}) = {format_value(value)}"

@@ -1,10 +1,15 @@
-"""The ``gda`` CLI entrypoint.
+"""The ``gda`` CLI composition root (ADR-0040).
 
-Meta commands (about ``gda`` or the engine itself) sit at the top level;
-domain commands are grouped under their Godot domain object (ADR-0005).
-``gda info`` is the Phase-1 tracer bullet; the ``scene`` group is the first
-domain group (issue #18). Every command drives the same headless pipeline:
-binary resolution → runner → sentinel parse → typed model → JSON.
+This module holds no command: it creates the root Typer app and calls the
+``register(root)`` of every ``gda.commands.<group>`` module, in the historical
+mount order so ``gda --help`` is unchanged. A group module owns its own vertical
+slice (models, renderers, descriptors, Typer bodies) and mounts its sub-app;
+``meta`` attaches its top-level, ungrouped commands directly (ADR-0005).
+Mounting IS the registration — the live Typer tree stays the only registry
+(ADR-0012/0023), so nothing here is a parallel table to keep in sync.
+
+Also here: the root ``--version`` option and the no-op root callback that keeps
+``gda`` a command *group*. ``gda.cli:app`` is the packaged entry point.
 """
 
 from importlib.metadata import version as package_version
@@ -69,13 +74,6 @@ input_commands.register(app)
 screen_commands.register(app)
 
 daemon_commands.register(app)
-
-
-# Path normalization lives in the models (ADR-0015) via the NormalizedPath field
-# type, the single home shared by the argv and ``--params-json`` paths — every
-# command's body (``export run`` included, since ADR-0023 routed it through a built
-# ``ExportRunParams``) passes its raw path straight to the params model, which
-# ~-expands it. There is no CLI-layer normalization step left to share.
 
 
 def _version_callback(value: Optional[bool]) -> None:

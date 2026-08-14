@@ -10,9 +10,9 @@ the cross-command contract core (``gda.models``, for the shared
 (``gda.render``) — and is imported by nothing but the composition root
 (``gda.cli``).
 
-:class:`~gda.models.ResourceReference` is NOT this group's model: it is the
-``project find-references`` result shape, so it stays in the shared core
-(ADR-0040 §4) rather than moving here on the strength of its name.
+:class:`~gda.commands.project.ResourceReference` is NOT this group's model
+despite its name: it is the ``project find-references`` result shape, so it
+lives with its single consumer in the ``project`` group (ADR-0040 §5).
 """
 
 from typing import Any, Optional
@@ -29,12 +29,13 @@ from gda.headless import (
     project_option,
 )
 from gda.models import (
+    CREATED_DIRS_DESC,
     NodeProperty,
     NormalizedPath,
     OBJECT_SET_ECHO_DESC,
     projected_value_schema_extra,
 )
-from gda.render import format_value
+from gda.render import render_property_lines, render_set_echo
 
 
 class ResourceCreateParams(BaseModel):
@@ -70,11 +71,7 @@ class ResourceCreateResult(BaseModel):
 
     path: str
     type: str = Field(description="The Godot resource class that was created.")
-    created_dirs: list[str] = Field(
-        description=(
-            "Parent directories created before saving, from outermost to innermost."
-        )
-    )
+    created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
 
 
 class ResourceGetParams(BaseModel):
@@ -237,20 +234,12 @@ def render_resource_properties(got: "ResourceGetResult") -> str:
     type, then one typed line per storage property — the same human surface a
     node's properties get, since both read the shared :class:`NodeProperty`.
     """
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
+    return render_property_lines(got.path, got.type, got.properties)
 
 
 def render_resource_set(was_set: "ResourceSetResult") -> str:
     """Render a set property as ``set <path>.<property> (<type>) = <value>``."""
-    return (
-        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-        f"{format_value(was_set.value)}"
-    )
+    return render_set_echo(was_set.path, was_set.property, was_set.type, was_set.value)
 
 
 def render_resource_delete(removed: "ResourceDeleteResult") -> str:

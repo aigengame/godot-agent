@@ -30,7 +30,6 @@ from gda.headless import (
 from gda.models import (
     EngineVersion,
     NormalizedPath,
-    ResourceReference,
     projected_value_schema_extra,
     SET_ECHO_VALUE_DESC,
     VALUE_PROJECTION_DESC,
@@ -65,6 +64,38 @@ class ProjectFindReferencesParams(BaseModel):
             "What to find references to: a resource's res:// path (scene, script, "
             "image, .tres, …) or a script class_name."
         )
+    )
+
+
+class ResourceReference(BaseModel):
+    """One referencing site found by ``gda project find-references`` (issue #116).
+
+    ``path`` is the ``res://`` path of the file that references the target — or
+    ``project.godot`` for a project-level reference (an autoload or the main
+    scene). ``kind`` names how it references it: ``ext_resource`` (a
+    scene/resource ext_resource entry), ``preload``/``load`` (a script load
+    call), ``class_extends`` (a script extending a base-class-by-path),
+    ``class_reference`` (a ``.gd`` file using the target ``class_name`` as a bare
+    identifier — best-effort, whole-word), or ``autoload``/``main_scene`` (a
+    project-level reference in ``project.godot``). ``context`` is the matched
+    line/snippet, best-effort, so an agent can locate the reference without
+    re-reading the file.
+    """
+
+    path: str = Field(
+        description=(
+            "The res:// path of the referencing file, or 'project.godot' for a "
+            "project-level reference."
+        )
+    )
+    kind: str = Field(
+        description=(
+            "How the file references the target: ext_resource, preload, load, "
+            "class_extends, class_reference, autoload, or main_scene."
+        )
+    )
+    context: str = Field(
+        description="The matched line or snippet that holds the reference."
     )
 
 

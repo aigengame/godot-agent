@@ -61,7 +61,7 @@ def test_export_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
             RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
         )
 
-    monkeypatch.setattr("gda.dispatch._make_runner", record)
+    monkeypatch.setattr("gda.dispatch.make_runner", record)
 
     result = CliRunner().invoke(
         app, ["export", "list", "--project", str(tmp_path), "--json"]

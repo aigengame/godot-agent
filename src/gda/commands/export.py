@@ -643,10 +643,10 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
 # :func:`gda.dispatch.dispatch_recipe`, kept CLI-side per ADR-0006, so an invalid
 # --project is a structured project_not_found before the recipe runs, #353) — and
 # RETURNS the typed result or a Failure; emission stays the shared tail, so this
-# command renders exactly like a sentinel one. Both runner seams (``dispatch._make_*``)
+# command renders exactly like a sentinel one. Both runner seams (``dispatch.make_*``)
 # are referenced at call time — as attributes on the module, never imported by name —
-# so test monkeypatches on ``gda.dispatch._make_runner`` /
-# ``gda.dispatch._make_export_runner`` still bind. ``params`` is the built model — the
+# so test monkeypatches on ``gda.dispatch.make_runner`` /
+# ``gda.dispatch.make_export_runner`` still bind. ``params`` is the built model — the
 # single source of truth (ADR-0015), identical on the argv and ``--params-json`` paths
 # — so preset/mode/output are read off it, never special-cased.
 def _export_run_recipe(params, *, project, godot):
@@ -656,8 +656,8 @@ def _export_run_recipe(params, *, project, godot):
         output_override=params.output,
         godot=godot,
         project=project,
-        make_runner=dispatch._make_runner,
-        make_export_runner=dispatch._make_export_runner,
+        make_runner=dispatch.make_runner,
+        make_export_runner=dispatch.make_export_runner,
     )
 
 

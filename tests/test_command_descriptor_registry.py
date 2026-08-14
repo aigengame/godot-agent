@@ -47,6 +47,43 @@ def _dispatchable():
             yield name, gda_command
 
 
+# The one non-domain group module (ADR-0005/0040): its commands are top-level and
+# ungrouped, so it mounts no sub-app — these three names must exist on the root.
+_META_MODULE = "meta"
+_META_TOP_LEVEL_COMMANDS = {"info", "skill", "schema"}
+
+
+def test_every_group_module_is_registered_on_the_root_app():
+    # The mount invariant (ADR-0040): a group module that is never `register`ed on
+    # the composition root would silently vanish from the CLI — every other test
+    # here walks the LIVE Typer tree, so it would simply not see the group and stay
+    # green. This walks the PACKAGE instead and asserts each module reaches the tree.
+    root = typer.main.get_command(app)
+    mounted = getattr(root, "commands", {})
+    for info in pkgutil.iter_modules(gda.commands.__path__):
+        module = importlib.import_module(f"gda.commands.{info.name}")
+        assert callable(getattr(module, "register", None)), (
+            f"group module '{info.name}' exposes no register(root) — "
+            f"add one to gda/commands/{info.name}.py (ADR-0040)"
+        )
+        if info.name == _META_MODULE:
+            continue
+        group = mounted.get(info.name)
+        assert group is not None, (
+            f"group module '{info.name}' is not mounted — "
+            f"add {info.name}.register(app) to gda/cli.py"
+        )
+        assert getattr(group, "commands", None) is not None, (
+            f"'{info.name}' is mounted as a leaf command, not a command group — "
+            f"its register() should add_typer its sub-app"
+        )
+    missing_meta = sorted(_META_TOP_LEVEL_COMMANDS - set(mounted))
+    assert not missing_meta, (
+        f"meta commands absent from the root app: {missing_meta} — "
+        f"add meta.register(app) to gda/cli.py (ADR-0005/0040)"
+    )
+
+
 def test_every_dispatchable_command_carries_a_renderer():
     # The KeyError replacement: a command wired without a renderer is caught here at
     # test time, not on its first human-output invocation.
@@ -62,6 +99,8 @@ def test_every_dispatchable_command_carries_a_renderer():
 # a command result type, so legitimately absent from every descriptor.
 _HELPER_RENDERERS = {
     "render_node_tree",  # the indented tree walk reused by scene-get / node-list
+    "render_property_lines",  # the shared node/resource/game properties read
+    "render_set_echo",  # the shared node/resource property-set echo line
     "render_script_metadata",  # the shared path/class_name/extends script surface
     "render_shader_metadata",  # the shared shader-metadata surface
 }

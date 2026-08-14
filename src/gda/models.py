@@ -299,11 +299,6 @@ SET_ECHO_VALUE_DESC = (
     "corresponding get reports (ADR-0035)."
 )
 
-LIVE_SET_READ_BACK_VALUE_DESC = (
-    "The observed read-back value as JSON, in the same recursive value projection "
-    "that game get reports (ADR-0035)."
-)
-
 # node/resource set additionally have the ADR-0033 Object-typed set path;
 # its echo flows through the same projection, so the assigned resource echoes
 # as the reference projection a subsequent get reads back.
@@ -311,6 +306,15 @@ OBJECT_SET_ECHO_DESC = SET_ECHO_VALUE_DESC + (
     " Setting an Object-typed property by res:// path (ADR-0033) echoes the "
     "assigned resource as a ReferenceProjection ({type, resource_path}) — "
     "the same shape a subsequent get reads back."
+)
+
+# Stays in the shared core (ADR-0040 §4): FIVE groups report the SAME
+# parent-directory side effect on their create results — ``scene``, ``script``,
+# ``resource``, ``shader`` and ``theme`` — so the wording is a cross-command
+# contract, not one group's constant. (``export run`` reports a DIFFERENT thing:
+# the OUTPUT parent directories it made, so it keeps its own description.)
+CREATED_DIRS_DESC = (
+    "Parent directories created before saving, from outermost to innermost."
 )
 
 
@@ -397,42 +401,6 @@ class NodeProperty(BaseModel):
     value: Any = Field(
         description="The property's value as JSON. " + VALUE_PROJECTION_DESC,
         json_schema_extra=projected_value_schema_extra,
-    )
-
-
-# Stays in the shared core (ADR-0040 §4): its name says ``Resource`` but its
-# group does not — it is ``project find-references``'s result shape, so it
-# belongs beside :class:`ProjectFindReferencesResult`, not in the ``resource``
-# group's module.
-class ResourceReference(BaseModel):
-    """One referencing site found by ``gda project find-references`` (issue #116).
-
-    ``path`` is the ``res://`` path of the file that references the target — or
-    ``project.godot`` for a project-level reference (an autoload or the main
-    scene). ``kind`` names how it references it: ``ext_resource`` (a
-    scene/resource ext_resource entry), ``preload``/``load`` (a script load
-    call), ``class_extends`` (a script extending a base-class-by-path),
-    ``class_reference`` (a ``.gd`` file using the target ``class_name`` as a bare
-    identifier — best-effort, whole-word), or ``autoload``/``main_scene`` (a
-    project-level reference in ``project.godot``). ``context`` is the matched
-    line/snippet, best-effort, so an agent can locate the reference without
-    re-reading the file.
-    """
-
-    path: str = Field(
-        description=(
-            "The res:// path of the referencing file, or 'project.godot' for a "
-            "project-level reference."
-        )
-    )
-    kind: str = Field(
-        description=(
-            "How the file references the target: ext_resource, preload, load, "
-            "class_extends, class_reference, autoload, or main_scene."
-        )
-    )
-    context: str = Field(
-        description="The matched line or snippet that holds the reference."
     )
 
 

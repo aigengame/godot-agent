@@ -22,7 +22,7 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.models import NormalizedPath
+from gda.models import CREATED_DIRS_DESC, NormalizedPath
 
 
 class ThemeCreateParams(BaseModel):
@@ -50,11 +50,7 @@ class ThemeCreateResult(BaseModel):
 
     path: str
     type: str = Field(description="The resource type written to the .tres (Theme).")
-    created_dirs: list[str] = Field(
-        description=(
-            "Parent directories created before saving, from outermost to innermost."
-        )
-    )
+    created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
 
 
 def render_theme_create(created: "ThemeCreateResult") -> str:
