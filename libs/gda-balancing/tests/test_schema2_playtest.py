@@ -26,6 +26,37 @@ def test_playtest_runtime_dependencies_point_downward():
     assert "[autoload]" not in project_settings[0].read_text()
 
 
+def test_playtest_player_settings_have_explicit_defaults_and_translations():
+    project = (_PLAYTEST / "project.godot").read_text(encoding="utf-8")
+    assert "window/size/viewport_width=1920" in project
+    assert "window/size/viewport_height=1080" in project
+    assert "window/size/window_width_override=2560" in project
+    assert "window/size/window_height_override=1440" in project
+
+    english = (_PLAYTEST / "ui" / "localization" / "playtest.en.tres").read_text(
+        encoding="utf-8"
+    )
+    chinese = (_PLAYTEST / "ui" / "localization" / "playtest.zh_CN.tres").read_text(
+        encoding="utf-8"
+    )
+    assert 'locale = "en"' in english
+    assert 'locale = "zh_CN"' in chinese
+    assert '[&"", &"SETTINGS_RESOLUTION"]: [&"Resolution"]' in english
+    assert '[&"", &"SETTINGS_RESOLUTION"]: [&"分辨率"]' in chinese
+    assert '[&"", &"SETTINGS_LANGUAGE"]: [&"Language"]' in english
+    assert '[&"", &"SETTINGS_LANGUAGE"]: [&"语言"]' in chinese
+
+    key_pattern = re.compile(r'\[&"", &"([A-Z0-9_]+)"\]')
+    english_keys = set(key_pattern.findall(english))
+    chinese_keys = set(key_pattern.findall(chinese))
+    assert english_keys == chinese_keys
+
+    used_keys = set()
+    for script in (_PLAYTEST / "ui").glob("*.gd"):
+        used_keys.update(re.findall(r'tr\("([A-Z0-9_]+)"\)', script.read_text()))
+    assert used_keys <= english_keys
+
+
 def test_playtest_player_cases_hide_balancing_artifacts():
     player_cases = (_GENERATED / "reward_cases.json").read_text(encoding="utf-8")
     for internal_term in (

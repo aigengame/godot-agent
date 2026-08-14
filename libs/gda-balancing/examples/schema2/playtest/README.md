@@ -14,6 +14,11 @@ records preference, perceived reward strength, equipment-change clarity, and opt
 **Save & Copy Feedback** writes `user://reward_run_feedback.json` and copies the same player-facing
 payload to the clipboard.
 
+The main screen offers 1080p, 2K (2560×1440), and 4K resolution options. It starts at 2K and uses
+a 1920×1080 logical canvas so the interface scales consistently. The language option switches all
+player-facing text between English and Simplified Chinese. English is the default. Feedback choices
+keep stable English values in the saved payload in both display languages.
+
 ## Visual checkpoints
 
 | Trial | Reward | Feedback |
@@ -34,6 +39,8 @@ UI -> Content -> Systems -> Godot
 - `content/reward_run/reward_outcome_source.gd` is the current generated-case Adapter.
 - `content/reward_run/reward_run_controller.gd` coordinates the feature and feedback submission.
 - `ui/playtest_shell.gd` owns common progress, controls, feedback, and copy behavior.
+- `ui/playtest_preferences.gd` owns the shared resolution and language choices and applies them
+  through Godot's window and translation APIs.
 - `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
 - `main.gd` is the thin bootstrap that injects the Adapter and connects the UI.
 

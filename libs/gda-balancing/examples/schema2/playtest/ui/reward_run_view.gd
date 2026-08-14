@@ -5,8 +5,10 @@ const RewardRunController = preload("res://content/reward_run/reward_run_control
 
 var _controller: RewardRunController
 var _last_phase := ""
+var _last_state: Dictionary = {}
 var _shell: PlaytestShell
 var _arena: HBoxContainer
+var _player_label: Label
 var _power_label: Label
 var _target_label: Label
 var _target_health: ProgressBar
@@ -23,13 +25,14 @@ func _ready() -> void:
 	_shell.name = "PlaytestShell"
 	add_child(_shell)
 	_shell.setup(
-		"REWARD RUN",
-		"Defeat the target, equip what you find, and feel the difference.",
-		"Which reward felt stronger?",
-		"Was the equipment change clear?",
+		"APP_TITLE",
+		"APP_SUBTITLE",
+		"FEEDBACK_STRONGER",
+		"FEEDBACK_CLARITY",
 	)
 	_shell.primary_action_requested.connect(_on_primary_action)
 	_shell.feedback_submitted.connect(_on_feedback_submitted)
+	_shell.locale_changed.connect(_on_locale_changed)
 	_build_reward_presentation(_shell.feature_content())
 
 
@@ -53,14 +56,15 @@ func _build_reward_presentation(content: VBoxContainer) -> void:
 	player_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_arena.add_child(player_panel)
 	var player_column := _panel_column(player_panel)
-	player_column.add_child(_make_label("YOU", 17, Color("87d9ff")))
+	_player_label = _make_label(tr("PLAYER_LABEL"), 17, Color("87d9ff"))
+	player_column.add_child(_player_label)
 	_player_block = ColorRect.new()
 	_player_block.name = "PlayerBlock"
 	_player_block.color = Color("2998d6")
 	_player_block.custom_minimum_size = Vector2(180, 128)
 	_player_block.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	player_column.add_child(_player_block)
-	_power_label = _make_label("Power 10", 24, Color("ffffff"))
+	_power_label = _make_label(tr("POWER_VALUE") % 10, 24, Color("ffffff"))
 	_power_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	player_column.add_child(_power_label)
 
@@ -68,7 +72,7 @@ func _build_reward_presentation(content: VBoxContainer) -> void:
 	target_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_arena.add_child(target_panel)
 	var target_column := _panel_column(target_panel)
-	_target_label = _make_label("TRAINING TARGET", 17, Color("ffb4c8"))
+	_target_label = _make_label(tr("TRAINING_TARGET"), 17, Color("ffb4c8"))
 	_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	target_column.add_child(_target_label)
 	_target_block = ColorRect.new()
@@ -88,7 +92,7 @@ func _build_reward_presentation(content: VBoxContainer) -> void:
 	_reward_panel.visible = false
 	content.add_child(_reward_panel)
 	var reward_column := _panel_column(_reward_panel)
-	_reward_name = _make_label("Reward", 26, Color("ffd166"))
+	_reward_name = _make_label(tr("REWARD_LABEL"), 26, Color("ffd166"))
 	_reward_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	reward_column.add_child(_reward_name)
 	_reward_detail = _make_label("", 17, Color("f7e7ad"))
@@ -97,25 +101,27 @@ func _build_reward_presentation(content: VBoxContainer) -> void:
 
 
 func _render(state: Dictionary) -> void:
+	_last_state = state.duplicate(true)
 	var next_phase := str(state["phase"])
 	if next_phase == "feedback":
 		_shell.show_feedback()
 		_last_phase = next_phase
 		return
 
-	_power_label.text = "Power %d" % int(state["power"])
+	_power_label.text = tr("POWER_VALUE") % int(state["power"])
 	_target_health.max_value = float(state["target_max_health"])
 	_target_health.value = float(state["target_health"])
-	_target_label.text = "TARGET  %d / %d" % [
+	_target_label.text = tr("TARGET_HEALTH") % [
 		int(state["target_health"]),
 		int(state["target_max_health"]),
 	]
 
 	var reward: Dictionary = state["reward"]
 	var build: Dictionary = state["build"]
-	_reward_name.text = str(reward["name"])
-	_reward_detail.text = "%s reward · Power %d → %d" % [
-		str(reward["rarity"]).capitalize(),
+	var reward_name := _translated_reward_name(reward)
+	_reward_name.text = reward_name
+	_reward_detail.text = tr("REWARD_DETAIL") % [
+		_translated_rarity(str(reward["rarity"])),
 		int(build["power_before"]),
 		int(build["power_after"]),
 	]
@@ -127,24 +133,24 @@ func _render(state: Dictionary) -> void:
 	var action := ""
 	match next_phase:
 		"before_fight":
-			instruction = "Break the first target with your Training Blade."
-			action = "STRIKE"
+			instruction = tr("INSTRUCTION_FIRST_TARGET")
+			action = tr("ACTION_STRIKE")
 		"reward_ready":
-			instruction = "Target cleared. Equip your new reward."
-			action = "EQUIP %s" % str(reward["name"]).to_upper()
+			instruction = tr("INSTRUCTION_EQUIP")
+			action = tr("ACTION_EQUIP") % reward_name.to_upper()
 		"after_fight":
-			instruction = "Now test the new build on a tougher target."
-			action = "STRIKE WITH %s" % str(reward["name"]).to_upper()
+			instruction = tr("INSTRUCTION_SECOND_TARGET")
+			action = tr("ACTION_STRIKE_WITH") % reward_name.to_upper()
 		"run_complete":
-			instruction = "Trial complete. Continue when you are ready."
+			instruction = tr("INSTRUCTION_TRIAL_COMPLETE")
 			action = (
-				"COMPARE TRIALS"
+				tr("ACTION_COMPARE_TRIALS")
 				if int(state["trial_index"]) + 1 == int(state["trial_count"])
-				else "START NEXT TRIAL"
+				else tr("ACTION_START_NEXT_TRIAL")
 			)
 
 	_shell.show_play(
-		"TRIAL %d OF %d" % [
+		tr("TRIAL_PROGRESS") % [
 			int(state["trial_index"]) + 1,
 			int(state["trial_count"]),
 		],
@@ -183,6 +189,30 @@ func _on_feedback_submitted(
 
 func _on_feedback_saved(payload: Dictionary, path: String) -> void:
 	_shell.show_feedback_saved(payload, path)
+
+
+func _on_locale_changed(_locale_id: String) -> void:
+	_player_label.text = tr("PLAYER_LABEL")
+	if not _last_state.is_empty():
+		_render(_last_state)
+
+
+func _translated_reward_name(reward: Dictionary) -> String:
+	match str(reward.get("key", "")):
+		"volatile_crown":
+			return tr("REWARD_STORM_CROWN")
+		"steady_guard":
+			return tr("REWARD_IRON_GUARD")
+	return str(reward.get("name", ""))
+
+
+func _translated_rarity(rarity: String) -> String:
+	match rarity:
+		"rare":
+			return tr("RARITY_RARE")
+		"common":
+			return tr("RARITY_COMMON")
+	return rarity.capitalize()
 
 
 func _pulse_target() -> void:

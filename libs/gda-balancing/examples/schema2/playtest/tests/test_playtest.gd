@@ -3,6 +3,7 @@ extends SceneTree
 const PlaytestSession = preload("res://systems/playtest_session.gd")
 const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
 const RewardRun = preload("res://systems/reward_run.gd")
+const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
 const RewardOutcomeSource = preload(
 	"res://content/reward_run/reward_outcome_source.gd"
 )
@@ -23,14 +24,54 @@ func _init() -> void:
 		_test_feedback(trials)
 		_test_reward_run(trials[0], 1)
 		_test_reward_run(trials[1], 3)
+	_test_player_preferences()
 
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 4, "status": "passed"}))
+		print(JSON.stringify({"passed": 5, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:
 		push_error(failure)
 	quit(1)
+
+
+func _test_player_preferences() -> void:
+	var preferences := PlaytestPreferences.new()
+	preferences.install_translations()
+	_expect(
+		preferences.default_resolution_id() == "2k",
+		"2K is the default resolution",
+	)
+	_expect(
+		preferences.resolution_size("1080p") == Vector2i(1920, 1080),
+		"1080p resolution is available",
+	)
+	_expect(
+		preferences.resolution_size("2k") == Vector2i(2560, 1440),
+		"2K resolution is available",
+	)
+	_expect(
+		preferences.resolution_size("4k") == Vector2i(3840, 2160),
+		"4K resolution is available",
+	)
+	_expect(preferences.default_locale() == "en", "English is the default locale")
+	_expect(preferences.supports_locale("zh_CN"), "Chinese locale is available")
+	for resolution_id in ["1080p", "2k", "4k"]:
+		_expect(
+			preferences.apply_resolution(get_root(), resolution_id),
+			"%s resolution can be applied" % resolution_id,
+		)
+		_expect(
+			get_root().size == preferences.resolution_size(resolution_id),
+			"%s changes the window size" % resolution_id,
+		)
+	preferences.apply_resolution(get_root(), preferences.default_resolution_id())
+	TranslationServer.set_locale("zh_CN")
+	_expect(
+		TranslationServer.translate("SETTINGS_RESOLUTION") == "分辨率",
+		"Chinese translation catalog is loaded",
+	)
+	TranslationServer.set_locale("en")
 
 
 func _test_session(trials: Array) -> void:
