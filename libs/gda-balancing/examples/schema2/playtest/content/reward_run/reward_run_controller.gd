@@ -4,6 +4,7 @@ signal view_state_changed(state: Dictionary)
 signal feedback_saved(payload: Dictionary, path: String)
 
 const PlaytestSession = preload("res://systems/playtest_session.gd")
+const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
 const RewardRun = preload("res://systems/reward_run.gd")
 
 var phase: String = "loading"
@@ -12,18 +13,20 @@ var playtest_complete: bool = false
 var last_feedback_path: String = ""
 
 var _session := PlaytestSession.new()
+var _feedback := PlaytestFeedback.new()
 var _run := RewardRun.new()
 var _source: RefCounted
 var _last_state: Dictionary = {}
+var _session_state: Dictionary = {}
 
 
 func _init() -> void:
 	_run.state_changed.connect(_on_run_state_changed)
 
 
-func configure(source: RefCounted, case_path: String) -> bool:
+func configure(source: RefCounted) -> bool:
 	_source = source
-	var trials: Array = _source.load_cases(case_path)
+	var trials: Array = _source.load_outcomes()
 	if trials.is_empty():
 		return false
 	return _session.configure(trials)
@@ -31,27 +34,28 @@ func configure(source: RefCounted, case_path: String) -> bool:
 
 func start() -> void:
 	playtest_complete = false
-	_start_trial(_session.begin())
-	_log_event("playtest_started", {"trial_count": _session.trial_count()})
+	_session_state = _session.start()
+	_start_trial()
+	_log_event("playtest_started", {"trial_count": _session_state["trial_count"]})
 
 
 func primary_action() -> void:
 	if playtest_complete:
 		return
 	if phase == "run_complete":
-		var next_trial := _session.advance()
-		if next_trial.is_empty():
+		_session_state = _session.finish_current_trial()
+		if _session_state["complete"]:
 			playtest_complete = true
 			phase = "feedback"
 			_last_state = {
 				"phase": phase,
-				"trial_count": _session.trial_count(),
-				"trial_index": _session.trial_count(),
+				"trial_count": _session_state["trial_count"],
+				"trial_index": _session_state["trial_index"],
 			}
 			view_state_changed.emit(_last_state.duplicate(true))
 			_log_event("playtest_ready_for_feedback", {})
 			return
-		_start_trial(next_trial)
+		_start_trial()
 		return
 	_run.primary_action()
 
@@ -64,20 +68,19 @@ func submit_feedback(
 ) -> Dictionary:
 	if not playtest_complete:
 		return {}
-	var payload := {
-		"change_clarity": change_clarity,
-		"created_at": Time.get_datetime_string_from_system(true),
-		"notes": notes.strip_edges(),
-		"preference": preference,
-		"schema_version": 1,
-		"stronger_reward": stronger_reward,
-		"trials": _session.trial_references(),
-	}
-	last_feedback_path = "user://reward_run_feedback.json"
-	var file := FileAccess.open(last_feedback_path, FileAccess.WRITE)
-	if file == null:
+	var result := _feedback.save(
+		{
+			"change_clarity": change_clarity,
+			"notes": notes.strip_edges(),
+			"preference": preference,
+			"stronger_reward": stronger_reward,
+		},
+		_session.trial_references(),
+	)
+	if result.is_empty():
 		return {}
-	file.store_string(JSON.stringify(payload, "\t") + "\n")
+	var payload: Dictionary = result["payload"]
+	last_feedback_path = result["path"]
 	feedback_saved.emit(payload.duplicate(true), last_feedback_path)
 	_log_event("playtest_feedback_saved", {"path": last_feedback_path})
 	return payload
@@ -87,19 +90,20 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _start_trial(trial: Dictionary) -> void:
+func _start_trial() -> void:
+	var trial: Dictionary = _session_state["trial"]
 	current_trial = str(trial["id"])
 	_run.start(trial)
 	_log_event(
 		"trial_started",
-		{"trial": current_trial, "trial_index": _session.current_index()},
+		{"trial": current_trial, "trial_index": _session_state["trial_index"]},
 	)
 
 
 func _on_run_state_changed(state: Dictionary) -> void:
 	phase = state["phase"]
-	state["trial_index"] = _session.current_index()
-	state["trial_count"] = _session.trial_count()
+	state["trial_index"] = _session_state["trial_index"]
+	state["trial_count"] = _session_state["trial_count"]
 	_last_state = state.duplicate(true)
 	view_state_changed.emit(_last_state.duplicate(true))
 	if phase == "run_complete":

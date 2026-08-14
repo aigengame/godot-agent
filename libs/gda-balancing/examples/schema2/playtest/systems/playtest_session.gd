@@ -1,8 +1,5 @@
 extends RefCounted
 
-signal trial_changed(index: int, trial: Dictionary)
-signal all_trials_completed
-
 var _trials: Array = []
 var _current_index: int = -1
 
@@ -23,37 +20,16 @@ func configure(trials: Array) -> bool:
 	return true
 
 
-func begin() -> Dictionary:
+func start() -> Dictionary:
 	_current_index = 0
-	var trial := current_trial()
-	trial_changed.emit(_current_index, trial)
-	return trial
+	return _session_state()
 
 
-func advance() -> Dictionary:
+func finish_current_trial() -> Dictionary:
 	if _current_index < 0:
-		return begin()
+		return start()
 	_current_index += 1
-	if _current_index >= _trials.size():
-		all_trials_completed.emit()
-		return {}
-	var trial := current_trial()
-	trial_changed.emit(_current_index, trial)
-	return trial
-
-
-func current_trial() -> Dictionary:
-	if _current_index < 0 or _current_index >= _trials.size():
-		return {}
-	return _trials[_current_index].duplicate(true)
-
-
-func current_index() -> int:
-	return _current_index
-
-
-func trial_count() -> int:
-	return _trials.size()
+	return _session_state()
 
 
 func trial_references() -> Array[Dictionary]:
@@ -68,3 +44,13 @@ func trial_references() -> Array[Dictionary]:
 			}
 		)
 	return references
+
+
+func _session_state() -> Dictionary:
+	var complete := _current_index >= _trials.size()
+	return {
+		"complete": complete,
+		"trial": {} if complete else _trials[_current_index].duplicate(true),
+		"trial_count": _trials.size(),
+		"trial_index": _trials.size() if complete else _current_index,
+	}

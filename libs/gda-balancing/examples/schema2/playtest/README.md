@@ -29,15 +29,18 @@ UI -> Content -> Systems -> Godot
 ```
 
 - `systems/playtest_session.gd` owns the reusable multi-trial lifecycle.
+- `systems/playtest_feedback.gd` owns the reusable feedback envelope and persistence.
 - `systems/reward_run.gd` owns Reward Run combat, reward, equipment, and completion state.
 - `content/reward_run/reward_outcome_source.gd` is the current generated-case Adapter.
-- `content/reward_run/reward_run_controller.gd` coordinates the feature and saves feedback.
-- `ui/reward_run_view.gd` owns presentation, input, and Tween animations.
+- `content/reward_run/reward_run_controller.gd` coordinates the feature and feedback submission.
+- `ui/playtest_shell.gd` owns common progress, controls, feedback, and copy behavior.
+- `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
 - `main.gd` is the thin bootstrap that injects the Adapter and connects the UI.
 
 The project has no Add-on, Autoload, event bus, service container, or plugin registry. A later live
 Runtime Adapter can replace the generated-case Adapter at the Content composition seam without
-changing UI or Systems. No live protocol is designed here.
+changing UI or Systems. The generated-case Adapter owns its file locator; Reward Content sees only
+feature outcomes. No live protocol is designed here.
 
 ## Generated product data
 

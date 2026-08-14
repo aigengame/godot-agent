@@ -1,11 +1,16 @@
 extends RefCounted
 
 var last_error: String = ""
+var _path: String
 
 
-func load_cases(path: String) -> Array:
+func _init(path: String) -> void:
+	_path = path
+
+
+func load_outcomes() -> Array:
 	last_error = ""
-	var file := FileAccess.open(path, FileAccess.READ)
+	var file := FileAccess.open(_path, FileAccess.READ)
 	if file == null:
 		last_error = "The playtest data could not be opened."
 		return []

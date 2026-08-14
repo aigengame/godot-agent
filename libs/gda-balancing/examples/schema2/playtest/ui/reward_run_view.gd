@@ -1,13 +1,11 @@
 extends Control
 
+const PlaytestShell = preload("res://ui/playtest_shell.gd")
 const RewardRunController = preload("res://content/reward_run/reward_run_controller.gd")
 
 var _controller: RewardRunController
 var _last_phase := ""
-
-var _title_label: Label
-var _subtitle_label: Label
-var _progress_label: Label
+var _shell: PlaytestShell
 var _arena: HBoxContainer
 var _power_label: Label
 var _target_label: Label
@@ -17,21 +15,22 @@ var _player_block: ColorRect
 var _reward_panel: PanelContainer
 var _reward_name: Label
 var _reward_detail: Label
-var _instruction: Label
-var _primary_button: Button
-var _feedback_panel: PanelContainer
-var _preference: OptionButton
-var _stronger: OptionButton
-var _clarity: OptionButton
-var _notes: TextEdit
-var _save_feedback_button: Button
-var _feedback_status: Label
-var _input_hint: Label
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_build_interface()
+	_shell = PlaytestShell.new()
+	_shell.name = "PlaytestShell"
+	add_child(_shell)
+	_shell.setup(
+		"REWARD RUN",
+		"Defeat the target, equip what you find, and feel the difference.",
+		"Which reward felt stronger?",
+		"Was the equipment change clear?",
+	)
+	_shell.primary_action_requested.connect(_on_primary_action)
+	_shell.feedback_submitted.connect(_on_feedback_submitted)
+	_build_reward_presentation(_shell.feature_content())
 
 
 func bind(controller: RewardRunController) -> void:
@@ -41,84 +40,14 @@ func bind(controller: RewardRunController) -> void:
 
 
 func show_error(message: String) -> void:
-	_instruction.text = message
-	_instruction.modulate = Color("ff8a8a")
-	_primary_button.disabled = true
+	_shell.show_error(message)
 
 
-func _unhandled_key_input(event: InputEvent) -> void:
-	if not event.pressed or event.echo:
-		return
-	if (
-		_feedback_panel.visible
-		and event.ctrl_pressed
-		and event.keycode in [KEY_ENTER, KEY_KP_ENTER]
-	):
-		get_viewport().set_input_as_handled()
-		_on_save_feedback()
-	elif (
-		_feedback_panel.visible == false
-		and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]
-	):
-		get_viewport().set_input_as_handled()
-		_on_primary_action()
-
-
-func _input(event: InputEvent) -> void:
-	if (
-		event is InputEventMouseButton
-		and event.button_index == MOUSE_BUTTON_LEFT
-		and event.pressed
-	):
-		if (
-			_primary_button.visible
-			and _primary_button.get_global_rect().has_point(event.position)
-		):
-			get_viewport().set_input_as_handled()
-			_on_primary_action()
-		elif (
-			_feedback_panel.visible
-			and _save_feedback_button.get_global_rect().has_point(event.position)
-		):
-			get_viewport().set_input_as_handled()
-			_on_save_feedback()
-
-
-func _build_interface() -> void:
-	var background := ColorRect.new()
-	background.color = Color("09111f")
-	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 48)
-	margin.add_theme_constant_override("margin_right", 48)
-	margin.add_theme_constant_override("margin_top", 32)
-	margin.add_theme_constant_override("margin_bottom", 32)
-	add_child(margin)
-
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 14)
-	margin.add_child(column)
-
-	_title_label = _make_label("REWARD RUN", 34, Color("e9f2ff"))
-	column.add_child(_title_label)
-	_subtitle_label = _make_label(
-		"Defeat the target, equip what you find, and feel the difference.",
-		18,
-		Color("91a6c7"),
-	)
-	column.add_child(_subtitle_label)
-
-	_progress_label = _make_label("Trial", 17, Color("59d7c6"))
-	column.add_child(_progress_label)
-
+func _build_reward_presentation(content: VBoxContainer) -> void:
 	_arena = HBoxContainer.new()
 	_arena.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_arena.add_theme_constant_override("separation", 18)
-	column.add_child(_arena)
+	content.add_child(_arena)
 
 	var player_panel := _make_panel(Color("132942"))
 	player_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -157,7 +86,7 @@ func _build_interface() -> void:
 	_reward_panel = _make_panel(Color("342b16"))
 	_reward_panel.name = "RewardCard"
 	_reward_panel.visible = false
-	column.add_child(_reward_panel)
+	content.add_child(_reward_panel)
 	var reward_column := _panel_column(_reward_panel)
 	_reward_name = _make_label("Reward", 26, Color("ffd166"))
 	_reward_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -166,98 +95,14 @@ func _build_interface() -> void:
 	_reward_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	reward_column.add_child(_reward_detail)
 
-	_instruction = _make_label("", 18, Color("c6d2e5"))
-	_instruction.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(_instruction)
-
-	_primary_button = Button.new()
-	_primary_button.name = "PrimaryAction"
-	_primary_button.custom_minimum_size = Vector2(320, 58)
-	_primary_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_primary_button.add_theme_font_size_override("font_size", 20)
-	_primary_button.pressed.connect(_on_primary_action)
-	column.add_child(_primary_button)
-
-	_feedback_panel = _build_feedback_panel()
-	_feedback_panel.visible = false
-	column.add_child(_feedback_panel)
-
-	_feedback_status = _make_label("", 15, Color("59d7c6"))
-	_feedback_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(_feedback_status)
-
-	_input_hint = _make_label(
-		"Mouse: click the action button    Keyboard: Space or Enter",
-		14,
-		Color("7287a8"),
-	)
-	_input_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(_input_hint)
-
-
-func _build_feedback_panel() -> PanelContainer:
-	var panel := _make_panel(Color("16243a"))
-	panel.name = "FeedbackPanel"
-	var column := _panel_column(panel)
-	var heading := _make_label("How did the two trials feel?", 24, Color("ffffff"))
-	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(heading)
-
-	_preference = _add_question(column, "Which trial did you prefer?")
-	_stronger = _add_question(column, "Which reward felt stronger?")
-	_clarity = _add_question(
-		column,
-		"Was the equipment change clear?",
-		["Very clear", "Mostly clear", "Unclear"],
-	)
-	column.add_child(_make_label("Optional notes", 15, Color("9fb0ca")))
-	_notes = TextEdit.new()
-	_notes.name = "Notes"
-	_notes.custom_minimum_size = Vector2(640, 74)
-	_notes.placeholder_text = "What surprised you? What would you change?"
-	column.add_child(_notes)
-	_save_feedback_button = Button.new()
-	_save_feedback_button.name = "SaveFeedback"
-	_save_feedback_button.text = "Save & Copy Feedback"
-	_save_feedback_button.custom_minimum_size = Vector2(280, 48)
-	_save_feedback_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_save_feedback_button.pressed.connect(_on_save_feedback)
-	column.add_child(_save_feedback_button)
-	return panel
-
-
-func _add_question(
-	column: VBoxContainer,
-	question: String,
-	answers: Array[String] = ["Trial 1", "Trial 2", "No difference"],
-) -> OptionButton:
-	column.add_child(_make_label(question, 15, Color("9fb0ca")))
-	var options := OptionButton.new()
-	for answer in answers:
-		options.add_item(answer)
-	options.selected = answers.size() - 1
-	column.add_child(options)
-	return options
-
 
 func _render(state: Dictionary) -> void:
 	var next_phase := str(state["phase"])
 	if next_phase == "feedback":
-		_show_feedback()
+		_shell.show_feedback()
 		_last_phase = next_phase
 		return
 
-	_feedback_panel.visible = false
-	_input_hint.text = "Mouse: click the action button    Keyboard: Space or Enter"
-	_title_label.visible = true
-	_subtitle_label.visible = true
-	_progress_label.visible = true
-	_arena.visible = true
-	_primary_button.visible = true
-	_progress_label.text = "TRIAL %d OF %d" % [
-		int(state["trial_index"]) + 1,
-		int(state["trial_count"]),
-	]
 	_power_label.text = "Power %d" % int(state["power"])
 	_target_health.max_value = float(state["target_max_health"])
 	_target_health.value = float(state["target_health"])
@@ -278,23 +123,34 @@ func _render(state: Dictionary) -> void:
 		"reward_ready", "after_fight", "run_complete"
 	]
 
+	var instruction := ""
+	var action := ""
 	match next_phase:
 		"before_fight":
-			_instruction.text = "Break the first target with your Training Blade."
-			_primary_button.text = "STRIKE"
+			instruction = "Break the first target with your Training Blade."
+			action = "STRIKE"
 		"reward_ready":
-			_instruction.text = "Target cleared. Equip your new reward."
-			_primary_button.text = "EQUIP %s" % str(reward["name"]).to_upper()
+			instruction = "Target cleared. Equip your new reward."
+			action = "EQUIP %s" % str(reward["name"]).to_upper()
 		"after_fight":
-			_instruction.text = "Now test the new build on a tougher target."
-			_primary_button.text = "STRIKE WITH %s" % str(reward["name"]).to_upper()
+			instruction = "Now test the new build on a tougher target."
+			action = "STRIKE WITH %s" % str(reward["name"]).to_upper()
 		"run_complete":
-			_instruction.text = "Trial complete. Continue when you are ready."
-			_primary_button.text = (
+			instruction = "Trial complete. Continue when you are ready."
+			action = (
 				"COMPARE TRIALS"
 				if int(state["trial_index"]) + 1 == int(state["trial_count"])
 				else "START NEXT TRIAL"
 			)
+
+	_shell.show_play(
+		"TRIAL %d OF %d" % [
+			int(state["trial_index"]) + 1,
+			int(state["trial_count"]),
+		],
+		instruction,
+		action,
+	)
 
 	if _last_phase == next_phase and next_phase in ["before_fight", "after_fight"]:
 		_pulse_target()
@@ -305,37 +161,28 @@ func _render(state: Dictionary) -> void:
 	_last_phase = next_phase
 
 
-func _show_feedback() -> void:
-	_title_label.visible = false
-	_subtitle_label.visible = false
-	_progress_label.visible = false
-	_arena.visible = false
-	_instruction.text = "Your experience is the result."
-	_primary_button.visible = false
-	_reward_panel.visible = false
-	_feedback_panel.visible = true
-	_input_hint.text = "Mouse: choose and save    Keyboard: Ctrl+Enter saves the defaults"
-
-
 func _on_primary_action() -> void:
 	if _controller != null:
 		_controller.primary_action()
 
 
-func _on_save_feedback() -> void:
-	if _controller == null:
-		return
-	_controller.submit_feedback(
-		_preference.get_item_text(_preference.selected),
-		_stronger.get_item_text(_stronger.selected),
-		_clarity.get_item_text(_clarity.selected),
-		_notes.text,
-	)
+func _on_feedback_submitted(
+	preference: String,
+	stronger_reward: String,
+	change_clarity: String,
+	notes: String,
+) -> void:
+	if _controller != null:
+		_controller.submit_feedback(
+			preference,
+			stronger_reward,
+			change_clarity,
+			notes,
+		)
 
 
 func _on_feedback_saved(payload: Dictionary, path: String) -> void:
-	DisplayServer.clipboard_set(JSON.stringify(payload, "\t"))
-	_feedback_status.text = "Feedback saved and copied · %s" % path
+	_shell.show_feedback_saved(payload, path)
 
 
 func _pulse_target() -> void:

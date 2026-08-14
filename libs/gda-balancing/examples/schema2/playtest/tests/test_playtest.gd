@@ -1,6 +1,7 @@
 extends SceneTree
 
 const PlaytestSession = preload("res://systems/playtest_session.gd")
+const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
 const RewardRun = preload("res://systems/reward_run.gd")
 const RewardOutcomeSource = preload(
 	"res://content/reward_run/reward_outcome_source.gd"
@@ -10,17 +11,18 @@ var _failures: Array[String] = []
 
 
 func _init() -> void:
-	var source := RewardOutcomeSource.new()
-	var trials: Array = source.load_cases("res://generated/reward_cases.json")
+	var source := RewardOutcomeSource.new("res://generated/reward_cases.json")
+	var trials: Array = source.load_outcomes()
 	_expect(source.last_error.is_empty(), "prepared cases load")
 	_expect(trials.size() == 2, "exactly two trials load")
 	if trials.size() == 2:
 		_test_session(trials)
+		_test_feedback(trials)
 		_test_reward_run(trials[0], 1)
 		_test_reward_run(trials[1], 3)
 
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 3, "status": "passed"}))
+		print(JSON.stringify({"passed": 4, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:
@@ -31,9 +33,29 @@ func _init() -> void:
 func _test_session(trials: Array) -> void:
 	var session := PlaytestSession.new()
 	_expect(session.configure(trials), "session accepts prepared trials")
-	_expect(session.begin()["id"] == "trial-one", "session starts Trial 1")
-	_expect(session.advance()["id"] == "trial-two", "session advances to Trial 2")
-	_expect(session.advance().is_empty(), "session ends after Trial 2")
+	var state := session.start()
+	_expect(state["trial"]["id"] == "trial-one", "session starts Trial 1")
+	state = session.finish_current_trial()
+	_expect(state["trial"]["id"] == "trial-two", "session advances to Trial 2")
+	state = session.finish_current_trial()
+	_expect(state["complete"], "session ends after Trial 2")
+
+
+func _test_feedback(trials: Array) -> void:
+	var session := PlaytestSession.new()
+	session.configure(trials)
+	var feedback := PlaytestFeedback.new("user://reward_run_feedback_test.json")
+	var result := feedback.save(
+		{
+			"change_clarity": "Very clear",
+			"notes": "Readable",
+			"preference": "Trial 1",
+			"stronger_reward": "Trial 1",
+		},
+		session.trial_references(),
+	)
+	_expect(not result.is_empty(), "feedback is persisted")
+	_expect(result.get("payload", {}).get("schema_version") == 1, "feedback is framed")
 
 
 func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:

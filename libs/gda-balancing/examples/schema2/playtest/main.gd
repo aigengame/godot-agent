@@ -7,12 +7,12 @@ const RewardRunController = preload("res://content/reward_run/reward_run_control
 
 
 func _ready() -> void:
-	var source := RewardOutcomeSource.new()
+	var source := RewardOutcomeSource.new("res://generated/reward_cases.json")
 	var controller := RewardRunController.new()
 	controller.name = "RewardRunController"
 	add_child(controller)
 	_view.bind(controller)
-	if not controller.configure(source, "res://generated/reward_cases.json"):
+	if not controller.configure(source):
 		_view.show_error(source.last_error)
 		return
 	controller.start()
