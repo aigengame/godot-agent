@@ -24,7 +24,10 @@ from pydantic import ValidationError
 
 from gda import dispatch
 from gda.commands import (
+    export as export_commands,
+    meta as meta_commands,
     node as node_commands,
+    project as project_commands,
     resource as resource_commands,
     scene as scene_commands,
     script as script_commands,
@@ -37,14 +40,13 @@ from gda.daemon_ops import (
     run_daemon_stop_operation,
     run_daemon_uninstall_operation,
 )
-from gda.dispatch import _dispatch, _dispatch_meta, _dispatch_recipe
+from gda.dispatch import _dispatch, _dispatch_recipe
 from gda.errors import (
     classify_diag_errors,
     classify_game_get,
     classify_game_rect,
     classify_game_set,
     classify_game_tree,
-    classify_info,
     classify_input_action,
     classify_input_key,
     classify_input_mouse,
@@ -54,18 +56,12 @@ from gda.errors import (
     classify_perf_monitors,
 )
 from gda.execution import ExecutionKind
-from gda.export_run import (
-    EXPORT_GET_COMMAND,
-    run_export_operation,
-)
 from gda.headless import (
     HeadlessCommand,
     godot_option,
     json_option,
     params_json_option,
     project_option,
-    schema_command_class,
-    schema_option,
 )
 from gda.models import (
     DaemonStartParams,
@@ -78,13 +74,6 @@ from gda.models import (
     DaemonUninstallResult,
     DiagErrorsParams,
     DiagErrorsResult,
-    EngineVersion,
-    ExportGetParams,
-    ExportListParams,
-    ExportListResult,
-    ExportRunMode,
-    ExportRunParams,
-    ExportRunResult,
     GameGetParams,
     GameGetResult,
     GameRectParams,
@@ -93,7 +82,6 @@ from gda.models import (
     GameSetResult,
     GameTreeParams,
     GameTreeResult,
-    InfoParams,
     InputActionParams,
     InputActionResult,
     InputKeyParams,
@@ -112,38 +100,10 @@ from gda.models import (
     PerfMonitorResult,
     PerfMonitorsParams,
     PerfMonitorsResult,
-    ProjectDependenciesParams,
-    ProjectDependenciesResult,
-    ProjectFindReferencesParams,
-    ProjectFindReferencesResult,
-    ProjectFindUnusedResourcesParams,
-    ProjectFindUnusedResourcesResult,
-    ProjectStatisticsParams,
-    ProjectStatisticsResult,
-    ProjectAddAutoloadParams,
-    ProjectAddAutoloadResult,
-    ProjectAddInputActionParams,
-    ProjectAddInputActionResult,
-    ProjectGetParams,
-    ProjectGetResult,
-    ProjectInfoParams,
-    ProjectInfoResult,
-    ProjectListParams,
-    ProjectListResult,
-    ProjectRemoveAutoloadParams,
-    ProjectRemoveAutoloadResult,
-    ProjectRemoveInputActionParams,
-    ProjectRemoveInputActionResult,
-    ProjectSetParams,
-    ProjectSetResult,
-    SchemaAllParams,
     ScreenCaptureParams,
     ScreenCaptureResult,
     ScreenFramesParams,
     ScreenFramesResult,
-    SkillParams,
-    SkillResult,
-    SurfaceManifest,
 )
 from gda.render import (
     render_daemon_start,
@@ -151,9 +111,6 @@ from gda.render import (
     render_daemon_stop,
     render_daemon_uninstall,
     render_diag_errors,
-    render_engine_version,
-    render_export_list,
-    render_export_run,
     render_game_get,
     render_game_rect,
     render_game_set,
@@ -165,29 +122,13 @@ from gda.render import (
     render_logger_tail,
     render_perf_monitor,
     render_perf_monitors,
-    render_project_add_autoload,
-    render_project_add_input_action,
-    render_project_dependencies,
-    render_project_find_references,
-    render_project_find_unused_resources,
-    render_project_get,
-    render_project_info,
-    render_project_list,
-    render_project_remove_autoload,
-    render_project_remove_input_action,
-    render_project_set,
-    render_project_statistics,
     render_screen_capture,
     render_screen_frames,
-    render_skill,
 )
 from gda.screen_ops import (
     run_screen_capture_operation,
     run_screen_frames_operation,
 )
-from gda.skill_ops import build_skill_result
-from gda.skill_targets import SkillProvider, SkillScope
-from gda.surface import build_surface_manifest
 
 app = typer.Typer(
     name="gda",
@@ -206,28 +147,9 @@ script_commands.register(app)
 
 resource_commands.register(app)
 
-# The export command group (issue #114): read-only discovery of the project's
-# export presets (from export_presets.cfg) and export-template readiness. These
-# stay headless — they parse a config file and check the filesystem, never
-# running an actual export (that is a later slice, issue #121).
-export_app = typer.Typer(
-    help="Discover export presets and export-template status.", no_args_is_help=True
-)
-app.add_typer(export_app, name="export")
+export_commands.register(app)
 
-# The project command group: commands acting on the Godot project as a whole.
-# The project-settings read/write commands (info/get/set, issue #111) read and
-# write the resolved project's project.godot / ProjectSettings headlessly. Issue
-# #116 adds the read-only, project-wide static-analysis reads (find-references,
-# dependencies, find-unused-resources, statistics), all backed by a single static
-# project scan that parses files as text — never instantiating a scene or loading
-# a script (issue #30). Every project command runs against an explicit project
-# context (--project), so — like any --project op — it runs the project's
-# autoloads at engine startup (#61, ADR-0009).
-project_app = typer.Typer(
-    help="Act on the Godot project as a whole.", no_args_is_help=True
-)
-app.add_typer(project_app, name="project")
+project_commands.register(app)
 
 shader_commands.register(app)
 
@@ -343,8 +265,8 @@ def main(
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
-# Each recipe command (export run / the daemon lifecycle / screen) carries one of
-# these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — run the
+# Each recipe command still defined here (the daemon lifecycle / screen) carries one
+# of these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — run the
 # CLI-side operation over the ALREADY-resolved ``project`` (resolution happens once
 # in :func:`_dispatch_recipe`, kept CLI-side per ADR-0006, so an invalid --project is
 # a structured project_not_found before any recipe runs, #353) — and RETURNS the
@@ -396,66 +318,12 @@ def _screen_frames_recipe(params, *, project, godot):
     )
 
 
-def _skill_recipe(params, *, project, godot):
-    # A pure local emitter (ADR-0024): no project, no Godot — it reads the bundled
-    # SKILL.md and either returns it (version-locked) or installs it. ``project`` /
-    # ``godot`` are part of the recipe contract but unused here (a meta command).
-    return build_skill_result(install=params.install, install_dir=params.install_dir)
+# Path normalization lives in the models (ADR-0015) via the NormalizedPath field
+# type, the single home shared by the argv and ``--params-json`` paths — every
+# command's body (``export run`` included, since ADR-0023 routed it through a built
+# ``ExportRunParams``) passes its raw path straight to the params model, which
+# ~-expands it. There is no CLI-layer normalization step left to share.
 
-
-def _export_run_recipe(params, *, project, godot):
-    return run_export_operation(
-        preset=params.preset,
-        mode=params.mode,
-        output_override=params.output,
-        godot=godot,
-        project=project,
-        make_runner=dispatch._make_runner,
-        make_export_runner=dispatch._make_export_runner,
-    )
-
-
-# ``export-run`` does NOT route through operations.gd: the Godot export subsystem is
-# editor-only C++, so the export is a native --export-<mode> invocation driven by
-# ``run_export_operation`` (gda.export_run). Its descriptor is the single fully-bound
-# registration (ADR-0023) and is defined HERE — not beside the operation — because its
-# recipe needs cli's runner seams, and cli.py is the dispatch composition root. (Its
-# sibling ``EXPORT_GET_COMMAND`` is a plain sentinel command and stays in gda.export_run,
-# which consumes it directly.)
-EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
-    operation="export-run",
-    input_model=ExportRunParams,
-    output_model=ExportRunResult,
-    kind=ExecutionKind.EXPORT,
-    render=render_export_run,
-    recipe=_export_run_recipe,
-)
-
-
-INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
-    operation="info",
-    input_model=InfoParams,
-    output_model=EngineVersion,
-    render=render_engine_version,
-    classify=classify_info,
-)
-
-# `gda skill` is a pure emitter meta command (ADR-0024): it reads the in-package
-# SKILL.md and emits or installs it, spawning no Godot — so, like `export run` and
-# the daemon lifecycle, it carries a `recipe` on its descriptor and dispatches
-# through it (`_dispatch_recipe`) rather than the sentinel pipeline. It stays
-# HEADLESS `kind` (the default) and meta (no --project), a sibling of info/schema.
-SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
-    operation="skill",
-    input_model=SkillParams,
-    output_model=SkillResult,
-    render=render_skill,
-    recipe=_skill_recipe,
-    # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
-    # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
-    # must not make `gda skill` fail, #357).
-    projectless=True,
-)
 
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
@@ -1411,634 +1279,4 @@ def screen_frames(
     )
 
 
-EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
-    operation="export-list",
-    input_model=ExportListParams,
-    output_model=ExportListResult,
-    render=render_export_list,
-)
-
-# EXPORT_GET_COMMAND lives in gda.export_run (imported above), co-located with
-# run_export_operation, which drives export-get to resolve the preset without an
-# export_run ↔ cli import cycle (issue #187). EXPORT_RUN_COMMAND is defined above in
-# this module instead (its recipe needs cli's runner seams, ADR-0023).
-
-PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
-    operation="project-info",
-    input_model=ProjectInfoParams,
-    output_model=ProjectInfoResult,
-    render=render_project_info,
-)
-
-PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
-    operation="project-get",
-    input_model=ProjectGetParams,
-    output_model=ProjectGetResult,
-    render=render_project_get,
-)
-
-PROJECT_LIST_COMMAND: HeadlessCommand[ProjectListResult] = HeadlessCommand(
-    operation="project-list",
-    input_model=ProjectListParams,
-    output_model=ProjectListResult,
-    render=render_project_list,
-)
-
-PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
-    operation="project-set",
-    input_model=ProjectSetParams,
-    output_model=ProjectSetResult,
-    render=render_project_set,
-)
-
-PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
-    HeadlessCommand(
-        operation="project-add-autoload",
-        input_model=ProjectAddAutoloadParams,
-        output_model=ProjectAddAutoloadResult,
-        render=render_project_add_autoload,
-    )
-)
-
-PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = (
-    HeadlessCommand(
-        operation="project-remove-autoload",
-        input_model=ProjectRemoveAutoloadParams,
-        output_model=ProjectRemoveAutoloadResult,
-        render=render_project_remove_autoload,
-    )
-)
-
-PROJECT_ADD_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectAddInputActionResult] = (
-    HeadlessCommand(
-        operation="project-add-input-action",
-        input_model=ProjectAddInputActionParams,
-        output_model=ProjectAddInputActionResult,
-        render=render_project_add_input_action,
-    )
-)
-
-PROJECT_REMOVE_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectRemoveInputActionResult] = (
-    HeadlessCommand(
-        operation="project-remove-input-action",
-        input_model=ProjectRemoveInputActionParams,
-        output_model=ProjectRemoveInputActionResult,
-        render=render_project_remove_input_action,
-    )
-)
-
-PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = (
-    HeadlessCommand(
-        operation="project-find-references",
-        input_model=ProjectFindReferencesParams,
-        output_model=ProjectFindReferencesResult,
-        render=render_project_find_references,
-    )
-)
-
-PROJECT_DEPENDENCIES_COMMAND: HeadlessCommand[ProjectDependenciesResult] = (
-    HeadlessCommand(
-        operation="project-dependencies",
-        input_model=ProjectDependenciesParams,
-        output_model=ProjectDependenciesResult,
-        render=render_project_dependencies,
-    )
-)
-
-PROJECT_FIND_UNUSED_RESOURCES_COMMAND: HeadlessCommand[
-    ProjectFindUnusedResourcesResult
-] = HeadlessCommand(
-    operation="project-find-unused-resources",
-    input_model=ProjectFindUnusedResourcesParams,
-    output_model=ProjectFindUnusedResourcesResult,
-    render=render_project_find_unused_resources,
-)
-
-PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessCommand(
-    operation="project-statistics",
-    input_model=ProjectStatisticsParams,
-    output_model=ProjectStatisticsResult,
-    render=render_project_statistics,
-)
-
-
-# Path normalization lives in the models (ADR-0015) via the NormalizedPath field
-# type, the single home shared by the argv and ``--params-json`` paths — every
-# command's body (``export run`` included, since ADR-0023 routed it through a built
-# ``ExportRunParams``) passes its raw path straight to the params model, which
-# ~-expands it. There is no CLI-layer normalization step left to share.
-
-
-@project_app.command(name="info", cls=PROJECT_INFO_COMMAND.command_class())
-def project_info(
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_INFO_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Report the resolved project's metadata (name, main scene, viewport, engine)."""
-    _dispatch(
-        PROJECT_INFO_COMMAND,
-        ProjectInfoParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(name="get", cls=PROJECT_GET_COMMAND.command_class())
-def project_get(
-    setting: str = typer.Argument(
-        ...,
-        help="The project setting's full section/key name (e.g. application/config/name).",
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_GET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Read a single project setting by section/key as typed JSON."""
-    _dispatch(
-        PROJECT_GET_COMMAND,
-        ProjectGetParams(setting=setting),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(name="list", cls=PROJECT_LIST_COMMAND.command_class())
-def project_list(
-    all_settings: bool = typer.Option(
-        False,
-        "--all",
-        help=(
-            "Also list the engine's built-in default settings, not just the "
-            "project's customized ones."
-        ),
-    ),
-    section: Optional[str] = typer.Option(
-        None,
-        "--section",
-        help=(
-            "Restrict to keys whose name begins with this section/ prefix "
-            "(e.g. application/, display/)."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_LIST_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """List the project's settings keys (customized only by default; --all adds defaults)."""
-    _dispatch(
-        PROJECT_LIST_COMMAND,
-        ProjectListParams(include_defaults=all_settings, section=section),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="find-references", cls=PROJECT_FIND_REFERENCES_COMMAND.command_class()
-)
-def find_references(
-    target: str = typer.Argument(
-        ...,
-        help=(
-            "What to find references to: a resource's res:// path (scene, "
-            "script, image, .tres, …) or a script class_name."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_FIND_REFERENCES_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Find every project file that references a given resource path or class_name."""
-    _dispatch(
-        PROJECT_FIND_REFERENCES_COMMAND,
-        ProjectFindReferencesParams(target=target),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="dependencies", cls=PROJECT_DEPENDENCIES_COMMAND.command_class()
-)
-def dependencies(
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_DEPENDENCIES_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Map each scene/resource in the project to the resources it references."""
-    _dispatch(
-        PROJECT_DEPENDENCIES_COMMAND,
-        ProjectDependenciesParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@export_app.command(name="list", cls=EXPORT_LIST_COMMAND.command_class())
-def list_presets(
-    json_output: bool = json_option(),
-    schema: bool = EXPORT_LIST_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Enumerate the resolved project's export presets (name, platform, runnable)."""
-    _dispatch(
-        EXPORT_LIST_COMMAND,
-        ExportListParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="find-unused-resources",
-    cls=PROJECT_FIND_UNUSED_RESOURCES_COMMAND.command_class(),
-)
-def find_unused_resources(
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_FIND_UNUSED_RESOURCES_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Find resource files that nothing references (built on the reference graph)."""
-    _dispatch(
-        PROJECT_FIND_UNUSED_RESOURCES_COMMAND,
-        ProjectFindUnusedResourcesParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@export_app.command(name="get", cls=EXPORT_GET_COMMAND.command_class())
-def get_preset(
-    preset: str = typer.Option(
-        ...,
-        "--preset",
-        help="The export preset's display name, as 'gda export list' reports it.",
-    ),
-    json_output: bool = json_option(),
-    schema: bool = EXPORT_GET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Report one preset's details plus export-template install status."""
-    _dispatch(
-        EXPORT_GET_COMMAND,
-        ExportGetParams(preset=preset),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@export_app.command(name="run", cls=EXPORT_RUN_COMMAND.command_class())
-def run_export(
-    preset: str = typer.Option(
-        ...,
-        "--preset",
-        help="The export preset's display name, as 'gda export list' reports it.",
-    ),
-    # --mode (#170): select the export flavor. A closed Enum so an unrecognized
-    # value is a Typer usage error (exit 2) rather than reaching the runner;
-    # release is the default, preserving #121's behavior when --mode is omitted.
-    mode: ExportRunMode = typer.Option(
-        ExportRunMode.RELEASE,
-        "--mode",
-        help="The export flavor to run (release/debug/pack); default release.",
-    ),
-    # --output (#170/#403): override the preset's configured export_path. A
-    # filesystem path is normalized ONCE at the params-model layer: ~ expands and
-    # relative paths resolve against the invoker's cwd before the native export
-    # runner changes cwd to the project.
-    output: Optional[str] = typer.Option(
-        None,
-        "--output",
-        help=(
-            "Override the preset's configured export_path; relative filesystem "
-            "paths resolve against the invoker's current working directory."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = EXPORT_RUN_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Export a named preset to a destination and report the artifact.
-
-    Unlike every other command, the export itself is a native ``--export-<mode>``
-    invocation (the export subsystem is editor-only, so it cannot run through
-    operations.gd). The recipe — ``export get`` resolves the preset's platform +
-    configured ``export_path`` + template readiness (reusing #114's clean
-    preset/project errors), a structured preflight fails fast when templates are
-    missing or there is no destination, then the native ``ExportRunner`` performs
-    the export and ``classify_export_run`` synthesizes the typed result from the
-    subprocess's exit code — is owned by :func:`gda.export_run.run_export_operation`
-    (issue #187), so this command is the same thin shape as every other: build
-    params → invoke the operation → emit.
-
-    ``--mode`` selects the export flavor (release/debug/pack; default release).
-    ``--output`` overrides the preset's configured ``export_path`` and resolves a
-    relative filesystem path against the invoker's current working directory;
-    preset ``export_path`` values keep Godot's project-relative convention. The
-    reported ``output_path`` is the resolved artifact path, and missing output
-    parent directories are created and reported in ``created_dirs`` (#402/#403).
-    """
-    # Build the params model from the argv options (the single source of truth,
-    # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and
-    # --params-json normalize identically. Dispatch through the descriptor's
-    # recipe (ADR-0023), exactly like every other recipe command.
-    _dispatch_recipe(
-        EXPORT_RUN_COMMAND,
-        ExportRunParams(preset=preset, mode=mode, output=output),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
-def project_set(
-    setting: str = typer.Argument(
-        ...,
-        help="The project setting's full section/key name (e.g. application/config/name).",
-    ),
-    value: str = typer.Option(
-        ...,
-        "--value",
-        help=(
-            "The value to set, as a string. Coerced to the setting's declared "
-            "Godot type; an uncoercible value is a clean error."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_SET_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Set a project setting, coercing the value to its declared Godot type, then save."""
-    _dispatch(
-        PROJECT_SET_COMMAND,
-        ProjectSetParams(setting=setting, value=value),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="add-autoload", cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class()
-)
-def project_add_autoload(
-    name: str = typer.Argument(
-        ..., help="The autoload singleton's global name (the autoload/<name> key)."
-    ),
-    path: str = typer.Argument(
-        ...,
-        help="The res:// path to the script or scene to autoload (e.g. res://global.gd).",
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_ADD_AUTOLOAD_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Register an autoload singleton (name → script/scene path), then save project.godot."""
-    _dispatch(
-        PROJECT_ADD_AUTOLOAD_COMMAND,
-        ProjectAddAutoloadParams(name=name, path=path),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="remove-autoload", cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class()
-)
-def project_remove_autoload(
-    name: str = typer.Argument(
-        ..., help="The global name of the autoload singleton to unregister."
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_REMOVE_AUTOLOAD_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Unregister an autoload singleton by name, then save project.godot."""
-    _dispatch(
-        PROJECT_REMOVE_AUTOLOAD_COMMAND,
-        ProjectRemoveAutoloadParams(name=name),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="add-input-action", cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class()
-)
-def project_add_input_action(
-    name: str = typer.Argument(
-        ..., help="The input action's name (the input/<name> key)."
-    ),
-    keys: list[str] = typer.Option(
-        ...,
-        "--key",
-        help=(
-            "A key to bind (repeatable, at least one): a Godot key name "
-            "(e.g. J, Space, Escape) or a base-10 keycode integer."
-        ),
-    ),
-    deadzone: float = typer.Option(
-        0.5,
-        "--deadzone",
-        help="The action's deadzone, 0..1 (Godot's default is 0.5).",
-    ),
-    physical: bool = typer.Option(
-        False,
-        "--physical",
-        help=(
-            "Bind physical keycodes (keyboard position, layout-independent) "
-            "instead of layout keycodes."
-        ),
-    ),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_ADD_INPUT_ACTION_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Register an InputMap action bound to one or more keys, then save project.godot."""
-    try:
-        params = ProjectAddInputActionParams(
-            name=name, keys=keys, deadzone=deadzone, physical=physical
-        )
-    except (ValueError, ValidationError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    _dispatch(
-        PROJECT_ADD_INPUT_ACTION_COMMAND,
-        params,
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(
-    name="remove-input-action", cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class()
-)
-def project_remove_input_action(
-    name: str = typer.Argument(..., help="The name of the input action to unregister."),
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_REMOVE_INPUT_ACTION_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Unregister an InputMap action by name, then save project.godot."""
-    _dispatch(
-        PROJECT_REMOVE_INPUT_ACTION_COMMAND,
-        ProjectRemoveInputActionParams(name=name),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@project_app.command(name="statistics", cls=PROJECT_STATISTICS_COMMAND.command_class())
-def statistics(
-    json_output: bool = json_option(),
-    schema: bool = PROJECT_STATISTICS_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-    project: Optional[str] = project_option(),
-) -> None:
-    """Report the project's file/line counts, autoloads and plugins."""
-    _dispatch(
-        PROJECT_STATISTICS_COMMAND,
-        ProjectStatisticsParams(),
-        json_output=json_output,
-        godot=godot,
-        project=project,
-    )
-
-
-@app.command(cls=INFO_COMMAND.command_class())
-def info(
-    json_output: bool = json_option(),
-    schema: bool = INFO_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-    godot: Optional[str] = godot_option(),
-) -> None:
-    """Report the Godot engine version info."""
-    _dispatch_meta(
-        INFO_COMMAND,
-        InfoParams(),
-        json_output=json_output,
-        godot=godot,
-    )
-
-
-@app.command(cls=SKILL_COMMAND.command_class())
-def skill(
-    install: bool = typer.Option(
-        False,
-        "--install",
-        help="Write the bundled SKILL.md into the skills directory instead of printing it.",
-    ),
-    dir: Optional[str] = typer.Option(
-        None,
-        "--dir",
-        help="The skills directory to install into (caller-supplied; the neutral path, "
-        "no default). Implies --install. Mutually exclusive with --provider.",
-    ),
-    provider: Optional[SkillProvider] = typer.Option(
-        None,
-        "--provider",
-        "-p",
-        help="Install into a known agent's skills directory (claude/codex) instead of "
-        "--dir, resolved with --scope (ADR-0027). Implies --install.",
-    ),
-    scope: SkillScope = typer.Option(
-        SkillScope.USER,
-        "--scope",
-        help="With --provider: the agent's per-project (committed) or per-user (all "
-        "projects) skills dir; default user.",
-    ),
-    json_output: bool = json_option(),
-    schema: bool = SKILL_COMMAND.schema_option(),
-    params_json: Optional[str] = params_json_option(),
-) -> None:
-    """Emit or install the bundled gda Agent Skill (no Godot is spawned).
-
-    The canonical `SKILL.md` ships inside the `gda` package and is version-locked to
-    the install (ADR-0024): a plain run prints it verbatim (so
-    `gda skill > .../SKILL.md` drops it to disk), `--json` emits
-    `{name, version, content}`, and an install writes it to a directory, creating
-    parents and overwriting, then reports the path. The install target is named one
-    of two ways: `--dir <path>` (the neutral path; core carries no agent-specific
-    default, ADR-0024), or `--provider <agent> --scope <scope>` which resolves a known
-    agent's skills directory (the opt-in convenience, ADR-0027). A sibling of
-    `info`/`schema`, carrying `--schema` like them.
-    """
-    # The target is named by --dir OR --provider; they name the SAME thing two ways, so
-    # both at once is ambiguous, and an install with neither has nowhere to write. Both
-    # rules are mirrored in SkillParams (so the --params-json path enforces them too,
-    # ADR-0015); resolving provider→dir also happens there. The CLI raises the friendly
-    # usage errors and otherwise just forwards the raw flags.
-    if dir is not None and provider is not None:
-        raise typer.BadParameter(
-            "`--dir` and `--provider` are mutually exclusive: name a directory OR an "
-            "agent, not both"
-        )
-    if install and dir is None and provider is None:
-        raise typer.BadParameter(
-            "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
-        )
-    _dispatch_recipe(
-        SKILL_COMMAND,
-        SkillParams(install=install, install_dir=dir, provider=provider, scope=scope),
-        json_output=json_output,
-        godot=None,
-        project=None,
-    )
-
-
-@app.command(cls=schema_command_class(SchemaAllParams, SurfaceManifest))
-def schema(
-    schema: bool = schema_option(),
-) -> None:
-    """Emit the whole command surface as one JSON manifest; no Godot is spawned.
-
-    The aggregate generalisation of per-command ``--schema`` (ADR-0004/0012):
-    one entry per command in every group, each carrying
-    ``{name, description, input, output, error}``. gda-mcp introspects this once
-    at startup to generate its tool surface, so it stays a faithful mirror of the
-    installed ``gda`` with no codegen step. As a meta command (ADR-0005) it is
-    top-level and ungrouped, a sibling of ``gda info``.
-    """
-    typer.echo(build_surface_manifest(app).model_dump_json())
+meta_commands.register(app)

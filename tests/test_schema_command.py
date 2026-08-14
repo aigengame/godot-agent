@@ -11,7 +11,8 @@ import jsonschema
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import EngineVersion, GdaErrorEnvelope, InfoParams
+from gda.commands.meta import InfoParams
+from gda.models import EngineVersion, GdaErrorEnvelope
 from tests.support import VERSION_INFO
 
 
@@ -789,7 +790,7 @@ def test_project_find_references_schema_emits_model_derived_contract_without_oth
     # --schema flag — no target — short-circuits into the self-description,
     # derived from the same typed models that back --json. The target param
     # documents the res://-path-or-class_name addressing agents must use.
-    from gda.models import (
+    from gda.commands.project import (
         ProjectFindReferencesParams,
         ProjectFindReferencesResult,
     )
@@ -815,7 +816,7 @@ def test_export_list_schema_emits_model_derived_contract_without_a_project():
     # same typed models that back --json. export list takes no operation params,
     # so its input schema is trivially empty (the project is process context,
     # ADR-0006), exactly like scene list / script list.
-    from gda.models import ExportListParams, ExportListResult
+    from gda.commands.export import ExportListParams, ExportListResult
 
     result = CliRunner().invoke(app, ["export", "list", "--schema"])
 
@@ -832,7 +833,10 @@ def test_export_list_schema_emits_model_derived_contract_without_a_project():
 def test_project_dependencies_schema_emits_model_derived_contract_without_a_project():
     # dependencies takes no operation params — the project is process context
     # (ADR-0006) — so its input schema is trivially empty, exactly like scene list.
-    from gda.models import ProjectDependenciesParams, ProjectDependenciesResult
+    from gda.commands.project import (
+        ProjectDependenciesParams,
+        ProjectDependenciesResult,
+    )
 
     result = CliRunner().invoke(app, ["project", "dependencies", "--schema"])
 
@@ -887,7 +891,7 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for project set: the bare --schema flag — no
     # setting/--value — short-circuits into the self-description, including the
     # shared value-coercion contract.
-    from gda.models import ProjectSetParams, ProjectSetResult
+    from gda.commands.project import ProjectSetParams, ProjectSetResult
 
     result = CliRunner().invoke(app, ["project", "set", "--schema"])
 
@@ -940,7 +944,7 @@ def test_sample_resource_set_delete_results_validate_against_emitted_output_sche
 
 
 def test_project_find_unused_resources_schema_emits_model_derived_contract():
-    from gda.models import (
+    from gda.commands.project import (
         ProjectFindUnusedResourcesParams,
         ProjectFindUnusedResourcesResult,
     )
@@ -963,7 +967,7 @@ def test_export_get_schema_emits_model_derived_contract_without_other_args():
     # no --preset — short-circuits into the self-description. The preset param
     # documents name-based addressing, and the output advertises the
     # template-readiness fields agents check before an export run.
-    from gda.models import ExportGetParams, ExportGetResult
+    from gda.commands.export import ExportGetParams, ExportGetResult
 
     result = CliRunner().invoke(app, ["export", "get", "--schema"])
 
@@ -980,7 +984,10 @@ def test_export_get_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_project_statistics_schema_emits_model_derived_contract():
-    from gda.models import ProjectStatisticsParams, ProjectStatisticsResult
+    from gda.commands.project import (
+        ProjectStatisticsParams,
+        ProjectStatisticsResult,
+    )
 
     result = CliRunner().invoke(app, ["project", "statistics", "--schema"])
 

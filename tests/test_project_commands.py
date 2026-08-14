@@ -13,8 +13,7 @@ import jsonschema
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import (
-    GdaErrorEnvelope,
+from gda.commands.project import (
     ProjectAddAutoloadParams,
     ProjectAddAutoloadResult,
     ProjectAddInputActionParams,
@@ -32,6 +31,7 @@ from gda.models import (
     ProjectSetParams,
     ProjectSetResult,
 )
+from gda.models import GdaErrorEnvelope
 from gda.runner import RunResult
 from tests.support import VERSION_INFO, FakeRunner, inject_runner, sentinel
 

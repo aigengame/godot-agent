@@ -8,8 +8,9 @@ This is the single home of ``gda``'s failure taxonomy, split into two layers
   the environment/operation/parse decision tree shared by every command and
   returns either the validated model or a ``Failure`` — a stable ``GdaError``
   plus the process exit code that distinguishes its category.
-- thin per-command classifiers (``classify_info``) — layer command-specific
-  checks (e.g. ``info``'s ADR-0003 version gate) on top of ``classify_run``.
+- thin per-command classifiers (``gda.commands.meta.classify_info``) — layer
+  command-specific checks (e.g. ``info``'s ADR-0003 version gate) on top of
+  ``classify_run``.
 
 The classification is a pure function of the raw result, so every failure mode
 is exercised by injecting a crafted ``RunResult`` without touching a real
@@ -36,7 +37,6 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -50,9 +50,6 @@ from gda.error_codes import (
 )
 from gda.models import (
     DiagErrorsResult,
-    EngineVersion,
-    ExportRunMode,
-    ExportRunResult,
     GameGetResult,
     GameRectResult,
     GameSetResult,
@@ -71,7 +68,8 @@ from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
-# features gda relies on exist. Resolved from the version gda info reports.
+# features gda relies on exist. Resolved from the version gda info reports; the
+# gate that applies it is ``info``'s own classifier, in ``gda.commands.meta``.
 MIN_GODOT_VERSION = (4, 4)
 
 
@@ -297,31 +295,6 @@ def classify_run(
         )
 
 
-def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
-    """Classify the raw ``info`` result into a success model or a ``Failure``.
-
-    The per-command layer for ``info``: the shared decision tree comes from
-    ``classify_run``; only the ADR-0003 minimum-version gate is ``info``'s own.
-    """
-    outcome = classify_run(result, binary, EngineVersion)
-    if isinstance(outcome, Failure):
-        return outcome
-    version = outcome
-
-    if (version.major, version.minor) < MIN_GODOT_VERSION:
-        # The engine ran fine but is older than gda supports (ADR-0003), making
-        # "version too old" a programmatically detectable failure rather than an
-        # implicit one — distinct from the environment-error case.
-        minimum = ".".join(str(part) for part in MIN_GODOT_VERSION)
-        return _failure(
-            "unsupported_version",
-            f"Godot {version.string} is below the minimum supported version {minimum}",
-            result.stderr,
-        )
-
-    return version
-
-
 # Codes the daemon IPC client / the daemon surface through the live sentinel that
 # classify_run would otherwise misroute. The LIVE codes are live-runtime failures;
 # ``live_unsupported_platform`` and ``live_windowed_unavailable`` are
@@ -451,79 +424,6 @@ def classify_input_sequence(
 ) -> InputSequenceResult | Failure:
     """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, InputSequenceResult)
-
-
-# A non-fatal export warning the engine prints to stderr. WARNING is Godot's
-# WARN_PRINT prefix; these never fail the export (it still exits 0) but are
-# surfaced advisorily on the success result (ADR-0002: stderr is advisory for
-# success diagnostics), so an agent sees e.g. a missing optional icon.
-_EXPORT_WARNING_LINE = re.compile(
-    r"^[ \t]*WARNING:[ \t]*(?P<message>.+?)[ \t]*$", re.MULTILINE
-)
-
-
-def parse_export_warnings(stderr: str) -> list[str]:
-    """Parse advisory export warnings from a native export's stderr (issue #121).
-
-    A pure function: the engine's ``WARN_PRINT`` lines are advisory-only (they
-    never determine the success/failure outcome — a warned export still exits 0),
-    so they are surfaced as best-effort diagnostics on the success result.
-    Returns ``[]`` when the export was clean.
-    """
-    return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
-
-
-def classify_export_run(
-    output: RunResult,
-    binary: Path,
-    *,
-    preset: str,
-    platform: str,
-    mode: ExportRunMode,
-    output_path: str,
-    created_dirs: list[str],
-) -> ExportRunResult | Failure:
-    """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
-
-    ``export run`` is the one command that does NOT emit an ADR-0002 sentinel —
-    the export subsystem is editor-only, so the artifact is produced by a native
-    ``--export-<mode>`` invocation. gda synthesizes the structured outcome from
-    the subprocess's **exit code** instead (ADR-0010): a clean exit is success
-    (with any advisory warnings parsed off stderr); a non-zero exit is the
-    classifier-source ``export_failed``. Crucially, this does NOT parse stderr to
-    *choose* the code — that would violate ADR-0002's "stderr is never parsed for
-    stable codes". The distinct ``export_templates_missing`` mode is decided
-    *before* the native run by the CLI's structured preflight (``export get``'s
-    ``templates_installed``), not here; on a non-zero export stderr is surfaced
-    only as the advisory ``message`` / diagnostics.
-
-    The decision tree shares :func:`classify_launch_or_crash`'s env/crash prefix
-    so a missing binary or hung export is reported identically across both
-    channels (#185); only the non-zero-exit tail differs from the sentinel
-    channel (synthesize-from-exit-code, no sentinel parse).
-    """
-    prefix = classify_launch_or_crash(output, binary)
-    if prefix is not None:
-        return prefix
-    if output.exit_code != 0:
-        # Templates are checked structurally BEFORE this call (the CLI preflights
-        # export get's templates_installed), so a missing-templates run never
-        # reaches here. Every non-zero native export is therefore the generic
-        # classifier-source export_failed; the engine's stderr is preserved only
-        # as advisory diagnostics (ADR-0002), never parsed to pick the code.
-        return _failure(
-            "export_failed",
-            f'export of preset "{preset}" failed',
-            output.stderr,
-        )
-    return ExportRunResult(
-        preset=preset,
-        platform=platform,
-        mode=mode,
-        output_path=output_path,
-        created_dirs=created_dirs,
-        warnings=parse_export_warnings(output.stderr),
-    )
 
 
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:

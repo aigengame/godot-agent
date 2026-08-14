@@ -46,13 +46,13 @@ from gda.models import (
     PerfPropertySample,
     PerfSignalEmission,
 )
+from gda.commands.meta import render_engine_version
 from gda.commands.script import ScriptMetadata
 from gda.render import (
     format_value,
     render_daemon_start,
     render_daemon_status,
     render_daemon_uninstall,
-    render_engine_version,
     render_game_get,
     render_game_rect,
     render_game_set,

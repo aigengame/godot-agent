@@ -242,7 +242,8 @@ def test_schema_command_is_itself_self_describing():
     # The meta command is under the same ADR-0004 gate as every other command:
     # `gda schema --schema` emits its own {input, output, error} contract, with
     # `output` the manifest's own model schema.
-    from gda.models import GdaErrorEnvelope, SchemaAllParams, SurfaceManifest
+    from gda.commands.meta import SchemaAllParams
+    from gda.models import GdaErrorEnvelope, SurfaceManifest
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
 

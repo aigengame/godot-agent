@@ -11,7 +11,7 @@ import json
 
 import jsonschema
 
-from gda.models import (
+from gda.commands.project import (
     ProjectDependenciesResult,
     ProjectFindReferencesResult,
     ProjectFindUnusedResourcesResult,

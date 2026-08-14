@@ -7,7 +7,9 @@ exposes a single ``register(root: typer.Typer) -> None`` that mounts the group
 on the root app. ``gda.cli`` (the composition root) calls those ``register``
 functions in the historical ``add_typer`` order, so ``--help`` is unchanged;
 mounting IS the registration, keeping the live Typer tree the only registry
-(ADR-0012/0023).
+(ADR-0012/0023). ``meta`` is the one non-domain module: its commands are
+top-level and ungrouped (ADR-0005), so its ``register`` attaches them to
+``root`` directly and closes over it for the ``gda schema`` surface walk.
 
 Dependency direction (ADR-0040 §5): ``cli`` → ``commands/*`` → ``dispatch`` →
 ``headless`` → runners / ``errors`` / ``models``. A group module may import

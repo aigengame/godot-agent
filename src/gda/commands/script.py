@@ -597,7 +597,7 @@ class ScriptRunResult(BaseModel):
 # or absolute script path → ``invalid_path``; no resolved project →
 # ``project_not_found``.
 #
-# Like ``export run`` (:mod:`gda.export_run`), :func:`run_script_run_operation`
+# Like ``export run`` (:mod:`gda.commands.export`), :func:`run_script_run_operation`
 # RETURNS its outcome (``ScriptRunResult | Failure``) instead of emitting or
 # exiting, so the CLI command stays the thin shared shape and the recipe gets its
 # own engine-free test surface. The engine-touching step delegates to the
