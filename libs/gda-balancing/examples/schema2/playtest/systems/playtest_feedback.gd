@@ -1,11 +1,9 @@
 extends RefCounted
 
-const DEFAULT_PATH := "user://reward_run_feedback.json"
-
 var _path: String
 
 
-func _init(path: String = DEFAULT_PATH) -> void:
+func _init(path: String) -> void:
 	_path = path
 
 

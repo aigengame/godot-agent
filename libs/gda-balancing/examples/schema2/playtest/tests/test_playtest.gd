@@ -12,10 +12,13 @@ var _failures: Array[String] = []
 
 func _init() -> void:
 	var source := RewardOutcomeSource.new("res://generated/reward_cases.json")
-	var trials: Array = source.load_outcomes()
+	var trials: Array = [
+		source.outcome_for({"trial_id": "trial-one"}),
+		source.outcome_for({"trial_id": "trial-two"}),
+	]
 	_expect(source.last_error.is_empty(), "prepared cases load")
-	_expect(trials.size() == 2, "exactly two trials load")
-	if trials.size() == 2:
+	_expect(not trials.any(func(trial): return trial.is_empty()), "two outcomes load")
+	if not trials.any(func(trial): return trial.is_empty()):
 		_test_session(trials)
 		_test_feedback(trials)
 		_test_reward_run(trials[0], 1)
@@ -48,14 +51,21 @@ func _test_feedback(trials: Array) -> void:
 	var result := feedback.save(
 		{
 			"change_clarity": "Very clear",
+			"feedback_kind": "hitl-product-feedback",
 			"notes": "Readable",
 			"preference": "Trial 1",
 			"stronger_reward": "Trial 1",
+			"tracking_issue": 585,
 		},
 		session.trial_references(),
 	)
 	_expect(not result.is_empty(), "feedback is persisted")
 	_expect(result.get("payload", {}).get("schema_version") == 1, "feedback is framed")
+	_expect(
+		result.get("payload", {}).get("feedback_kind") == "hitl-product-feedback",
+		"feedback kind is explicit",
+	)
+	_expect(result.get("payload", {}).get("tracking_issue") == 585, "issue is explicit")
 
 
 func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:

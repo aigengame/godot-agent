@@ -44,8 +44,9 @@ feature outcomes. No live protocol is designed here.
 
 ## Generated product data
 
-- `generated/reward_cases.json` contains only player-facing reward and build values. The exported
-  product loads this file.
+- `generated/reward_cases.json` contains player-facing reward and build values plus opaque
+  playtest provenance references. The exported product loads this file but does not resolve the
+  references.
 - `generated/evidence/playtest-provenance.json` maps each opaque reference to exact formal
   artifacts for maintainers. The Godot product does not load or export this file.
 - `generated/evidence/` contains the referenced public artifacts and is excluded from export.

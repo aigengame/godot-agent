@@ -6,6 +6,11 @@ signal feedback_saved(payload: Dictionary, path: String)
 const PlaytestSession = preload("res://systems/playtest_session.gd")
 const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
 const RewardRun = preload("res://systems/reward_run.gd")
+const FEEDBACK_PATH := "user://reward_run_feedback.json"
+const TRIAL_REQUESTS := [
+	{"trial_id": "trial-one"},
+	{"trial_id": "trial-two"},
+]
 
 var phase: String = "loading"
 var current_trial: String = ""
@@ -13,7 +18,7 @@ var playtest_complete: bool = false
 var last_feedback_path: String = ""
 
 var _session := PlaytestSession.new()
-var _feedback := PlaytestFeedback.new()
+var _feedback := PlaytestFeedback.new(FEEDBACK_PATH)
 var _run := RewardRun.new()
 var _source: RefCounted
 var _last_state: Dictionary = {}
@@ -26,9 +31,12 @@ func _init() -> void:
 
 func configure(source: RefCounted) -> bool:
 	_source = source
-	var trials: Array = _source.load_outcomes()
-	if trials.is_empty():
-		return false
+	var trials: Array[Dictionary] = []
+	for request in TRIAL_REQUESTS:
+		var outcome: Dictionary = _source.outcome_for(request)
+		if outcome.is_empty():
+			return false
+		trials.append(outcome)
 	return _session.configure(trials)
 
 
@@ -71,9 +79,11 @@ func submit_feedback(
 	var result := _feedback.save(
 		{
 			"change_clarity": change_clarity,
+			"feedback_kind": "hitl-product-feedback",
 			"notes": notes.strip_edges(),
 			"preference": preference,
 			"stronger_reward": stronger_reward,
+			"tracking_issue": 585,
 		},
 		_session.trial_references(),
 	)

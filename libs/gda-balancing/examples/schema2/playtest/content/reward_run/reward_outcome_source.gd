@@ -8,7 +8,20 @@ func _init(path: String) -> void:
 	_path = path
 
 
-func load_outcomes() -> Array:
+func outcome_for(request: Dictionary) -> Dictionary:
+	var trial_id := str(request.get("trial_id", ""))
+	if trial_id.is_empty():
+		last_error = "The reward request is incomplete."
+		return {}
+	for outcome in _load_outcomes():
+		if outcome["id"] == trial_id:
+			return outcome.duplicate(true)
+	if last_error.is_empty():
+		last_error = "The requested reward outcome is not available."
+	return {}
+
+
+func _load_outcomes() -> Array:
 	last_error = ""
 	var file := FileAccess.open(_path, FileAccess.READ)
 	if file == null:
