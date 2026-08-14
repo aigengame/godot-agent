@@ -1,0 +1,123 @@
+---
+status: accepted
+---
+
+# Per-command-group modules: vertical group slices over the shared descriptor core
+
+ADR-0023 made the `HeadlessCommand` descriptor the single per-command registration
+and left one follow-on open: the per-command-group module split, "rejected for now
+... revisit in its own ADR if the descriptor consolidation proves insufficient."
+The evidence since #353/#357 shows the flat layout no longer expresses the
+structure the descriptor created:
+
+- `models.py` (4272 lines), `cli.py` (3624), `render.py` (822), and `errors.py`
+  (701) are four central files that every command change crosses. Adding one
+  command touches all four, plus a test file — a five-file change for a
+  one-concept edit.
+- The per-group clusters inside `models.py` and `cli.py` are already cohesive and
+  mutually independent (no cluster imports another), but physically interleaved:
+  `resource`, `shader`, and `project` symbols alternate in both files, so file
+  order no longer maps to any boundary.
+- The whole-file suppressions on `cli.py` (`F811` in ruff, `reportRedeclaration`
+  in pyright — ADR-0029/0030) exist only because 15 sub-app command sets share
+  one module; both ADRs record that they also mask genuine redefinitions.
+
+The two conditions ADR-0023 attached to this move now hold: registration is
+consolidated (the descriptor plus the live Typer tree, never a parallel
+registry), and this split consolidates the import surface (a group module
+imports shared machinery downward; the composition root imports group modules,
+not hundreds of symbols).
+
+## Decision
+
+**The command surface splits into one module per `Command group` under
+`gda/commands/`, over an unchanged shared core.** The target tree:
+
+```text
+src/gda/
+  cli.py             # composition root: root Typer app, mounts every group
+  dispatch.py        # CLI dispatch tails + runner seams (moved out of cli.py)
+  commands/
+    scene.py node.py script.py resource.py shader.py theme.py
+    project.py export.py                      # headless domain groups
+    game.py diag.py logger.py perf.py input.py screen.py
+    daemon.py                                 # live groups (ADR-0017/0019)
+    meta.py                                   # info, skill, schema (ADR-0005)
+  models.py          # shared contract core (shrunk; see below)
+  errors.py          # shared classifier machinery (shrunk)
+  render.py          # shared render helpers (format_value, render_node_tree)
+  headless.py surface.py runner.py export_runner.py live_runner.py
+  parser.py error_codes.py exit_codes.py execution.py
+  binary.py display.py project.py skill_targets.py
+  daemon/  harness/  mcp/  ops/  skill/       # unchanged
+```
+
+1. **A group module owns its whole vertical slice**: the group's params/result
+   models, its render functions, its group-specific classifiers, its
+   `HeadlessCommand` descriptors, its recipe implementations, and its Typer
+   command bodies. The recipe modules merge into their groups: `export_run.py`
+   → `commands/export.py`, `script_run.py` → `commands/script.py`,
+   `screen_ops.py` → `commands/screen.py`, `daemon_ops.py` →
+   `commands/daemon.py`, `skill_ops.py` → `commands/meta.py`. This also brings
+   `EXPORT_RUN_COMMAND` / `SCRIPT_RUN_COMMAND` (previously in `cli.py`, tied to
+   its runner seams) home to their groups.
+2. **Each group module exposes one `register(root: typer.Typer) -> None`.**
+   A domain group mounts its sub-app (`root.add_typer(...)`); `meta.py` attaches
+   its top-level commands (ADR-0005) and closes over `root` for the `gda schema`
+   surface walk. `cli.py` calls the sixteen `register` functions in the current
+   `add_typer` order, so `--help` output is unchanged. Mounting **is** the
+   registration — the live Typer tree stays the only registry (ADR-0012/0023).
+3. **`gda/dispatch.py` owns the CLI dispatch tails** — `_emit`,
+   `_resolve_project_or_fail`, `_dispatch`, `_dispatch_meta`,
+   `_dispatch_recipe`, `_run_params_json` plus its
+   `register_params_json_dispatch` call, and the runner seams `_make_runner` /
+   `_make_export_runner` / `_make_live_runner`. It sits below the group modules
+   (which call the tails) and above `headless.py` (which stays free of CLI
+   imports, ADR-0015). Seams are referenced late (`dispatch._make_runner` at
+   call time), so test monkeypatches keep binding.
+4. **The shared core keeps every single authority where it is.** `models.py`
+   shrinks to the cross-command contract core: error/envelope models,
+   schema/manifest models, path normalization, the value-projection models
+   (ADR-0035), and shared field-description constants. `errors.py` keeps the
+   shared decision tree (`Failure`, `classify_run`, `classify_launch_or_crash`);
+   a classifier moves out only when a single group consumes it. `error_codes.py`,
+   `exit_codes.py`, `parser.py`, `execution.py`, `skill_targets.py` (ADR-0027
+   quarantine), `binary.py`, `display.py`, and `project.py` do not move —
+   `binary`/`display` are also imported by the Panda Adventure e2e tier.
+5. **Dependency direction**: `cli` → `commands/*` → `dispatch` → `headless` →
+   runners / `errors` / `models` → foundation. A group may import another
+   group's public model one-way where the language genuinely shares a shape
+   (`node` → `scene` for `SceneNode`; `project` → `resource` for
+   `ResourceReference`); no reciprocal group imports.
+
+## Considered options
+
+- **Horizontal split only** (per-group `models/`, `render/`, `cli/` trees, no
+  vertical merge). Rejected: smaller files, same coupling — one command change
+  still crosses three trees, which is the cost this ADR removes.
+- **Directory per group** (`commands/scene/{models,render,cli}.py`, the ADR-0023
+  sketch). Rejected for now: triple the files with no added boundary; a single
+  module per group is the smallest usable shape, and promoting a group to a
+  package later is a reversible local move.
+- **A `gda.models` compatibility façade re-exporting moved symbols.** Rejected:
+  Python import paths are not public ABI (ADR-0011 — agents consume the CLI/MCP
+  surface only); a façade is a second import surface that can only drift.
+  In-repo consumers (tests) update instead.
+
+## Consequences
+
+- Adding a command touches its group module and its test file. The five-file
+  change amplification is gone.
+- The `cli.py` whole-file suppressions (`F811`, `reportRedeclaration`) are
+  dropped; command function names are unique within each group module.
+- Tests keep driving the same public surface; per-group test files update
+  imports; the registration-invariant, schema, and human-output tests hold
+  unchanged semantics. Runner-seam monkeypatch targets move from `gda.cli` to
+  `gda.dispatch` (one shared helper in `tests/support.py`, plus direct uses).
+- `gda.cli:app` (entry point), `__main__.py`, `daemon/`, `harness/`, `mcp/`,
+  and both `.gd` payloads are untouched. The public CLI/MCP ABI does not change.
+- The GDScript side (`operations.gd` dispatch, the byte-identical harness
+  mirror) stays under its own future decision (ADR-0018/0023) — out of scope.
+- Migration lands in reversible slices, each keeping ruff, pyright, and the
+  fast suite green: extract `dispatch.py`; move the headless domain groups; move
+  the live groups and `meta`; shrink the core files and drop the suppressions.

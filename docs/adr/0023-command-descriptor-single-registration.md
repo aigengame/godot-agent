@@ -95,6 +95,11 @@ no renderer is orphaned. The "command wired without a renderer" failure
   without deepening anything unless the import surface and registration are also
   consolidated. Revisit in its own ADR if the descriptor consolidation proves
   insufficient.
+
+  > Outcome (2026-08-14, ADR-0040) — revisited and adopted. Both attached
+  > conditions held (registration consolidated on the descriptor + live Typer
+  > tree; the split consolidates the import surface), and the central files kept
+  > growing interleaved. ADR-0040 records the split.
 - **Keep the type-keyed `_RENDERERS` dict; only dissolve the frozensets.** Rejected:
   it leaves the render append hot-spot and a second registry standing — half the
   friction the review identified.
