@@ -477,7 +477,7 @@ class TestKeyUserPath:
             (_PLAYTEST_GENERATED / "reward_cases.json").read_text(encoding="utf-8")
         )
         provenance = json.loads(
-            (_PLAYTEST_GENERATED / "playtest_provenance.json").read_text(
+            (_PLAYTEST_GENERATED / "evidence" / "playtest-provenance.json").read_text(
                 encoding="utf-8"
             )
         )

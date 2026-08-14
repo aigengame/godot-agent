@@ -141,6 +141,12 @@ def _artifact(identity: str, locator: str) -> dict[str, str]:
 
 def _generate_into(target: Path, cli: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
+    evidence_dir = target / "evidence"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / ".gdignore").write_text(
+        "# Formal artifacts and playtest provenance are not Godot resources.\n",
+        encoding="utf-8",
+    )
     with tempfile.TemporaryDirectory(prefix="gda-balancing-playtest-") as temporary:
         temporary_dir = Path(temporary)
         environment = os.environ.copy()
@@ -292,7 +298,7 @@ def _generate_into(target: Path, cli: str) -> None:
             }
 
         _write_json(
-            target / "playtest_provenance.json",
+            target / "evidence" / "playtest-provenance.json",
             {"entries": provenance_entries, "schema_version": 1},
         )
 

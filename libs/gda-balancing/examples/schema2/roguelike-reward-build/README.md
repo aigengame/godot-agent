@@ -28,6 +28,13 @@ Host code does not select rewards, resolve conflicts, supply a fallback, or disp
 This example closes no Tracer, RPG, Roguelike, Variant, Extension, Replay, Evidence,
 template-support, Core Extension Invariance, or cross-genre claim.
 
+## Player-facing playtest
+
+This CLI tutorial remains the exact maintainer workflow and provenance source. Players use the
+[Reward Run Godot product](../playtest/README.md) instead. The exported product presents the same
+baseline and tuned reward/build outcomes as two short trials without exposing Standard Schema or
+CLI concepts.
+
 ## 1. Prepare an isolated run
 
 Prerequisites are `uv`, `jq`, and `openssl`. Run from `libs/gda-balancing`:
