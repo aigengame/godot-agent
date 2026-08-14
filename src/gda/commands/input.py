@@ -1,11 +1,11 @@
 """The ``input`` command group: runtime input simulation into the running game (#221).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its per-command live classifiers, its human renderers, its
-``HeadlessCommand`` descriptors (ADR-0023) and its Typer command bodies, and
-mounts them on the root app through :func:`register`. It imports the shared
-machinery downward — the dispatch tail (``gda.dispatch``), the descriptor
-machinery (``gda.headless``), the shared failure taxonomy (``gda.errors``) and
+params/result models, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023) and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
+LIVE descriptor's classifier to the shared ``classify_live``) and
 the cross-command contract core (``gda.models``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling) — and is imported by nothing but the composition
 root (``gda.cli``).
@@ -30,14 +30,12 @@ reached the harness without passing the model (a direct daemon caller).
 
 import json
 from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from gda.dispatch import _dispatch
-from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -47,7 +45,6 @@ from gda.headless import (
     project_option,
 )
 from gda.models import MAX_WINDOW_FRAMES
-from gda.runner import RunResult
 
 # The keyboard modifier names a key/sequence event may carry, mapped to the
 # InputEventKey modifier flag the harness sets. Bounding the set model-side means a
@@ -528,30 +525,6 @@ class InputSequenceResult(BaseModel):
     )
 
 
-def classify_input_key(result: RunResult, binary: Path) -> InputKeyResult | Failure:
-    """The per-command live classifier for ``gda input key`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputKeyResult)
-
-
-def classify_input_mouse(result: RunResult, binary: Path) -> InputMouseResult | Failure:
-    """The per-command live classifier for ``gda input mouse`` click/move (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputMouseResult)
-
-
-def classify_input_action(
-    result: RunResult, binary: Path
-) -> InputActionResult | Failure:
-    """The per-command live classifier for ``gda input action`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputActionResult)
-
-
-def classify_input_sequence(
-    result: RunResult, binary: Path
-) -> InputSequenceResult | Failure:
-    """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputSequenceResult)
-
-
 def render_input_key(injected: "InputKeyResult") -> str:
     """Render an injected key event as ``key <name> [+ mods] <pressed|released>`` (#221)."""
     mods = ("+" + "+".join(injected.modifiers)) if injected.modifiers else ""
@@ -585,7 +558,6 @@ INPUT_KEY_COMMAND: HeadlessCommand[InputKeyResult] = HeadlessCommand(
     input_model=InputKeyParams,
     output_model=InputKeyResult,
     render=render_input_key,
-    classify=classify_input_key,
     kind=ExecutionKind.LIVE,
 )
 
@@ -595,7 +567,6 @@ INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     input_model=InputMouseClickParams,
     output_model=InputMouseResult,
     render=render_input_mouse,
-    classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
 
@@ -605,7 +576,6 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     input_model=InputMouseMoveParams,
     output_model=InputMouseResult,
     render=render_input_mouse,
-    classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
 
@@ -615,7 +585,6 @@ INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
     input_model=InputActionParams,
     output_model=InputActionResult,
     render=render_input_action,
-    classify=classify_input_action,
     kind=ExecutionKind.LIVE,
 )
 
@@ -625,7 +594,6 @@ INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
     input_model=InputSequenceParams,
     output_model=InputSequenceResult,
     render=render_input_sequence,
-    classify=classify_input_sequence,
     kind=ExecutionKind.LIVE,
 )
 

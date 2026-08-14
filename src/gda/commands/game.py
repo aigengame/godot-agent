@@ -1,15 +1,14 @@
 """The ``game`` command group: the RUNNING game's runtime scene graph (ADR-0019).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its per-command live classifiers, its human renderers, its
-``HeadlessCommand`` descriptors (ADR-0023) and its Typer command bodies, and
-mounts them on the root app through :func:`register`. It imports the shared
-machinery downward — the dispatch tail (``gda.dispatch``), the descriptor
-machinery (``gda.headless``), the shared failure taxonomy (``gda.errors``,
-whose ``classify_live`` every live group shares), the cross-command contract
-core (``gda.models``) and the shared render helpers (``gda.render``) — and is
-imported by nothing but the composition root (``gda.cli``) and ``gda.render``'s
-TYPE_CHECKING-only annotation of ``GameNode``.
+params/result models, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023) and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
+LIVE descriptor's classifier to the ``classify_live`` every live group shares),
+the cross-command contract core (``gda.models``) and the shared render helpers
+(``gda.render``) — and is imported by nothing but the composition root
+(``gda.cli``) and ``gda.render``'s TYPE_CHECKING-only annotation of ``GameNode``.
 
 The whole group is LIVE (``kind = LIVE``): it is served through ``gda-daemon``
 against the engine session it holds, reading the runtime ``SceneTree`` after
@@ -17,14 +16,12 @@ against the engine session it holds, reading the runtime ``SceneTree`` after
 ``scene`` / ``node``, not a different phase (ADR-0017/0019).
 """
 
-from pathlib import Path
 from typing import Any, Optional
 
 import typer
 from pydantic import BaseModel, Field
 
 from gda.dispatch import _dispatch
-from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -40,7 +37,6 @@ from gda.models import (
     _projected_value_schema_extra,
 )
 from gda.render import format_value, render_node_tree
-from gda.runner import RunResult
 
 
 # The ``SceneNode`` the docstring contrasts with is the ``scene`` group's on-disk
@@ -213,26 +209,6 @@ class GameSetResult(BaseModel):
     )
 
 
-def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Failure:
-    """The per-command live classifier for ``gda game tree`` (mirrors ``classify_info``)."""
-    return classify_live(result, binary, GameTreeResult)
-
-
-def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failure:
-    """The per-command live classifier for ``gda game get`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameGetResult)
-
-
-def classify_game_rect(result: RunResult, binary: Path) -> GameRectResult | Failure:
-    """The per-command live classifier for ``gda game rect`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameRectResult)
-
-
-def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:
-    """The per-command live classifier for ``gda game set`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameSetResult)
-
-
 def render_game_tree(game: "GameTreeResult") -> str:
     """Render the running game's runtime scene tree (ADR-0019).
 
@@ -278,7 +254,6 @@ GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     input_model=GameTreeParams,
     output_model=GameTreeResult,
     render=render_game_tree,
-    classify=classify_game_tree,
     kind=ExecutionKind.LIVE,
 )
 
@@ -288,7 +263,6 @@ GAME_GET_COMMAND: HeadlessCommand[GameGetResult] = HeadlessCommand(
     input_model=GameGetParams,
     output_model=GameGetResult,
     render=render_game_get,
-    classify=classify_game_get,
     kind=ExecutionKind.LIVE,
 )
 
@@ -298,7 +272,6 @@ GAME_RECT_COMMAND: HeadlessCommand[GameRectResult] = HeadlessCommand(
     input_model=GameRectParams,
     output_model=GameRectResult,
     render=render_game_rect,
-    classify=classify_game_rect,
     kind=ExecutionKind.LIVE,
 )
 
@@ -308,7 +281,6 @@ GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
     input_model=GameSetParams,
     output_model=GameSetResult,
     render=render_game_set,
-    classify=classify_game_set,
     kind=ExecutionKind.LIVE,
 )
 

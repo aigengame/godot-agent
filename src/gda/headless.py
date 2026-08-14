@@ -20,6 +20,7 @@ from typer.core import TyperCommand
 from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
+    classify_live,
     classify_run,
     conflicting_params_input_failure,
     invalid_params_json_failure,
@@ -322,6 +323,12 @@ class HeadlessCommand(Generic[M]):
     # carries the guarantee; the registration invariant test also enforces it on the
     # live command tree.
     render: Renderer[M]
+    # The command's own failure classifier, for the operations that need one (the
+    # export recipe, ``gda info``'s version fallback, …). ``None`` (the default)
+    # selects the classifier from ``kind``: ``classify_run`` for the headless
+    # kinds, ``classify_live`` for LIVE — which is exactly ``classify_run`` plus
+    # the LIVE error envelope, the reuse ADR-0017 intended. So a live command
+    # declares its channel once, in ``kind``, and needs no per-command classifier.
     classify: Classifier[M] | None = None
     # The static execution channel this command is fulfilled through (ADR-0017).
     # Defaults to HEADLESS — the sentinel ``operations.gd`` pipeline — so every
@@ -397,11 +404,14 @@ class HeadlessCommand(Generic[M]):
         if result.stderr:
             print(result.stderr, end="", file=sys.stderr)
 
-        return (
-            self.classify(result, binary)  # pyright: ignore[reportArgumentType]
-            if self.classify is not None
-            else classify_run(result, binary, self.output_model)
-        )
+        if self.classify is not None:
+            return self.classify(result, binary)  # pyright: ignore[reportArgumentType]
+        # No declared classifier: the channel picks it. LIVE gets ``classify_live``
+        # — ``classify_run`` plus the LIVE error envelope (ADR-0017's reuse) — so a
+        # live command declares its channel once, in ``kind``.
+        if self.kind is ExecutionKind.LIVE:
+            return classify_live(result, binary, self.output_model)
+        return classify_run(result, binary, self.output_model)
 
     def run(
         self,

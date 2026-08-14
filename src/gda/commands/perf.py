@@ -1,11 +1,11 @@
 """The ``perf`` command group: the running game's runtime performance (#223).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its per-command live classifiers, its human renderers, its
-``HeadlessCommand`` descriptors (ADR-0023) and its Typer command bodies, and
-mounts them on the root app through :func:`register`. It imports the shared
-machinery downward — the dispatch tail (``gda.dispatch``), the descriptor
-machinery (``gda.headless``), the shared failure taxonomy (``gda.errors``), the
+params/result models, its human renderers, its ``HeadlessCommand`` descriptors
+(ADR-0023) and its Typer command bodies, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
+LIVE descriptor's classifier to the shared ``classify_live``), the
 cross-command contract core (``gda.models``, which keeps the multi-group
 ``MAX_WINDOW_FRAMES`` ceiling and the runtime-node-address description) and the
 shared render helper (``gda.render``) — and is imported by nothing but the
@@ -18,14 +18,12 @@ property/signal timeline over N frames (the time-windowed multi-frame harness
 base, ADR-0020).
 """
 
-from pathlib import Path
 from typing import Any, Optional
 
 import typer
 from pydantic import BaseModel, Field, model_validator
 
 from gda.dispatch import _dispatch
-from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -36,7 +34,6 @@ from gda.headless import (
 )
 from gda.models import MAX_WINDOW_FRAMES, _RUNTIME_NODE_DESC
 from gda.render import format_value
-from gda.runner import RunResult
 
 
 class PerfMonitor(BaseModel):
@@ -180,20 +177,6 @@ class PerfMonitorResult(BaseModel):
     )
 
 
-def classify_perf_monitors(
-    result: RunResult, binary: Path
-) -> PerfMonitorsResult | Failure:
-    """The per-command live classifier for ``gda perf monitors`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorsResult)
-
-
-def classify_perf_monitor(
-    result: RunResult, binary: Path
-) -> PerfMonitorResult | Failure:
-    """The per-command live classifier for ``gda perf monitor`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorResult)
-
-
 def render_perf_monitors(snapshot: "PerfMonitorsResult") -> str:
     """Render a performance-monitor snapshot as one ``name = value`` line each (#223).
 
@@ -230,7 +213,6 @@ PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
     input_model=PerfMonitorsParams,
     output_model=PerfMonitorsResult,
     render=render_perf_monitors,
-    classify=classify_perf_monitors,
     kind=ExecutionKind.LIVE,
 )
 
@@ -240,7 +222,6 @@ PERF_MONITOR_COMMAND: HeadlessCommand[PerfMonitorResult] = HeadlessCommand(
     input_model=PerfMonitorParams,
     output_model=PerfMonitorResult,
     render=render_perf_monitor,
-    classify=classify_perf_monitor,
     kind=ExecutionKind.LIVE,
 )
 

@@ -1,11 +1,11 @@
 """The ``diag`` command group: the RUNNING game's runtime diagnostics (#224).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its per-command live classifier, its human renderer, its
-``HeadlessCommand`` descriptor (ADR-0023) and its Typer command body, and mounts
-them on the root app through :func:`register`. It imports the shared machinery
-downward — the dispatch tail (``gda.dispatch``), the descriptor machinery
-(``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor
+(ADR-0023) and its Typer command body, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
+LIVE descriptor's classifier to the shared ``classify_live``) and the
 cross-command contract core (``gda.models``) — and is imported by the composition
 root (``gda.cli``) plus ``gda.commands.logger``, which reuses the two shapes the
 two log-reading groups genuinely share (``SourceFrame`` and the ``--limit``
@@ -23,14 +23,12 @@ crash stays diagnosable (ADR-0022). The introspection-only counterpart to
 ``perf``.
 """
 
-from pathlib import Path
 from typing import Optional
 
 import typer
 from pydantic import BaseModel, Field
 
 from gda.dispatch import _dispatch
-from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -39,7 +37,6 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.runner import RunResult
 
 # Shared by the two log-reading live commands — ``gda diag errors`` and ``gda
 # logger tail`` (which imports it from here, the one-way sibling edge of
@@ -129,17 +126,6 @@ class DiagErrorsResult(BaseModel):
     errors: list[DiagError]
 
 
-def classify_diag_errors(result: RunResult, binary: Path) -> DiagErrorsResult | Failure:
-    """The per-command live classifier for ``gda diag errors`` (mirrors ``classify_game_tree``).
-
-    ``diag`` is daemon-served (the daemon reads its own Session log), but the
-    reply rides the same ADR-0002 sentinel envelope as any live op, so the live
-    error codes (``daemon_not_running``, ``engine_session_not_running``,
-    ``live_log_unavailable``) flow through the shared ``classify_live`` (#224).
-    """
-    return classify_live(result, binary, DiagErrorsResult)
-
-
 def render_diag_errors(diag: "DiagErrorsResult") -> str:
     """Render the running game's runtime errors as `LEVEL: message (at: loc)` lines (#224).
 
@@ -188,7 +174,6 @@ DIAG_ERRORS_COMMAND: HeadlessCommand[DiagErrorsResult] = HeadlessCommand(
     input_model=DiagErrorsParams,
     output_model=DiagErrorsResult,
     render=render_diag_errors,
-    classify=classify_diag_errors,
     kind=ExecutionKind.LIVE,
 )
 

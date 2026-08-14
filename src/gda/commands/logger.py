@@ -1,11 +1,11 @@
 """The ``logger`` command group: the running game's structured runtime log (#281).
 
 One vertical slice per `Command group` (ADR-0040): this module owns the group's
-params/result models, its per-command live classifier, its human renderer, its
-``HeadlessCommand`` descriptor (ADR-0023) and its Typer command body, and mounts
-them on the root app through :func:`register`. It imports the shared machinery
-downward — the dispatch tail (``gda.dispatch``), the descriptor machinery
-(``gda.headless``), the shared failure taxonomy (``gda.errors``) and the
+params/result models, its human renderer, its ``HeadlessCommand`` descriptor
+(ADR-0023) and its Typer command body, and mounts them on the root app through
+:func:`register`. It imports the shared machinery downward — the dispatch tail
+(``gda.dispatch``), the descriptor machinery (``gda.headless``, which defaults a
+LIVE descriptor's classifier to the shared ``classify_live``) and the
 cross-command contract core (``gda.models``) — plus, one-way, the two shapes it
 genuinely shares with its sibling ``gda.commands.diag`` (``SourceFrame`` and the
 ``--limit`` description / option, ADR-0040 §5). It is imported by nothing but the
@@ -19,7 +19,6 @@ parses the `Session log` it owns (``--log-file``, ADR-0022) into typed
 """
 
 from enum import Enum
-from pathlib import Path
 from typing import Any, Optional
 
 import typer
@@ -27,7 +26,6 @@ from pydantic import BaseModel, Field
 
 from gda.commands.diag import SourceFrame, _diag_limit_option, _DIAG_LIMIT_DESC
 from gda.dispatch import _dispatch
-from gda.errors import Failure, classify_live
 from gda.execution import ExecutionKind
 from gda.headless import (
     HeadlessCommand,
@@ -36,7 +34,6 @@ from gda.headless import (
     params_json_option,
     project_option,
 )
-from gda.runner import RunResult
 
 
 class LogLevel(str, Enum):
@@ -158,18 +155,6 @@ class LoggerTailResult(BaseModel):
     )
 
 
-def classify_logger_tail(result: RunResult, binary: Path) -> LoggerTailResult | Failure:
-    """The per-command live classifier for ``gda logger tail`` (#281; mirrors ``classify_diag_errors``).
-
-    ``logger tail`` is daemon-served (the daemon reads its own Session log,
-    ADR-0022/ADR-0026), but its reply rides the same ADR-0002 sentinel envelope as
-    any live op, so the live error codes (``daemon_not_running``,
-    ``engine_session_not_running``, ``live_log_unavailable``) flow through the
-    shared ``classify_live``.
-    """
-    return classify_live(result, binary, LoggerTailResult)
-
-
 def render_logger_tail(tail: "LoggerTailResult") -> str:
     """Render the running game's structured runtime log (#281, ADR-0026).
 
@@ -236,7 +221,6 @@ LOGGER_TAIL_COMMAND: HeadlessCommand[LoggerTailResult] = HeadlessCommand(
     input_model=LoggerTailParams,
     output_model=LoggerTailResult,
     render=render_logger_tail,
-    classify=classify_logger_tail,
     kind=ExecutionKind.LIVE,
 )
 
