@@ -14,7 +14,7 @@ import pytest
 from gda.daemon.discovery import daemon_paths
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession
-from gda.daemon_ops import (
+from gda.commands.daemon import (
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
@@ -345,14 +345,14 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
 
 
 def test_daemon_status_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):
-    monkeypatch.setattr("gda.daemon_ops._is_unix", lambda: False)
+    monkeypatch.setattr("gda.commands.daemon._is_unix", lambda: False)
     outcome = run_daemon_status_operation(tmp_path)
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "live_unsupported_platform"
 
 
 def test_daemon_stop_on_non_unix_is_live_unsupported_platform(monkeypatch, tmp_path):
-    monkeypatch.setattr("gda.daemon_ops._is_unix", lambda: False)
+    monkeypatch.setattr("gda.commands.daemon._is_unix", lambda: False)
     outcome = run_daemon_stop_operation(tmp_path)
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "live_unsupported_platform"

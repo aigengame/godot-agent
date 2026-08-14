@@ -16,7 +16,7 @@ from pathlib import Path as _Path
 import pytest
 from typer.testing import CliRunner
 
-import gda.daemon_ops as daemon_ops
+import gda.commands.daemon as daemon_ops
 from gda.cli import app
 from gda.errors import Failure
 from gda.harness.install import (
@@ -26,7 +26,7 @@ from gda.harness.install import (
     install_harness,
     installed_harness_version,
 )
-from gda.models import (
+from gda.commands.daemon import (
     DaemonStartResult,
     DaemonStatusResult,
     DaemonUninstallResult,
@@ -460,7 +460,7 @@ def test_cli_daemon_start_windowed_threads_the_flag_to_the_recipe(
             already_running=False,
         )
 
-    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+    monkeypatch.setattr("gda.commands.daemon.run_daemon_start_operation", fake_start)
 
     result = CliRunner().invoke(
         app, ["daemon", "start", "--windowed", "--project", str(project), "--json"]
@@ -486,7 +486,7 @@ def test_cli_daemon_start_defaults_to_headless(tmp_path, short_runtime, monkeypa
             already_running=False,
         )
 
-    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+    monkeypatch.setattr("gda.commands.daemon.run_daemon_start_operation", fake_start)
 
     result = CliRunner().invoke(
         app, ["daemon", "start", "--project", str(project), "--json"]
@@ -516,7 +516,7 @@ def test_cli_daemon_start_scene_threads_the_selector_to_the_recipe(
             already_running=False,
         )
 
-    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+    monkeypatch.setattr("gda.commands.daemon.run_daemon_start_operation", fake_start)
 
     result = CliRunner().invoke(
         app,
@@ -550,7 +550,7 @@ def test_cli_daemon_start_defaults_to_no_scene(tmp_path, short_runtime, monkeypa
             already_running=False,
         )
 
-    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+    monkeypatch.setattr("gda.commands.daemon.run_daemon_start_operation", fake_start)
 
     result = CliRunner().invoke(
         app, ["daemon", "start", "--project", str(project), "--json"]

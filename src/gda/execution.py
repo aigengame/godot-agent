@@ -41,7 +41,7 @@ class ExecutionKind(str, enum.Enum):
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
 # The single source of truth for the live-stack Godot floor, named here in the
-# leaf taxonomy module so both ``gda.daemon_ops`` (the version gate) and the
+# leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
 # ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
 # ``--schema`` as the dotted ``"4.6"`` string (issue #233).
 MIN_LIVE_VERSION = (4, 6)

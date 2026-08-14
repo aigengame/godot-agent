@@ -1197,7 +1197,7 @@ def test_live_command_schema_reports_kind_live_without_a_daemon():
 def test_game_get_rect_set_schemas_report_kind_live_and_are_model_derived():
     # The LIVE runtime property/control commands self-describe like any command —
     # input/output from their typed models, the uniform error envelope, kind=live.
-    from gda.models import (
+    from gda.commands.game import (
         GameGetParams,
         GameGetResult,
         GameRectParams,

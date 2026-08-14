@@ -53,9 +53,9 @@ from gda.commands.project import (
     ProjectRemoveInputActionResult,
     ProjectSetResult,
 )
+from gda.commands.game import GameSetResult
 from gda.models import (
     EngineVersion,
-    GameSetResult,
     GdaError,
     GdaErrorEnvelope,
     InlineValueProjection,
@@ -1168,7 +1168,7 @@ def test_diag_errors_result_round_trips_a_multi_frame_callstack():
     # A runtime GDScript error carries its ordered call stack (#283): each frame
     # is {function, file, line}, most-recent-first, with frame [0] equal to the
     # top {function,file,line}. The whole result round-trips byte-identical.
-    from gda.models import DiagErrorsResult
+    from gda.commands.diag import DiagErrorsResult
 
     payload = {
         "errors": [
@@ -1199,7 +1199,7 @@ def test_diag_errors_result_round_trips_a_multi_frame_callstack():
 def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
     # A bare push_error carries no backtrace: callstack defaults to [] and the
     # existing single-frame fields stay None — no callstack key required on input.
-    from gda.models import DiagError
+    from gda.commands.diag import DiagError
 
     error = DiagError.model_validate(
         {

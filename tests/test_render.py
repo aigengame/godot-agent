@@ -31,35 +31,35 @@ from gda.commands.script import (
     ScriptGetResult,
     ScriptSetResult,
 )
-from gda.models import (
+from gda.commands.daemon import (
     DaemonStartResult,
     DaemonStatusResult,
     DaemonUninstallResult,
-    EngineVersion,
+    render_daemon_start,
+    render_daemon_status,
+    render_daemon_uninstall,
+)
+from gda.commands.game import (
     GameGetResult,
     GameRectResult,
     GameSetResult,
-    NodeProperty,
+    render_game_get,
+    render_game_rect,
+    render_game_set,
+)
+from gda.commands.perf import (
     PerfMonitor,
     PerfMonitorResult,
     PerfMonitorsResult,
     PerfPropertySample,
     PerfSignalEmission,
-)
-from gda.commands.meta import render_engine_version
-from gda.commands.script import ScriptMetadata
-from gda.render import (
-    format_value,
-    render_daemon_start,
-    render_daemon_status,
-    render_daemon_uninstall,
-    render_game_get,
-    render_game_rect,
-    render_game_set,
-    render_node_tree,
     render_perf_monitor,
     render_perf_monitors,
 )
+from gda.models import EngineVersion, NodeProperty
+from gda.commands.meta import render_engine_version
+from gda.commands.script import ScriptMetadata
+from gda.render import format_value, render_node_tree
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -357,8 +357,8 @@ def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
     # A runtime error with a multi-frame call stack (#283): the human view lists
     # the ordered frames (most-recent-first) under the error's headline line, so
     # an agent reading the text sees where it originated, not just the top frame.
-    from gda.models import DiagError, DiagErrorsResult, SourceFrame
-    from gda.render import render_diag_errors
+    from gda.commands.diag import DiagError, DiagErrorsResult, SourceFrame
+    from gda.commands.diag import render_diag_errors
 
     result = DiagErrorsResult(
         errors=[
@@ -394,8 +394,8 @@ def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
 def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():
     # A bare error has an empty callstack: the renderer shows just its one line,
     # with no empty backtrace block.
-    from gda.models import DiagError, DiagErrorsResult
-    from gda.render import render_diag_errors
+    from gda.commands.diag import DiagError, DiagErrorsResult
+    from gda.commands.diag import render_diag_errors
 
     rendered = render_diag_errors(
         DiagErrorsResult(errors=[DiagError(level="error", message="boom")])

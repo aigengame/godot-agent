@@ -48,22 +48,7 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.models import (
-    DiagErrorsResult,
-    GameGetResult,
-    GameRectResult,
-    GameSetResult,
-    GameTreeResult,
-    GdaError,
-    InputActionResult,
-    InputKeyResult,
-    InputMouseResult,
-    InputSequenceResult,
-    LoggerTailResult,
-    OperationErrorEnvelope,
-    PerfMonitorResult,
-    PerfMonitorsResult,
-)
+from gda.models import GdaError, OperationErrorEnvelope
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
@@ -343,87 +328,6 @@ def classify_live(
     if failure is not None:
         return failure
     return classify_run(result, binary, output_model)
-
-
-def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Failure:
-    """The per-command live classifier for ``gda game tree`` (mirrors ``classify_info``)."""
-    return classify_live(result, binary, GameTreeResult)
-
-
-def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failure:
-    """The per-command live classifier for ``gda game get`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameGetResult)
-
-
-def classify_game_rect(result: RunResult, binary: Path) -> GameRectResult | Failure:
-    """The per-command live classifier for ``gda game rect`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameRectResult)
-
-
-def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:
-    """The per-command live classifier for ``gda game set`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameSetResult)
-
-
-def classify_diag_errors(result: RunResult, binary: Path) -> DiagErrorsResult | Failure:
-    """The per-command live classifier for ``gda diag errors`` (mirrors ``classify_game_tree``).
-
-    ``diag`` is daemon-served (the daemon reads its own Session log), but the
-    reply rides the same ADR-0002 sentinel envelope as any live op, so the live
-    error codes (``daemon_not_running``, ``engine_session_not_running``,
-    ``live_log_unavailable``) flow through the shared ``classify_live`` (#224).
-    """
-    return classify_live(result, binary, DiagErrorsResult)
-
-
-def classify_logger_tail(result: RunResult, binary: Path) -> LoggerTailResult | Failure:
-    """The per-command live classifier for ``gda logger tail`` (#281; mirrors ``classify_diag_errors``).
-
-    ``logger tail`` is daemon-served (the daemon reads its own Session log,
-    ADR-0022/ADR-0026), but its reply rides the same ADR-0002 sentinel envelope as
-    any live op, so the live error codes (``daemon_not_running``,
-    ``engine_session_not_running``, ``live_log_unavailable``) flow through the
-    shared ``classify_live``.
-    """
-    return classify_live(result, binary, LoggerTailResult)
-
-
-def classify_perf_monitors(
-    result: RunResult, binary: Path
-) -> PerfMonitorsResult | Failure:
-    """The per-command live classifier for ``gda perf monitors`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorsResult)
-
-
-def classify_perf_monitor(
-    result: RunResult, binary: Path
-) -> PerfMonitorResult | Failure:
-    """The per-command live classifier for ``gda perf monitor`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorResult)
-
-
-def classify_input_key(result: RunResult, binary: Path) -> InputKeyResult | Failure:
-    """The per-command live classifier for ``gda input key`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputKeyResult)
-
-
-def classify_input_mouse(result: RunResult, binary: Path) -> InputMouseResult | Failure:
-    """The per-command live classifier for ``gda input mouse`` click/move (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputMouseResult)
-
-
-def classify_input_action(
-    result: RunResult, binary: Path
-) -> InputActionResult | Failure:
-    """The per-command live classifier for ``gda input action`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputActionResult)
-
-
-def classify_input_sequence(
-    result: RunResult, binary: Path
-) -> InputSequenceResult | Failure:
-    """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputSequenceResult)
 
 
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:

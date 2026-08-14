@@ -156,7 +156,7 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     # path). Without the whitelist, classify_run would misroute it to operation_failed.
     from gda.daemon.protocol import error_reply
     from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
-    from gda.models import GameTreeResult
+    from gda.commands.game import GameTreeResult
     from gda.runner import RunResult
 
     assert "live_windowed_unavailable" in _LIVE_CLIENT_CODES

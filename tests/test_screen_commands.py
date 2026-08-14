@@ -21,7 +21,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
-from gda.models import ScreenCaptureParams, ScreenFramesParams
+from gda.commands.screen import ScreenCaptureParams, ScreenFramesParams
 from gda.runner import RunResult
 from tests.support import (
     error_sentinel,

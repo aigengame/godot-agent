@@ -45,7 +45,7 @@ def windowed_unavailable_reason() -> str | None:
     """Why a windowed live session can't come up on THIS host, or ``None`` if it can.
 
     The single decision point both the ``gda daemon start --windowed`` precondition
-    (``daemon_ops``) and the windowed e2e gates key on, so they agree: ``None`` means
+    (``gda.commands.daemon``) and the windowed e2e gates key on, so they agree: ``None`` means
     "a windowed session can launch here", a string is the skip/refusal reason.
     """
     if has_usable_display():

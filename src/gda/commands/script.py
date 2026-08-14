@@ -656,7 +656,7 @@ def run_script_run_operation(
     already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
     means none resolved. ``make_launch`` is the injected headless-launch seam;
     ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
-    resolved at call time — the ``screen_ops`` idiom — so a test can inject a fake
+    resolved at call time — the ``screen`` group's idiom — so a test can inject a fake
     OR patch ``gda.commands.script.launch``.
     """
     run_launch = make_launch or launch
