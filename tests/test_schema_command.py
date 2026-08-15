@@ -1169,7 +1169,8 @@ def test_script_run_command_schema_reports_kind_script_run():
 def test_script_run_command_schema_is_model_derived():
     # `script run` self-describes like any command (ADR-0004): input/output from its
     # typed models, the uniform error envelope. Its output carries the passthrough
-    # {exit_status, stdout, stderr} — the public promotion of the Raw run.
+    # {exit_status, stdout, stderr} — the public promotion of the Raw run — plus the
+    # classified `diagnostics` gda reads out of the engine's stderr (#651).
     from gda.commands.script import ScriptRunParams, ScriptRunResult
 
     doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
@@ -1178,7 +1179,14 @@ def test_script_run_command_schema_is_model_derived():
     assert doc["output"] == ScriptRunResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     # The success output exposes exit_status (can be non-zero on success, ADR-0031).
-    assert set(doc["output"]["properties"]) == {"exit_status", "stdout", "stderr"}
+    assert set(doc["output"]["properties"]) == {
+        "exit_status",
+        "stdout",
+        "stderr",
+        "diagnostics",
+    }
+    # `--strict` is a params field, so the JSON/MCP callers can opt in like argv (#651).
+    assert set(doc["input"]["properties"]) == {"path", "strict"}
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 

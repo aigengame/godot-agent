@@ -130,7 +130,9 @@ operation, and parse codes the CLI assigns).
 | `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property expects a type `node set` / `resource set` cannot yet assign a `res://` resource to: a script `class_name`-typed property (deferred to the ADR-0032 resolver) or an Object property with no declared engine class (ADR-0033, #363). |
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
-| `script_compile_failed` | `operation` | `operation` | `4` | A script could not be attached to a node because it does not compile. |
+| `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
+| `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — read from stderr, since the engine still exits 0 (#651). |
+| `script_failed` | `operation` | `classifier` | `4` | A `script run --strict` script ran to completion and chose a non-zero exit status; strict mode maps that opted-in failure onto the uniform error envelope. Never reported without `--strict` (ADR-0031 amendment, #651). |
 | `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its native base type is incompatible with the target node's type. |
 | `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |

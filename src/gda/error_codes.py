@@ -346,7 +346,36 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A script could not be attached to a node because it does not compile.",
+        "A script does not compile, so the requested work could not proceed: "
+        "`script attach` refuses to bind it to a node, and `script run` reports "
+        "that the entry script (or a dependency it preloads) never ran.",
+    ),
+    # `script run`'s two verdict codes (#651, ADR-0031 amendment). Both are decided
+    # by gda from the engine's stderr AFTER the run, so both are CLASSIFIER-source
+    # and NOT GDScript-mirrored — the entry script is the user's own and emits no
+    # ADR-0002 sentinel. A missing entry script reuses no existing code because the
+    # generic `path_not_found` is operation-reported (operations.gd mints it for a
+    # path the OPERATION resolved), whereas this one is read out of stderr for a run
+    # the engine exited 0 from. A failed COMPILE, by contrast, reuses
+    # `script_compile_failed` above rather than minting a near-duplicate: the
+    # condition is the same one `script attach` already names (ADR-0002 — reuse the
+    # code, discriminate via the message).
+    ErrorCodeSpec(
+        "script_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run` entry script does not exist in the project, so the engine "
+        "never ran it (it still exits 0; gda reads the failure from stderr).",
+    ),
+    ErrorCodeSpec(
+        "script_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run --strict` script ran to completion and chose a non-zero exit "
+        "status; strict mode maps that opted-in failure onto the uniform error "
+        "envelope. Never reported without --strict (ADR-0031).",
     ),
     ErrorCodeSpec(
         "incompatible_script_type",

@@ -415,6 +415,50 @@ def script_run_project_not_found_failure() -> Failure:
     )
 
 
+def script_did_not_run_failure(
+    code: str, script: str, detail: str, stderr: str
+) -> Failure:
+    """The ``script run`` verdict for an entry script that never ran (#651).
+
+    ADR-0031 passes a completed run's exit status through verbatim, because gda
+    does not know the user script's semantics. That reasoning does not reach a run
+    where the script never STARTED: Godot reports a missing or non-compiling
+    ``--script`` entry point on stderr and still exits ``0``, so passing that
+    status through reports a phantom success for a failure no reading of the
+    contract calls one. gda is the authority on whether the engine ran what it was
+    asked to, so this is a classifier decision, keyed on the parsed stderr evidence
+    (:func:`gda.script_errors.entry_load_failure`) rather than on the exit code.
+
+    ``code`` is the registered verdict (``script_not_found`` /
+    ``script_compile_failed``), ``detail`` the engine's own sentence, kept in the
+    message so the agent sees WHY without parsing ``diagnostics``.
+    """
+    return make_failure(
+        code,
+        f"script run: {script} did not run — {detail}",
+        stderr,
+    )
+
+
+def script_exit_status_failure(script: str, exit_status: int, stderr: str) -> Failure:
+    """The ``script run --strict`` verdict for a non-zero script exit (#651).
+
+    Opt-in only. The default remains ADR-0031's passthrough — a deliberate
+    ``quit(1)`` is data the agent reads — so ``--strict`` is how a caller says "for
+    THIS run, treat the script's own failure as mine": the shell-chain and CI case,
+    where a zero gda exit silently accepts a failed test suite. The child status is
+    NOT propagated as the process exit code; it is mapped onto the registered
+    ``script_failed``/exit ``4`` so a script's ``quit(3)`` cannot alias an unrelated
+    registry code (``EXIT_VERSION``). The status itself stays readable in the
+    message, and the script's stderr in ``diagnostics``.
+    """
+    return make_failure(
+        "script_failed",
+        f"script run --strict: {script} exited with status {exit_status}",
+        stderr,
+    )
+
+
 def invalid_project_failure(reason: str) -> Failure:
     """The ``project_not_found`` failure for an explicit ``--project``/``$GDA_PROJECT``
     that is empty or is not a Godot project (#353).
