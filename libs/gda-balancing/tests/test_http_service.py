@@ -1,9 +1,12 @@
 """Public end-to-end behavior of the local HTTP execution service."""
 
 import json
+import os
 import selectors
 import shutil
+import socket
 import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
@@ -16,6 +19,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from gda_balancing.domain.authority.context import packaged_authority_context
+from gda_balancing.domain.runtime.projections import evaluator_build_identity
 
 
 _ROGUELIKE_EXAMPLE = (
@@ -51,13 +55,27 @@ def _read_ready_line(process: subprocess.Popen[str]) -> dict[str, Any]:
 
 
 @contextmanager
-def _running_service() -> Iterator[tuple[subprocess.Popen[str], dict[str, Any]]]:
+def _running_service(
+    *,
+    command_prefix: list[str] | None = None,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> Iterator[tuple[subprocess.Popen[str], dict[str, Any]]]:
     process = subprocess.Popen(
-        [_console_script(), "serve", "--host", "127.0.0.1", "--port", "0"],
+        [
+            *(command_prefix or [_console_script()]),
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
+        cwd=cwd,
+        env=env,
     )
     try:
         yield process, _read_ready_line(process)
@@ -538,6 +556,175 @@ def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal() -> No
         assert refused["refusal"]["diagnostics"][0]["code"] == (
             "language.source_too_large"
         )
+
+
+def test_sessions_do_not_share_revision_state() -> None:
+    model_source, experiment = _roguelike_documents()
+    later_experiment = deepcopy(experiment)
+    later_experiment["seed"]["value"] += 1
+
+    with _running_service() as (_process, readiness):
+        first = _create_session(readiness, model_source, experiment)
+        second = _create_session(readiness, model_source, experiment)
+        first_revision = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{first['session_id']}/experiment-revisions"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"experiment_specification": later_experiment},
+        )
+        status, error = _request_error(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{second['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": first_revision["revision_id"]},
+        )
+
+        assert first["session_id"] != second["session_id"]
+        assert first["resolved_model_identity"] == second["resolved_model_identity"]
+        assert status == 404
+        assert error["error"]["code"] == "unknown_experiment_revision"
+
+
+def test_restart_does_not_recover_process_local_sessions() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (first_process, first_readiness):
+        created = _create_session(first_readiness, model_source, experiment)
+        _request_json(
+            f"{first_readiness['base_url']}/v1/shutdown",
+            first_readiness["capability_token"],
+            method="POST",
+        )
+        assert first_process.wait(timeout=10) == 0
+
+    with _running_service() as (_second_process, second_readiness):
+        status, error = _request_error(
+            (
+                f"{second_readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            second_readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert status == 404
+        assert error["error"]["code"] == "unknown_execution_session"
+
+
+def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        run_url = (
+            f"{readiness['base_url']}/v1/execution-sessions/"
+            f"{created['session_id']}/runs"
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            run_future = executor.submit(
+                _request_json,
+                run_url,
+                readiness["capability_token"],
+                method="POST",
+                body={"revision_id": created["revision_id"]},
+            )
+            time.sleep(0.2)
+            shutdown = _request_json(
+                f"{readiness['base_url']}/v1/shutdown",
+                readiness["capability_token"],
+                method="POST",
+            )
+            run = run_future.result(timeout=20)
+
+        assert shutdown == {"status": "shutting-down"}
+        assert run["outcome"] == "success"
+        assert (
+            run["artifacts"]["evaluator-capability-manifest"][
+                "evaluator_build_identity"
+            ]
+            == evaluator_build_identity()
+        )
+        assert process.wait(timeout=10) == 0
+        assert process.stdout is not None
+        assert process.stdout.read() == ""
+
+
+def test_bind_failure_uses_the_descriptor_internal_error_contract() -> None:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        result = _run_console(
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        )
+    finally:
+        listener.close()
+
+    assert result.returncode == 4
+    assert result.stdout == ""
+    error = json.loads(result.stderr)["error"]
+    assert error["category"] == "internal"
+    assert error["code"] == "internal_error"
+    assert error["message"] == "the toolkit failed unexpectedly (OSError)"
+
+
+def test_built_wheel_starts_the_service_and_executes_packaged_authority(
+    tmp_path: Path,
+) -> None:
+    distribution_dir = tmp_path / "dist"
+    built = subprocess.run(
+        [
+            "uv",
+            "build",
+            "--wheel",
+            "--out-dir",
+            str(distribution_dir),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    wheels = list(distribution_dir.glob("gda_balancing-*.whl"))
+    assert len(wheels) == 1
+    wheel_environment = os.environ.copy()
+    wheel_environment["PYTHONPATH"] = str(wheels[0])
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service(
+        command_prefix=[sys.executable, "-m", "gda_balancing"],
+        cwd=tmp_path,
+        env=wheel_environment,
+    ) as (process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        run = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+        _request_json(
+            f"{readiness['base_url']}/v1/shutdown",
+            readiness["capability_token"],
+            method="POST",
+        )
+
+        assert run["outcome"] == "success"
+        assert process.wait(timeout=10) == 0
 
 
 def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:

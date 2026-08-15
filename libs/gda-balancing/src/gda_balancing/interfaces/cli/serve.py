@@ -56,12 +56,17 @@ def run_serve(inp: ServeInput, emit_ready: ReadyEmitter, _stderr: TextIO) -> int
     """Assemble and run the one local companion host."""
 
     def report_ready(bound: LocalHostReadiness) -> None:
+        url_host = (
+            f"[{bound.host}]"
+            if ipaddress.ip_address(bound.host).version == 6
+            else bound.host
+        )
         emit_ready(
             ServeReadiness(
                 toolkit_version=distribution_version("gda-balancing"),
                 host=bound.host,
                 port=bound.port,
-                base_url=f"http://{bound.host}:{bound.port}",
+                base_url=f"http://{url_host}:{bound.port}",
                 capability_token=bound.capability_token,
             )
         )

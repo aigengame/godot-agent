@@ -1,9 +1,11 @@
 """Authority-derived Runtime contracts, identities, and evidence projections."""
 
 import hashlib
+from importlib import resources
+from importlib.resources.abc import Traversable
 import json
 import platform
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import cache
@@ -637,18 +639,36 @@ def formula_programs_reachable_from_entrypoints(
 @cache
 def evaluator_build_identity(root: Path | None = None) -> str:
     """Bind evaluator provenance to the installed Python source build."""
-    package_root = root or Path(__file__).parents[1]
-    sources: list[JsonValue] = []
-    for source in sorted(package_root.rglob("*.py")):
-        sources.append(
-            {
-                "path": source.relative_to(package_root).as_posix(),
-                "sha256": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
-            }
-        )
+    if root is not None:
+        source_bytes = [
+            (source.relative_to(root).as_posix(), source.read_bytes())
+            for source in sorted(root.rglob("*.py"))
+        ]
+    else:
+        source_bytes = list(_packaged_python_sources(resources.files("gda_balancing")))
+    sources: list[JsonValue] = [
+        {
+            "path": path,
+            "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+        }
+        for path, data in source_bytes
+    ]
     if not sources:
         raise RuntimeError("evaluator build contains no Python source")
     return content_identity("evaluator-build-v1", sources)
+
+
+def _packaged_python_sources(
+    root: Traversable,
+    prefix: tuple[str, ...] = (),
+) -> Iterator[tuple[str, bytes]]:
+    """Read packaged Python sources from a directory or wheel resource tree."""
+    for child in sorted(root.iterdir(), key=lambda item: item.name.encode("utf-8")):
+        path = (*prefix, child.name)
+        if child.is_dir():
+            yield from _packaged_python_sources(child, path)
+        elif child.name.endswith(".py"):
+            yield "/".join(path), child.read_bytes()
 
 
 def evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
