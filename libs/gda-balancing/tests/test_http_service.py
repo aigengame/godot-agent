@@ -4,6 +4,8 @@ import json
 import selectors
 import shutil
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
@@ -172,8 +174,9 @@ def test_session_creation_admits_complete_model_and_experiment_values() -> None:
 
         assert created["outcome"] == "success"
         assert created["session_id"]
-        assert created["resolved_model_identity"] == (
-            experiment["model"]["resolved_model_identity"]
+        assert (
+            created["resolved_model_identity"]
+            == (experiment["model"]["resolved_model_identity"])
         )
         assert created["revision_id"].startswith("sha256:")
 
@@ -237,8 +240,7 @@ def test_deleting_a_session_makes_it_an_unknown_service_resource() -> None:
     with _running_service() as (_process, readiness):
         created = _create_session(readiness, model_source, experiment)
         session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/"
-            f"{created['session_id']}"
+            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
         )
 
         deleted = _request_json(
@@ -275,8 +277,7 @@ def test_revision_refusal_leaves_existing_revisions_runnable() -> None:
     with _running_service() as (_process, readiness):
         created = _create_session(readiness, model_source, experiment)
         session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/"
-            f"{created['session_id']}"
+            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
         )
 
         refused = _request_json(
@@ -307,8 +308,7 @@ def test_each_run_explicitly_selects_one_immutable_revision() -> None:
     with _running_service() as (_process, readiness):
         created = _create_session(readiness, model_source, experiment)
         session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/"
-            f"{created['session_id']}"
+            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
         )
         later_revision = _request_json(
             f"{session_url}/experiment-revisions",
@@ -332,12 +332,14 @@ def test_each_run_explicitly_selects_one_immutable_revision() -> None:
 
         assert later_revision["created"] is True
         assert later_revision["revision_id"] != created["revision_id"]
-        assert first_run["artifacts"]["reproduction-receipt"][
-            "experiment_identity"
-        ] == created["revision_id"]
-        assert later_run["artifacts"]["reproduction-receipt"][
-            "experiment_identity"
-        ] == later_revision["revision_id"]
+        assert (
+            first_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+            == created["revision_id"]
+        )
+        assert (
+            later_run["artifacts"]["reproduction-receipt"]["experiment_identity"]
+            == later_revision["revision_id"]
+        )
 
 
 def test_closed_request_schema_rejects_unknown_members_before_application() -> None:
@@ -382,3 +384,62 @@ def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
                 "message": "the request body exceeds the HTTP protocol limit",
             }
         }
+
+
+def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
+    model_source, experiment = _roguelike_documents()
+    later_experiment = deepcopy(experiment)
+    later_experiment["seed"]["value"] += 1
+
+    with _running_service() as (_process, readiness):
+        first = _create_session(readiness, model_source, experiment)
+        second = _create_session(readiness, model_source, experiment)
+        first_url = (
+            f"{readiness['base_url']}/v1/execution-sessions/{first['session_id']}"
+        )
+        second_url = (
+            f"{readiness['base_url']}/v1/execution-sessions/{second['session_id']}"
+        )
+
+        def timed_request(
+            url: str,
+            *,
+            method: str,
+            body: dict[str, Any] | None = None,
+        ) -> tuple[dict[str, Any], float]:
+            result = _request_json(
+                url,
+                readiness["capability_token"],
+                method=method,
+                body=body,
+            )
+            return result, time.monotonic()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            run_future = executor.submit(
+                timed_request,
+                f"{first_url}/runs",
+                method="POST",
+                body={"revision_id": first["revision_id"]},
+            )
+            time.sleep(0.2)
+            revision_future = executor.submit(
+                timed_request,
+                f"{second_url}/experiment-revisions",
+                method="POST",
+                body={"experiment_specification": later_experiment},
+            )
+            delete_future = executor.submit(
+                timed_request,
+                first_url,
+                method="DELETE",
+            )
+            run, run_finished = run_future.result(timeout=20)
+            revision, revision_finished = revision_future.result(timeout=20)
+            deleted, delete_finished = delete_future.result(timeout=20)
+
+        assert run["outcome"] == "success"
+        assert revision["outcome"] == "success"
+        assert deleted["outcome"] == "success"
+        assert run_finished <= revision_finished
+        assert run_finished <= delete_finished
