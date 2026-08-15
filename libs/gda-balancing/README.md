@@ -36,6 +36,7 @@ gda-balancing experiment run <source> [...] # run and atomically publish evaluat
 gda-balancing template list                # list admitted Template releases
 gda-balancing template get [...]           # retrieve an exact Template release
 gda-balancing template instantiate [...]   # publish a new editable Model Source
+gda-balancing serve [--host 127.0.0.1] [--port 0] # run the local HTTP execution service
 gda-balancing manifest                     # live Schema 2.0 command surface
 gda-balancing version                      # toolkit version + supported Schema line
 ```
@@ -49,6 +50,13 @@ input object from stdin, and structured input is mutually exclusive with individ
 `model migrate` is the only 1.x public entrypoint: success atomically publishes a new 2.0 Model
 Source and its Migration report; an unsupported or lossy construct returns an auditable migration
 refusal and publishes neither a partial Source nor a compatibility artifact.
+
+Unlike the one-shot commands, `serve` stays in the foreground. It binds only to a numeric loopback
+address. It prints one readiness document with its local URL and process capability, and then keeps
+stdout silent. The owning local application uses the capability on every `/v1/*` request. It calls
+the authenticated shutdown route when it finishes. See
+[bADR-0026](docs/badr/0026-local-http-execution-service.md) for the execution-session protocol and
+its authority boundaries.
 
 ## Examples
 
