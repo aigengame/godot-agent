@@ -41,7 +41,7 @@ from gda.errors import (
 )
 from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
-from gda.harness.install import HARNESS_FILE, HARNESS_RES_DIR, uninstall_harness
+from gda.harness.install import harness_artifacts, uninstall_harness
 from gda.headless import (
     HeadlessCommand,
     RunnerFactory,
@@ -405,7 +405,7 @@ ExportRunnerFactory = Callable[[Path, Optional[Path]], ExportRunner]
 
 @dataclass(frozen=True)
 class _HarnessSnapshot:
-    """The EXACT pre-export state of the two files the export strip touches.
+    """The EXACT pre-export state of every file the export strip touches.
 
     Restoring from this snapshot leaves the dev project byte-identical (ADR-0028's
     "untouched" guarantee) — unlike a fresh ``install_harness``, which would
@@ -413,36 +413,34 @@ class _HarnessSnapshot:
     current version, or ADD a ``GdaHarness`` autoload for a stray harness file that
     had none. Captured before the strip; replayed in the ``finally`` after the
     native export.
+
+    The file list is ``project.godot`` plus :func:`harness_artifacts` — the harness
+    script AND its engine-generated ``.uid`` sidecar, which uninstall also deletes
+    (#654). Reading the list from the installer, not restating it, is what keeps the
+    strip and the restore in step: a file uninstall removes but the snapshot never
+    captured would simply never come back.
     """
 
-    project_godot: Path
-    project_godot_bytes: Optional[bytes]
-    harness_file: Path
-    harness_file_bytes: Optional[bytes]
+    files: tuple[tuple[Path, Optional[bytes]], ...]
 
     @classmethod
     def capture(cls, project: Path) -> "_HarnessSnapshot":
-        project_godot = project / "project.godot"
-        harness_file = project / HARNESS_RES_DIR / HARNESS_FILE
+        paths = (project / "project.godot", *harness_artifacts(project))
         return cls(
-            project_godot,
-            project_godot.read_bytes() if project_godot.exists() else None,
-            harness_file,
-            harness_file.read_bytes() if harness_file.exists() else None,
+            tuple(
+                (path, path.read_bytes() if path.exists() else None) for path in paths
+            )
         )
 
     def restore(self) -> None:
-        """Put both files back to their captured bytes, writing only when changed.
+        """Put every file back to its captured bytes, writing only when changed.
 
         A file absent at capture is left absent (the strip removed it); otherwise its
         exact bytes are rewritten, but only if the current on-disk state differs — so
         the common no-harness export touches nothing (no spurious ``project.godot``
         mtime bump against a concurrent editor, ADR-0018).
         """
-        for path, before in (
-            (self.project_godot, self.project_godot_bytes),
-            (self.harness_file, self.harness_file_bytes),
-        ):
+        for path, before in self.files:
             if before is None:
                 path.unlink(missing_ok=True)
             elif not path.exists() or path.read_bytes() != before:

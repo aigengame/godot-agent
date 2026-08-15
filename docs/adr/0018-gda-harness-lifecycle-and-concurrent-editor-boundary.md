@@ -86,6 +86,32 @@ so two instances can touch the project at once.
 > file-only `exclude_filter`) stands; the rationale is "no error spam / no orphaned config,"
 > not "avoid a crash." Point 3's text is preserved as the point-in-time record.
 
+> **Outcome (2026-08-15, #654) — point 3's removal is widened to a full reversal, and
+> both halves now issue a receipt.** Dogfooding found the teardown incomplete: uninstall
+> returned `{"removed": true}` while leaving the engine-generated `gda_harness.gd.uid`
+> sidecar (which kept `addons/gda_harness/` non-empty, so the existing empty-directory
+> removal never fired) and an emptied generated `[autoload]` section, so a tracked
+> `project.godot` stayed modified after every live-QA session. Uninstall now also removes
+> the `.uid` sidecar and, when dropping the harness entry leaves `[autoload]` with no
+> keys, the section header and the blank separator the install appended — so
+> `project.godot` returns to its pre-install bytes. Line terminators are preserved, so a
+> CRLF project file is no longer silently rewritten to LF; a MIXED-terminator file is the
+> one documented exception to byte-identity.
+>
+> Both decisions are read off the file **at uninstall time**: no pre-install state is
+> recorded and no marker file is ever written into the project — the same reason point 1
+> keeps the write install-time. Two states therefore stay outside the guarantee by design:
+> an `[autoload]` section that was ALREADY empty before the install is not restored
+> (Godot's own `ConfigFile` writer never emits one), and an `addons/` directory gda created
+> is left in place (it is shared with every other addon).
+>
+> Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
+> reports `created_paths` / `created_sections` and `daemon uninstall` reports
+> `removed_paths` / `removed_sections`, so the install is an auditable mutation rather
+> than a silent write into a tracked project. ADR-0028's transactional export strip reads
+> its snapshot file list from the installer, so widening the uninstall does not make
+> `gda export run` delete a file its restore never puts back.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

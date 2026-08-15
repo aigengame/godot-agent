@@ -457,6 +457,29 @@ def test_export_strips_harness_during_run_then_restores_byte_identical(tmp_path)
     assert harness.read_bytes() == harness_before
 
 
+def test_export_strips_and_restores_the_harness_uid_sidecar(tmp_path):
+    # #654 pairs the strip with a WIDER uninstall (the engine-generated `.uid`
+    # sidecar goes too). The snapshot reads its file list from the installer, so the
+    # sidecar is captured and restored — otherwise every `gda export run` on a
+    # dogfooded project would silently delete a tracked file and break ADR-0028's
+    # "the dev project is left byte-identical".
+    harness = _project_with_harness(tmp_path)
+    sidecar = harness.with_name(f"{harness.name}.uid")
+    sidecar.write_bytes(b"uid://bxxxxxxxxxxxxx\n")
+    seen = {}
+
+    class _AssertingRunner:
+        def run(self, preset, mode, output_path):
+            seen["sidecar_present_during_export"] = sidecar.exists()
+            return RunResult(stdout="", stderr="", exit_code=0)
+
+    outcome = _run_export_in(tmp_path, _AssertingRunner())
+
+    assert isinstance(outcome, ExportRunResult)
+    assert seen["sidecar_present_during_export"] is False  # stripped for the export
+    assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"  # and put back exactly
+
+
 def test_export_restores_harness_even_when_native_run_raises(tmp_path):
     # A crash-safe finally: if the native export raises, the harness is still
     # restored (never left stripped by a mid-export failure on the gda path).

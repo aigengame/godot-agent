@@ -118,6 +118,26 @@ class DaemonStartResult(BaseModel):
         default="",
         description="The gda harness version now installed in the project (#225).",
     )
+    created_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `res://` paths this start CREATED in the project (outermost "
+            "directory first), so the harness install is an auditable mutation "
+            "rather than a silent write into a tracked project (#654). Empty on an "
+            "idempotent repeat start and on a version resync — those rewrite the "
+            "harness (`harness_synced`) but create nothing new. Reversed by "
+            "`gda daemon uninstall`, except `res://addons` itself, which is left in "
+            "place as the shared Godot addons directory."
+        ),
+    )
+    created_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `project.godot` sections this start CREATED — `[autoload]` when the "
+            "project had none. Empty when the harness entry joined a section that "
+            "already existed, which `gda daemon uninstall` then leaves in place (#654)."
+        ),
+    )
     windowed: bool | None = Field(
         default=None,
         description=(
@@ -181,13 +201,38 @@ class DaemonUninstallParams(BaseModel):
 
 
 class DaemonUninstallResult(BaseModel):
-    """The result of ``gda daemon uninstall``: the paired harness removal (ADR-0018, #225)."""
+    """The result of ``gda daemon uninstall``: the paired harness removal (ADR-0018, #225).
+
+    #654 makes the removal complete AND self-reporting: the engine-generated `.uid`
+    sidecar and a now-empty `[autoload]` section go too, so a project that only ever
+    ran a live session is left as it was, and ``removed_paths`` / ``removed_sections``
+    name every path and section that went.
+    """
 
     removed: bool = Field(
         description=(
             "Whether the harness autoload and files were removed; False is the "
             "idempotent no-op when no harness was installed (mirrors daemon stop)."
         )
+    )
+    removed_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `res://` paths removed: the harness script, its engine-generated "
+            "`.uid` sidecar, and `res://addons/gda_harness` once empty (#654). "
+            "`res://addons` is left in place — it is the shared Godot addons "
+            "directory, and uninstall records no pre-install state to tell whether "
+            "gda or the project created it."
+        ),
+    )
+    removed_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `project.godot` sections removed — `[autoload]` when dropping the "
+            "harness entry left it with no keys, so a live session no longer leaves "
+            "an empty generated section behind in a tracked file (#654). A section "
+            "with any surviving user autoload is kept."
+        ),
     )
 
 
@@ -389,6 +434,8 @@ def run_daemon_start_operation(
             installed_harness=installed.changed,
             harness_synced=installed.synced,
             harness_version=installed.version,
+            created_paths=list(installed.created_paths),
+            created_sections=list(installed.created_sections),
             # An idempotent start does not relaunch the session and cannot re-derive
             # the running daemon's display mode from the pidfile, so report `None`
             # ("not determined here") rather than a misleading `False` — a daemon
@@ -441,6 +488,8 @@ def run_daemon_start_operation(
         installed_harness=installed.changed,
         harness_synced=installed.synced,
         harness_version=installed.version,
+        created_paths=list(installed.created_paths),
+        created_sections=list(installed.created_sections),
         windowed=windowed,
         already_running=False,
     )
@@ -511,7 +560,11 @@ def run_daemon_uninstall_operation(
             "",
         )
     result = uninstall_harness(project)
-    return DaemonUninstallResult(removed=result.removed)
+    return DaemonUninstallResult(
+        removed=result.removed,
+        removed_paths=list(result.removed_paths),
+        removed_sections=list(result.removed_sections),
+    )
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -547,10 +600,22 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
 
 
 def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
-    """Render a `gda daemon uninstall` outcome for humans."""
-    if uninstalled.removed:
-        return "harness uninstalled"
-    return "no harness was installed"
+    """Render a `gda daemon uninstall` outcome for humans.
+
+    Naming what went is the point of this command (#654) — it is the step that
+    hands a tracked project back — so the human line carries the same removal set
+    the JSON result enumerates, not just the fact that something was removed.
+    """
+    if not uninstalled.removed:
+        return "no harness was installed"
+    removed = [
+        *uninstalled.removed_paths,
+        *(f"{section} in project.godot" for section in uninstalled.removed_sections),
+    ]
+    if not removed:
+        # Only the [autoload] entry was there to remove (the files were already gone).
+        return "harness uninstalled: the GdaHarness [autoload] entry in project.godot"
+    return "harness uninstalled: " + ", ".join(removed)
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
@@ -733,14 +798,23 @@ def daemon_uninstall(
 ) -> None:
     """Remove the gda harness autoload and files from the project (ADR-0018).
 
-    A release-hygiene step: removal is paired and crash-safe — the [autoload] entry
-    is stripped first, then the files — so a mid-failure never leaves a dangling
-    autoload (which an exported game logs `ERR_CONTINUE` and skips at startup —
-    error spam, not a hard crash; ADR-0028). Idempotent (a no-op if not
-    installed). Refused while a daemon is running (`daemon_running`); stop it first
-    with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
+    A release-hygiene step: removal is paired and crash-safe — the harness autoload
+    entry is stripped first, then the files — so a mid-failure never leaves a
+    dangling autoload (which an exported game logs `ERR_CONTINUE` and skips at
+    startup — error spam, not a hard crash; ADR-0028). It restores the project: the
+    harness script, its engine-generated `.uid` sidecar and the emptied addon
+    directory all go, and an autoload section left with no keys loses its header
+    too, so `project.godot` returns to its pre-install bytes. The result enumerates
+    every path and section removed. Idempotent (a no-op if not installed). Refused
+    while a daemon is running (`daemon_running`); stop it first with
+    `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.
     """
+    # The docstring above spells section names WITHOUT their square brackets on
+    # purpose: Typer renders it through Rich, which reads `[autoload]` as a markup
+    # tag and silently drops it (the pre-#654 text read "the  entry is stripped
+    # first"). The bracketed spelling survives in the result-model field
+    # descriptions, which reach agents as JSON and are never Rich-rendered.
     dispatch_recipe(
         DAEMON_UNINSTALL_COMMAND,
         DaemonUninstallParams(),

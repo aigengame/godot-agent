@@ -10,6 +10,11 @@ fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
 #225 adds the harness-lifecycle e2e: start re-syncs the harness after a version
 bump (the installed copy declares an older version), and the paired
 ``gda daemon uninstall`` (install→uninstall idempotent; refused while running).
+
+#654 adds the FULL round trip on a tracked project — start → live op → stop →
+uninstall must leave ``project.godot`` byte-identical and no ``addons/`` residue.
+Only a real engine proves it: the ``.uid`` sidecar that used to survive uninstall is
+written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
@@ -783,6 +788,59 @@ def test_daemon_install_then_uninstall_is_paired_and_idempotent(
         again = run("daemon", "uninstall")
         assert again.returncode == 0, again.stdout + again.stderr
         assert json.loads(again.stdout)["removed"] is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_round_trip_restores_the_project_it_started_from(
+    tmp_path, daemon_runtime_dir
+):
+    # #654, the acceptance criterion of GDA-DF-009 / GDA-DF-020 / GDA-DF-039: after a
+    # REAL start -> live session -> stop -> uninstall, a tracked project must show no
+    # diff at all. Only a real engine proves it: the `.uid` sidecar that used to keep
+    # `addons/gda_harness/` alive is written by Godot's import pass, not by gda, so a
+    # fast test can only plant a stand-in. Here the engine writes it for real, and the
+    # assertions below are on the project's BYTES, not on the absence of a substring.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    before = project_godot.read_bytes()
+    run = _gda(tmp_path, {**os.environ})
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        started_doc = json.loads(started.stdout)
+        # The start's mutation receipt names exactly what it wrote into the project.
+        assert started_doc["created_paths"] == [
+            "res://addons",
+            f"res://{HARNESS_RES_DIR}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        ]
+        assert started_doc["created_sections"] == ["[autoload]"]
+        assert harness.exists()
+
+        # Drive one live op so the engine session really boots and imports the
+        # installed harness — the step that produces the .uid sidecar in the field.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert run("daemon", "stop").returncode == 0
+
+        uninstalled = run("daemon", "uninstall")
+        assert uninstalled.returncode == 0, uninstalled.stdout + uninstalled.stderr
+        removed = json.loads(uninstalled.stdout)
+        assert removed["removed"] is True
+        assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" in removed["removed_paths"]
+        assert removed["removed_sections"] == ["[autoload]"]
+
+        # Nothing of the harness survives: no script, no sidecar, no addon directory.
+        assert not harness.exists()
+        assert not harness.with_name(f"{HARNESS_FILE}.uid").exists()
+        assert not (tmp_path / HARNESS_RES_DIR).exists()
+        # And project.godot is back to the bytes the project started with.
+        assert project_godot.read_bytes() == before
     finally:
         run("daemon", "stop")
 

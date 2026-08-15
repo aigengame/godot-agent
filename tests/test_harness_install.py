@@ -7,6 +7,11 @@ version self-sync (a leading ``# gda-harness-version: <N>`` header on the
 materialized file, riding the existing content-compare so re-materialize happens
 only on a version mismatch) and the paired uninstall (autoload entry removed
 first, then the files — crash-safe ordering, ADR-0018).
+
+#654 completes the reversal: uninstall also removes the engine-generated ``.uid``
+sidecar and a now-empty ``[autoload]`` section, so install → uninstall leaves
+``project.godot`` byte-identical (line endings included) and no ``addons/`` residue;
+both halves RETURN the exact path/section set they touched.
 """
 
 from gda.harness.install import (
@@ -14,7 +19,10 @@ from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
     HARNESS_RES_PATH,
+    HARNESS_UID_FILE,
+    HARNESS_UID_RES_PATH,
     HARNESS_VERSION,
+    harness_artifacts,
     install_harness,
     installed_harness_version,
     uninstall_harness,
@@ -29,6 +37,21 @@ def _autoload_line() -> str:
 
 def _harness_file(project):
     return project / HARNESS_RES_DIR / HARNESS_FILE
+
+
+def _harness_uid(project):
+    """The ``.uid`` sidecar the ENGINE writes next to an imported script (#654)."""
+    return project / HARNESS_RES_DIR / HARNESS_UID_FILE
+
+
+def _write_engine_uid_sidecar(project):
+    """Stand in for the engine's import pass, which writes the ``.uid`` sidecar.
+
+    The real sidecar comes from a Godot import (covered end-to-end by
+    ``tests/test_e2e_daemon.py``); here only its PRESENCE matters, so the fast tests
+    plant one with the shape the engine writes.
+    """
+    _harness_uid(project).write_text("uid://bxxxxxxxxxxxxx\n", encoding="utf-8")
 
 
 def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
@@ -249,6 +272,211 @@ def test_uninstall_is_idempotent_when_not_installed(tmp_path):
     install_harness(tmp_path)
     assert uninstall_harness(tmp_path).removed is True
     assert uninstall_harness(tmp_path).removed is False
+
+
+# --- Full reversal + mutation receipt (#654) ----------------------------------
+
+
+def test_uninstall_removes_the_engine_generated_uid_sidecar(tmp_path):
+    # GDA-DF-009: `daemon uninstall` reported {"removed": true} yet left
+    # gda_harness.gd.uid behind — and because that file kept the directory
+    # non-empty, the existing empty-directory removal never fired either.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    _write_engine_uid_sidecar(tmp_path)
+
+    result = uninstall_harness(tmp_path)
+
+    assert result.removed is True
+    assert not _harness_uid(tmp_path).exists()  # the sidecar goes with the script
+    assert not (tmp_path / HARNESS_RES_DIR).exists()  # so the dir can go too
+    assert HARNESS_UID_RES_PATH in result.removed_paths
+
+
+def test_uninstall_removes_the_generated_empty_autoload_section(tmp_path):
+    # GDA-DF-020 (10 recurrences): the harness entry left, but the generated
+    # [autoload] header stayed, so every live-QA session left project.godot
+    # modified in git. Removing the last key must remove the section too.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    assert "[autoload]" in project_godot.read_text(encoding="utf-8")
+
+    result = uninstall_harness(tmp_path)
+
+    assert "[autoload]" not in project_godot.read_text(encoding="utf-8")
+    assert result.removed_sections == ("[autoload]",)
+
+
+def test_install_then_uninstall_leaves_project_godot_byte_identical(tmp_path):
+    # The #654 acceptance criterion: on a project with NO pre-existing autoload
+    # section, a full round trip must leave project.godot at its exact pre-install
+    # bytes (not merely "no GdaHarness line") and no addons/gda_harness residue.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(_NO_AUTOLOAD, encoding="utf-8")
+    before = project_godot.read_bytes()
+    install_harness(tmp_path)
+    _write_engine_uid_sidecar(tmp_path)
+    assert project_godot.read_bytes() != before  # the install really did write
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+    assert not (tmp_path / HARNESS_RES_DIR).exists()
+
+
+def test_round_trip_leaves_a_pre_existing_user_autoload_section_unchanged(tmp_path):
+    # The paired criterion: a USER [autoload] section is not gda's to remove, so the
+    # section (and its sibling entry) survive the round trip byte-identically.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + '\n[autoload]\n\nOther="*res://other.gd"\n', encoding="utf-8"
+    )
+    before = project_godot.read_bytes()
+    install = install_harness(tmp_path)
+    assert install.created_sections == ()  # gda joined a section, it did not make one
+
+    result = uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+    assert result.removed_sections == ()  # a user section is never dropped
+
+
+def test_round_trip_preserves_crlf_line_endings(tmp_path):
+    # #654: the config edit must not silently rewrite a CRLF project.godot to LF —
+    # Python's default text mode would, turning a one-line autoload edit into a
+    # whole-file diff. Byte-identity is asserted on the CRLF bytes themselves.
+    project_godot = tmp_path / "project.godot"
+    before = _NO_AUTOLOAD.replace("\n", "\r\n").encode("utf-8")
+    project_godot.write_bytes(before)
+
+    install_harness(tmp_path)
+
+    installed = project_godot.read_bytes()
+    assert b"\r\n[autoload]\r\n" in installed  # the appended section is CRLF too
+    assert b"\n" not in installed.replace(b"\r\n", b"")  # no stray LF anywhere
+
+    uninstall_harness(tmp_path)
+
+    assert project_godot.read_bytes() == before
+
+
+def test_uninstall_keeps_an_autoload_section_that_still_has_keys(tmp_path):
+    # The section is dropped ONLY when the harness entry was its last key; a sibling
+    # user autoload keeps the header (and everything around it) in place.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + '\n[autoload]\n\nOther="*res://other.gd"\n', encoding="utf-8"
+    )
+    install_harness(tmp_path)
+
+    uninstall_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert "[autoload]" in text
+    assert 'Other="*res://other.gd"' in text
+
+
+def test_uninstall_drops_a_mid_file_empty_autoload_section_without_merging_neighbours(
+    tmp_path,
+):
+    # An [autoload] section that is NOT at EOF keeps the blank line in front of it:
+    # that separator still divides the two surviving sections, so dropping it would
+    # glue [application] onto the preceding key.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        'config_version=5\n\n[autoload]\n\nGdaHarness="*'
+        + HARNESS_RES_PATH
+        + '"\n\n[application]\n\nconfig/name="t"\n',
+        encoding="utf-8",
+    )
+
+    uninstall_harness(tmp_path)
+
+    assert (
+        project_godot.read_text(encoding="utf-8")
+        == 'config_version=5\n\n[application]\n\nconfig/name="t"\n'
+    )
+
+
+def test_install_reports_the_paths_and_sections_it_created(tmp_path):
+    # The install half of the #654 receipt: an agent (or a reviewer) can see exactly
+    # what a `daemon start` wrote into a tracked project, outermost dir first.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+
+    result = install_harness(tmp_path)
+
+    assert result.created_paths == (
+        "res://addons",
+        "res://addons/gda_harness",
+        HARNESS_RES_PATH,
+    )
+    assert result.created_sections == ("[autoload]",)
+
+    # An idempotent repeat start creates nothing, so it reports nothing.
+    again = install_harness(tmp_path)
+    assert again.changed is False
+    assert again.created_paths == ()
+    assert again.created_sections == ()
+
+
+def test_install_does_not_claim_an_addons_dir_the_project_already_had(tmp_path):
+    # The receipt must be the paths THIS call created — a project that already keeps
+    # other addons contributes res://addons itself, so gda must not claim it.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    (tmp_path / "addons").mkdir()
+
+    result = install_harness(tmp_path)
+
+    assert result.created_paths == ("res://addons/gda_harness", HARNESS_RES_PATH)
+
+
+def test_uninstall_reports_every_path_and_section_it_removed(tmp_path):
+    # The removal half of the #654 receipt, in removal order: the script, its .uid
+    # sidecar, then the emptied addon directory — plus the generated section.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)
+    _write_engine_uid_sidecar(tmp_path)
+
+    result = uninstall_harness(tmp_path)
+
+    assert result.removed_paths == (
+        HARNESS_RES_PATH,
+        HARNESS_UID_RES_PATH,
+        "res://addons/gda_harness",
+    )
+    assert result.removed_sections == ("[autoload]",)
+    # res://addons stays: it is the shared Godot addons dir and uninstall records no
+    # pre-install state to tell whether gda or the project created it.
+    assert (tmp_path / "addons").is_dir()
+    assert "res://addons" not in result.removed_paths
+
+
+def test_uninstall_of_a_dangling_entry_reports_the_entry_only(tmp_path):
+    # A project.godot that kept the entry after the files went (an interrupted
+    # uninstall): `removed` is True with BOTH receipt lists empty — the documented
+    # reading of that combination.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + f'\n[autoload]\n\nGdaHarness="*{HARNESS_RES_PATH}"\n',
+        encoding="utf-8",
+    )
+
+    result = uninstall_harness(tmp_path)
+
+    assert result.removed is True
+    assert result.removed_paths == ()
+    assert result.removed_sections == ("[autoload]",)
+
+
+def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):
+    # The single enumeration `gda export run`'s transactional snapshot reads, so its
+    # strip and restore stay in step with what uninstall deletes (#654). A file
+    # uninstall removes but the snapshot never captured would never come back.
+    assert harness_artifacts(tmp_path) == (
+        _harness_file(tmp_path),
+        _harness_uid(tmp_path),
+    )
 
 
 def test_ready_gates_on_template_feature_as_its_first_statement():

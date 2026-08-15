@@ -675,6 +675,74 @@ def test_uninstall_is_idempotent_no_op_when_not_installed(
 
     assert isinstance(outcome, DaemonUninstallResult)
     assert outcome.removed is False  # nothing to remove -> no-op success
+    assert outcome.removed_paths == []  # and nothing to report
+    assert outcome.removed_sections == []
+
+
+# --- the mutation receipt on both halves (#654) -------------------------------
+
+
+def test_start_result_names_the_paths_and_sections_the_install_created(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    # #654 (GDA-DF-039): a `daemon start` writes into project.godot and addons/, so
+    # unattended automation can commit or ship the harness by accident. The result
+    # therefore names the exact set it created, which `daemon uninstall` reverses.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    started = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(started, DaemonStartResult), started
+    assert started.created_paths == [
+        "res://addons",
+        "res://addons/gda_harness",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+    ]
+    assert started.created_sections == ["[autoload]"]
+
+
+def test_already_running_start_reports_an_empty_receipt_when_nothing_is_created(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The idempotent repeat start creates nothing, so its receipt is empty — the
+    # receipt is what THIS call wrote, not a standing inventory of the install.
+    project = _project(tmp_path)
+    install_harness(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    started = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(started, DaemonStartResult)
+    assert started.created_paths == []
+    assert started.created_sections == []
+
+
+def test_uninstall_result_names_every_removed_path_and_section(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The removal half: the script, the engine-written .uid sidecar (GDA-DF-009) and
+    # the emptied addon dir, plus the generated [autoload] section (GDA-DF-020).
+    project = _project(tmp_path)
+    install_harness(project)
+    (project / HARNESS_RES_DIR / f"{HARNESS_FILE}.uid").write_text(
+        "uid://bxxxxxxxxxxxxx\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+
+    outcome = daemon_ops.run_daemon_uninstall_operation(project)
+
+    assert isinstance(outcome, DaemonUninstallResult), outcome
+    assert outcome.removed_paths == [
+        f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+        f"res://{HARNESS_RES_DIR}",
+    ]
+    assert outcome.removed_sections == ["[autoload]"]
 
 
 # --- CLI surface (#225) -------------------------------------------------------
