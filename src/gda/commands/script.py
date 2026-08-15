@@ -1347,15 +1347,16 @@ def run_script(
     non-zero status, so a shell ``&&`` chain or CI gate stops on it; that envelope
     carries the script's own stdout and stderr in its ``diagnostics``.
 
-    A script that never RAN is a failure either way. Godot reports all three of these
-    on stderr and still exits 0, so gda decides them from the engine's error stream,
-    not its exit code: a missing res:// entry script is ``script_not_found``; an
-    entry script (or a dependency it preloads) that fails to parse or compile is
+    A script that never RAN is a failure either way. Godot reports these on stderr and
+    still exits 0, so gda decides them from the engine's error stream, not its exit
+    code: a missing res:// entry script is ``script_not_found``; an entry script (or a
+    dependency it preloads) that fails to parse or compile is
     ``script_compile_failed``; and one that compiles but does not extend
     ``SceneTree``/``MainLoop``, so it cannot be an entry point at all, is
-    ``incompatible_script_type``. Recognized script errors — including a runtime
-    GDScript error the script itself survived — are also surfaced as structured
-    ``diagnostics`` on a successful result.
+    ``incompatible_script_type`` — though that last shape may instead leave the engine
+    idling with nothing on stderr, which surfaces as ``launch_timeout``. Recognized
+    script errors — including a runtime GDScript error the script itself survived —
+    are also surfaced as structured ``diagnostics`` on a successful result.
 
     Only a gda-/engine-level failure (binary not launchable, timeout, or a signal
     crash) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``

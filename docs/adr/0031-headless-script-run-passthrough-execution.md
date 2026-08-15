@@ -11,9 +11,15 @@ status: accepted
 > left implicit, and adds one opt-in inversion.
 >
 > **1. A script that never ran is a failure, by default.** Godot reports **three** such shapes
-> **only on stderr — and still exits `0`** (verified against Godot 4.6.3): a missing `--script` entry
-> point; an entry script (or a dependency it preloads) that fails to parse or compile; and one that
-> compiles but does not extend `SceneTree`/`MainLoop`, so it can never be a one-shot entry point.
+> **only on stderr — and still exits `0`**: a missing `--script` entry point; an entry script (or a
+> dependency it preloads) that fails to parse or compile; and one that compiles but does not extend
+> `SceneTree`/`MainLoop`, so it can never be a one-shot entry point. The first two were verified
+> against Godot 4.6.3 as reliably reproducible. The **third is not**: its exit-0 form is real and
+> captured, but the engine more often prints nothing and simply keeps idling — falling through to
+> the project's main loop — which surfaces as `launch_timeout` (#655). That is a failure by another
+> route, so gda never reports success for it either way; only the exit-0 form is what this decision
+> has to correct.
+>
 > Passing that status through made `gda script run res://does-not-exist.gd` return
 > `{"exit_status": 0}`, which no reading of the contract calls a successful run. These are
 > **defects, not the contract**: the passthrough exists because gda does not know a user script's

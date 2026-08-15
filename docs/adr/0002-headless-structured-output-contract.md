@@ -63,34 +63,40 @@ An operation failure payload has this wire shape:
 The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
-(`diagnostics` is a free-form string, so a channel with better evidence to offer
-may fill it differently: `script run --strict` carries the user script's own
-stdout *and* stderr there under fixed labels, because for that failure the
-script's output is the diagnostic — see the ADR-0031 amendment.)
 
 ### stderr as advisory diagnostics
 
-On **this sentinel channel**, stderr is still **never** parsed for the
-success/failure *outcome* or for stable error codes — those come only from the
-exit code and the stdout sentinel, as above. A command **may**, however, surface
-engine error text from stderr as **advisory, best-effort diagnostics** on its
-*success* result, when a useful detail is available nowhere else. `script
-validate` (#118) is the established case: when it reports `valid=false`, the
-per-error `line` and `message` exist only in the engine's stderr (no bound API
-exposes them), so `gda` parses them into the result's `diagnostics`. This stays
-within the contract: the diagnostics are advisory (they may hold only the first
-error, and `column` is unavailable on the standard build), and they never
-determine the outcome or a stable code.
+stderr is still **never** parsed for the success/failure *outcome* or for stable
+error codes — those come only from the exit code and the stdout sentinel, as
+above. A command **may**, however, surface engine error text from stderr as
+**advisory, best-effort diagnostics** on its *success* result, when a useful
+detail is available nowhere else. `script validate` (#118) is the established
+case: when it reports `valid=false`, the per-error `line` and `message` exist
+only in the engine's stderr (no bound API exposes them), so `gda` parses them
+into the result's `diagnostics`. This stays within the contract: the diagnostics
+are advisory (they may hold only the first error, and `column` is unavailable on
+the standard build), and they never determine the outcome or a stable code.
 
-> **Scope note (2026-08-15, #651).** The rule above governs the sentinel channel,
-> where an outcome is always available from the exit code plus the sentinel.
-> ADR-0031's `script run` is a **different execution shape**: the entry script is
-> the user's own, so it emits no sentinel, and the engine exits `0` even when it
-> never ran the script. There, the engine's error stream is the *only* evidence of
-> the outcome, so that channel **does** derive its verdict from parsed stderr —
-> keyed on recognized engine sentences, never on free-text matching. This does not
-> relax the sentinel rule; it records that the sentinel rule presupposes a sentinel.
-> See the ADR-0031 amendment.
+> **Scope note (2026-08-15, #651) — the two rules above presuppose the sentinel
+> channel, which ADR-0031's `script run` does not have.** Both the "stderr is never
+> parsed for the outcome" rule and the "copies stderr into diagnostics" wrapper
+> behaviour are stated for the sentinel pipeline, where an outcome is always
+> available from the exit code plus the stdout sentinel, and where the engine's
+> stderr is the only diagnostic on offer. `script run` (ADR-0031) is a **different
+> execution shape**: the entry script is the user's own, so it emits no sentinel,
+> and the engine exits `0` even when it never ran the script. Two consequences,
+> both scoped to that channel:
+>
+> - **Outcome.** The engine's error stream is the *only* evidence that the script
+>   never ran, so that channel **does** derive its verdict from parsed stderr —
+>   keyed on recognized engine sentences, never on free-text matching.
+> - **Diagnostics.** `GdaError.diagnostics` is a free-form string, so a channel
+>   with better evidence to offer may fill it differently: `script run --strict`
+>   carries the user script's own stdout *and* stderr there under fixed labels,
+>   because for that failure the script's output *is* the diagnostic.
+>
+> Neither relaxes the sentinel rules; both record that those rules presuppose a
+> sentinel. See the ADR-0031 amendment.
 
 ## `GdaError.code` registry
 
