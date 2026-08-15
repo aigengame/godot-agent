@@ -7,7 +7,6 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import cache
-from pathlib import Path
 from typing import Any, cast
 
 from gda_balancing.domain.artifacts import identified_artifact, wire_schema_identity
@@ -639,23 +638,14 @@ def formula_programs_reachable_from_entrypoints(
 
 
 @cache
-def evaluator_build_identity(root: Path | None = None) -> str:
+def evaluator_build_identity() -> str:
     """Bind evaluator provenance to the installed Python source build."""
-    if root is not None:
-        source_bytes = [
-            (source.relative_to(root).as_posix(), source.read_bytes())
-            for source in sorted(root.rglob("*.py"))
-        ]
-    else:
-        source_names = sorted(
-            name
-            for name in list_package_resources("gda_balancing")
-            if name.endswith(".py")
-        )
-        source_bytes = [
-            (name, read_package_resource("gda_balancing", name))
-            for name in source_names
-        ]
+    source_names = sorted(
+        name for name in list_package_resources("gda_balancing") if name.endswith(".py")
+    )
+    source_bytes = [
+        (name, read_package_resource("gda_balancing", name)) for name in source_names
+    ]
     sources: list[JsonValue] = [
         {
             "path": path,
