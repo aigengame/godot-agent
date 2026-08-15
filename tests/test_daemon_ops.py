@@ -12,13 +12,15 @@ import os
 import pytest
 
 from gda.daemon.discovery import daemon_paths, daemon_pid
-from gda.daemon_ops import (
+from gda.commands.daemon import (
+    DaemonStartResult,
+    DaemonStatusResult,
+    DaemonStopResult,
     run_daemon_start_operation,
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
 from gda.harness.install import HARNESS_VERSION
-from gda.models import DaemonStartResult, DaemonStatusResult, DaemonStopResult
 
 pytestmark = [
     pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),

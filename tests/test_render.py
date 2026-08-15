@@ -1,11 +1,13 @@
-"""The presentation layer (``gda.render``) — issue #140.
+"""The presentation layer — issue #140.
 
-Human rendering lives in a dedicated module, one renderer per result type, reading
-typed surfaces (a value helper, a shared script-metadata interface) rather than
-reaching into a model's ``.value`` or across a union of result types. These are
-unit tests on the renderers themselves; the end-to-end human-output text per
-command is pinned by ``test_human_output.py``, and the descriptor-carried
-renderer invariant (every command has one, none orphaned — ADR-0023) by
+Human rendering is one renderer per result type, reading typed surfaces (a value
+helper, a shared script-metadata interface) rather than reaching into a model's
+``.value`` or across a union of result types. Since ADR-0040 each renderer lives
+in its command-group module next to the descriptor that binds it; ``gda.render``
+keeps only the shared helpers. These are unit tests on the renderers themselves;
+the end-to-end human-output text per command is pinned by
+``test_human_output.py``, and the descriptor-carried renderer invariant (every
+command has one, none orphaned — ADR-0023) by
 ``test_command_descriptor_registry.py``.
 
 Since ADR-0023 each command binds its renderer on its ``HeadlessCommand``
@@ -16,46 +18,50 @@ unchanged.
 
 import pytest
 
-from gda.models import (
-    DaemonStartResult,
-    DaemonStatusResult,
-    DaemonUninstallResult,
-    EngineVersion,
-    GameGetResult,
-    GameRectResult,
-    GameSetResult,
+from gda.commands.node import (
     ListedNode,
-    ListedScript,
     NodeGetResult,
-    NodeProperty,
     NodeSetResult,
-    PerfMonitor,
-    PerfMonitorResult,
-    PerfMonitorsResult,
-    PerfPropertySample,
-    PerfSignalEmission,
-    SceneNode,
+    render_node_properties,
+    render_node_set,
+)
+from gda.commands.scene import SceneNode
+from gda.commands.script import (
+    ListedScript,
     ScriptCreateResult,
     ScriptDeleteResult,
     ScriptGetResult,
     ScriptSetResult,
 )
-from gda.render import (
-    ScriptMetadata,
-    format_value,
+from gda.commands.daemon import (
+    DaemonStartResult,
+    DaemonStatusResult,
+    DaemonUninstallResult,
     render_daemon_start,
     render_daemon_status,
     render_daemon_uninstall,
-    render_engine_version,
+)
+from gda.commands.game import (
+    GameGetResult,
+    GameRectResult,
+    GameSetResult,
     render_game_get,
     render_game_rect,
     render_game_set,
-    render_node_properties,
-    render_node_set,
-    render_node_tree,
+)
+from gda.commands.perf import (
+    PerfMonitor,
+    PerfMonitorResult,
+    PerfMonitorsResult,
+    PerfPropertySample,
+    PerfSignalEmission,
     render_perf_monitor,
     render_perf_monitors,
 )
+from gda.models import EngineVersion, NodeProperty
+from gda.commands.meta import render_engine_version
+from gda.commands.script import ScriptMetadata
+from gda.render import format_value, render_node_tree
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -353,8 +359,8 @@ def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
     # A runtime error with a multi-frame call stack (#283): the human view lists
     # the ordered frames (most-recent-first) under the error's headline line, so
     # an agent reading the text sees where it originated, not just the top frame.
-    from gda.models import DiagError, DiagErrorsResult, SourceFrame
-    from gda.render import render_diag_errors
+    from gda.commands.diag import DiagError, DiagErrorsResult, SourceFrame
+    from gda.commands.diag import render_diag_errors
 
     result = DiagErrorsResult(
         errors=[
@@ -390,8 +396,8 @@ def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
 def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():
     # A bare error has an empty callstack: the renderer shows just its one line,
     # with no empty backtrace block.
-    from gda.models import DiagError, DiagErrorsResult
-    from gda.render import render_diag_errors
+    from gda.commands.diag import DiagError, DiagErrorsResult
+    from gda.commands.diag import render_diag_errors
 
     rendered = render_diag_errors(
         DiagErrorsResult(errors=[DiagError(level="error", message="boom")])

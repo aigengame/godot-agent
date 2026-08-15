@@ -16,8 +16,8 @@ import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import GdaErrorEnvelope, SkillParams, SkillResult
-from gda.skill_ops import SKILL_MD, read_skill_text
+from gda.commands.meta import SKILL_MD, SkillParams, SkillResult, read_skill_text
+from gda.models import GdaErrorEnvelope
 
 BUNDLED = read_skill_text()
 
@@ -188,7 +188,7 @@ def test_skill_install_without_dir_is_a_usage_error():
 
 def test_skill_build_result_install_without_dir_raises():
     # The core backstop behind the CLI guard: no default install location.
-    from gda.skill_ops import build_skill_result
+    from gda.commands.meta import build_skill_result
 
     with pytest.raises(ValueError):
         build_skill_result(install=True, install_dir=None)
@@ -219,7 +219,7 @@ def test_skill_spawns_no_godot(monkeypatch):
         raise AssertionError("gda skill must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["skill", "--json"])
 

@@ -8,8 +8,9 @@ This is the single home of ``gda``'s failure taxonomy, split into two layers
   the environment/operation/parse decision tree shared by every command and
   returns either the validated model or a ``Failure`` — a stable ``GdaError``
   plus the process exit code that distinguishes its category.
-- thin per-command classifiers (``classify_info``) — layer command-specific
-  checks (e.g. ``info``'s ADR-0003 version gate) on top of ``classify_run``.
+- thin per-command classifiers (``gda.commands.meta.classify_info``) — layer
+  command-specific checks (e.g. ``info``'s ADR-0003 version gate) on top of
+  ``classify_run``.
 
 The classification is a pure function of the raw result, so every failure mode
 is exercised by injecting a crafted ``RunResult`` without touching a real
@@ -36,7 +37,6 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -48,32 +48,13 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.models import (
-    DiagErrorsResult,
-    EngineVersion,
-    ExportRunMode,
-    ExportRunResult,
-    GameGetResult,
-    GameRectResult,
-    GameSetResult,
-    GameTreeResult,
-    GdaError,
-    InputActionResult,
-    InputKeyResult,
-    InputMouseResult,
-    InputSequenceResult,
-    LoggerTailResult,
-    OperationErrorEnvelope,
-    PerfMonitorResult,
-    PerfMonitorsResult,
-    ScriptDiagnostic,
-    ScriptValidateResult,
-)
+from gda.models import GdaError, OperationErrorEnvelope
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
-# features gda relies on exist. Resolved from the version gda info reports.
+# features gda relies on exist. Resolved from the version gda info reports; the
+# gate that applies it is ``info``'s own classifier, in ``gda.commands.meta``.
 MIN_GODOT_VERSION = (4, 4)
 
 
@@ -85,7 +66,7 @@ class Failure:
     exit_code: int
 
 
-def _failure(code: str, message: str, stderr: str) -> Failure:
+def make_failure(code: str, message: str, stderr: str) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
     Only ``code``, the per-occurrence ``message`` (it embeds the binary path,
@@ -151,7 +132,7 @@ def unresolvable_binary_failure(reason: str) -> Failure:
     reuse the exit code; discriminate via the envelope). Kept here beside the
     other environment failures so the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "binary_not_found",
         f"Godot binary could not be resolved: {reason}",
         "",
@@ -166,7 +147,7 @@ def conflicting_params_input_failure() -> Failure:
     command was invoked incorrectly — so it reuses that code rather than minting
     a new one (ADR-0002: reuse the code; discriminate via the message).
     """
-    return _failure(
+    return make_failure(
         "usage_error",
         "--params-json is mutually exclusive with the individual arguments; "
         "pass the params as one JSON object OR as individual arguments, not both.",
@@ -182,7 +163,7 @@ def invalid_params_json_failure(detail: str) -> Failure:
     ``invalid_params`` — params that do not match the command's contract — just
     detected CLI-side, so it reuses that code (ADR-0002).
     """
-    return _failure(
+    return make_failure(
         "invalid_params",
         f"--params-json is not a valid params object: {detail}",
         "",
@@ -206,13 +187,13 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
     mislabelled environment (issue #15).
     """
     if raw.launch_failure is LaunchFailure.NOT_FOUND:
-        return _failure(
+        return make_failure(
             "binary_not_found",
             f"Godot binary could not be launched: {binary}",
             raw.stderr,
         )
     if raw.launch_failure is LaunchFailure.TIMEOUT:
-        return _failure(
+        return make_failure(
             "launch_timeout",
             "Godot launched but did not return before the timeout",
             raw.stderr,
@@ -221,7 +202,7 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
         # subprocess reports a signal death as a negative return code; the
         # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
         # than the operation cleanly reporting an error.
-        return _failure(
+        return make_failure(
             "engine_crashed",
             f"Godot terminated abnormally (signal {-raw.exit_code})",
             raw.stderr,
@@ -252,7 +233,7 @@ def classify_run(
         if payload_error is not None:
             code, message = payload_error
             if code in OPERATION_ERROR_CODES:
-                return _failure(
+                return make_failure(
                     code,
                     message or "the headless operation reported an error",
                     result.stderr,
@@ -264,7 +245,7 @@ def classify_run(
             fallback_message = (
                 "the headless operation exited non-zero without a structured error"
             )
-        return _failure("operation_failed", fallback_message, result.stderr)
+        return make_failure("operation_failed", fallback_message, result.stderr)
     try:
         # The sentinel block must be present, hold valid JSON, AND match the
         # command's result shape. A missing/empty sentinel or malformed JSON
@@ -286,115 +267,17 @@ def classify_run(
         # real shape violation that merely happens to also be deep, so require
         # ALL errors to be recursion_loop before claiming depth as the cause.
         if isinstance(exc, ValidationError) and _is_too_deep(exc):
-            return _failure(
+            return make_failure(
                 "tree_too_deep",
                 "result tree nests too deep for gda to materialize "
                 f"(exceeds the recursion limit on {output_model.__name__})",
                 result.stderr,
             )
-        return _failure(
+        return make_failure(
             "contract_violation",
             f"structured-output contract violated: {exc}",
             result.stderr,
         )
-
-
-# A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
-# that follows it carry, between them, the one advisory diagnostic the engine
-# emits for a failed validate (issue #118). The line number is the final `:`
-# part of the reload frame; there is NO column on the standard build.
-# `[ \t]` (not `\s`) bounds the message capture so it cannot span newlines — an
-# empty SCRIPT ERROR message must not swallow the following reload frame.
-# Backtrace frames (`[n] _initialize (...)`) are operations.gd's own lines, not
-# the validated script's, so they are deliberately not matched.
-_SCRIPT_ERROR_LINE = re.compile(
-    r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t]*$", re.MULTILINE
-)
-_RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
-
-
-def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
-    """Parse advisory ``script validate`` diagnostics from the engine's stderr.
-
-    A pure function (no engine, no I/O): the line/message of a failed
-    ``GDScript.reload()`` are available only from stderr, not from any bound API
-    (ADR-0002's stderr is advisory only — it is never parsed for the stable
-    success/failure outcome or error codes, only surfaced here as best-effort
-    diagnostics). ``column`` is always null (the engine exposes none).
-
-    The validate op does exactly ONE ``reload()``, so the only legitimate
-    ``GDScript::reload`` frame in stderr is the validated script's. Each
-    ``SCRIPT ERROR: <message>`` line is paired with a reload frame found ONLY in
-    the window up to the next ``SCRIPT ERROR`` line, and a ``SCRIPT ERROR`` with
-    no reload frame in that window is dropped: bounding the search keeps a later
-    error's frame from being mis-attributed to an earlier message, and the
-    frame requirement excludes unrelated engine ``SCRIPT ERROR`` noise — e.g. an
-    autoload's own startup error under ``--project``, whose frame is its
-    ``_init``/``_ready``, not ``GDScript::reload``. Returns ``[]`` when nothing
-    matches.
-    """
-    matches = list(_SCRIPT_ERROR_LINE.finditer(stderr))
-    diagnostics: list[ScriptDiagnostic] = []
-    for index, match in enumerate(matches):
-        window_end = (
-            matches[index + 1].start() if index + 1 < len(matches) else len(stderr)
-        )
-        frame = _RELOAD_FRAME.search(stderr, match.end(), window_end)
-        if frame is None:
-            continue
-        diagnostics.append(
-            ScriptDiagnostic(
-                line=int(frame.group("line")),
-                column=None,
-                message=match.group("message"),
-            )
-        )
-    return diagnostics
-
-
-def classify_script_validate(
-    result: RunResult, binary: Path
-) -> ScriptValidateResult | Failure:
-    """Classify the raw ``script validate`` result (issue #118).
-
-    The per-command layer for ``script validate``: the shared decision tree comes
-    from ``classify_run`` (an op error — missing path, wrong extension,
-    unreadable file — is still a ``Failure``). For a SUCCESSFUL op reporting an
-    invalid script (``valid=false``), the line/message diagnostics are not in the
-    sentinel — they live only in the engine's stderr — so this layer parses them
-    in and attaches them to the result.
-    """
-    outcome = classify_run(result, binary, ScriptValidateResult)
-    if isinstance(outcome, Failure):
-        return outcome
-    if not outcome.valid:
-        outcome.diagnostics = parse_validate_diagnostics(result.stderr)
-    return outcome
-
-
-def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
-    """Classify the raw ``info`` result into a success model or a ``Failure``.
-
-    The per-command layer for ``info``: the shared decision tree comes from
-    ``classify_run``; only the ADR-0003 minimum-version gate is ``info``'s own.
-    """
-    outcome = classify_run(result, binary, EngineVersion)
-    if isinstance(outcome, Failure):
-        return outcome
-    version = outcome
-
-    if (version.major, version.minor) < MIN_GODOT_VERSION:
-        # The engine ran fine but is older than gda supports (ADR-0003), making
-        # "version too old" a programmatically detectable failure rather than an
-        # implicit one — distinct from the environment-error case.
-        minimum = ".".join(str(part) for part in MIN_GODOT_VERSION)
-        return _failure(
-            "unsupported_version",
-            f"Godot {version.string} is below the minimum supported version {minimum}",
-            result.stderr,
-        )
-
-    return version
 
 
 # Codes the daemon IPC client / the daemon surface through the live sentinel that
@@ -426,7 +309,7 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
         return None
     code, message = pair
     if code in _LIVE_CLIENT_CODES:
-        return _failure(code, message, result.stderr)
+        return make_failure(code, message, result.stderr)
     return None
 
 
@@ -447,163 +330,9 @@ def classify_live(
     return classify_run(result, binary, output_model)
 
 
-def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Failure:
-    """The per-command live classifier for ``gda game tree`` (mirrors ``classify_info``)."""
-    return classify_live(result, binary, GameTreeResult)
-
-
-def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failure:
-    """The per-command live classifier for ``gda game get`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameGetResult)
-
-
-def classify_game_rect(result: RunResult, binary: Path) -> GameRectResult | Failure:
-    """The per-command live classifier for ``gda game rect`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameRectResult)
-
-
-def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:
-    """The per-command live classifier for ``gda game set`` (mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, GameSetResult)
-
-
-def classify_diag_errors(result: RunResult, binary: Path) -> DiagErrorsResult | Failure:
-    """The per-command live classifier for ``gda diag errors`` (mirrors ``classify_game_tree``).
-
-    ``diag`` is daemon-served (the daemon reads its own Session log), but the
-    reply rides the same ADR-0002 sentinel envelope as any live op, so the live
-    error codes (``daemon_not_running``, ``engine_session_not_running``,
-    ``live_log_unavailable``) flow through the shared ``classify_live`` (#224).
-    """
-    return classify_live(result, binary, DiagErrorsResult)
-
-
-def classify_logger_tail(result: RunResult, binary: Path) -> LoggerTailResult | Failure:
-    """The per-command live classifier for ``gda logger tail`` (#281; mirrors ``classify_diag_errors``).
-
-    ``logger tail`` is daemon-served (the daemon reads its own Session log,
-    ADR-0022/ADR-0026), but its reply rides the same ADR-0002 sentinel envelope as
-    any live op, so the live error codes (``daemon_not_running``,
-    ``engine_session_not_running``, ``live_log_unavailable``) flow through the
-    shared ``classify_live``.
-    """
-    return classify_live(result, binary, LoggerTailResult)
-
-
-def classify_perf_monitors(
-    result: RunResult, binary: Path
-) -> PerfMonitorsResult | Failure:
-    """The per-command live classifier for ``gda perf monitors`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorsResult)
-
-
-def classify_perf_monitor(
-    result: RunResult, binary: Path
-) -> PerfMonitorResult | Failure:
-    """The per-command live classifier for ``gda perf monitor`` (#223, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, PerfMonitorResult)
-
-
-def classify_input_key(result: RunResult, binary: Path) -> InputKeyResult | Failure:
-    """The per-command live classifier for ``gda input key`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputKeyResult)
-
-
-def classify_input_mouse(result: RunResult, binary: Path) -> InputMouseResult | Failure:
-    """The per-command live classifier for ``gda input mouse`` click/move (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputMouseResult)
-
-
-def classify_input_action(
-    result: RunResult, binary: Path
-) -> InputActionResult | Failure:
-    """The per-command live classifier for ``gda input action`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputActionResult)
-
-
-def classify_input_sequence(
-    result: RunResult, binary: Path
-) -> InputSequenceResult | Failure:
-    """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
-    return classify_live(result, binary, InputSequenceResult)
-
-
-# A non-fatal export warning the engine prints to stderr. WARNING is Godot's
-# WARN_PRINT prefix; these never fail the export (it still exits 0) but are
-# surfaced advisorily on the success result (ADR-0002: stderr is advisory for
-# success diagnostics), so an agent sees e.g. a missing optional icon.
-_EXPORT_WARNING_LINE = re.compile(
-    r"^[ \t]*WARNING:[ \t]*(?P<message>.+?)[ \t]*$", re.MULTILINE
-)
-
-
-def parse_export_warnings(stderr: str) -> list[str]:
-    """Parse advisory export warnings from a native export's stderr (issue #121).
-
-    A pure function: the engine's ``WARN_PRINT`` lines are advisory-only (they
-    never determine the success/failure outcome — a warned export still exits 0),
-    so they are surfaced as best-effort diagnostics on the success result.
-    Returns ``[]`` when the export was clean.
-    """
-    return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
-
-
-def classify_export_run(
-    output: RunResult,
-    binary: Path,
-    *,
-    preset: str,
-    platform: str,
-    mode: ExportRunMode,
-    output_path: str,
-    created_dirs: list[str],
-) -> ExportRunResult | Failure:
-    """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
-
-    ``export run`` is the one command that does NOT emit an ADR-0002 sentinel —
-    the export subsystem is editor-only, so the artifact is produced by a native
-    ``--export-<mode>`` invocation. gda synthesizes the structured outcome from
-    the subprocess's **exit code** instead (ADR-0010): a clean exit is success
-    (with any advisory warnings parsed off stderr); a non-zero exit is the
-    classifier-source ``export_failed``. Crucially, this does NOT parse stderr to
-    *choose* the code — that would violate ADR-0002's "stderr is never parsed for
-    stable codes". The distinct ``export_templates_missing`` mode is decided
-    *before* the native run by the CLI's structured preflight (``export get``'s
-    ``templates_installed``), not here; on a non-zero export stderr is surfaced
-    only as the advisory ``message`` / diagnostics.
-
-    The decision tree shares :func:`classify_launch_or_crash`'s env/crash prefix
-    so a missing binary or hung export is reported identically across both
-    channels (#185); only the non-zero-exit tail differs from the sentinel
-    channel (synthesize-from-exit-code, no sentinel parse).
-    """
-    prefix = classify_launch_or_crash(output, binary)
-    if prefix is not None:
-        return prefix
-    if output.exit_code != 0:
-        # Templates are checked structurally BEFORE this call (the CLI preflights
-        # export get's templates_installed), so a missing-templates run never
-        # reaches here. Every non-zero native export is therefore the generic
-        # classifier-source export_failed; the engine's stderr is preserved only
-        # as advisory diagnostics (ADR-0002), never parsed to pick the code.
-        return _failure(
-            "export_failed",
-            f'export of preset "{preset}" failed',
-            output.stderr,
-        )
-    return ExportRunResult(
-        preset=preset,
-        platform=platform,
-        mode=mode,
-        output_path=output_path,
-        created_dirs=created_dirs,
-        warnings=parse_export_warnings(output.stderr),
-    )
-
-
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
     """The classifier-source failure for an uncreatable export output parent (#402)."""
-    return _failure(
+    return make_failure(
         "export_output_parent_failed",
         "export output parent directory is not creatable: "
         f"{parent_path} (for output path {output_path})",
@@ -623,7 +352,7 @@ def export_path_unset_failure(preset: str) -> Failure:
     ``--output`` / ``export get``'s ``export_path``), kept here beside the other
     export failures so the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "export_path_unset",
         f'export preset "{preset}" has no destination: '
         "pass --output or set the preset's export_path",
@@ -644,7 +373,7 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
     a merely-misconfigured preset). Names the ``templates_version`` directory the
     agent must install.
     """
-    return _failure(
+    return make_failure(
         "export_templates_missing",
         f'export preset "{preset}" cannot be exported: the export templates for '
         f"the running engine version ({templates_version}) are not installed",
@@ -662,7 +391,7 @@ def script_path_invalid_failure(path: str) -> Failure:
     (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
     the whole taxonomy reads from one place.
     """
-    return _failure(
+    return make_failure(
         "invalid_path",
         f"script run requires a res:// script path, got: {path!r}",
         "",
@@ -678,7 +407,7 @@ def script_run_project_not_found_failure() -> Failure:
     the engine with this structured failure rather than launching projectless —
     the other explicit ABI edge of ADR-0031.
     """
-    return _failure(
+    return make_failure(
         "project_not_found",
         "script run requires a resolved Godot project: pass --project, set "
         "$GDA_PROJECT, or run from a project directory",
@@ -698,4 +427,4 @@ def invalid_project_failure(reason: str) -> Failure:
     Python traceback. It is the general, cross-cutting form of ``script run``'s own
     projectless ABI edge (#343); the two share the one ``project_not_found`` code.
     """
-    return _failure("project_not_found", reason, "")
+    return make_failure("project_not_found", reason, "")

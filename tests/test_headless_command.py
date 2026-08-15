@@ -8,8 +8,8 @@ import typer
 
 from gda.execution import ExecutionKind
 from gda.headless import HeadlessCommand
-from gda.models import EngineVersion, InfoParams
-from gda.render import render_engine_version
+from gda.commands.meta import InfoParams, render_engine_version
+from gda.models import EngineVersion
 from gda.runner import LaunchFailure, RunResult
 from tests.support import VERSION_INFO, FakeRunner, sentinel
 

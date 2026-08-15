@@ -16,7 +16,7 @@ meta commands (`info` / `schema` / `skill`) live in prose, not the tables, and a
 import re
 
 from gda.cli import app
-from gda.skill_ops import read_skill_text
+from gda.commands.meta import read_skill_text
 from gda.surface import build_surface_manifest
 
 BUNDLED = read_skill_text()

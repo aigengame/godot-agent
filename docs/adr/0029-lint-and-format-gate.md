@@ -41,6 +41,10 @@ record too.
   ([ADR-0023](0023-command-descriptor-single-registration.md)) — and F811 "redefinition" is a
   false positive for that idiom.
 
+  > **Outcome (2026-08-15, [ADR-0040](0040-per-command-group-modules.md)):** the per-file
+  > ignore was removed with the per-command-group split — command function names are unique
+  > per group module, so `cli.py` no longer redefines names.
+
 - **CI-only enforcement.** No pre-commit hook: developers run `uv run ruff format .` locally,
   and the CI `lint` job is the authoritative backstop. The gate adds no new local-tooling
   framework or convention the repo does not already have.
@@ -71,6 +75,8 @@ record too.
   file. Accepted: `cli.py` is the command-registration module, full of intentionally same-named
   commands, so the idiom dominates; a stray real redefinition there would surface as a failing
   command, not silently.
+  > **Outcome (2026-08-15, [ADR-0040](0040-per-command-group-modules.md)):** this risk ended
+  > when the ignore was removed — `F811` now covers `src/` without exception.
 - [README](../../README.md) documents the gate (the **Development** and **Contributing**
   sections) — `ruff check` / `ruff format` commands and the CI job. No new
   [CONTEXT.md](../../CONTEXT.md) term: a lint gate is build tooling, not a domain concept.

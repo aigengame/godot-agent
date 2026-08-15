@@ -124,7 +124,7 @@ def test_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("gda schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["schema"])
 
@@ -242,7 +242,8 @@ def test_schema_command_is_itself_self_describing():
     # The meta command is under the same ADR-0004 gate as every other command:
     # `gda schema --schema` emits its own {input, output, error} contract, with
     # `output` the manifest's own model schema.
-    from gda.models import GdaErrorEnvelope, SchemaAllParams, SurfaceManifest
+    from gda.commands.meta import SchemaAllParams
+    from gda.models import GdaErrorEnvelope, SurfaceManifest
 
     result = CliRunner().invoke(app, ["schema", "--schema"])
 

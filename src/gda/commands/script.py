@@ -1,0 +1,1241 @@
+"""The ``script`` command group: Godot script files (.gd) as the domain object.
+
+One vertical slice per `Command group` (ADR-0040): this module owns the group's
+params/result models, its ``script run`` operation (formerly ``gda.script_run``),
+its ``script validate`` classifier, its human renderers, its ``HeadlessCommand``
+descriptors (ADR-0023), and its Typer command bodies, and mounts them on the
+root app through :func:`register`. It imports the shared machinery downward —
+the dispatch tail (``gda.dispatch``), the descriptor machinery (``gda.headless``),
+the shared failure taxonomy (``gda.errors``), the cross-command contract core
+(``gda.models``) and the launch primitive (``gda.runner``) — and is imported by
+the composition root (``gda.cli``) and its one sanctioned sibling,
+``gda.commands.shader`` (which reuses the ``ScriptSetMode`` edit interface,
+ADR-0040 §5).
+
+C# (.cs) is out of scope for now — it needs the .NET build of Godot (ADR-0003
+targets the standard build) and a dedicated decision.
+"""
+
+import re
+from enum import Enum
+from pathlib import Path
+from typing import Optional, Protocol, runtime_checkable
+
+import typer
+from pydantic import BaseModel, Field, model_validator
+
+from gda.binary import resolve_godot_binary
+from gda.dispatch import dispatch_domain, dispatch_recipe
+from gda.errors import (
+    Failure,
+    classify_launch_or_crash,
+    classify_run,
+    script_path_invalid_failure,
+    script_run_project_not_found_failure,
+    unresolvable_binary_failure,
+)
+from gda.execution import ExecutionKind
+from gda.headless import (
+    HeadlessCommand,
+    godot_option,
+    json_option,
+    params_json_option,
+    project_option,
+)
+from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.runner import RunResult, launch
+
+
+class ScriptCreateParams(BaseModel):
+    """The operation params of ``gda script create`` (issue #110).
+
+    ``path`` is the target ``.gd`` script file, addressed by its ``res://`` or
+    filesystem path (script-file addressing — by file path, not by
+    ``class_name``). ``content`` supplies verbatim source; when omitted, the
+    operation writes a minimal built-in template extending ``extends_type``.
+    ``content`` and ``extends_type`` are mutually exclusive at the CLI: verbatim
+    content is not templated, so a base class would have nowhere to go.
+    """
+
+    path: NormalizedPath = Field(description="Target .gd script path to write.")
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Verbatim script source to write. When omitted, a minimal built-in "
+            "template extending 'extends_type' is written instead. Mutually "
+            "exclusive with the template's base class."
+        ),
+    )
+    extends_type: str | None = Field(
+        default=None,
+        description=(
+            "Base class for the built-in template's 'extends' line (e.g. Node, "
+            "Node2D). Ignored when 'content' is supplied; defaults to 'Node' "
+            "when neither is given."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _content_xor_extends(self) -> "ScriptCreateParams":
+        # Verbatim content is not templated, so a base class has nowhere to go:
+        # the two are mutually exclusive. Enforced model-side (ADR-0015) so the
+        # --params-json path rejects the conflict too, not just argv.
+        if self.content is not None and self.extends_type is not None:
+            raise ValueError("'content' and 'extends_type' are mutually exclusive.")
+        return self
+
+
+class ScriptCreateResult(BaseModel):
+    """The result of ``gda script create``: what was written where (issue #110).
+
+    Echoes the saved ``path`` and the ``class_name``/``extends`` the written
+    source declares, so an agent can assert the effect without a second call.
+    ``created_dirs`` lists parent directories the operation created before
+    saving, from outermost to innermost. The ``class_name``/``extends`` are
+    parsed from the written source.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the written script declares, or null when it declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the written script extends, or null when it declares none."
+        ),
+    )
+    created_dirs: list[str] = Field(description=CREATED_DIRS_DESC)
+
+
+class ScriptGetParams(BaseModel):
+    """The operation params of ``gda script get``: the script file to read (issue #110).
+
+    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
+    The source is read as raw text — the script is never loaded or compiled, so
+    reading it can never run project code (issue #30).
+    """
+
+    path: NormalizedPath = Field(description="The .gd script file to read.")
+
+
+class ScriptGetResult(BaseModel):
+    """The result of ``gda script get``: a script's source and metadata (issue #110).
+
+    Echoes the ``path``, the full ``source`` read as raw text, and the
+    ``class_name``/``extends`` the source declares (parsed from the text).
+    Carrying the source verbatim makes a ``create`` verifiable end-to-end:
+    ``create`` then ``get`` returns the same source.
+    """
+
+    path: str
+    source: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the script declares, or null when it declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the script extends, or null when it declares none."
+        ),
+    )
+
+
+class ScriptListParams(BaseModel):
+    """The operation params of ``gda script list`` — none (ADR-0004).
+
+    ``script list`` enumerates the ``.gd`` scripts in the resolved project's
+    ``res://`` tree; the project is process context (``--project``), not an
+    operation param (ADR-0006), so the ``input`` schema is trivially empty.
+    """
+
+
+class ListedScript(BaseModel):
+    """One enumerated script of ``gda script list``: its path and metadata.
+
+    ``path`` is the script's ``res://`` path — the address an agent feeds back
+    into other script commands. ``class_name``/``extends`` are parsed cheaply
+    from the script's raw source (no compilation, issue #30); both are null when
+    the script declares neither, so the entry still names a file the listing
+    found rather than dropping it.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description="The class_name the script declares, or null when it declares none.",
+    )
+    extends: str | None = Field(
+        default=None,
+        description="The base class the script extends, or null when it declares none.",
+    )
+
+
+class ScriptListResult(BaseModel):
+    """The result of ``gda script list``: the project's enumerated ``.gd`` scripts.
+
+    An empty project is a valid, empty listing — ``scripts == []`` — not a
+    failure.
+    """
+
+    scripts: list[ListedScript]
+
+
+class ScriptDeleteParams(BaseModel):
+    """The operation params of ``gda script delete``: the ``.gd`` file to remove."""
+
+    path: NormalizedPath = Field(description="The .gd script file to delete.")
+
+
+class ScriptDeleteResult(BaseModel):
+    """The result of ``gda script delete``: what was removed (issue #117).
+
+    Echoes the deleted script's ``path`` and the ``class_name``/``extends`` its
+    source declared (parsed from the raw text before deletion), so the result
+    names the content removed, not just the file path.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description="The class_name the deleted script declared, or null when it declared none.",
+    )
+    extends: str | None = Field(
+        default=None,
+        description="The base class the deleted script extended, or null when it declared none.",
+    )
+
+
+class ScriptSetMode(str, Enum):
+    """The edit mode of ``gda script set``, the single source of truth (issue #133).
+
+    The CLI resolves exactly one mode from the supplied flags (its mutual-exclusion
+    check) and stamps it here, so the operation dispatches on this explicit
+    discriminator instead of re-inferring the mode from which params are present —
+    the inference precedence can no longer drift from the CLI's exclusivity rule.
+
+    - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
+      occurrence of ``search`` is replaced with ``replace``.
+    - ``LINE_RANGE`` — ``start_line`` (+ optional ``end_line``) with ``content``:
+      the given 1-based, inclusive line span is replaced with ``content``.
+    - ``FULL`` — ``content`` only: the whole file is overwritten.
+    """
+
+    SEARCH_REPLACE = "search_replace"
+    LINE_RANGE = "line_range"
+    FULL = "full"
+
+
+def resolve_set_mode(
+    search: str | None,
+    replace: str | None,
+    start_line: int | None,
+    end_line: int | None,
+    content: str | None,
+) -> ScriptSetMode:
+    """Resolve a script/shader-set edit mode from the supplied params (issue #133).
+
+    The single home of the edit-mode rule, shared by ``script set`` and ``shader
+    set`` and by BOTH input paths (ADR-0015): exactly one of the three
+    mutually-exclusive modes must be supplied. Raises ``ValueError`` on a
+    violation — the CLI wrapper translates it to a usage error (exit 2) for argv,
+    while the params models surface it as the structured ``invalid_params`` for
+    ``--params-json``.
+    """
+    has_search = search is not None or replace is not None
+    has_line_range = start_line is not None or end_line is not None
+
+    if has_search:
+        if search is None or replace is None:
+            raise ValueError("'search' and 'replace' must be used together.")
+        if content is not None or has_line_range:
+            raise ValueError(
+                "'search'/'replace' cannot be combined with 'content', "
+                "'start_line', or 'end_line'."
+            )
+        return ScriptSetMode.SEARCH_REPLACE
+
+    if has_line_range:
+        if content is None:
+            raise ValueError("'start_line'/'end_line' require 'content'.")
+        if start_line is None:
+            raise ValueError("'end_line' requires 'start_line'.")
+        return ScriptSetMode.LINE_RANGE
+
+    if content is None:
+        raise ValueError(
+            "a set command needs an edit: 'search'/'replace', 'start_line' "
+            "(+ 'content'), or 'content' (full overwrite)."
+        )
+    return ScriptSetMode.FULL
+
+
+class ScriptSetParams(BaseModel):
+    """The operation params of ``gda script set`` (issue #118).
+
+    Edits an existing ``.gd`` script on disk as RAW TEXT — it never compiles or
+    loads the script, so editing one can never run project code (the read trust
+    boundary of issue #30). ``path`` addresses the script by its ``res://`` or
+    filesystem path. The remaining params carry one of three mutually-exclusive
+    edit modes; the CLI resolves which one and stamps it on ``mode`` (issue #133),
+    so the operation dispatches on that explicit discriminator rather than
+    re-inferring it from which params are present:
+
+    - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
+      present: every literal (not regex) occurrence of ``search`` is replaced with
+      ``replace``.
+    - **line-range** (``mode = line_range``) — ``start_line`` (+ optional
+      ``end_line``) with ``content``: the given 1-based, inclusive line span is
+      replaced with ``content``.
+    - **full** (``mode = full``) — only ``content`` present: the whole file is
+      overwritten.
+    """
+
+    path: NormalizedPath = Field(description="The .gd script file to edit.")
+    mode: ScriptSetMode | None = Field(
+        default=None,
+        description=(
+            "The resolved edit mode, the single source of truth the operation "
+            "dispatches on (issue #133). Derived model-side from the supplied "
+            "edit params (ADR-0015); a value passed in is ignored."
+        ),
+    )
+    search: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal substring to find (NOT a regex). "
+            "Every occurrence is replaced with 'replace'. Requires 'replace'."
+        ),
+    )
+    replace: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal text each occurrence of 'search' "
+            "is replaced with. Requires 'search'."
+        ),
+    )
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the first line to replace, 1-based and inclusive. "
+            "Lines are the parts of the source split on '\\n', so a trailing "
+            "newline yields a final empty part: 'a\\nb\\n' is 3 lines "
+            "(['a', 'b', '']). Valid range is 1..N where N is that part count. "
+            "Requires 'content'."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the last line to replace, 1-based and inclusive; "
+            "defaults to 'start_line' (a single-line replace). Must satisfy "
+            "start_line <= end_line <= N (the line count). Requires 'content'."
+        ),
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "The replacement text. In line-range mode it replaces the "
+            "start_line..end_line span; with no 'start_line' it overwrites the "
+            "entire file (full mode)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _resolve_mode(self) -> "ScriptSetParams":
+        # Derive the edit mode from the supplied params (ADR-0015), so the argv
+        # and --params-json paths agree and a JSON caller cannot pass a mode
+        # inconsistent with the other edit fields.
+        self.mode = resolve_set_mode(
+            self.search, self.replace, self.start_line, self.end_line, self.content
+        )
+        return self
+
+
+class ScriptSetResult(BaseModel):
+    """The result of ``gda script set``: the edited script's metadata (issue #118).
+
+    Echoes the saved ``path`` and the ``class_name``/``extends`` re-parsed from
+    the source as written, so an edit round-trips through ``script get`` (the
+    verifier) without a second call — and an agent can assert the post-edit
+    metadata directly.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the edited source declares, or null when it declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the edited source extends, or null when it declares none."
+        ),
+    )
+
+
+class ScriptAttachParams(BaseModel):
+    """The operation params of ``gda script attach`` (issue #118).
+
+    Binds a ``.gd`` script to a node inside a ``.tscn`` scene: load the scene,
+    resolve the node by node path, attach the script, then re-pack and save. As a
+    scene mutation it instantiates the scene (the same inherent trust boundary as
+    ``node set``, ADR-0009): instantiating runs the ``_init`` of scripts already
+    attached in the scene, and for a script that compiles ``set_script``
+    constructs an instance of the newly-attached script, running its ``_init``
+    too. ``path`` is the scene; ``script`` is the ``.gd`` to attach. The script
+    must COMPILE: the headless engine silently rejects a non-compiling script
+    from ``set_script`` (it cannot be persisted into the scene), so attach
+    refuses one with ``script_compile_failed`` rather than report a phantom
+    success — check a script with ``script validate`` first.
+    """
+
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        )
+    )
+    script: NormalizedPath = Field(
+        description="The .gd script file to attach to the node."
+    )
+
+
+class ScriptAttachResult(BaseModel):
+    """The result of ``gda script attach``: what was bound where (issue #118).
+
+    Echoes the ``scene_path``, the addressed ``node``, and the attached
+    ``script``, plus the script's ``class_name`` when it declares a global one —
+    the result an agent asserts to confirm the binding took effect, verifiable by
+    reading the saved scene back (the script now appears on the node).
+
+    ``attach`` is a mutation verb: it OVERWRITES an existing binding rather than
+    refusing it (issue #132). ``replaced_script`` makes that displacement visible
+    so the overwrite is never silent — an agent reads it to detect a clobber.
+    """
+
+    scene_path: str
+    node: str = Field(
+        description="The node path the script was attached to, relative to the scene root."
+    )
+    script: str = Field(description="The .gd script that was attached.")
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The global class_name the attached script declares, or null when "
+            "it declares none."
+        ),
+    )
+    replaced_script: str | None = Field(
+        default=None,
+        description=(
+            "The resource_path of the script this attach DISPLACED, reported "
+            "verbatim — including a built-in/embedded script's sub-resource ref "
+            "(e.g. 'res://scene.tscn::GDScript_xxx'). Non-null whenever the node "
+            "already carried a script (attach overwrites-and-reports, issue "
+            "#132); null only when the node had no prior script."
+        ),
+    )
+
+
+class ScriptDiagnostic(BaseModel):
+    """One advisory diagnostic from ``gda script validate`` (issue #118).
+
+    Best-effort: parsed from the engine's stderr, not from a bound API, so it may
+    carry only the FIRST parse error. ``line`` is 1-based when the engine
+    reported it; ``column`` is ALWAYS null on the standard Godot build — the
+    engine does not expose a column for a parse error — and is kept as a field
+    only so the shape is stable if a future build ever does. ``message`` is the
+    engine's error text with its ``SCRIPT ERROR:`` prefix stripped.
+    """
+
+    line: int | None = Field(
+        default=None,
+        description="The 1-based source line the error was reported at, or null when unknown.",
+    )
+    column: int | None = Field(
+        default=None,
+        description=(
+            "Always null on the standard Godot build: the engine does not "
+            "expose a column for a parse error."
+        ),
+    )
+    message: str
+
+
+class ScriptValidateParams(BaseModel):
+    """The operation params of ``gda script validate``: the script to check (issue #118).
+
+    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
+    Unlike the other script-file ops, validate DOES compile the script (it sets
+    the source on a fresh ``GDScript`` and reloads it to learn whether it parses),
+    but it never instantiates the script, so it does not run instance code. Pass
+    ``--project`` when the script extends a project ``class_name`` or preloads a
+    project resource and so needs project context to compile.
+    """
+
+    path: NormalizedPath = Field(description="The .gd script file to validate.")
+
+
+class ScriptValidateResult(BaseModel):
+    """The result of ``gda script validate``: whether the script compiles (issue #118).
+
+    Validating an INVALID script is a SUCCESSFUL operation — the command exits 0
+    and reports ``valid=false`` rather than failing. ``error_string`` carries the
+    engine's one-line summary of the compile error (null when valid).
+    ``diagnostics`` is a best-effort list parsed from the engine's stderr (the
+    only place line/message are available); it may hold only the first error, and
+    is empty when the script is valid or nothing could be parsed.
+    """
+
+    path: str
+    valid: bool = Field(
+        description="True when the script compiles (GDScript.reload() == OK), false otherwise."
+    )
+    error_string: str | None = Field(
+        default=None,
+        description=(
+            "The engine's one-line summary of the compile failure, or null when "
+            "the script is valid."
+        ),
+    )
+    diagnostics: list[ScriptDiagnostic] = Field(
+        default_factory=list,
+        description=(
+            "Best-effort advisory diagnostics parsed from the engine's stderr "
+            "(line + message). May hold only the first error; empty when valid."
+        ),
+    )
+
+
+class ScriptRunParams(BaseModel):
+    """The operation params of ``gda script run`` (issue #343, ADR-0031).
+
+    ``path`` is the ``res://`` path of the user script to run as a one-shot
+    ``godot --headless --path <project> --script <res://…>``. It is res://-only
+    (a res:// path resolves against the ``--project`` context, ADR-0006): an
+    absolute or non-``res://`` path is the ``invalid_path`` failure. A plain
+    ``str`` (NOT ``NormalizedPath``) because a res:// path is an engine-virtual
+    address, not a filesystem path — filesystem normalization would collapse the
+    ``res://`` double slash. The project is process context (``--project``), not
+    an operation param.
+    """
+
+    path: str = Field(
+        description="The res:// path of the script to run (e.g. res://tests/logic.gd)."
+    )
+
+
+class ScriptRunResult(BaseModel):
+    """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
+
+    This is the **public promotion of the internal Raw-run shape**
+    (:class:`gda.runner.RunResult`): a THIN boundary DTO built from a ``RunResult``
+    by dropping its ``launch_failure`` axis (that becomes the Error envelope) and
+    renaming ``exit_code`` → ``exit_status``. Unlike every other command,
+    ``script run`` does not interpret the user script's semantics — a deliberate
+    ``quit(1)`` is meaningful data the agent reads, not a gda failure — so this is
+    the **one** command whose *success* result can carry a non-zero
+    ``exit_status``. Agents must read ``exit_status`` and must not assume
+    ``success == zero``.
+
+    NOTE: a second passthrough consumer should promote this to a shared
+    ``RawRunResult`` model. Do NOT build that shared abstraction now: there is only
+    one consumer today (``export run`` returns a different domain shape — the
+    produced artifact — and does not reuse the raw run).
+    """
+
+    exit_status: int = Field(
+        description=(
+            "The user script's own process exit code, passed through verbatim — "
+            "non-zero (e.g. a deliberate quit(1)) is still a SUCCESS result, not a "
+            "gda failure (ADR-0031)."
+        )
+    )
+    stdout: str = Field(description="The script's standard output, captured verbatim.")
+    stderr: str = Field(description="The script's standard error, captured verbatim.")
+
+
+# --- The ScriptRun operation — ``gda script run``'s user-script passthrough run
+# (ADR-0031). Formerly ``gda.script_run``; merged into its group by ADR-0040 §1.
+#
+# ``gda script run res://path.gd`` runs the user's own script as a one-shot
+# ``godot --headless --path <project> --script <res://…>`` process and returns a
+# structured result. It is the **third execution shape** (ADR-0031): neither the
+# ADR-0002 sentinel op-dispatch (the entry script is the user's own, so it cannot
+# emit the sentinel) nor the native-export recipe (gda does not know the script's
+# semantics, so it has no gda-defined typed result to synthesize). The outcome
+# therefore **bifurcates by whose failure it is**:
+#
+# - **gda-/engine-level failure** — the binary could not be launched, the run timed
+#   out, or the engine died on a signal (``exit_code < 0``) → an **Error envelope**,
+#   classified by the SAME shared :func:`gda.errors.classify_launch_or_crash` the
+#   export channel uses, into its existing codes (``binary_not_found`` /
+#   ``launch_timeout`` / ``engine_crashed``). No new GDScript-mirrored codes.
+# - **the script ran to completion** — the engine exited normally
+#   (``exit_code >= 0``) → a **success** :class:`ScriptRunResult` carrying
+#   ``{exit_status, stdout, stderr}`` **passed through verbatim, even when
+#   ``exit_status != 0``**. gda does not interpret the script's semantics: a
+#   deliberate ``quit(1)`` (e.g. an assertion-failed logic-seam test) is meaningful
+#   DATA the agent reads, not a gda failure.
+#
+# Two explicit pre-run ABI edges (ADR-0031), both decided at the CLI before any
+# launch and returned as a structured ``GdaError`` (never a crash): a non-``res://``
+# or absolute script path → ``invalid_path``; no resolved project →
+# ``project_not_found``.
+#
+# Like ``export run`` (:mod:`gda.commands.export`), :func:`run_script_run_operation`
+# RETURNS its outcome (``ScriptRunResult | Failure``) instead of emitting or
+# exiting, so the CLI command stays the thin shared shape and the recipe gets its
+# own engine-free test surface. The engine-touching step delegates to the
+# deep-module headless-launch primitive :func:`gda.runner.launch` — the SINGLE home
+# of the spawn / timeout / launch-failure / UTF-8-decode normalization — reused,
+# not re-implemented. It is injected (``make_launch``) only so the bifurcation is
+# testable without a real engine.
+
+# A user script is arbitrary project code (it may load resources), so give it a
+# ceiling more generous than a single sentinel op's tight bound but well below the
+# export channel's — enough for a logic-seam test without leaving a hung run to
+# block forever. Bounds a hung engine so the CLI fails loudly (as launch_timeout).
+DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
+
+# The res:// scheme prefix: script run is res://-only (ADR-0031). A res:// path
+# resolves against the --project context, unlike an absolute/filesystem path.
+_RES_PREFIX = "res://"
+
+
+class LaunchFn(Protocol):
+    """The headless-launch seam — the shape of :func:`gda.runner.launch` (#343).
+
+    Injected into :func:`run_script_run_operation` so the launch/crash bifurcation
+    is exercised with a canned :class:`~gda.runner.RunResult`, without spawning a
+    real engine — the ``script run`` twin of the sentinel channel's ``RunnerFactory``
+    and the export channel's ``ExportRunnerFactory``. The default is the real
+    ``launch`` (the deep module is reused, never re-implemented).
+    """
+
+    def __call__(
+        self,
+        binary: Path,
+        args: list[str],
+        *,
+        cwd: Path | None,
+        timeout: float,
+        timeout_label: str = ...,
+    ) -> RunResult: ...
+
+
+def run_script_run_operation(
+    *,
+    script: str,
+    godot: Optional[str],
+    project: Optional[Path],
+    make_launch: Optional[LaunchFn] = None,
+    timeout: float = DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
+) -> ScriptRunResult | Failure:
+    """Run ``script run``'s validate → launch → classify recipe (ADR-0031).
+
+    Returns its outcome instead of emitting or exiting: the passthrough
+    :class:`ScriptRunResult` on a clean engine exit (even a non-zero
+    ``exit_status``) or a :class:`~gda.errors.Failure` — a pre-run ABI-edge
+    failure (``invalid_path`` / ``project_not_found``) or a
+    ``classify_launch_or_crash`` env/crash outcome. ``project`` is the
+    already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
+    means none resolved. ``make_launch`` is the injected headless-launch seam;
+    ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
+    resolved at call time — the ``screen`` group's idiom — so a test can inject a fake
+    OR patch ``gda.commands.script.launch``.
+    """
+    run_launch = make_launch or launch
+    # Pre-run ABI edges (ADR-0031), decided BEFORE any launch so they never surface
+    # as a crash or a raw engine failure. Path first (it is the direct argument):
+    # res://-only — an absolute or non-res:// path cannot resolve against --path.
+    if not script.startswith(_RES_PREFIX):
+        return script_path_invalid_failure(script)
+    # Then require a resolved project — a res:// path needs one to resolve.
+    if project is None:
+        return script_run_project_not_found_failure()
+
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes resolution
+        # raise before a launch — the same environment failure as a missing binary,
+        # mapped to the structured envelope so it never escapes as a raw traceback
+        # (mirrors gda.headless.execute's binary resolution, #33).
+        return unresolvable_binary_failure(str(exc))
+
+    # Build only this channel's argv tail — the user script under the resolved
+    # project — and delegate the spawn / timeout / OSError / UTF-8-decode handling
+    # to the shared launch primitive (the deep module, reused not re-implemented).
+    # cwd=None mirrors the sentinel SubprocessGodotRunner: a res:// script resolves
+    # via --path, so no working directory is needed (unlike the export channel,
+    # whose relative output path needs cwd=project).
+    args = ["--path", str(project), "--script", script]
+    raw = run_launch(
+        binary, args, cwd=None, timeout=timeout, timeout_label="Godot script"
+    )
+
+    # Bifurcate by whose failure it is (ADR-0031): a launch failure or a signal
+    # death (exit_code < 0) is a gda-/engine-level Error envelope, classified by the
+    # SAME shared prefix the export channel uses. Everything else — a clean engine
+    # exit, INCLUDING a non-zero exit_status — is a success passthrough.
+    crash = classify_launch_or_crash(raw, binary)
+    if crash is not None:
+        return crash
+    # The public promotion of the internal Raw run: the thin boundary DTO built by
+    # dropping launch_failure (lifted into the Error envelope above) and renaming
+    # exit_code → exit_status. This is the one success result that can be non-zero.
+    return ScriptRunResult(
+        exit_status=raw.exit_code,
+        stdout=raw.stdout,
+        stderr=raw.stderr,
+    )
+
+
+# A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
+# that follows it carry, between them, the one advisory diagnostic the engine
+# emits for a failed validate (issue #118). The line number is the final `:`
+# part of the reload frame; there is NO column on the standard build.
+# `[ \t]` (not `\s`) bounds the message capture so it cannot span newlines — an
+# empty SCRIPT ERROR message must not swallow the following reload frame.
+# Backtrace frames (`[n] _initialize (...)`) are operations.gd's own lines, not
+# the validated script's, so they are deliberately not matched.
+_SCRIPT_ERROR_LINE = re.compile(
+    r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t]*$", re.MULTILINE
+)
+_RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
+
+
+def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
+    """Parse advisory ``script validate`` diagnostics from the engine's stderr.
+
+    A pure function (no engine, no I/O): the line/message of a failed
+    ``GDScript.reload()`` are available only from stderr, not from any bound API
+    (ADR-0002's stderr is advisory only — it is never parsed for the stable
+    success/failure outcome or error codes, only surfaced here as best-effort
+    diagnostics). ``column`` is always null (the engine exposes none).
+
+    The validate op does exactly ONE ``reload()``, so the only legitimate
+    ``GDScript::reload`` frame in stderr is the validated script's. Each
+    ``SCRIPT ERROR: <message>`` line is paired with a reload frame found ONLY in
+    the window up to the next ``SCRIPT ERROR`` line, and a ``SCRIPT ERROR`` with
+    no reload frame in that window is dropped: bounding the search keeps a later
+    error's frame from being mis-attributed to an earlier message, and the
+    frame requirement excludes unrelated engine ``SCRIPT ERROR`` noise — e.g. an
+    autoload's own startup error under ``--project``, whose frame is its
+    ``_init``/``_ready``, not ``GDScript::reload``. Returns ``[]`` when nothing
+    matches.
+    """
+    matches = list(_SCRIPT_ERROR_LINE.finditer(stderr))
+    diagnostics: list[ScriptDiagnostic] = []
+    for index, match in enumerate(matches):
+        window_end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(stderr)
+        )
+        frame = _RELOAD_FRAME.search(stderr, match.end(), window_end)
+        if frame is None:
+            continue
+        diagnostics.append(
+            ScriptDiagnostic(
+                line=int(frame.group("line")),
+                column=None,
+                message=match.group("message"),
+            )
+        )
+    return diagnostics
+
+
+def classify_script_validate(
+    result: RunResult, binary: Path
+) -> ScriptValidateResult | Failure:
+    """Classify the raw ``script validate`` result (issue #118).
+
+    The per-command layer for ``script validate``: the shared decision tree comes
+    from ``classify_run`` (an op error — missing path, wrong extension,
+    unreadable file — is still a ``Failure``). For a SUCCESSFUL op reporting an
+    invalid script (``valid=false``), the line/message diagnostics are not in the
+    sentinel — they live only in the engine's stderr — so this layer parses them
+    in and attaches them to the result.
+    """
+    outcome = classify_run(result, binary, ScriptValidateResult)
+    if isinstance(outcome, Failure):
+        return outcome
+    if not outcome.valid:
+        outcome.diagnostics = parse_validate_diagnostics(result.stderr)
+    return outcome
+
+
+@runtime_checkable
+class ScriptMetadata(Protocol):
+    """The shared human-facing surface of every script result type.
+
+    A structural (typing-only) interface — fields, no methods — over the
+    ``path``/``class_name``/``extends`` that :class:`ScriptCreateResult`,
+    :class:`ScriptGetResult`, :class:`ListedScript`,
+    :class:`ScriptDeleteResult` and :class:`ScriptSetResult`
+    all carry. The metadata renderer types against this surface, so adding a
+    script result type that carries the same fields needs no renderer change and
+    the renderer never reads across a union. It is a ``Protocol`` rather than a
+    shared base model so it imposes nothing on the models' JSON Schema or field
+    order (the ``--schema`` contract stays byte-for-byte unchanged).
+    """
+
+    path: str
+    class_name: str | None
+    extends: str | None
+
+
+def render_script_metadata(script: ScriptMetadata) -> str:
+    """Render a script's path plus its class_name/extends for humans.
+
+    Reads the shared :class:`ScriptMetadata` surface, so it serves every script
+    result type without naming the union.
+    """
+    meta = []
+    if script.extends is not None:
+        meta.append(f"extends {script.extends}")
+    if script.class_name is not None:
+        meta.append(f"class_name {script.class_name}")
+    if not meta:
+        return script.path
+    return f"{script.path} ({', '.join(meta)})"
+
+
+def render_script_create(created: "ScriptCreateResult") -> str:
+    """Render a created script as ``created <metadata>``."""
+    return f"created {render_script_metadata(created)}"
+
+
+def render_script_get(got: "ScriptGetResult") -> str:
+    """Render a read script as its metadata line followed by its source."""
+    return "\n".join([render_script_metadata(got), got.source])
+
+
+def render_script_list(listed: "ScriptListResult") -> str:
+    """Render the enumerated scripts as ``path (extends X, class_name Y)`` lines."""
+    if not listed.scripts:
+        return "(no scripts)"
+    return "\n".join(render_script_metadata(script) for script in listed.scripts)
+
+
+def render_script_delete(removed: "ScriptDeleteResult") -> str:
+    """Render a deleted script as ``deleted <metadata>``."""
+    return f"deleted {render_script_metadata(removed)}"
+
+
+def render_script_set(edited: "ScriptSetResult") -> str:
+    """Render an edited script as ``set <metadata>``."""
+    return f"set {render_script_metadata(edited)}"
+
+
+def render_script_attach(attached: "ScriptAttachResult") -> str:
+    """Render an attached script as ``attached <script> to <node> in <scene>``."""
+    return f"attached {attached.script} to {attached.node} in {attached.scene_path}"
+
+
+def render_script_validate(validated: "ScriptValidateResult") -> str:
+    """Render a validate result: valid/invalid plus best-effort diagnostics."""
+    if validated.valid:
+        return f"valid {validated.path}"
+    lines = [f"invalid {validated.path}"]
+    if validated.error_string is not None:
+        lines.append(f"  {validated.error_string}")
+    for diag in validated.diagnostics:
+        location = f"line {diag.line}" if diag.line is not None else "unknown line"
+        lines.append(f"  {location}: {diag.message}")
+    return "\n".join(lines)
+
+
+def render_script_run(ran: "ScriptRunResult") -> str:
+    """Render a passed-through script run: its exit status then its captured output.
+
+    ``script run`` passes the user script's own output through verbatim (ADR-0031),
+    so the human view leads with the ``exit_status`` — which can be non-zero on a
+    SUCCESS (a deliberate ``quit(1)``) — then the script's stdout and stderr as it
+    emitted them (each trailing newline trimmed; empty streams are omitted).
+    """
+    parts = [f"exit_status: {ran.exit_status}"]
+    if ran.stdout:
+        parts.append(ran.stdout.rstrip("\n"))
+    if ran.stderr:
+        parts.append(ran.stderr.rstrip("\n"))
+    return "\n".join(parts)
+
+
+SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
+    operation="script-create",
+    input_model=ScriptCreateParams,
+    output_model=ScriptCreateResult,
+    render=render_script_create,
+)
+
+SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
+    operation="script-get",
+    input_model=ScriptGetParams,
+    output_model=ScriptGetResult,
+    render=render_script_get,
+)
+
+SCRIPT_LIST_COMMAND: HeadlessCommand[ScriptListResult] = HeadlessCommand(
+    operation="script-list",
+    input_model=ScriptListParams,
+    output_model=ScriptListResult,
+    render=render_script_list,
+)
+
+SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
+    operation="script-delete",
+    input_model=ScriptDeleteParams,
+    output_model=ScriptDeleteResult,
+    render=render_script_delete,
+)
+
+SCRIPT_SET_COMMAND: HeadlessCommand[ScriptSetResult] = HeadlessCommand(
+    operation="script-set",
+    input_model=ScriptSetParams,
+    output_model=ScriptSetResult,
+    render=render_script_set,
+)
+
+SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
+    operation="script-attach",
+    input_model=ScriptAttachParams,
+    output_model=ScriptAttachResult,
+    render=render_script_attach,
+)
+
+SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
+    operation="script-validate",
+    input_model=ScriptValidateParams,
+    output_model=ScriptValidateResult,
+    render=render_script_validate,
+    classify=classify_script_validate,
+)
+
+
+def _script_run_recipe(params, *, project, godot):
+    # ``project`` arrives ALREADY resolved by dispatch_recipe — an invalid
+    # --project/$GDA_PROJECT was converted to a structured project_not_found before
+    # this runs, so no per-recipe ValueError handling is needed here (#353 folded in
+    # script run's former try/except). A projectless None remains the op's own ABI
+    # edge: run_script_run_operation returns script_run_project_not_found_failure()
+    # for it (ADR-0031).
+    return run_script_run_operation(
+        script=params.path,
+        godot=godot,
+        project=project,
+    )
+
+
+# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
+# run. Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda
+# does not know the script's semantics — so it routes through the recipe channel
+# (ADR-0023) like ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is
+# self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
+# runner-selection branch. The descriptor lives with its group (ADR-0040 §1),
+# beside the operation its recipe drives; project resolution stays in the shared
+# dispatch tail (``gda.dispatch.dispatch_recipe``), so the recipe needs no seam of
+# its own.
+SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
+    operation="script-run",
+    input_model=ScriptRunParams,
+    output_model=ScriptRunResult,
+    kind=ExecutionKind.SCRIPT_RUN,
+    render=render_script_run,
+    recipe=_script_run_recipe,
+)
+
+
+# The script command group (issue #110): commands acting on .gd script files on
+# disk (write text / read text back), so they stay headless. C# (.cs) is out of
+# scope for now — it needs the .NET build of Godot (ADR-0003 targets the standard
+# build) and a dedicated decision.
+_app = typer.Typer(help="Act on script files (.gd).", no_args_is_help=True)
+
+
+@_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
+def create(
+    path: str = typer.Argument(..., help="Target .gd script path to write."),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Verbatim script source to write. Mutually exclusive with --extends; "
+            "when omitted, a minimal template extending --extends is written."
+        ),
+    ),
+    extends_type: Optional[str] = typer.Option(
+        None,
+        "--extends",
+        help=(
+            "Base class for the built-in template's 'extends' line (e.g. Node, "
+            "Node2D). Defaults to Node. Ignored — and rejected — with --content."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Create a new .gd script from a template or verbatim --content."""
+    if content is not None and extends_type is not None:
+        raise typer.BadParameter("--content and --extends are mutually exclusive.")
+    dispatch_domain(
+        SCRIPT_CREATE_COMMAND,
+        ScriptCreateParams(
+            path=path,
+            content=content,
+            extends_type=extends_type,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="get", cls=SCRIPT_GET_COMMAND.command_class())
+def get_script(
+    path: str = typer.Argument(..., help="The .gd script file to read."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a script's source and report its class_name/extends metadata."""
+    dispatch_domain(
+        SCRIPT_GET_COMMAND,
+        ScriptGetParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="list", cls=SCRIPT_LIST_COMMAND.command_class())
+def list_scripts(
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Enumerate the .gd scripts in the resolved project."""
+    dispatch_domain(
+        SCRIPT_LIST_COMMAND,
+        ScriptListParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="delete", cls=SCRIPT_DELETE_COMMAND.command_class())
+def delete_script(
+    path: str = typer.Argument(..., help="The .gd script file to delete."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_DELETE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Delete a script file and report what was removed."""
+    dispatch_domain(
+        SCRIPT_DELETE_COMMAND,
+        ScriptDeleteParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="set", cls=SCRIPT_SET_COMMAND.command_class())
+def set_script(
+    path: str = typer.Argument(..., help="The .gd script file to edit."),
+    search: Optional[str] = typer.Option(
+        None,
+        "--search",
+        help=(
+            "search-replace mode: literal substring to find (not regex); all "
+            "occurrences are replaced. Requires --replace."
+        ),
+    ),
+    replace: Optional[str] = typer.Option(
+        None,
+        "--replace",
+        help="search-replace mode: literal replacement text. Requires --search.",
+    ),
+    start_line: Optional[int] = typer.Option(
+        None,
+        "--start-line",
+        help=(
+            "line-range mode: first line to replace (1-based, inclusive). "
+            "Requires --content."
+        ),
+    ),
+    end_line: Optional[int] = typer.Option(
+        None,
+        "--end-line",
+        help=(
+            "line-range mode: last line to replace (1-based, inclusive); "
+            "defaults to --start-line. Requires --content and --start-line."
+        ),
+    ),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Replacement text: the line span in line-range mode, or the whole "
+            "file (full mode) when --start-line is omitted."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Edit a .gd script via search-replace, line-range, or full overwrite."""
+    mode = parse_set_mode_argv(search, replace, start_line, end_line, content)
+    dispatch_domain(
+        SCRIPT_SET_COMMAND,
+        ScriptSetParams(
+            path=path,
+            mode=mode,
+            search=search,
+            replace=replace,
+            start_line=start_line,
+            end_line=end_line,
+            content=content,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+def parse_set_mode_argv(
+    search: Optional[str],
+    replace: Optional[str],
+    start_line: Optional[int],
+    end_line: Optional[int],
+    content: Optional[str],
+) -> ScriptSetMode:
+    """Resolve a set command's edit mode for the argv path (issue #133).
+
+    The rule itself lives in :func:`resolve_set_mode` — the single source shared
+    with ``ScriptSetParams`` / ``ShaderSetParams`` (ADR-0015). This thin wrapper
+    translates its ``ValueError`` into a Click usage error (exit 2) so the argv
+    path keeps its usage-error ergonomics, while ``--params-json`` surfaces the
+    same rule as a structured ``invalid_params`` via the model.
+    """
+    try:
+        return resolve_set_mode(search, replace, start_line, end_line, content)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
+@_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())
+def attach_script(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path, relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        ),
+    ),
+    script: str = typer.Option(
+        ..., "--script", help="The .gd script file to attach to the node."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_ATTACH_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Attach a .gd script to a node (by node path) in a scene and save."""
+    dispatch_domain(
+        SCRIPT_ATTACH_COMMAND,
+        ScriptAttachParams(
+            path=path,
+            node=node,
+            script=script,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="validate", cls=SCRIPT_VALIDATE_COMMAND.command_class())
+def validate_script(
+    path: str = typer.Argument(..., help="The .gd script file to validate."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_VALIDATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false."""
+    dispatch_domain(
+        SCRIPT_VALIDATE_COMMAND,
+        ScriptValidateParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@_app.command(name="run", cls=SCRIPT_RUN_COMMAND.command_class())
+def run_script(
+    path: str = typer.Argument(
+        ...,
+        help="The res:// path of the script to run (e.g. res://tests/logic.gd).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_RUN_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Run a user script one-shot and pass its exit_status/stdout/stderr through.
+
+    Runs the user's own res:// script as ``godot --headless --path <project>
+    --script <res://…>`` and returns its result verbatim (ADR-0031). This is the
+    ONE command whose success result can carry a non-zero ``exit_status``: gda does
+    not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
+    assertion-failed logic-seam test) is data the agent reads, not a gda failure —
+    read ``exit_status``, do not assume ``success == zero``. Only a gda-/engine-level
+    failure (binary not launchable, timeout, or a signal crash) is an Error envelope
+    (``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``). A non-res://
+    path or no resolved project is a structured ``invalid_path`` / ``project_not_found``.
+    """
+    dispatch_recipe(
+        SCRIPT_RUN_COMMAND,
+        ScriptRunParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+def register(root: typer.Typer) -> None:
+    """Mount the ``script`` group on the root app (ADR-0040).
+
+    Mounting IS the registration: the live Typer tree stays the only registry
+    (ADR-0012/0023), so no parallel table records this group.
+    """
+    root.add_typer(_app, name="script")

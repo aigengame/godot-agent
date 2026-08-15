@@ -11,7 +11,7 @@ from gda.error_codes import (
     OPERATION_ERROR_CODES,
     ErrorCodeSource,
 )
-from gda.errors import _failure
+from gda.errors import make_failure
 from gda.exit_codes import EXIT_LIVE
 from gda.models import ErrorCategory
 
@@ -98,7 +98,7 @@ def test_python_error_registry_has_no_duplicate_codes():
 
 def test_failure_derives_exit_code_from_registry():
     for spec in ERROR_CODES:
-        failure = _failure(spec.code, "message", "")
+        failure = make_failure(spec.code, "message", "")
         assert failure.exit_code == spec.exit_code
         assert failure.error.category is spec.category
         assert failure.error.code == spec.code
@@ -106,7 +106,7 @@ def test_failure_derives_exit_code_from_registry():
 
 def test_failure_builder_rejects_unregistered_public_codes():
     with pytest.raises(RuntimeError, match="unregistered GdaError.code"):
-        _failure(
+        make_failure(
             "not_registered",
             "message",
             "",
@@ -156,7 +156,7 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     # path). Without the whitelist, classify_run would misroute it to operation_failed.
     from gda.daemon.protocol import error_reply
     from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
-    from gda.models import GameTreeResult
+    from gda.commands.game import GameTreeResult
     from gda.runner import RunResult
 
     assert "live_windowed_unavailable" in _LIVE_CLIENT_CODES

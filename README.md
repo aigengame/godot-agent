@@ -668,15 +668,17 @@ Types are checked by [pyright](https://microsoft.github.io/pyright/) in `basic` 
 
 ```
 src/gda/
-  cli.py            # CLI entrypoint (Typer): all command groups, --json / --schema
+  cli.py            # composition root (Typer): mounts every command group
+  commands/         # one module per command group: its models, renderers, commands
+  dispatch.py       # the CLI dispatch tails + the runner seams the groups call
   surface.py        # walks the live Typer tree → the `gda schema` manifest
   headless.py       # the per-command descriptor (one HeadlessCommand per command)
   binary.py         # Godot binary resolution (flag > $GDA_GODOT > default)
   runner.py         # the one-shot headless spawn seam (Protocol + subprocess impl)
   live_runner.py    # the live-operation client that talks to gda-daemon
-  models.py         # typed I/O models (Pydantic) backing --json and --schema
+  models.py         # the shared typed I/O core (Pydantic) backing --json and --schema
   errors.py / error_codes.py / exit_codes.py   # failure classification + the CLI ABI
-  render.py         # human-readable (non-JSON) rendering
+  render.py         # the shared human-readable (non-JSON) render helpers
   ops/operations.gd # the headless GDScript payload, dispatched by operation name
   daemon/           # gda-daemon: server, session supervision, IPC protocol, discovery
   harness/          # the inert in-game `gda` autoload injected into a live session

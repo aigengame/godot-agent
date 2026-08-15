@@ -5,7 +5,7 @@
 readiness + output parent dirs, ADR-0010) → native ``--export-<mode>`` run →
 classify — used to live
 inside the Typer function and could only be exercised through a CliRunner. The
-recipe now lives in :func:`gda.export_run.run_export_operation`, a PURE function
+recipe now lives in :func:`gda.commands.export.run_export_operation`, a PURE function
 that RETURNS the outcome (never emits/exits).
 
 These tests drive that function directly with the two injected seams — a
@@ -18,15 +18,16 @@ surface, complementary to the command tests in
 
 from pathlib import Path
 
-from gda.cli import EXPORT_RUN_COMMAND  # the single fully-bound descriptor (ADR-0023)
-from gda.errors import Failure
-from gda.execution import ExecutionKind
-from gda.export_run import (
+from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound descriptor (ADR-0023)
     EXPORT_GET_COMMAND,
+    EXPORT_RUN_COMMAND,
+    ExportRunMode,
+    ExportRunResult,
     run_export_operation,
 )
+from gda.errors import Failure
+from gda.execution import ExecutionKind
 from gda.harness.install import install_harness, uninstall_harness
-from gda.models import ExportRunMode, ExportRunResult
 from gda.runner import RunResult
 from tests.support import FakeExportRunner, FakeRunner, error_sentinel, sentinel
 

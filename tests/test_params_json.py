@@ -15,7 +15,7 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import ScriptSetMode
+from gda.commands.script import ScriptSetMode
 from gda.runner import RunResult
 from tests.support import (
     NODE_ADD_RESULT,
@@ -129,7 +129,7 @@ def test_schema_takes_precedence_over_params_json(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not dispatch the operation")
 
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(
         app,

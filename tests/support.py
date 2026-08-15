@@ -98,7 +98,7 @@ def error_sentinel(code: str, message: str) -> str:
 def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's runner seam for a ``FakeRunner`` returning ``result``."""
     fake = FakeRunner(result)
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr("gda.dispatch.make_runner", lambda binary, project=None: fake)
     return fake
 
 
@@ -106,11 +106,13 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
 
     The ``kind = LIVE`` twin of :func:`inject_runner`: live commands route through
-    ``gda.cli._make_live_runner`` (the daemon IPC client), so a fake injected here
-    exercises the full Typer→classify_live→JSON pipeline without a real daemon.
+    ``gda.dispatch.make_live_runner`` (the daemon IPC client), so a fake injected
+    here exercises the full Typer→classify_live→JSON pipeline without a real daemon.
     """
     fake = FakeRunner(result)
-    monkeypatch.setattr("gda.cli._make_live_runner", lambda binary, project=None: fake)
+    monkeypatch.setattr(
+        "gda.dispatch.make_live_runner", lambda binary, project=None: fake
+    )
     return fake
 
 

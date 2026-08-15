@@ -8,8 +8,8 @@ channel by this ``kind``; classification, sentinel parsing, and ``--json`` /
 
 This is a leaf module with no ``gda`` imports (the same discipline as
 ``gda.exit_codes``), so the descriptor (``gda.headless``), the dispatcher
-(``gda.cli``), and the export/live recipes can all name the taxonomy without an
-import cycle.
+(``gda.dispatch``), and the export/live recipes can all name the taxonomy
+without an import cycle.
 """
 
 import enum
@@ -41,7 +41,7 @@ class ExecutionKind(str, enum.Enum):
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
 # The single source of truth for the live-stack Godot floor, named here in the
-# leaf taxonomy module so both ``gda.daemon_ops`` (the version gate) and the
+# leaf taxonomy module so both ``gda.commands.daemon`` (the version gate) and the
 # ``live_stack_constraints`` predicate below read the same tuple. Surfaced in
 # ``--schema`` as the dotted ``"4.6"`` string (issue #233).
 MIN_LIVE_VERSION = (4, 6)
@@ -56,7 +56,7 @@ def live_stack_constraints(
     stack (issue #233), keyed on the two static descriptor facts both ``--schema``
     emission paths already share — the command's :class:`ExecutionKind` and its
     operation name — so the per-command ``--schema`` and the aggregate manifest
-    can never drift, and ``gda.cli`` needs no edit.
+    can never drift, and no command module needs an edit.
 
     A command depends on the live stack when it is a LIVE-channel op **or** part
     of the ``daemon`` lifecycle group (``operation`` ``daemon-*``). The two facets:

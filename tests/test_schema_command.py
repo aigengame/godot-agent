@@ -11,7 +11,8 @@ import jsonschema
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import EngineVersion, GdaErrorEnvelope, InfoParams
+from gda.commands.meta import InfoParams
+from gda.models import EngineVersion, GdaErrorEnvelope
 from tests.support import VERSION_INFO
 
 
@@ -81,7 +82,7 @@ def test_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["info", "--schema"])
 
@@ -101,7 +102,7 @@ def test_scene_create_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the first domain commands (issue #18): the
     # bare `--schema` flag — no path, no --root-type — short-circuits into the
     # self-description, derived from the same typed models that back --json.
-    from gda.models import SceneCreateParams, SceneCreateResult
+    from gda.commands.scene import SceneCreateParams, SceneCreateResult
 
     result = CliRunner().invoke(app, ["scene", "create", "--schema"])
 
@@ -120,7 +121,7 @@ def test_scene_create_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_scene_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import SceneGetParams, SceneGetResult
+    from gda.commands.scene import SceneGetParams, SceneGetResult
 
     result = CliRunner().invoke(app, ["scene", "get", "--schema"])
 
@@ -141,7 +142,7 @@ def test_scene_get_exports_schema_emits_model_derived_contract_without_other_arg
     # The ADR-0004 hard gate for scene get-exports (issue #58): the bare --schema
     # flag — no path — short-circuits into the self-description, derived from the
     # same typed models that back --json.
-    from gda.models import SceneGetExportsParams, SceneGetExportsResult
+    from gda.commands.scene import SceneGetExportsParams, SceneGetExportsResult
 
     result = CliRunner().invoke(app, ["scene", "get-exports", "--schema"])
 
@@ -169,7 +170,7 @@ def test_scene_list_schema_emits_model_derived_contract_without_a_project():
     # same typed models that back --json. scene list takes no operation params,
     # so its input schema is trivially empty (the project is process context,
     # ADR-0006), exactly like info.
-    from gda.models import SceneListParams, SceneListResult
+    from gda.commands.scene import SceneListParams, SceneListResult
 
     result = CliRunner().invoke(app, ["scene", "list", "--schema"])
 
@@ -191,7 +192,7 @@ def test_scene_list_schema_emits_model_derived_contract_without_a_project():
 
 
 def test_scene_delete_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import SceneDeleteParams, SceneDeleteResult
+    from gda.commands.scene import SceneDeleteParams, SceneDeleteResult
 
     result = CliRunner().invoke(app, ["scene", "delete", "--schema"])
 
@@ -237,7 +238,7 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["scene", "create"],
@@ -255,7 +256,7 @@ def test_node_add_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the node group (issue #53): the bare --schema
     # flag — no path, no --type — short-circuits into the self-description,
     # derived from the same typed models that back --json.
-    from gda.models import NodeAddParams, NodeAddResult
+    from gda.commands.node import NodeAddParams, NodeAddResult
 
     result = CliRunner().invoke(app, ["node", "add", "--schema"])
 
@@ -278,7 +279,7 @@ def test_node_add_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_node_list_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import NodeListParams, NodeListResult
+    from gda.commands.node import NodeListParams, NodeListResult
 
     result = CliRunner().invoke(app, ["node", "list", "--schema"])
 
@@ -294,7 +295,7 @@ def test_node_list_schema_emits_model_derived_contract_without_other_args():
 def test_node_get_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node get (issue #55): the bare --schema flag —
     # no path, no --node — short-circuits into the self-description.
-    from gda.models import NodeGetParams, NodeGetResult
+    from gda.commands.node import NodeGetParams, NodeGetResult
 
     result = CliRunner().invoke(app, ["node", "get", "--schema"])
 
@@ -312,7 +313,7 @@ def test_node_get_schema_emits_model_derived_contract_without_other_args():
 def test_node_set_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node set (issue #55): the value param documents
     # the type-coercion contract agents must rely on.
-    from gda.models import NodeSetParams, NodeSetResult
+    from gda.commands.node import NodeSetParams, NodeSetResult
 
     result = CliRunner().invoke(app, ["node", "set", "--schema"])
 
@@ -331,7 +332,7 @@ def test_node_set_schema_emits_model_derived_contract_without_other_args():
 def test_node_remove_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node remove (issue #56): the bare --schema flag
     # — no path, no --node — short-circuits into the self-description.
-    from gda.models import NodeRemoveParams, NodeRemoveResult
+    from gda.commands.node import NodeRemoveParams, NodeRemoveResult
 
     result = CliRunner().invoke(app, ["node", "remove", "--schema"])
 
@@ -352,7 +353,7 @@ def test_node_connect_signal_schema_emits_model_derived_contract_without_other_a
     # params document the root-relative node-path addressing agents must use,
     # and the wire key for the source is `from` (the .tscn [connection] key),
     # not the model's Python field name.
-    from gda.models import NodeConnectSignalParams, NodeConnectSignalResult
+    from gda.commands.node import NodeConnectSignalParams, NodeConnectSignalResult
 
     result = CliRunner().invoke(app, ["node", "connect-signal", "--schema"])
 
@@ -378,7 +379,7 @@ def test_node_connect_signal_schema_emits_model_derived_contract_without_other_a
 def test_node_duplicate_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node duplicate (issue #56): the bare --schema
     # flag — no path, no --node — short-circuits into the self-description.
-    from gda.models import NodeDuplicateParams, NodeDuplicateResult
+    from gda.commands.node import NodeDuplicateParams, NodeDuplicateResult
 
     result = CliRunner().invoke(app, ["node", "duplicate", "--schema"])
 
@@ -397,7 +398,7 @@ def test_node_move_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node move (issue #56): the bare --schema flag —
     # no path, no --node, no --to — short-circuits into the self-description. The
     # cyclic-target rule is documented in the contract itself.
-    from gda.models import NodeMoveParams, NodeMoveResult
+    from gda.commands.node import NodeMoveParams, NodeMoveResult
 
     result = CliRunner().invoke(app, ["node", "move", "--schema"])
 
@@ -419,7 +420,7 @@ def test_node_move_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_node_disconnect_signal_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import (
+    from gda.commands.node import (
         NodeDisconnectSignalParams,
         NodeDisconnectSignalResult,
     )
@@ -492,7 +493,7 @@ def test_node_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["node", "add"],
@@ -514,7 +515,7 @@ def test_script_create_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the script group (issue #110): the bare
     # --schema flag — no path — short-circuits into the self-description,
     # derived from the same typed models that back --json.
-    from gda.models import ScriptCreateParams, ScriptCreateResult
+    from gda.commands.script import ScriptCreateParams, ScriptCreateResult
 
     result = CliRunner().invoke(app, ["script", "create", "--schema"])
 
@@ -532,7 +533,7 @@ def test_script_create_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_script_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptGetParams, ScriptGetResult
+    from gda.commands.script import ScriptGetParams, ScriptGetResult
 
     result = CliRunner().invoke(app, ["script", "get", "--schema"])
 
@@ -552,7 +553,7 @@ def test_script_list_schema_emits_model_derived_contract_without_a_project():
     # same typed models that back --json. script list takes no operation params,
     # so its input schema is trivially empty (the project is process context,
     # ADR-0006), exactly like scene list.
-    from gda.models import ScriptListParams, ScriptListResult
+    from gda.commands.script import ScriptListParams, ScriptListResult
 
     result = CliRunner().invoke(app, ["script", "list", "--schema"])
 
@@ -567,7 +568,7 @@ def test_script_list_schema_emits_model_derived_contract_without_a_project():
 
 
 def test_script_delete_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptDeleteParams, ScriptDeleteResult
+    from gda.commands.script import ScriptDeleteParams, ScriptDeleteResult
 
     result = CliRunner().invoke(app, ["script", "delete", "--schema"])
 
@@ -585,7 +586,7 @@ def test_script_set_schema_emits_model_derived_contract_without_other_args():
     # no path, no edit mode — short-circuits into the self-description, derived
     # from the same typed models that back --json. The line-range 1-based-over-
     # split rule is documented in the contract itself.
-    from gda.models import ScriptSetParams, ScriptSetResult
+    from gda.commands.script import ScriptSetParams, ScriptSetResult
 
     result = CliRunner().invoke(app, ["script", "set", "--schema"])
 
@@ -607,7 +608,7 @@ def test_script_set_schema_emits_model_derived_contract_without_other_args():
 def test_script_attach_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for script attach (issue #118): the node param
     # documents the root-relative node-path addressing agents must use.
-    from gda.models import ScriptAttachParams, ScriptAttachResult
+    from gda.commands.script import ScriptAttachParams, ScriptAttachResult
 
     result = CliRunner().invoke(app, ["script", "attach", "--schema"])
 
@@ -624,7 +625,7 @@ def test_script_attach_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_script_validate_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ScriptValidateParams, ScriptValidateResult
+    from gda.commands.script import ScriptValidateParams, ScriptValidateResult
 
     result = CliRunner().invoke(app, ["script", "validate", "--schema"])
 
@@ -701,7 +702,7 @@ def test_resource_uid_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for resource uid (issue #113): the bare --schema
     # flag — no target, no --project — short-circuits into the self-description,
     # derived from the same typed models that back --json.
-    from gda.models import ResourceUidParams, ResourceUidResult
+    from gda.commands.resource import ResourceUidParams, ResourceUidResult
 
     result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
 
@@ -735,7 +736,7 @@ def test_resource_uid_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
 
@@ -748,7 +749,7 @@ def test_script_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["script", "create"],
@@ -768,7 +769,7 @@ def test_resource_create_schema_emits_model_derived_contract_without_other_args(
     # The ADR-0004 hard gate for the resource group (issue #112): the bare
     # --schema flag — no path, no --type — short-circuits into the
     # self-description, derived from the same typed models that back --json.
-    from gda.models import ResourceCreateParams, ResourceCreateResult
+    from gda.commands.resource import ResourceCreateParams, ResourceCreateResult
 
     result = CliRunner().invoke(app, ["resource", "create", "--schema"])
 
@@ -789,7 +790,7 @@ def test_project_find_references_schema_emits_model_derived_contract_without_oth
     # --schema flag — no target — short-circuits into the self-description,
     # derived from the same typed models that back --json. The target param
     # documents the res://-path-or-class_name addressing agents must use.
-    from gda.models import (
+    from gda.commands.project import (
         ProjectFindReferencesParams,
         ProjectFindReferencesResult,
     )
@@ -815,7 +816,7 @@ def test_export_list_schema_emits_model_derived_contract_without_a_project():
     # same typed models that back --json. export list takes no operation params,
     # so its input schema is trivially empty (the project is process context,
     # ADR-0006), exactly like scene list / script list.
-    from gda.models import ExportListParams, ExportListResult
+    from gda.commands.export import ExportListParams, ExportListResult
 
     result = CliRunner().invoke(app, ["export", "list", "--schema"])
 
@@ -832,7 +833,10 @@ def test_export_list_schema_emits_model_derived_contract_without_a_project():
 def test_project_dependencies_schema_emits_model_derived_contract_without_a_project():
     # dependencies takes no operation params — the project is process context
     # (ADR-0006) — so its input schema is trivially empty, exactly like scene list.
-    from gda.models import ProjectDependenciesParams, ProjectDependenciesResult
+    from gda.commands.project import (
+        ProjectDependenciesParams,
+        ProjectDependenciesResult,
+    )
 
     result = CliRunner().invoke(app, ["project", "dependencies", "--schema"])
 
@@ -847,7 +851,7 @@ def test_project_dependencies_schema_emits_model_derived_contract_without_a_proj
 
 
 def test_resource_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ResourceGetParams, ResourceGetResult
+    from gda.commands.resource import ResourceGetParams, ResourceGetResult
 
     result = CliRunner().invoke(app, ["resource", "get", "--schema"])
 
@@ -866,7 +870,7 @@ def test_resource_set_schema_emits_model_derived_contract_without_other_args():
     # — no path, no --property/--value — short-circuits into the self-description,
     # derived from the same typed models that back --json. The value param
     # documents the type-coercion contract agents must rely on.
-    from gda.models import ResourceSetParams, ResourceSetResult
+    from gda.commands.resource import ResourceSetParams, ResourceSetResult
 
     result = CliRunner().invoke(app, ["resource", "set", "--schema"])
 
@@ -887,7 +891,7 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for project set: the bare --schema flag — no
     # setting/--value — short-circuits into the self-description, including the
     # shared value-coercion contract.
-    from gda.models import ProjectSetParams, ProjectSetResult
+    from gda.commands.project import ProjectSetParams, ProjectSetResult
 
     result = CliRunner().invoke(app, ["project", "set", "--schema"])
 
@@ -906,7 +910,7 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
 def test_resource_delete_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for resource delete (issue #120): the bare --schema
     # flag — no path — short-circuits into the self-description.
-    from gda.models import ResourceDeleteParams, ResourceDeleteResult
+    from gda.commands.resource import ResourceDeleteParams, ResourceDeleteResult
 
     result = CliRunner().invoke(app, ["resource", "delete", "--schema"])
 
@@ -940,7 +944,7 @@ def test_sample_resource_set_delete_results_validate_against_emitted_output_sche
 
 
 def test_project_find_unused_resources_schema_emits_model_derived_contract():
-    from gda.models import (
+    from gda.commands.project import (
         ProjectFindUnusedResourcesParams,
         ProjectFindUnusedResourcesResult,
     )
@@ -963,7 +967,7 @@ def test_export_get_schema_emits_model_derived_contract_without_other_args():
     # no --preset — short-circuits into the self-description. The preset param
     # documents name-based addressing, and the output advertises the
     # template-readiness fields agents check before an export run.
-    from gda.models import ExportGetParams, ExportGetResult
+    from gda.commands.export import ExportGetParams, ExportGetResult
 
     result = CliRunner().invoke(app, ["export", "get", "--schema"])
 
@@ -980,7 +984,10 @@ def test_export_get_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_project_statistics_schema_emits_model_derived_contract():
-    from gda.models import ProjectStatisticsParams, ProjectStatisticsResult
+    from gda.commands.project import (
+        ProjectStatisticsParams,
+        ProjectStatisticsResult,
+    )
 
     result = CliRunner().invoke(app, ["project", "statistics", "--schema"])
 
@@ -1066,7 +1073,7 @@ def test_grouped_command_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["resource", "create"],
@@ -1163,7 +1170,7 @@ def test_script_run_command_schema_is_model_derived():
     # `script run` self-describes like any command (ADR-0004): input/output from its
     # typed models, the uniform error envelope. Its output carries the passthrough
     # {exit_status, stdout, stderr} — the public promotion of the Raw run.
-    from gda.models import ScriptRunParams, ScriptRunResult
+    from gda.commands.script import ScriptRunParams, ScriptRunResult
 
     doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
 
@@ -1190,7 +1197,7 @@ def test_live_command_schema_reports_kind_live_without_a_daemon():
 def test_game_get_rect_set_schemas_report_kind_live_and_are_model_derived():
     # The LIVE runtime property/control commands self-describe like any command —
     # input/output from their typed models, the uniform error envelope, kind=live.
-    from gda.models import (
+    from gda.commands.game import (
         GameGetParams,
         GameGetResult,
         GameRectParams,
@@ -1508,7 +1515,7 @@ def test_shader_create_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for the shader group (issue #115): the bare --schema
     # flag — no path — short-circuits into the self-description, derived from the
     # same typed models that back --json.
-    from gda.models import ShaderCreateParams, ShaderCreateResult
+    from gda.commands.shader import ShaderCreateParams, ShaderCreateResult
 
     result = CliRunner().invoke(app, ["shader", "create", "--schema"])
 
@@ -1524,7 +1531,7 @@ def test_shader_create_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_shader_get_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ShaderGetParams, ShaderGetResult
+    from gda.commands.shader import ShaderGetParams, ShaderGetResult
 
     result = CliRunner().invoke(app, ["shader", "get", "--schema"])
 
@@ -1541,7 +1548,7 @@ def test_shader_get_schema_emits_model_derived_contract_without_other_args():
 def test_shader_set_schema_emits_model_derived_contract_without_other_args():
     # The shader set edit-mode interface is the script set interface reused
     # (issue #115); the line-range 1-based rule is documented in the contract.
-    from gda.models import ShaderSetParams, ShaderSetResult
+    from gda.commands.shader import ShaderSetParams, ShaderSetResult
 
     result = CliRunner().invoke(app, ["shader", "set", "--schema"])
 
@@ -1559,7 +1566,7 @@ def test_shader_set_schema_emits_model_derived_contract_without_other_args():
 
 
 def test_theme_create_schema_emits_model_derived_contract_without_other_args():
-    from gda.models import ThemeCreateParams, ThemeCreateResult
+    from gda.commands.theme import ThemeCreateParams, ThemeCreateResult
 
     result = CliRunner().invoke(app, ["theme", "create", "--schema"])
 
@@ -1603,7 +1610,7 @@ def test_asset_file_schema_spawns_no_godot(monkeypatch):
         raise AssertionError("--schema must not touch the engine")
 
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
-    monkeypatch.setattr("gda.cli._make_runner", boom)
+    monkeypatch.setattr("gda.dispatch.make_runner", boom)
 
     for command in (
         ["shader", "create"],

@@ -11,7 +11,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import ScriptSetMode
+from gda.commands.script import ScriptSetMode
 from gda.runner import RunResult
 from tests.support import (
     SCRIPT_CREATE_RESULT as CREATE_RESULT,
@@ -197,7 +197,7 @@ def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
             RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
         )
 
-    monkeypatch.setattr("gda.cli._make_runner", record)
+    monkeypatch.setattr("gda.dispatch.make_runner", record)
 
     result = CliRunner().invoke(
         app, ["script", "list", "--project", str(tmp_path), "--json"]

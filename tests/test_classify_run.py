@@ -247,7 +247,7 @@ def test_deep_but_valid_tree_is_not_a_contract_violation():
     # contract-conformant — the limit is gda's own (a wrapper-side validation
     # ceiling), so blaming the engine with `parse / contract_violation` is wrong
     # (issue #37). It must surface as a distinct, accurate failure instead.
-    from gda.models import SceneGetResult
+    from gda.commands.scene import SceneGetResult
 
     result = RunResult(
         stdout=sentinel(_deep_tree_payload(1000)),
@@ -265,7 +265,7 @@ def test_deep_but_valid_tree_is_not_a_contract_violation():
 def test_tree_too_deep_carries_an_accurate_wrapper_side_message():
     # The failure must name the limit accurately as gda's own (not "the engine
     # violated the output contract"), so an agent reads a true cause (issue #37).
-    from gda.models import SceneGetResult
+    from gda.commands.scene import SceneGetResult
 
     result = RunResult(
         stdout=sentinel(_deep_tree_payload(1000)),

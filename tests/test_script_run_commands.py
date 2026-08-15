@@ -4,7 +4,7 @@
 run, fulfilled by the CLI-side recipe ``run_script_run_operation`` rather than the
 operations.gd sentinel. The engine-touching step is the deep-module
 :func:`gda.runner.launch`, which these tests replace with a canned
-:class:`~gda.runner.RunResult` (patched at ``gda.script_run.launch``), so the full
+:class:`~gda.runner.RunResult` (patched at ``gda.commands.script.launch``), so the full
 Typer → recipe → classify → JSON/emit pipeline runs engine-free.
 
 They pin the two behaviors that only show at the CLI boundary: a clean engine exit
@@ -31,7 +31,7 @@ def _patch_launch(monkeypatch, result: RunResult) -> list:
         calls.append((binary, args, cwd, timeout, timeout_label))
         return result
 
-    monkeypatch.setattr("gda.script_run.launch", fake_launch)
+    monkeypatch.setattr("gda.commands.script.launch", fake_launch)
     return calls
 
 

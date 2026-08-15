@@ -7,13 +7,13 @@ run. The export is instead a *native* Godot invocation —
 ``--export-release`` / ``--export-debug`` / ``--export-pack`` — that runs the
 editor export pipeline and writes the artifact. It emits no ADR-0002 sentinel, so
 ``gda`` synthesizes the structured result from the subprocess's exit code and
-stderr (see :func:`gda.errors.classify_export_run`).
+stderr (see :func:`gda.commands.export.classify_export_run`).
 
 This module owns only the *seam*: spawn the native export and return its raw
 ``{stdout, stderr, exit_code}`` as the shared :class:`~gda.runner.RunResult`.
-Classification lives in ``gda.errors`` so the mapping from raw output to typed
-result / ``GdaError`` is a pure function exercised without a real engine, exactly
-like the sentinel pipeline.
+Classification lives with the export group (``gda.commands.export``, ADR-0040)
+so the mapping from raw output to typed result / ``GdaError`` is a pure function
+exercised without a real engine, exactly like the sentinel pipeline.
 """
 
 from dataclasses import dataclass

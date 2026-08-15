@@ -3,7 +3,7 @@
 ``script run`` is the third execution shape: a user-script passthrough run whose
 recipe — validate the res:// path + require a resolved project, then launch
 ``godot --headless --path <project> --script <res://…>`` and BIFURCATE by whose
-failure it is — lives in :func:`gda.script_run.run_script_run_operation`, a PURE
+failure it is — lives in :func:`gda.commands.script.run_script_run_operation`, a PURE
 function that RETURNS the outcome (never emits/exits).
 
 These tests drive that function directly with the injected launch seam (a
@@ -23,13 +23,15 @@ They are the recipe's own test surface, complementary to the e2e round-trip in
 
 from pathlib import Path
 
-from gda.cli import SCRIPT_RUN_COMMAND  # the single fully-bound descriptor (ADR-0023)
+from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023)
+    SCRIPT_RUN_COMMAND,
+    ScriptRunResult,
+    run_script_run_operation,
+)
 from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.models import ScriptRunResult
 from gda.runner import LaunchFailure, RunResult
-from gda.script_run import run_script_run_operation
 
 PROJECT = Path("/tmp/project")
 
