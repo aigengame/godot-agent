@@ -10,6 +10,7 @@ ServiceErrorCode = Literal[
     "authentication_required",
     "invalid_request",
     "request_too_large",
+    "unsupported_media_type",
     "unknown_execution_session",
     "unknown_experiment_revision",
 ]

@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from http.client import HTTPConnection
 from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+from gda_balancing.domain.authority.context import packaged_authority_context
 
 
 _ROGUELIKE_EXAMPLE = (
@@ -24,6 +27,14 @@ def _console_script() -> str:
     script = shutil.which("gda-balancing")
     assert script is not None, "gda-balancing console script is not installed"
     return script
+
+
+def _run_console(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [_console_script(), *arguments],
+        capture_output=True,
+        text=True,
+    )
 
 
 def _read_ready_line(process: subprocess.Popen[str]) -> dict[str, Any]:
@@ -386,6 +397,149 @@ def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
         }
 
 
+def test_session_body_limit_rejects_declared_size_before_reading() -> None:
+    with _running_service() as (_process, readiness):
+        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+        try:
+            connection.putrequest("POST", "/v1/execution-sessions")
+            connection.putheader(
+                "Authorization", f"Bearer {readiness['capability_token']}"
+            )
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Content-Length", str(2**40))
+            connection.endheaders()
+            response = connection.getresponse()
+            error = json.load(response)
+        finally:
+            connection.close()
+
+        assert response.status == 413
+        assert error["error"]["code"] == "request_too_large"
+
+
+def test_process_capability_protects_execution_and_shutdown_routes() -> None:
+    with _running_service() as (process, readiness):
+        status_code, status_error = _request_error(
+            f"{readiness['base_url']}/v1/status",
+            "wrong-capability",
+        )
+        shutdown_code, shutdown_error = _request_error(
+            f"{readiness['base_url']}/v1/shutdown",
+            "wrong-capability",
+            method="POST",
+        )
+
+        assert status_code == 401
+        assert shutdown_code == 401
+        assert status_error["error"]["code"] == "authentication_required"
+        assert shutdown_error == status_error
+        assert process.poll() is None
+        assert (
+            _request_json(
+                f"{readiness['base_url']}/v1/status",
+                readiness["capability_token"],
+            )["status"]
+            == "ready"
+        )
+
+
+def test_execution_routes_require_json_media_type() -> None:
+    with _running_service() as (_process, readiness):
+        request = Request(
+            f"{readiness['base_url']}/v1/execution-sessions",
+            data=b"{}",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Content-Type": "text/plain",
+            },
+        )
+        try:
+            urlopen(request, timeout=10)
+        except HTTPError as error:
+            status = error.code
+            body = json.load(error)
+        else:
+            raise AssertionError("non-JSON request unexpectedly succeeded")
+
+        assert status == 415
+        assert body["error"] == {
+            "category": "service",
+            "code": "unsupported_media_type",
+            "message": "the request content type must be application/json",
+        }
+
+
+def test_cli_publication_and_http_inline_execution_are_semantically_identical(
+    tmp_path: Path,
+) -> None:
+    model_source, experiment = _roguelike_documents()
+    model_out = tmp_path / "resolved-model.json"
+    run_out = tmp_path / "evaluation-run.json"
+    built = _run_console(
+        "model",
+        "build",
+        str(_ROGUELIKE_EXAMPLE / "model-source.json"),
+        "--out",
+        str(model_out),
+        "--invocation-key",
+        "a" * 64,
+    )
+    assert (built.returncode, built.stderr) == (0, ""), built.stdout
+    cli_run = _run_console(
+        "experiment",
+        "run",
+        str(_ROGUELIKE_EXAMPLE / "experiment.json"),
+        "--out",
+        str(run_out),
+        "--invocation-key",
+        "b" * 64,
+    )
+    assert (cli_run.returncode, cli_run.stderr) == (0, ""), cli_run.stdout
+    cli_receipt = json.loads(cli_run.stdout)
+    cli_artifacts = {
+        row["logical_name"]: json.loads(
+            Path(row["locator"]).read_text(encoding="utf-8")
+        )
+        for row in cli_receipt["member_locators"]
+    }
+
+    with _running_service() as (_process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        http_run = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+    assert http_run["outcome"] == "success"
+    assert http_run["artifacts"] == cli_artifacts
+    assert "artifact-set-receipt" not in {
+        artifact["artifact_kind"] for artifact in http_run["artifacts"].values()
+    }
+
+
+def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal() -> None:
+    model_source, experiment = _roguelike_documents()
+    max_source_bytes = packaged_authority_context().language_bundle["resources"][
+        "max_source_bytes"
+    ]
+    model_source["oversized_padding"] = "x" * max_source_bytes
+
+    with _running_service() as (_process, readiness):
+        refused = _create_session(readiness, model_source, experiment)
+
+        assert refused["outcome"] == "refusal"
+        assert refused["refusal"]["stage"] == "ingress"
+        assert refused["refusal"]["diagnostics"][0]["code"] == (
+            "language.source_too_large"
+        )
+
+
 def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
     model_source, experiment = _roguelike_documents()
     later_experiment = deepcopy(experiment)
@@ -443,3 +597,69 @@ def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
         assert deleted["outcome"] == "success"
         assert run_finished <= revision_finished
         assert run_finished <= delete_finished
+
+
+def test_metric_rejection_returns_a_complete_verdict_artifact_set() -> None:
+    model_source, experiment = _roguelike_documents()
+    for metric in experiment["metrics"]:
+        metric["target"] = {"minimum": 1000, "maximum": 1000}
+
+    with _running_service() as (_process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        run = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert run["outcome"] == "verdict"
+        assert run["failed_metrics"] == ["reward_score", "build_score"]
+        assert set(run["artifacts"]) == {
+            "evaluator-capability-manifest",
+            "event-trace",
+            "experiment-verdict",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "snapshot-series",
+        }
+
+
+def test_runtime_refusal_returns_existing_terminal_audit_artifacts() -> None:
+    model_source, experiment = _roguelike_documents()
+    reward_pool = next(
+        assignment
+        for assignment in experiment["scenarios"][0]["assignments"]
+        if assignment["target"]["name"] == "reward_pool"
+    )["value"]["value"]
+    reward_pool["options"] = []
+    reward_pool["no_reward_on_empty"] = []
+
+    with _running_service() as (_process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        run = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert run["outcome"] == "refusal"
+        assert run["refusal"]["stage"] == "runtime"
+        assert run["refusal"]["variant"] == "post-dispatch"
+        assert run["refusal"]["diagnostics"][0]["code"] == (
+            "game.generation.selection_exhausted"
+        )
+        assert set(run["artifacts"]) == {
+            "evaluator-capability-manifest",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "runtime-terminal-audit",
+        }

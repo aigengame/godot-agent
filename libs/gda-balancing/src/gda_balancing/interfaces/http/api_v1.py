@@ -43,12 +43,19 @@ class HttpRequestTooLarge(Exception):
     """The request body exceeds its route-specific protocol bound."""
 
 
+class UnsupportedHttpMediaType(Exception):
+    """An execution route received a body outside the JSON transport."""
+
+
 async def _request_model(
     request: Request,
     model: type[RequestModel],
     *,
     max_bytes: int,
 ) -> RequestModel:
+    media_type = request.headers.get("content-type", "").partition(";")[0].strip()
+    if media_type.lower() != "application/json":
+        raise UnsupportedHttpMediaType
     declared_length = request.headers.get("content-length")
     if declared_length is not None:
         try:
@@ -306,11 +313,19 @@ def create_api_v1() -> ASGIApp:
             status_code=413,
         )
 
+    async def unsupported_media_type(_request: Request, _error: Exception) -> Response:
+        return service_error_response(
+            code="unsupported_media_type",
+            message="the request content type must be application/json",
+            status_code=415,
+        )
+
     return Starlette(
         debug=False,
         exception_handlers={
             InvalidHttpRequest: invalid_http_request,
             HttpRequestTooLarge: request_too_large,
+            UnsupportedHttpMediaType: unsupported_media_type,
         },
         routes=[
             Route("/v1/status", status, methods=["GET"]),
