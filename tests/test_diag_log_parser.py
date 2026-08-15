@@ -5,11 +5,11 @@ the diag parse logic is fast-unit-testable. Godot writes errors as a two-line
 pair (``<TYPE>: <message>`` then ``   at: <function> (<file>:<line>)``) and
 print output as plain lines, both into the one ``--log-file`` the daemon owns
 (verified against the engine's ``core/io/logger.cpp``). The parser turns errors
-into ``{level, message, function?, file?, line?}`` and ``log`` into raw lines,
-best-effort: it never fails on a malformed/continuation line.
+into ``{level, message, function?, file?, line?}``, best-effort: it never fails
+on a malformed/continuation line.
 """
 
-from gda.daemon.diag import parse_errors, parse_log
+from gda.daemon.diag import parse_errors
 
 # A realistic Godot --log-file capture: print output interleaved with the engine's
 # two-line error pairs across all four ErrorType strings, a multi-line backtrace,
@@ -100,25 +100,6 @@ def test_parse_errors_limit_tails_the_most_recent_n():
 def test_parse_errors_empty_input_is_empty_list():
     assert parse_errors("") == []
     assert parse_errors(b"") == []
-
-
-def test_parse_log_returns_raw_lines():
-    lines = parse_log(SAMPLE_LOG)
-    assert "known line" in lines
-    assert "another output line" in lines
-    # It is the full captured stream, including the error lines verbatim.
-    assert any(line.startswith("ERROR: known error") for line in lines)
-
-
-def test_parse_log_limit_tails_the_most_recent_n():
-    lines = parse_log(SAMPLE_LOG, limit=1)
-    assert lines == ["ERROR: trailing error with no at line"]
-
-
-def test_parse_log_accepts_bytes_and_is_empty_on_empty():
-    assert parse_log(b"a\nb\n") == ["a", "b"]
-    assert parse_log("") == []
-    assert parse_log(b"") == []
 
 
 # A real Godot 4.6 runtime GDScript error: the `at:` follow-on is succeeded by a
