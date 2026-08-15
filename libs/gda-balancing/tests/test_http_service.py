@@ -777,6 +777,22 @@ def test_bind_failure_uses_the_descriptor_internal_error_contract() -> None:
     assert error["message"] == "the toolkit failed unexpectedly (OSError)"
 
 
+def test_serve_refuses_a_non_loopback_binding_before_startup() -> None:
+    result = _run_console(
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "0",
+    )
+
+    assert result.returncode == 3
+    assert result.stdout == ""
+    error = json.loads(result.stderr)["error"]
+    assert error["category"] == "usage"
+    assert error["code"] == "invalid_argument"
+
+
 def test_post_readiness_application_fault_stops_the_local_host() -> None:
     readiness_queue: Queue[LocalHostReadiness] = Queue(maxsize=1)
 
