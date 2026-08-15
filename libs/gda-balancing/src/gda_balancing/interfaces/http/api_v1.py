@@ -1,5 +1,6 @@
 """The versioned, application-agnostic local Execution HTTP API."""
 
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +14,12 @@ from starlette.types import ASGIApp
 from gda_balancing.application.execution_sessions import (
     ExecutionSessionCreated,
     ExecutionSessions,
+    ExperimentRevisionAdmitted,
+)
+from gda_balancing.application.experiment_execution import (
+    ExperimentExecutionRefusal,
+    ExperimentExecutionSuccess,
+    ExperimentExecutionVerdict,
 )
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
@@ -59,6 +66,61 @@ class RefusalResponse(BaseModel):
     refusal: Schema2RefusalReport
 
 
+class AdmitExperimentRevisionRequest(BaseModel):
+    """One complete Experiment value for an existing session."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    experiment_specification: dict[str, Any]
+
+
+class ExperimentRevisionAdmittedResponse(BaseModel):
+    """Identity and insertion state of an admitted revision."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: Literal["success"] = "success"
+    revision_id: str
+    created: bool
+
+
+class RunExperimentRequest(BaseModel):
+    """The exact immutable revision selected for one run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    revision_id: str
+
+
+class RunSuccessResponse(BaseModel):
+    """A successful execution with its existing artifacts inline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: Literal["success"] = "success"
+    artifacts: dict[str, dict[str, Any]]
+
+
+class RunVerdictResponse(BaseModel):
+    """A metric verdict with its existing artifacts inline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: Literal["verdict"] = "verdict"
+    failed_metrics: list[str]
+    artifacts: dict[str, dict[str, Any]]
+
+
+class RunRefusalResponse(BaseModel):
+    """A typed refusal with any terminal-audit artifacts inline."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: Literal["refusal"] = "refusal"
+    refusal: Schema2RefusalReport
+    artifacts: dict[str, dict[str, Any]]
+
+
 def create_api_v1() -> ASGIApp:
     """Create execution routes without local-host lifecycle or authentication."""
     toolkit_version = distribution_version("gda-balancing")
@@ -87,6 +149,48 @@ def create_api_v1() -> ASGIApp:
             )
         return JSONResponse(body.model_dump(mode="json"))
 
+    async def admit_experiment_revision(request: Request) -> Response:
+        payload = AdmitExperimentRevisionRequest.model_validate(await request.json())
+        result = await run_in_threadpool(
+            sessions.admit_revision,
+            request.path_params["session_id"],
+            payload.experiment_specification,
+        )
+        if isinstance(result, Schema2RefusalReport):
+            body = RefusalResponse(refusal=result)
+        else:
+            assert isinstance(result, ExperimentRevisionAdmitted)
+            body = ExperimentRevisionAdmittedResponse(
+                revision_id=result.revision_id,
+                created=result.created,
+            )
+        return JSONResponse(body.model_dump(mode="json"))
+
+    async def run_experiment_revision(request: Request) -> Response:
+        payload = RunExperimentRequest.model_validate(await request.json())
+        result = await run_in_threadpool(
+            sessions.run,
+            request.path_params["session_id"],
+            payload.revision_id,
+        )
+        artifacts = {
+            name: deepcopy(member.value) for name, member in result.members.items()
+        }
+        if isinstance(result, ExperimentExecutionSuccess):
+            body = RunSuccessResponse(artifacts=artifacts)
+        elif isinstance(result, ExperimentExecutionVerdict):
+            body = RunVerdictResponse(
+                failed_metrics=list(result.failed_metrics),
+                artifacts=artifacts,
+            )
+        else:
+            assert isinstance(result, ExperimentExecutionRefusal)
+            body = RunRefusalResponse(
+                refusal=result.report,
+                artifacts=artifacts,
+            )
+        return JSONResponse(body.model_dump(mode="json"))
+
     return Starlette(
         debug=False,
         routes=[
@@ -94,6 +198,16 @@ def create_api_v1() -> ASGIApp:
             Route(
                 "/v1/execution-sessions",
                 create_execution_session,
+                methods=["POST"],
+            ),
+            Route(
+                "/v1/execution-sessions/{session_id:str}/experiment-revisions",
+                admit_experiment_revision,
+                methods=["POST"],
+            ),
+            Route(
+                "/v1/execution-sessions/{session_id:str}/runs",
+                run_experiment_revision,
                 methods=["POST"],
             ),
         ],

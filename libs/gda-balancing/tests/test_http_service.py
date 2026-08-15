@@ -80,6 +80,33 @@ def _request_json(
         return json.load(response)
 
 
+def _roguelike_documents() -> tuple[dict[str, Any], dict[str, Any]]:
+    return (
+        json.loads(
+            (_ROGUELIKE_EXAMPLE / "model-source.json").read_text(encoding="utf-8")
+        ),
+        json.loads(
+            (_ROGUELIKE_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
+        ),
+    )
+
+
+def _create_session(
+    readiness: dict[str, Any],
+    model_source: dict[str, Any],
+    experiment: dict[str, Any],
+) -> dict[str, Any]:
+    return _request_json(
+        f"{readiness['base_url']}/v1/execution-sessions",
+        readiness["capability_token"],
+        method="POST",
+        body={
+            "model_source": model_source,
+            "experiment_specification": experiment,
+        },
+    )
+
+
 def test_serve_reports_status_and_shuts_down() -> None:
     with _running_service() as (process, readiness):
         assert set(readiness) == {
@@ -122,23 +149,10 @@ def test_serve_reports_status_and_shuts_down() -> None:
 
 
 def test_session_creation_admits_complete_model_and_experiment_values() -> None:
-    model_source = json.loads(
-        (_ROGUELIKE_EXAMPLE / "model-source.json").read_text(encoding="utf-8")
-    )
-    experiment = json.loads(
-        (_ROGUELIKE_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
-    )
+    model_source, experiment = _roguelike_documents()
 
     with _running_service() as (_process, readiness):
-        created = _request_json(
-            f"{readiness['base_url']}/v1/execution-sessions",
-            readiness["capability_token"],
-            method="POST",
-            body={
-                "model_source": model_source,
-                "experiment_specification": experiment,
-            },
-        )
+        created = _create_session(readiness, model_source, experiment)
 
         assert created["outcome"] == "success"
         assert created["session_id"]
@@ -146,3 +160,56 @@ def test_session_creation_admits_complete_model_and_experiment_values() -> None:
             experiment["model"]["resolved_model_identity"]
         )
         assert created["revision_id"].startswith("sha256:")
+
+
+def test_identical_experiment_revision_admission_is_idempotent() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (_process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        admitted = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/experiment-revisions"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"experiment_specification": experiment},
+        )
+
+        assert admitted == {
+            "created": False,
+            "outcome": "success",
+            "revision_id": created["revision_id"],
+        }
+
+
+def test_run_returns_the_complete_existing_artifact_set_inline() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (_process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        run = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert run["outcome"] == "success"
+        assert set(run["artifacts"]) == {
+            "evaluation-run",
+            "evaluator-capability-manifest",
+            "event-trace",
+            "metric-dataset",
+            "reproduction-receipt",
+            "resolved-runtime-profile",
+            "snapshot-series",
+        }
+        assert all(
+            artifact["content_identity"].startswith("sha256:")
+            for artifact in run["artifacts"].values()
+        )

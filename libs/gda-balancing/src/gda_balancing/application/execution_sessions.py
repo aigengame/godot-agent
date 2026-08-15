@@ -4,6 +4,10 @@ from dataclasses import dataclass
 import secrets
 from typing import Any
 
+from gda_balancing.application.experiment_execution import (
+    ExperimentExecutionOutcome,
+    execute_checked_experiment,
+)
 from gda_balancing.domain.authority.context import AdmittedAuthorityContext
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.domain.experiment import CheckedExperiment, check_experiment_value
@@ -21,6 +25,22 @@ class ExecutionSessionCreated:
     session_id: str
     resolved_model_identity: str
     revision_id: str
+
+
+@dataclass(frozen=True)
+class ExperimentRevisionAdmitted:
+    """Identity and insertion state of one admitted Experiment revision."""
+
+    revision_id: str
+    created: bool
+
+
+class ExecutionSessionNotFound(LookupError):
+    """The requested process-local Execution session does not exist."""
+
+
+class ExperimentRevisionNotFound(LookupError):
+    """The requested immutable Experiment revision does not exist."""
 
 
 @dataclass
@@ -67,3 +87,44 @@ class ExecutionSessions:
             ),
             revision_id=checked_experiment.content_identity,
         )
+
+    def admit_revision(
+        self,
+        session_id: str,
+        experiment_specification: dict[str, Any],
+    ) -> ExperimentRevisionAdmitted | Schema2RefusalReport:
+        """Fully admit one immutable revision before making it runnable."""
+        try:
+            session = self._sessions[session_id]
+        except KeyError as error:
+            raise ExecutionSessionNotFound(session_id) from error
+        checked = check_experiment_value(
+            experiment_specification,
+            session.model_artifacts,
+            authority_context=session.authority_context,
+        )
+        if isinstance(checked, Schema2RefusalReport):
+            return checked
+        created = checked.content_identity not in session.revisions
+        if created:
+            session.revisions[checked.content_identity] = checked
+        return ExperimentRevisionAdmitted(
+            revision_id=checked.content_identity,
+            created=created,
+        )
+
+    def run(
+        self,
+        session_id: str,
+        revision_id: str,
+    ) -> ExperimentExecutionOutcome:
+        """Run one explicitly selected revision with fresh Runtime state."""
+        try:
+            session = self._sessions[session_id]
+        except KeyError as error:
+            raise ExecutionSessionNotFound(session_id) from error
+        try:
+            checked = session.revisions[revision_id]
+        except KeyError as error:
+            raise ExperimentRevisionNotFound(revision_id) from error
+        return execute_checked_experiment(checked)
