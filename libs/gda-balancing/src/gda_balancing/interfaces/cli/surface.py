@@ -340,6 +340,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             else {}
         ),
         "execution": {
+            "lifecycle": descriptor.execution_lifecycle,
             "stochastic": descriptor.stochastic,
             "structured_params": descriptor.structured_params,
             "json_presentation_field": descriptor.json_presentation_field,
@@ -431,6 +432,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
     execution = {
         "type": "object",
         "properties": {
+            "lifecycle": {"enum": ["one-shot", "foreground-service"]},
             "stochastic": {"type": "boolean"},
             "structured_params": {"type": "boolean"},
             "refusal_stages": {"type": "array", "items": {"type": "string"}},
@@ -476,6 +478,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "usage_codes": {"type": "array", "items": {"type": "string"}},
         },
         "required": [
+            "lifecycle",
             "stochastic",
             "structured_params",
             "refusal_stages",
@@ -605,6 +608,7 @@ def surface_manifest(
                 "descriptor_identity": descriptor_identity(descriptor),
                 "schema": command_schema_projection(descriptor),
                 "execution": {
+                    "lifecycle": descriptor.execution_lifecycle,
                     "stochastic": descriptor.stochastic,
                     "structured_params": descriptor.structured_params,
                     "refusal_stages": list(descriptor.refusal_stages),
