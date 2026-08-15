@@ -4,6 +4,47 @@ status: accepted
 
 # Headless script-run execution: a third shape — pass the user script's run through, classify only launch/crash
 
+> **Amendment (2026-08-15, #651) — `gda` is the authority on whether the engine RAN the script;
+> the script stays the authority on what its own exit status means.** Dogfooding (GDA-DF-007,
+> GDA-DF-017, GDA-DF-032) found the passthrough reporting success for runs that never happened. The
+> decision below is unchanged for a **completed** run; this note draws the line the original text
+> left implicit, and adds one opt-in inversion.
+>
+> **1. A script that never ran is a failure, by default.** Godot reports a missing `--script` entry
+> point, and an entry script (or a dependency it preloads) that fails to parse or compile, **only on
+> stderr — and still exits `0`** (verified against Godot 4.6.3). Passing that status through made
+> `gda script run res://does-not-exist.gd` return `{"exit_status": 0}`, which no reading of the
+> contract calls a successful run. These are **defects, not the contract**: the passthrough exists
+> because gda does not know a user script's *semantics*, and a script that never started has none.
+> They now classify to the registered `script_not_found` / `script_compile_failed` **Error
+> envelope** (both `operation` category, exit `4`). The verdict is read from the engine's error
+> stream, never from the exit code, and is keyed on the **entry script's own `res://` path** — a
+> running script that itself fails to load some *other* resource stays a success.
+>
+> **2. `--strict` inverts the non-zero-exit default, opt-in only.** The considered option
+> "map a non-zero *script* exit to a synthesized `script_failed`" stays **rejected as the default**,
+> for the reason recorded below: the Raw-run promotion is what lets a user script use its exit codes
+> freely. But a caller whose gate *is* the process exit code — a shell `&&` chain, a conventional CI
+> step — cannot express that with a command that always exits `0` (GDA-DF-017). `--strict` is that
+> expression: for that invocation, a completed run with a non-zero `exit_status` becomes the
+> registered `script_failed` envelope. The child status is **not** propagated as gda's process exit
+> code — a script's `quit(3)` would alias `EXIT_VERSION` — so strict exits `4` and keeps the status
+> readable in the message and the script's stderr in `diagnostics`. The script's **stdout is not
+> carried by the envelope**; re-run without `--strict` to read the full passthrough result.
+> Without the flag, behaviour is exactly as decided below.
+>
+> **3. The success result gains classified `diagnostics`.** Recognized script errors parsed out of
+> the engine's stderr are surfaced as structured entries alongside the verbatim `stderr`, so a
+> runtime GDScript error the script *survived* (leaving a clean `exit_status`) is visible without
+> matching engine prose. Advisory, in ADR-0002's sense: the stable outcome is still the
+> success/failure verdict, never the parsed text. Not interpreting the *script's* semantics was
+> never a reason to ignore the *engine's* report.
+>
+> **Not decided here:** a script that compiles but does not extend `SceneTree`/`MainLoop` also never
+> runs, and the engine reports it the same way. It is parsed and surfaced as a diagnostic
+> (`not_a_main_loop`) but does **not** flip the verdict — it is neither missing nor non-compiling,
+> so it needs a code and a decision of its own.
+
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine
 CLI mode for editor-only capabilities (e.g. `--export-*`), whose outcome `gda` classifies from the
