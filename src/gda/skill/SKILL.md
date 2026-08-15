@@ -169,6 +169,13 @@ children of a `Container` are layout-managed; use those offset properties
 explicitly instead. Live `game set --property position` mirrors this policy, while
 `game rect` remains a read-only rendered-geometry query.
 
+`scene create --root-type Control` writes a root with zero anchors and zero
+offsets — a zero-size rect at the origin, not a viewport-filling layout.
+Container minimum sizes can keep descendants visible and mask this until
+`game rect` reports the root, and its child layers, at `[0, 0]` size. Fix it by
+setting the root's `anchor_right` and `anchor_bottom` to `1` with `node set`
+(offsets stay `0`); confirm with `game rect`.
+
 **Attach a script — `script attach`, never `node set --property script`.**
 `script attach` is the one authoritative way to bind a `.gd` script to a node: it
 verifies the script compiles, checks its base type against the node, and reports any
