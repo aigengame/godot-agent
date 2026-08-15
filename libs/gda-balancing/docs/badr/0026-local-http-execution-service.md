@@ -54,7 +54,8 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
 - An **Experiment revision** is an immutable Execution-session binding to one complete admitted
   Experiment Specification and its exact content identity. Creating one submits a complete
   replacement specification. The service fully admits and identifies it before the revision becomes
-  runnable in the session. Refusal leaves every admitted revision unchanged.
+  runnable in the session. Admission detaches the stored value from caller-owned containers.
+  Refusal leaves every admitted revision unchanged.
 - A run must name an exact revision. A session has no implicit current or active revision. Earlier
   revisions remain runnable until the session is deleted.
 - A `session_id` is an opaque random handle scoped to one service process. A `revision_id` is the
@@ -121,7 +122,9 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   implicit revision, partial update, artifact query, progress, cancellation, or streaming endpoint.
 - `/v1` is the HTTP protocol major, not a Standard Schema or toolkit version. Readiness and status
   report the protocol major and toolkit version. Request and response schemas are closed. A breaking
-  protocol change uses a new major path.
+  protocol change uses a new major path. Bodyless routes reject non-empty bodies. Unknown endpoints,
+  unsupported methods, and undeclared trailing-slash variants use the same closed service-error
+  envelope as other protocol failures.
 - Pydantic request and response models are the single executable source for the first HTTP schemas.
   bADR-0026 and `docs/ARCHITECTURE.md` describe meaning and boundaries without copying every field.
   The existing Command-descriptor `--schema` convention describes the `serve` command and readiness
@@ -196,10 +199,11 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   Infrastructure receives only demonstrated domain-neutral mechanisms. This work adds no generic
   Repository, port hierarchy, dependency-injection container, service locator, or event bus.
 - The HTTP Interface uses Starlette to implement the five execution routes, the local control
-  route, middleware, JSON responses, exception mapping, and lifespan. Uvicorn provides the
-  single-worker ASGI server and graceful lifecycle. Existing Pydantic models define closed request
-  and response schemas with unknown fields refused. Reload, WebSockets, proxy-header trust, CORS,
-  and default access logging are disabled.
+  route, middleware, JSON responses, and exception mapping. The local host owns readiness and
+  shutdown directly, so ASGI lifespan handling is disabled. Uvicorn provides the single-worker ASGI
+  server and graceful lifecycle. Existing Pydantic models define closed request and response
+  schemas with unknown fields refused. Reload, WebSockets, proxy-header trust, CORS, and default
+  access logging are disabled.
 - Python's standard-library development HTTP server is not used. FastAPI, automatic OpenAPI
   publication, Gunicorn, worker management, an HTTP client dependency, and a general service
   framework are also outside the first increment. Starlette and Uvicorn are Interface

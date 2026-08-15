@@ -411,7 +411,15 @@ def check_experiment_value(
             pointer="",
             message="Experiment Specification exceeds the admitted ingress bound",
         )
-    return _check_experiment_value(value, context, model_artifacts=model_artifacts)
+    admitted_value = parse_canonical_object(
+        data,
+        artifact_name="Experiment Specification",
+    )
+    return _check_experiment_value(
+        admitted_value,
+        context,
+        model_artifacts=model_artifacts,
+    )
 
 
 def _check_experiment_value(

@@ -7,7 +7,8 @@ from typing import Any, Literal, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.requests import ClientDisconnect, Request
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp
@@ -28,26 +29,23 @@ from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
 from gda_balancing.interfaces.http.service_errors import (
+    SMALL_HTTP_REQUEST_BYTES,
+    HttpRequestTooLarge,
+    InvalidHttpRequest,
+    UnsupportedHttpMediaType,
+    http_exception_response,
     internal_service_error_response,
+    invalid_http_request_response,
+    read_bounded_request_body,
+    request_too_large_response,
+    require_empty_request,
     service_error_response,
+    unsupported_media_type_response,
 )
 
 PROTOCOL_VERSION = "v1"
 _PROTOCOL_ENVELOPE_BYTES = 65_536
-_SMALL_REQUEST_BYTES = 65_536
 RequestModel = TypeVar("RequestModel", bound=BaseModel)
-
-
-class InvalidHttpRequest(ValueError):
-    """The JSON body does not match its closed request schema."""
-
-
-class HttpRequestTooLarge(Exception):
-    """The request body exceeds its route-specific protocol bound."""
-
-
-class UnsupportedHttpMediaType(Exception):
-    """An execution route received a body outside the JSON transport."""
 
 
 async def _request_model(
@@ -59,23 +57,9 @@ async def _request_model(
     media_type = request.headers.get("content-type", "").partition(";")[0].strip()
     if media_type.lower() != "application/json":
         raise UnsupportedHttpMediaType
-    declared_length = request.headers.get("content-length")
-    if declared_length is not None:
-        try:
-            if int(declared_length) > max_bytes:
-                raise HttpRequestTooLarge
-        except ValueError as error:
-            raise InvalidHttpRequest from error
-    body = bytearray()
+    body = await read_bounded_request_body(request, max_bytes=max_bytes)
     try:
-        async for chunk in request.stream():
-            if len(body) + len(chunk) > max_bytes:
-                raise HttpRequestTooLarge
-            body.extend(chunk)
-    except ClientDisconnect as error:
-        raise InvalidHttpRequest from error
-    try:
-        return model.model_validate(json.loads(bytes(body)))
+        return model.model_validate(json.loads(body))
     except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as error:
         raise InvalidHttpRequest from error
 
@@ -192,7 +176,8 @@ def create_api_v1() -> ASGIApp:
         packaged_authority_context().language_bundle["resources"]["max_source_bytes"],
     )
 
-    async def status(_request: Request) -> Response:
+    async def status(request: Request) -> Response:
+        await require_empty_request(request)
         return JSONResponse(
             StatusResponse(toolkit_version=toolkit_version).model_dump(mode="json")
         )
@@ -251,7 +236,7 @@ def create_api_v1() -> ASGIApp:
         payload = await _request_model(
             request,
             RunExperimentRequest,
-            max_bytes=_SMALL_REQUEST_BYTES,
+            max_bytes=SMALL_HTTP_REQUEST_BYTES,
         )
         try:
             result = await run_in_threadpool(
@@ -290,6 +275,7 @@ def create_api_v1() -> ASGIApp:
         return JSONResponse(body.model_dump(mode="json"))
 
     async def delete_execution_session(request: Request) -> Response:
+        await require_empty_request(request)
         session_id = request.path_params["session_id"]
         try:
             await run_in_threadpool(sessions.delete, session_id)
@@ -305,39 +291,19 @@ def create_api_v1() -> ASGIApp:
             )
         )
 
-    async def invalid_http_request(_request: Request, _error: Exception) -> Response:
-        return service_error_response(
-            code="invalid_request",
-            message="the request does not match the closed HTTP schema",
-            status_code=400,
-        )
-
-    async def request_too_large(_request: Request, _error: Exception) -> Response:
-        return service_error_response(
-            code="request_too_large",
-            message="the request body exceeds the HTTP protocol limit",
-            status_code=413,
-        )
-
-    async def unsupported_media_type(_request: Request, _error: Exception) -> Response:
-        return service_error_response(
-            code="unsupported_media_type",
-            message="the request content type must be application/json",
-            status_code=415,
-        )
-
     async def unexpected_internal_error(
         _request: Request,
         _error: Exception,
     ) -> Response:
         return internal_service_error_response()
 
-    return Starlette(
+    app = Starlette(
         debug=False,
         exception_handlers={
-            InvalidHttpRequest: invalid_http_request,
-            HttpRequestTooLarge: request_too_large,
-            UnsupportedHttpMediaType: unsupported_media_type,
+            HTTPException: http_exception_response,
+            InvalidHttpRequest: invalid_http_request_response,
+            HttpRequestTooLarge: request_too_large_response,
+            UnsupportedHttpMediaType: unsupported_media_type_response,
             Exception: unexpected_internal_error,
         },
         routes=[
@@ -364,3 +330,5 @@ def create_api_v1() -> ASGIApp:
             ),
         ],
     )
+    app.router.redirect_slashes = False
+    return app

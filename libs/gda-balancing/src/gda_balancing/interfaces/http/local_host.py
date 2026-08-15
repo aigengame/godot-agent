@@ -11,13 +11,20 @@ from typing import Literal
 import uvicorn
 from pydantic import BaseModel, ConfigDict
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from gda_balancing.interfaces.http.service_errors import (
+    HttpRequestTooLarge,
+    InvalidHttpRequest,
+    http_exception_response,
     internal_service_error_response,
+    invalid_http_request_response,
+    request_too_large_response,
+    require_empty_request,
     service_error_response,
 )
 
@@ -38,6 +45,22 @@ class ShutdownResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal["shutting-down"] = "shutting-down"
+
+
+class _ShutdownEndpoint:
+    """Bind the exact process-control method before the catch-all mount."""
+
+    def __init__(self, request_shutdown: Callable[[], None]) -> None:
+        self._request_shutdown = request_shutdown
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
+        if request.method != "POST":
+            raise HTTPException(status_code=405, headers={"Allow": "POST"})
+        await require_empty_request(request)
+        response = JSONResponse(ShutdownResponse().model_dump(mode="json"))
+        self._request_shutdown()
+        await response(scope, receive, send)
 
 
 class BearerCapabilityMiddleware:
@@ -96,11 +119,6 @@ def _local_companion_app(
     capability_token: str,
     request_shutdown: Callable[[], None],
 ) -> ASGIApp:
-    async def shutdown(_request: Request) -> Response:
-        response = JSONResponse(ShutdownResponse().model_dump(mode="json"))
-        request_shutdown()
-        return response
-
     async def unexpected_internal_error(
         _request: Request,
         _error: Exception,
@@ -109,12 +127,18 @@ def _local_companion_app(
 
     app = Starlette(
         debug=False,
-        exception_handlers={Exception: unexpected_internal_error},
+        exception_handlers={
+            HTTPException: http_exception_response,
+            InvalidHttpRequest: invalid_http_request_response,
+            HttpRequestTooLarge: request_too_large_response,
+            Exception: unexpected_internal_error,
+        },
         routes=[
-            Route("/v1/shutdown", shutdown, methods=["POST"]),
+            Route("/v1/shutdown", _ShutdownEndpoint(request_shutdown)),
             Mount("/", app=execution_api),
         ],
     )
+    app.router.redirect_slashes = False
     return BearerCapabilityMiddleware(app, capability_token)
 
 
@@ -184,8 +208,9 @@ async def _serve(
         log_level="warning",
         proxy_headers=False,
         server_header=False,
-        timeout_graceful_shutdown=10,
+        timeout_graceful_shutdown=None,
         workers=1,
+        ws="none",
     )
     server = uvicorn.Server(config)
     server_ref.append(server)

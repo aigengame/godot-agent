@@ -22,6 +22,11 @@ from urllib.request import Request, urlopen
 import pytest
 from starlette.types import Receive, Scope, Send
 
+from gda_balancing.application.execution_sessions import (
+    ExecutionSessionCreated,
+    ExecutionSessions,
+    ExperimentRevisionAdmitted,
+)
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.runtime.projections import evaluator_build_identity
 from gda_balancing.interfaces.http.local_host import (
@@ -378,6 +383,30 @@ def test_each_run_explicitly_selects_one_immutable_revision() -> None:
         )
 
 
+def test_admitted_revisions_detach_from_caller_owned_values() -> None:
+    model_source, experiment = _roguelike_documents()
+    baseline_seed = experiment["seed"]["value"]
+    sessions = ExecutionSessions()
+
+    created = sessions.create(model_source, experiment)
+    assert isinstance(created, ExecutionSessionCreated)
+    experiment["seed"]["value"] = baseline_seed + 100
+
+    initial_run = sessions.run(created.session_id, created.revision_id)
+    initial_receipt = initial_run.members["reproduction-receipt"].value
+    assert initial_receipt["seed_value"] == baseline_seed
+
+    later_experiment = deepcopy(experiment)
+    later_experiment["seed"]["value"] = baseline_seed + 1
+    admitted = sessions.admit_revision(created.session_id, later_experiment)
+    assert isinstance(admitted, ExperimentRevisionAdmitted)
+    later_experiment["seed"]["value"] = baseline_seed + 200
+
+    later_run = sessions.run(created.session_id, admitted.revision_id)
+    later_receipt = later_run.members["reproduction-receipt"].value
+    assert later_receipt["seed_value"] == baseline_seed + 1
+
+
 def test_closed_request_schema_rejects_unknown_members_before_application() -> None:
     model_source, experiment = _roguelike_documents()
 
@@ -401,6 +430,113 @@ def test_closed_request_schema_rejects_unknown_members_before_application() -> N
                 "message": "the request does not match the closed HTTP schema",
             }
         }
+
+
+def test_routes_without_request_models_reject_bodies_before_side_effects() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (process, readiness):
+        status_code, status_error = _request_error(
+            f"{readiness['base_url']}/v1/status",
+            readiness["capability_token"],
+            body={"unexpected": True},
+        )
+        created = _create_session(readiness, model_source, experiment)
+        session_url = (
+            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
+        )
+        delete_code, delete_error = _request_error(
+            session_url,
+            readiness["capability_token"],
+            method="DELETE",
+            body={"unexpected": True},
+        )
+        rerun = _request_json(
+            f"{session_url}/runs",
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+        shutdown_code, shutdown_error = _request_error(
+            f"{readiness['base_url']}/v1/shutdown",
+            readiness["capability_token"],
+            method="POST",
+            body={"unexpected": True},
+        )
+
+        assert status_code == delete_code == shutdown_code == 400
+        assert (
+            status_error
+            == delete_error
+            == shutdown_error
+            == {
+                "error": {
+                    "category": "service",
+                    "code": "invalid_request",
+                    "message": "the request does not match the closed HTTP schema",
+                }
+            }
+        )
+        assert rerun["outcome"] == "success"
+        assert process.poll() is None
+
+
+def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None:
+    with _running_service() as (_process, readiness):
+        unknown_status, unknown_error = _request_error(
+            f"{readiness['base_url']}/v1/unknown",
+            readiness["capability_token"],
+        )
+        trailing_status, trailing_error = _request_error(
+            f"{readiness['base_url']}/v1/status/",
+            readiness["capability_token"],
+        )
+        request = Request(
+            f"{readiness['base_url']}/v1/status",
+            data=b"",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {readiness['capability_token']}",
+            },
+        )
+        with pytest.raises(HTTPError) as response:
+            urlopen(request, timeout=10)
+        method_error = json.load(response.value)
+        shutdown_request = Request(
+            f"{readiness['base_url']}/v1/shutdown",
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {readiness['capability_token']}",
+            },
+        )
+        with pytest.raises(HTTPError) as shutdown_response:
+            urlopen(shutdown_request, timeout=10)
+        shutdown_method_error = json.load(shutdown_response.value)
+
+        assert unknown_status == trailing_status == 404
+        assert (
+            unknown_error
+            == trailing_error
+            == {
+                "error": {
+                    "category": "service",
+                    "code": "unknown_endpoint",
+                    "message": "the HTTP endpoint does not exist",
+                }
+            }
+        )
+        assert response.value.code == 405
+        assert response.value.headers["Allow"] in {"GET", "GET, HEAD", "HEAD, GET"}
+        assert method_error == {
+            "error": {
+                "category": "service",
+                "code": "method_not_allowed",
+                "message": "the HTTP method is not allowed for this endpoint",
+            }
+        }
+        assert shutdown_response.value.code == 405
+        assert shutdown_response.value.headers["Allow"] == "POST"
+        assert shutdown_method_error == method_error
 
 
 def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
