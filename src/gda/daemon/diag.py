@@ -21,7 +21,8 @@ error's ordered ``callstack`` (frame ``[0]`` equals the ``at:`` location).
 
 The parsing is **best-effort**: a line that is neither a recognized ``<TYPE>:``
 header nor the ``   at:`` follow-on (a backtrace, an interleaved print line) is
-skipped for ``errors`` and never raises. ``log`` keeps every line verbatim.
+skipped for ``errors`` and never raises. The verbatim whole-log view is served by
+:func:`parse_log_records` with ``raw`` set (ADR-0026).
 """
 
 import json
@@ -135,18 +136,6 @@ def parse_errors(data: str | bytes, limit: int | None = None) -> list[dict]:
     if limit is not None and limit >= 0:
         return errors[-limit:] if limit else []
     return errors
-
-
-def parse_log(data: str | bytes, limit: int | None = None) -> list[str]:
-    """The raw captured output lines from a Session log — minimal parsing (#224).
-
-    The full captured stream (print output AND error lines) verbatim, one entry
-    per line. ``limit`` tails the most recent ``N`` lines. Empty input -> ``[]``.
-    """
-    lines = _lines(data)
-    if limit is not None and limit >= 0:
-        return lines[-limit:] if limit else []
-    return lines
 
 
 # --- The structured `LogRecord` channel (#281, ADR-0026) -----------------------
