@@ -195,6 +195,12 @@ specification is versioned and hashed independently so evidence identifies both 
 experiment (bADR-0012/0018).
 _Avoid_: experiment config, model overrides, scenario package
 
+**Experiment revision**:
+An immutable Execution-session binding to one complete admitted Experiment Specification and its
+exact identity. Its revision identifier is the Experiment Specification content identity, not a
+new identity family. It is not an in-place patch, session override, or separate authority kind.
+_Avoid_: Experiment patch, mutable Experiment, session configuration
+
 **Executable Event plan**:
 The closed, bounded Experiment-owned plan for one scenario. Its authored root members are exactly
 `external-input` or `transition-invocation`; its `observation` members are derived from the exact
@@ -1013,6 +1019,12 @@ platform, Numeric, RNG, scheduler, effect, and budget choices.
 _Avoid_: random seed (ambiguous), default seed
 
 ### Runtime
+
+**Execution session**:
+A host-scoped coordination handle that binds one exact Resolved Model and admitted immutable
+Experiment revisions for later execution. It is not a Standard Schema authority, Runtime instance,
+gameplay `Run scope`, or transport session.
+_Avoid_: Runtime session, playtest session, HTTP session, Experiment session
 
 **Runtime lifecycle**:
 The explicit state machine for one RIR execution instance: `instantiated`, `initializing`, `event`,

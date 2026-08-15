@@ -79,7 +79,8 @@ Standard Schema 2.0 must:
 - use one Metrics schema for simulated and observed Metric samples and datasets;
 - preserve an immutable chain from Evaluation runs through comparisons and Evidence assertions to
   Approval Records;
-- expose the same artifact and outcome model through a structured CLI surface;
+- expose the same artifact and outcome model through structured inbound Interfaces, with the CLI as
+  the current public surface;
 - refuse unsupported or ambiguous behavior explicitly instead of accepting an open-ended escape
   hatch; and
 - make implementation-independent conformance testable from authoritative machine rules and
@@ -159,7 +160,7 @@ flowchart TB
     subgraph HOST["Conforming host implementation"]
         direction TB
         subgraph UI["UI / Interfaces"]
-            U["Structured CLI<br/>binding · descriptors · rendering"]
+            U["Inbound Interface<br/>current: Structured CLI"]
         end
         subgraph APP["Application"]
             A["Public use cases<br/>one operation at a time"]
@@ -588,7 +589,7 @@ Standard Schema semantics. The Kernel and LDB remain the machine authorities.
 
 ```mermaid
 flowchart TB
-    I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
+    I["UI / Interfaces<br/>inbound protocol binding and presentation"]
     A["Application<br/>end-to-end use cases"]
     D["Domain<br/>Standard Schema rules and artifact policy"]
     N["Infrastructure<br/>domain-neutral I/O and atomic mechanisms"]
@@ -601,12 +602,13 @@ flowchart TB
 The diagram shows allowed cross-layer imports. It does not show processing or Standard Schema
 authority.
 
-- `interfaces/cli` owns Command descriptors, the immutable registry, schema and manifest
-  projection, argv binding, help, rendering, envelopes, and exit codes. It also contains the
-  executable composition root. CLI adapters translate values. They do not implement language or
-  evaluation rules.
+- `interfaces` owns inbound protocol binding and presentation. The current `interfaces/cli` adapter
+  owns Command descriptors, the immutable registry, schema and manifest projection, argv binding,
+  help, rendering, envelopes, and exit codes. An executable Interface entry point is the
+  composition root for its process. Interface adapters translate values. They do not implement
+  language or evaluation rules.
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
-  does not parse argv, write stdout or stderr, select exit codes, or build CLI envelopes.
+  does not parse an external protocol, write presentation channels, or build Interface envelopes.
 - `domain` owns authority admission and lifecycle. It also owns the Kernel-defined canonical JSON
   profile and the Formula, Model, Runtime, Experiment, Evidence, and Template rules. It owns
   artifact identity and publication policy. Publication policy uses atomic filesystem mechanisms
@@ -635,8 +637,8 @@ policy from domain-neutral storage mechanisms.
 
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
-| UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, Surface manifest, CLI envelopes, and exit codes |
-| Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals, plus publication receipts when the operation publishes artifacts |
+| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes | Current Structured CLI commands, Surface manifest, envelopes, and exit codes |
+| Application | Public use cases | Coordinate each public operation without Interface protocol or presentation rules | Typed results or refusals, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
@@ -1762,7 +1764,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |
 | Sealed multi-member LDB graph | [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md) | Root/package admission, public retrieval, packaging, and mutation vectors |
 | Canonical Formula notation | [bADR-0024](badr/0024-canonical-reversible-formula-notation.md) | Formula pairing, parse/render, and JSON contract vectors |
-| Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, public CLI regressions, and source/wheel parity |
+| Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, Interface-boundary regressions, and source/wheel parity |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”

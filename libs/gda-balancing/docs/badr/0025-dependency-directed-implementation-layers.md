@@ -12,10 +12,11 @@ Runtime execution, replay, Evidence, and artifact validation. Command modules al
 Template semantics and large authority projections. These joins make unrelated changes collide and
 allow domain behavior to depend on CLI descriptors and envelopes.
 
-The public product contract is nevertheless stable. The CLI is the supported user interface;
-Kernel/LDB authority, authored authority domains, Formula pairing, RIR identity, deterministic
-Runtime behavior, Evidence, publication atomicity, diagnostics, and structured command outcomes
-remain governed by the existing bADRs. This decision changes implementation ownership and
+The public product contract is nevertheless stable. The CLI is the current supported user
+interface. An accepted decision can add another inbound Interface without changing the layer
+model. Kernel/LDB authority, authored authority domains, Formula pairing, RIR identity,
+deterministic Runtime behavior, Evidence, publication atomicity, diagnostics, and structured
+outcomes remain governed by the existing bADRs. This decision changes implementation ownership and
 dependency direction, not Standard Schema semantics.
 
 ## Decision
@@ -29,22 +30,25 @@ dependency direction, not Standard Schema semantics.
   3. **Application** owns end-to-end use-case orchestration. It resolves required inputs, invokes
      Domain behavior, coordinates Infrastructure operations, and returns typed results or
      refusals without knowing CLI syntax or rendering.
-  4. **UI / Interfaces** owns argv binding, Command descriptors, the descriptor registry, help,
-     response-schema projection, stdout/stderr rendering, exit codes, and mapping application
-     outcomes to the public CLI envelope.
+  4. **UI / Interfaces** owns inbound protocol binding and presentation. The current CLI Interface
+     owns argv binding, Command descriptors, the descriptor registry, help, response-schema
+     projection, stdout/stderr rendering, exit codes, and mapping Application outcomes to the
+     public CLI envelope. Another accepted inbound Interface owns its own transport facts without
+     redefining Application or Domain behavior.
 
 - **Imports point from higher layers to lower layers.** The allowed cross-layer direction is
-  `interfaces.cli -> application -> domain -> infrastructure`. A module may depend on its own
-  layer or a lower one, never a higher one. Same-layer dependencies must remain acyclic. During
-  incremental migration, existing unclassified modules may call newly extracted lower-layer
-  modules. Migrated lower layers cannot depend on legacy UI or command modules. A migrated
-  Interface module may temporarily use the legacy descriptor and envelope modules, whose ownership
-  moves in the final UI-composition step, but it cannot import a legacy command handler.
+  `interfaces -> application -> domain -> infrastructure`. A module may depend on its own layer or
+  a lower one, never a higher one. Same-layer dependencies must remain acyclic. During incremental
+  migration, existing unclassified modules may call newly extracted lower-layer modules. Migrated
+  lower layers cannot depend on legacy UI or command modules. A migrated CLI Interface module may
+  temporarily use the legacy descriptor and envelope modules, whose ownership moves in the final
+  UI-composition step, but it cannot import a legacy command handler.
 
-- **The CLI entry point is the composition root.** It may construct and connect lower-layer
-  components, but it owns no language, Model, Runtime, Experiment, Template, or publication rule.
-  One UI-owned immutable descriptor registry remains the source for dispatch, help, command-schema
-  projection, and the Surface manifest.
+- **Each executable Interface entry point is a composition root for its process.** It may construct
+  and connect lower-layer components and sibling inbound adapters, but it owns no language, Model,
+  Runtime, Experiment, Template, or publication rule. The current CLI entry point remains the
+  composition root for command processes. One UI-owned immutable descriptor registry remains the
+  source for CLI dispatch, help, command-schema projection, and the Surface manifest.
 
 - **Modules follow the ubiquitous language and one reason to change.** Authority, Formula, Model,
   Runtime, Experiment/Evidence, and Template are candidate cohesive ownership areas, not a
@@ -102,9 +106,10 @@ dependency direction, not Standard Schema semantics.
 
 ## Consequences
 
-- New production modules live under `infrastructure`, `domain`, `application`, or `interfaces/cli`
-  according to ownership. Existing modules disappear only after their responsibilities and callers
-  have migrated; undocumented Python import paths receive no permanent compatibility shim.
+- New production modules live under `infrastructure`, `domain`, `application`, or an explicit
+  `interfaces` adapter according to ownership. Existing modules disappear only after their
+  responsibilities and callers have migrated; undocumented Python import paths receive no
+  permanent compatibility shim.
 - A small AST-level architecture test rejects upward imports and cycles among migrated modules.
 - Command handlers become thinner as semantics move down; lower layers no longer import CLI
   descriptors, envelopes, or response schemas.
@@ -120,6 +125,9 @@ dependency direction, not Standard Schema semantics.
 - Compare CLI stdout/stderr, exit codes, diagnostic content and ordering, canonical artifact bytes
   and identities, publication receipts and recovery, Formula round trips, and deterministic Runtime
   outcomes across each affected slice.
+- For every additional inbound Interface, prove that its framework, transport, lifecycle, and
+  presentation dependencies do not enter Application or Domain and that it reaches the same
+  semantic owners as the CLI where their use cases overlap.
 - Run source/wheel parity when packaged resources, entry points, or publication are affected.
 - Preserve the existing authority-lifecycle tests proving a single production owner, single-flight
   admission, immutable context, and deterministic cached refusal.
