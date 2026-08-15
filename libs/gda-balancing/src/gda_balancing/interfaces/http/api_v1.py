@@ -1,9 +1,10 @@
 """The versioned, application-agnostic local Execution HTTP API."""
 
 from copy import deepcopy
-from typing import Any, Literal
+import json
+from typing import Any, Literal, TypeVar, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -13,7 +14,9 @@ from starlette.types import ASGIApp
 
 from gda_balancing.application.execution_sessions import (
     ExecutionSessionCreated,
+    ExecutionSessionNotFound,
     ExecutionSessions,
+    ExperimentRevisionNotFound,
     ExperimentRevisionAdmitted,
 )
 from gda_balancing.application.experiment_execution import (
@@ -21,10 +24,47 @@ from gda_balancing.application.experiment_execution import (
     ExperimentExecutionSuccess,
     ExperimentExecutionVerdict,
 )
+from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
+from gda_balancing.interfaces.http.service_errors import service_error_response
 
 PROTOCOL_VERSION = "v1"
+_PROTOCOL_ENVELOPE_BYTES = 65_536
+_SMALL_REQUEST_BYTES = 65_536
+RequestModel = TypeVar("RequestModel", bound=BaseModel)
+
+
+class InvalidHttpRequest(ValueError):
+    """The JSON body does not match its closed request schema."""
+
+
+class HttpRequestTooLarge(Exception):
+    """The request body exceeds its route-specific protocol bound."""
+
+
+async def _request_model(
+    request: Request,
+    model: type[RequestModel],
+    *,
+    max_bytes: int,
+) -> RequestModel:
+    declared_length = request.headers.get("content-length")
+    if declared_length is not None:
+        try:
+            if int(declared_length) > max_bytes:
+                raise HttpRequestTooLarge
+        except ValueError as error:
+            raise InvalidHttpRequest from error
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_bytes:
+            raise HttpRequestTooLarge
+        body.extend(chunk)
+    try:
+        return model.model_validate(json.loads(bytes(body)))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as error:
+        raise InvalidHttpRequest from error
 
 
 class StatusResponse(BaseModel):
@@ -121,10 +161,25 @@ class RunRefusalResponse(BaseModel):
     artifacts: dict[str, dict[str, Any]]
 
 
+class ExecutionSessionDeletedResponse(BaseModel):
+    """Acknowledgement that one process-local session was released."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: Literal["success"] = "success"
+    session_id: str
+
+
 def create_api_v1() -> ASGIApp:
     """Create execution routes without local-host lifecycle or authentication."""
     toolkit_version = distribution_version("gda-balancing")
     sessions = ExecutionSessions()
+    max_source_bytes = cast(
+        int,
+        packaged_authority_context().language_bundle["resources"][
+            "max_source_bytes"
+        ],
+    )
 
     async def status(_request: Request) -> Response:
         return JSONResponse(
@@ -132,7 +187,11 @@ def create_api_v1() -> ASGIApp:
         )
 
     async def create_execution_session(request: Request) -> Response:
-        payload = CreateExecutionSessionRequest.model_validate(await request.json())
+        payload = await _request_model(
+            request,
+            CreateExecutionSessionRequest,
+            max_bytes=(2 * max_source_bytes) + _PROTOCOL_ENVELOPE_BYTES,
+        )
         result = await run_in_threadpool(
             sessions.create,
             payload.model_source,
@@ -150,12 +209,23 @@ def create_api_v1() -> ASGIApp:
         return JSONResponse(body.model_dump(mode="json"))
 
     async def admit_experiment_revision(request: Request) -> Response:
-        payload = AdmitExperimentRevisionRequest.model_validate(await request.json())
-        result = await run_in_threadpool(
-            sessions.admit_revision,
-            request.path_params["session_id"],
-            payload.experiment_specification,
+        payload = await _request_model(
+            request,
+            AdmitExperimentRevisionRequest,
+            max_bytes=max_source_bytes + _PROTOCOL_ENVELOPE_BYTES,
         )
+        try:
+            result = await run_in_threadpool(
+                sessions.admit_revision,
+                request.path_params["session_id"],
+                payload.experiment_specification,
+            )
+        except ExecutionSessionNotFound:
+            return service_error_response(
+                code="unknown_execution_session",
+                message="the Execution session does not exist",
+                status_code=404,
+            )
         if isinstance(result, Schema2RefusalReport):
             body = RefusalResponse(refusal=result)
         else:
@@ -167,12 +237,29 @@ def create_api_v1() -> ASGIApp:
         return JSONResponse(body.model_dump(mode="json"))
 
     async def run_experiment_revision(request: Request) -> Response:
-        payload = RunExperimentRequest.model_validate(await request.json())
-        result = await run_in_threadpool(
-            sessions.run,
-            request.path_params["session_id"],
-            payload.revision_id,
+        payload = await _request_model(
+            request,
+            RunExperimentRequest,
+            max_bytes=_SMALL_REQUEST_BYTES,
         )
+        try:
+            result = await run_in_threadpool(
+                sessions.run,
+                request.path_params["session_id"],
+                payload.revision_id,
+            )
+        except ExecutionSessionNotFound:
+            return service_error_response(
+                code="unknown_execution_session",
+                message="the Execution session does not exist",
+                status_code=404,
+            )
+        except ExperimentRevisionNotFound:
+            return service_error_response(
+                code="unknown_experiment_revision",
+                message="the Experiment revision does not exist",
+                status_code=404,
+            )
         artifacts = {
             name: deepcopy(member.value) for name, member in result.members.items()
         }
@@ -191,8 +278,46 @@ def create_api_v1() -> ASGIApp:
             )
         return JSONResponse(body.model_dump(mode="json"))
 
+    async def delete_execution_session(request: Request) -> Response:
+        session_id = request.path_params["session_id"]
+        try:
+            await run_in_threadpool(sessions.delete, session_id)
+        except ExecutionSessionNotFound:
+            return service_error_response(
+                code="unknown_execution_session",
+                message="the Execution session does not exist",
+                status_code=404,
+            )
+        return JSONResponse(
+            ExecutionSessionDeletedResponse(session_id=session_id).model_dump(
+                mode="json"
+            )
+        )
+
+    async def invalid_http_request(
+        _request: Request, _error: Exception
+    ) -> Response:
+        return service_error_response(
+            code="invalid_request",
+            message="the request does not match the closed HTTP schema",
+            status_code=400,
+        )
+
+    async def request_too_large(
+        _request: Request, _error: Exception
+    ) -> Response:
+        return service_error_response(
+            code="request_too_large",
+            message="the request body exceeds the HTTP protocol limit",
+            status_code=413,
+        )
+
     return Starlette(
         debug=False,
+        exception_handlers={
+            InvalidHttpRequest: invalid_http_request,
+            HttpRequestTooLarge: request_too_large,
+        },
         routes=[
             Route("/v1/status", status, methods=["GET"]),
             Route(
@@ -209,6 +334,11 @@ def create_api_v1() -> ASGIApp:
                 "/v1/execution-sessions/{session_id:str}/runs",
                 run_experiment_revision,
                 methods=["POST"],
+            ),
+            Route(
+                "/v1/execution-sessions/{session_id:str}",
+                delete_execution_session,
+                methods=["DELETE"],
             ),
         ],
     )

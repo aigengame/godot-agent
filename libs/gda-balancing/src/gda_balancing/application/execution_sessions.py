@@ -128,3 +128,10 @@ class ExecutionSessions:
         except KeyError as error:
             raise ExperimentRevisionNotFound(revision_id) from error
         return execute_checked_experiment(checked)
+
+    def delete(self, session_id: str) -> None:
+        """Release one process-local session and all of its revisions."""
+        try:
+            del self._sessions[session_id]
+        except KeyError as error:
+            raise ExecutionSessionNotFound(session_id) from error

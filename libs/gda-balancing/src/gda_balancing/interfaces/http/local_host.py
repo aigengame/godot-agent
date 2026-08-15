@@ -16,6 +16,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from gda_balancing.interfaces.http.service_errors import service_error_response
+
 
 @dataclass(frozen=True)
 class LocalHostReadiness:
@@ -34,20 +36,6 @@ class ShutdownResponse(BaseModel):
     status: Literal["shutting-down"] = "shutting-down"
 
 
-class ServiceError(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    category: Literal["service"] = "service"
-    code: Literal["authentication_required"]
-    message: str
-
-
-class ServiceErrorEnvelope(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    error: ServiceError
-
-
 class BearerCapabilityMiddleware:
     """Require the process capability on every versioned local-host route."""
 
@@ -64,13 +52,9 @@ class BearerCapabilityMiddleware:
             b"",
         )
         if not secrets.compare_digest(authorization, self._authorization):
-            response = JSONResponse(
-                ServiceErrorEnvelope(
-                    error=ServiceError(
-                        code="authentication_required",
-                        message="a valid local process capability is required",
-                    )
-                ).model_dump(mode="json"),
+            response = service_error_response(
+                code="authentication_required",
+                message="a valid local process capability is required",
                 status_code=401,
             )
             await response(scope, receive, send)
