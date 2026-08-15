@@ -44,7 +44,7 @@ class ServeReadiness(BaseModel):
     protocol: Literal["v1"] = PROTOCOL_VERSION
     toolkit_version: str
     host: str
-    port: int = Field(gt=0, le=65535)
+    port: int = Field(ge=1, le=65535)
     base_url: str
     capability_token: str = Field(min_length=43)
 

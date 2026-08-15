@@ -30,9 +30,8 @@ from gda_balancing.interfaces.http.local_host import (
 )
 
 
-_ROGUELIKE_EXAMPLE = (
-    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
-)
+_PACKAGE_ROOT = Path(__file__).parents[1]
+_ROGUELIKE_EXAMPLE = _PACKAGE_ROOT / "examples" / "schema2" / "roguelike-reward-build"
 
 
 def _console_script() -> str:
@@ -812,6 +811,7 @@ def test_built_wheel_starts_the_service_and_executes_packaged_authority(
             str(distribution_dir),
         ],
         capture_output=True,
+        cwd=_PACKAGE_ROOT,
         text=True,
     )
     assert built.returncode == 0, built.stderr
