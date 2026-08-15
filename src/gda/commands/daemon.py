@@ -126,8 +126,9 @@ class DaemonStartResult(BaseModel):
             "rather than a silent write into a tracked project (#654). Empty on an "
             "idempotent repeat start and on a version resync — those rewrite the "
             "harness (`harness_synced`) but create nothing new. Reversed by "
-            "`gda daemon uninstall`, except `res://addons` itself, which is left in "
-            "place as the shared Godot addons directory."
+            "`gda daemon uninstall`, except `res://addons` itself: an empty "
+            "directory is invisible to git, and the shared Godot addons directory "
+            "may be about to hold another addon."
         ),
     )
     created_sections: list[str] = Field(
@@ -220,9 +221,10 @@ class DaemonUninstallResult(BaseModel):
         description=(
             "The `res://` paths removed: the harness script, its engine-generated "
             "`.uid` sidecar, and `res://addons/gda_harness` once empty (#654). "
-            "`res://addons` is left in place — it is the shared Godot addons "
-            "directory, and uninstall records no pre-install state to tell whether "
-            "gda or the project created it."
+            "`res://addons` is left in place: an empty directory is invisible to "
+            "git, so it causes none of the tracked-file churn this removal is for, "
+            "and the shared Godot addons directory may be about to hold another "
+            "addon."
         ),
     )
     removed_sections: list[str] = Field(
@@ -613,7 +615,9 @@ def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
         *(f"{section} in project.godot" for section in uninstalled.removed_sections),
     ]
     if not removed:
-        # Only the [autoload] entry was there to remove (the files were already gone).
+        # The entry was the only thing left to remove: the harness files were already
+        # gone AND a sibling autoload keeps the section alive, so neither list has
+        # anything in it. Name the entry rather than render a bare "uninstalled".
         return "harness uninstalled: the GdaHarness [autoload] entry in project.godot"
     return "harness uninstalled: " + ", ".join(removed)
 

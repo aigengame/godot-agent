@@ -100,10 +100,13 @@ so two instances can touch the project at once.
 >
 > Both decisions are read off the file **at uninstall time**: no pre-install state is
 > recorded and no marker file is ever written into the project — the same reason point 1
-> keeps the write install-time. Two states therefore stay outside the guarantee by design:
-> an `[autoload]` section that was ALREADY empty before the install is not restored
-> (Godot's own `ConfigFile` writer never emits one), and an `addons/` directory gda created
-> is left in place (it is shared with every other addon).
+> keeps the write install-time. Two states therefore stay outside the guarantee, for two
+> DIFFERENT reasons. An `[autoload]` section that was ALREADY empty before the install is
+> not restored: that one genuinely would need recorded pre-install state, and Godot's own
+> `ConfigFile` writer never emits an empty section, so the input is degenerate. An
+> `addons/` directory gda created is left in place for an unrelated reason — an empty
+> directory is invisible to git, so it causes none of GDA-DF-020's churn, and `addons/` is
+> the shared Godot-convention directory another addon may be about to populate.
 >
 > Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
 > reports `created_paths` / `created_sections` and `daemon uninstall` reports

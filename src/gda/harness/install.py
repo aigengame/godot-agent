@@ -45,9 +45,22 @@ agent (or a reviewer) needs to audit what gda wrote into a tracked project.
 **Line endings (#654).** ``project.godot`` is read and written with newline
 translation OFF and rejoined with the terminator its FIRST line uses, so a CRLF
 project file stays CRLF — Python's default text mode would otherwise silently
-rewrite the whole file to LF on any autoload edit. A file with MIXED terminators is
-normalized to its first one; that is the single documented case where the
-byte-identity guarantee of :func:`uninstall_harness` does not hold.
+rewrite the whole file to LF on any autoload edit.
+
+Three shapes of input still come back changed, so the byte-identity guarantee of
+:func:`uninstall_harness` is scoped to exclude them:
+
+- a file with MIXED terminators is normalized to its first one;
+- a file with NO final terminator gains one (install terminates the line it
+  appends after; uninstall has no way to know the file never ended in a break);
+- a CR-only (classic-Mac) file comes back CRLF — ``_line_ending`` only tells
+  ``\\r\\n`` from ``\\n``, while ``str.splitlines`` also splits a bare ``\\r``.
+
+None is reachable for a ``project.godot`` the engine itself wrote: Godot's
+``ConfigFile`` writer emits uniformly ``\\n``-terminated lines and always
+terminates the last one. They need a hand-edited or tool-mangled file, so they are
+documented rather than coded around — the code stays a plain line-oriented edit
+instead of growing a per-line terminator model for inputs Godot cannot produce.
 """
 
 from dataclasses import dataclass
@@ -118,8 +131,9 @@ class HarnessUninstall:
     ``removed_paths`` / ``removed_sections`` are the removal receipt (#654): the
     ``res://`` paths deleted (innermost file first, the addon directory last) and the
     ``project.godot`` sections dropped. ``removed`` True with BOTH lists empty means
-    only the ``[autoload]`` entry was there to remove — a project whose harness files
-    were already gone.
+    the ``[autoload]`` ENTRY was the only thing left to remove — the harness files
+    were already gone AND a sibling autoload keeps the section alive, so neither
+    list has anything to report.
     """
 
     removed: bool
@@ -436,11 +450,14 @@ def _remove_files(project: Path) -> tuple[str, ...]:
     script, so it is gda's footprint — and until it goes the addon directory is
     never empty, so the directory removal below never fires (GDA-DF-009).
 
-    ``res://addons`` is deliberately left alone even when this empties it: it is the
-    Godot-convention directory shared with every other addon, and uninstall records
-    no pre-install state to tell whether gda or the project created it. Install
-    reports it in ``created_paths`` when gda made it, so the one path this does not
-    reverse is still on the receipt.
+    ``res://addons`` is deliberately left alone even when this empties it, for two
+    reasons that do NOT apply to the ``[autoload]`` section this module does remove.
+    An empty directory is invisible to git, so it causes none of the tracked-file
+    churn that motivated #654 — there is nothing to clean up. And ``addons/`` is the
+    shared Godot-convention directory: another addon may be about to populate it, and
+    removing it under that addon buys nothing. Install still reports it in
+    ``created_paths`` when gda made it, so the one path this does not reverse is on
+    the receipt.
     """
     removed: list[str] = []
     for path, res_path in (
@@ -471,13 +488,19 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
     **Byte-identity (#654).** After ``install_harness`` → ``uninstall_harness``,
     ``project.godot`` holds its pre-install bytes: the entry, the ``[autoload]``
     section gda appended and that section's blank separator all come back off, and
-    the file's own line terminator is preserved (see the module docstring — a
-    MIXED-terminator file is the one documented exception). Two states are outside
-    the guarantee by design, because closing them would need recorded pre-install
-    state that this module refuses to write into the project: an ``[autoload]``
-    section that was ALREADY empty before the install is not restored (Godot's own
-    ``ConfigFile`` writer never emits one), and an ``addons/`` directory gda created
-    is left in place (see :func:`_remove_files`).
+    the file's own line terminator is preserved. Scoped to exclude the three
+    malformed-input shapes the module docstring enumerates (mixed terminators, no
+    final terminator, CR-only), none of which Godot's own writer can produce.
+
+    Two states are outside the guarantee by design:
+
+    - an ``[autoload]`` section that was ALREADY empty before the install is not
+      restored. Closing this one WOULD need recorded pre-install state, which this
+      module refuses to write into the project — and Godot's own ``ConfigFile``
+      writer never emits an empty section, so the input is degenerate.
+    - an ``addons/`` directory gda created is left in place. Here the reason is not
+      missing state (uninstall could infer it just as well as it infers the empty
+      section) but that removal would buy nothing: see :func:`_remove_files`.
     """
     project_godot = project / "project.godot"
     edit = _ConfigEdit("", False)

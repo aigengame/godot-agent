@@ -10,8 +10,9 @@ first, then the files — crash-safe ordering, ADR-0018).
 
 #654 completes the reversal: uninstall also removes the engine-generated ``.uid``
 sidecar and a now-empty ``[autoload]`` section, so install → uninstall leaves
-``project.godot`` byte-identical (line endings included) and no ``addons/`` residue;
-both halves RETURN the exact path/section set they touched.
+``project.godot`` byte-identical (line endings included) and no
+``addons/gda_harness/`` residue — ``addons/`` itself is deliberately left in place.
+Both halves RETURN the exact path/section set they touched.
 """
 
 from gda.harness.install import (
@@ -446,16 +447,16 @@ def test_uninstall_reports_every_path_and_section_it_removed(tmp_path):
         "res://addons/gda_harness",
     )
     assert result.removed_sections == ("[autoload]",)
-    # res://addons stays: it is the shared Godot addons dir and uninstall records no
-    # pre-install state to tell whether gda or the project created it.
+    # res://addons stays: an empty directory is invisible to git (so it causes none
+    # of the churn this removal is for), and another addon may be about to fill it.
     assert (tmp_path / "addons").is_dir()
     assert "res://addons" not in result.removed_paths
 
 
-def test_uninstall_of_a_dangling_entry_reports_the_entry_only(tmp_path):
+def test_uninstall_of_a_dangling_entry_takes_the_section_with_it(tmp_path):
     # A project.godot that kept the entry after the files went (an interrupted
-    # uninstall): `removed` is True with BOTH receipt lists empty — the documented
-    # reading of that combination.
+    # uninstall): there are no paths to remove, but the entry was the section's only
+    # key, so the section goes and the receipt reports it.
     project_godot = tmp_path / "project.godot"
     project_godot.write_text(
         _NO_AUTOLOAD + f'\n[autoload]\n\nGdaHarness="*{HARNESS_RES_PATH}"\n',
@@ -467,6 +468,29 @@ def test_uninstall_of_a_dangling_entry_reports_the_entry_only(tmp_path):
     assert result.removed is True
     assert result.removed_paths == ()
     assert result.removed_sections == ("[autoload]",)
+
+
+def test_uninstall_reports_an_empty_receipt_when_only_the_entry_remained(tmp_path):
+    # The ONE combination that yields `removed` True with BOTH receipt lists empty,
+    # as the HarnessUninstall docstring documents: the harness files are already gone
+    # (nothing to delete) AND a sibling autoload keeps the section alive (nothing to
+    # drop), so the [autoload] ENTRY is all that is left to remove.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD
+        + f'\n[autoload]\n\nGdaHarness="*{HARNESS_RES_PATH}"\nOther="*res://other.gd"\n',
+        encoding="utf-8",
+    )
+
+    result = uninstall_harness(tmp_path)
+
+    assert result.removed is True
+    assert result.removed_paths == ()
+    assert result.removed_sections == ()
+    text = project_godot.read_text(encoding="utf-8")
+    assert _autoload_line() not in text  # the entry went
+    assert "[autoload]" in text  # the section stayed, held up by the sibling
+    assert 'Other="*res://other.gd"' in text
 
 
 def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ed98a1240587c099da7c2ab4a397b9c9e035a41a5a8bf52a76753547fb6a35f4 -->
+<!-- gda-readme-i18n: source=README.md sha256=67c5d4f014acf6098460f1942387f09108fb75478d890d7a0025ff10271d721e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -495,7 +495,7 @@ offset プロパティを明示的に設定してください。
 | `daemon start` | プロジェクトごとのデーモンを起動し、ゲーム内ハーネスをインストールします。エンジンセッションは最初の Live 操作で起動します(`screen` キャプチャには `--windowed`)。 |
 | `daemon stop` | プロジェクトのデーモンと、実行中のエンジンセッションを停止します。 |
 | `daemon status` | デーモンの状態(実行中か、ウィンドウモードか、セッション)を報告します。 |
-| `daemon uninstall` | ゲーム内の `gda` ハーネス(オートロードのエントリ + ファイル)をプロジェクトから削除します — 明示的な開発ツールの撤去です。`gda export run` はエクスポート済み成果物からこれをすでに自動で取り除きます。 |
+| `daemon uninstall` | ゲーム内の `gda` ハーネスをプロジェクトから削除します — オートロードのエントリ、ハーネスのファイルとその `.uid` 補助ファイル、さらにキーが残らなくなった `[autoload]` セクションまで削除するため、`project.godot` はインストール前のバイト列に戻ります。結果には削除したパスとセクションがすべて列挙されます。明示的な開発ツールの撤去です。`gda export run` はエクスポート済み成果物からハーネスをすでに自動で取り除きます。 |
 
 **`game`** — 実行中ゲームのランタイムシーングラフ
 
