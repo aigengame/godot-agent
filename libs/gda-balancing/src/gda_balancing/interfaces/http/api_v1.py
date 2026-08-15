@@ -7,7 +7,7 @@ from typing import Any, Literal, TypeVar, cast
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp
@@ -67,10 +67,13 @@ async def _request_model(
         except ValueError as error:
             raise InvalidHttpRequest from error
     body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > max_bytes:
-            raise HttpRequestTooLarge
-        body.extend(chunk)
+    try:
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > max_bytes:
+                raise HttpRequestTooLarge
+            body.extend(chunk)
+    except ClientDisconnect as error:
+        raise InvalidHttpRequest from error
     try:
         return model.model_validate(json.loads(bytes(body)))
     except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as error:

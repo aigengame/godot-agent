@@ -660,6 +660,36 @@ def test_disconnected_run_has_no_durable_result_and_can_be_rerun() -> None:
         )
 
 
+def test_disconnect_during_request_body_does_not_stop_the_service() -> None:
+    with _running_service() as (process, readiness):
+        connection = socket.create_connection(
+            (readiness["host"], readiness["port"]),
+            timeout=10,
+        )
+        try:
+            request_head = (
+                "POST /v1/execution-sessions HTTP/1.1\r\n"
+                f"Host: {readiness['host']}:{readiness['port']}\r\n"
+                f"Authorization: Bearer {readiness['capability_token']}\r\n"
+                "Content-Type: application/json\r\n"
+                "Content-Length: 1024\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+            ).encode("ascii")
+            connection.sendall(request_head + b'{"model_source":')
+        finally:
+            connection.close()
+        time.sleep(0.5)
+
+        status = _request_json(
+            f"{readiness['base_url']}/v1/status",
+            readiness["capability_token"],
+        )
+
+        assert process.poll() is None
+        assert status["status"] == "ready"
+
+
 def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
     model_source, experiment = _roguelike_documents()
 
