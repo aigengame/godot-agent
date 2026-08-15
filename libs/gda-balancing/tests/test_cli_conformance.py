@@ -336,6 +336,38 @@ class TestPerDescriptorRows:
 
 
 class TestSurfaceLaws:
+    def test_foreground_fault_after_readiness_preserves_the_two_stream_contract(
+        self,
+        run_cli,
+    ):
+        descriptor = next(
+            item
+            for item in REGISTRY
+            if item.execution_lifecycle == "foreground-service"
+        )
+        readiness = descriptor.fixtures.foreground_readiness
+        assert readiness is not None
+
+        def emit_then_fail(_input, emit_ready, _stderr):
+            emit_ready(descriptor.output_model.model_validate(readiness))
+            raise RuntimeError("injected post-readiness fault")
+
+        registry = tuple(
+            dataclasses.replace(item, foreground_runner=emit_then_fail)
+            if item is descriptor
+            else item
+            for item in REGISTRY
+        )
+
+        exit_code, stdout, stderr = run_cli(_command_path(descriptor), registry)
+
+        assert exit_code == 4
+        assert json.loads(stdout) == readiness
+        error = _assert_envelope(stderr, "internal")
+        assert error["code"] == "internal_error"
+        assert error["message"] == "the toolkit failed unexpectedly (RuntimeError)"
+        assert "Traceback" not in stderr
+
     def test_error_schema_is_line_or_descriptor_owned(self, run_cli):
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])

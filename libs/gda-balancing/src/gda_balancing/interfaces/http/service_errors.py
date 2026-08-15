@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 
 ServiceErrorCode = Literal[
     "authentication_required",
+    "internal_error",
     "invalid_request",
     "request_too_large",
     "unsupported_media_type",
@@ -42,4 +43,13 @@ def service_error_response(
             mode="json"
         ),
         status_code=status_code,
+    )
+
+
+def internal_service_error_response() -> JSONResponse:
+    """Render the one sanitized response for an unexpected service fault."""
+    return service_error_response(
+        code="internal_error",
+        message="the local service failed unexpectedly",
+        status_code=500,
     )

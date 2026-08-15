@@ -27,7 +27,10 @@ from gda_balancing.application.experiment_execution import (
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.diagnostics import Schema2RefusalReport
 from gda_balancing.infrastructure.distribution import distribution_version
-from gda_balancing.interfaces.http.service_errors import service_error_response
+from gda_balancing.interfaces.http.service_errors import (
+    internal_service_error_response,
+    service_error_response,
+)
 
 PROTOCOL_VERSION = "v1"
 _PROTOCOL_ENVELOPE_BYTES = 65_536
@@ -320,12 +323,19 @@ def create_api_v1() -> ASGIApp:
             status_code=415,
         )
 
+    async def unexpected_internal_error(
+        _request: Request,
+        _error: Exception,
+    ) -> Response:
+        return internal_service_error_response()
+
     return Starlette(
         debug=False,
         exception_handlers={
             InvalidHttpRequest: invalid_http_request,
             HttpRequestTooLarge: request_too_large,
             UnsupportedHttpMediaType: unsupported_media_type,
+            Exception: unexpected_internal_error,
         },
         routes=[
             Route("/v1/status", status, methods=["GET"]),

@@ -14,12 +14,20 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
+from queue import Queue
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import pytest
+from starlette.types import Receive, Scope, Send
+
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.runtime.projections import evaluator_build_identity
+from gda_balancing.interfaces.http.local_host import (
+    LocalHostReadiness,
+    run_local_host,
+)
 
 
 _ROGUELIKE_EXAMPLE = (
@@ -678,6 +686,57 @@ def test_bind_failure_uses_the_descriptor_internal_error_contract() -> None:
     assert error["category"] == "internal"
     assert error["code"] == "internal_error"
     assert error["message"] == "the toolkit failed unexpectedly (OSError)"
+
+
+def test_post_readiness_application_fault_stops_the_local_host() -> None:
+    readiness_queue: Queue[LocalHostReadiness] = Queue(maxsize=1)
+
+    async def failing_application(
+        _scope: Scope,
+        _receive: Receive,
+        _send: Send,
+    ) -> None:
+        raise RuntimeError("injected post-readiness fault")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        serving = executor.submit(
+            run_local_host,
+            host="127.0.0.1",
+            port=0,
+            application_factory=lambda: failing_application,
+            emit_ready=readiness_queue.put,
+        )
+        readiness = readiness_queue.get(timeout=10)
+        try:
+            request = Request(
+                f"http://{readiness.host}:{readiness.port}/v1/status",
+                headers={
+                    "Authorization": f"Bearer {readiness.capability_token}",
+                },
+            )
+            with pytest.raises(HTTPError) as response:
+                urlopen(request, timeout=10)
+            assert response.value.code == 500
+            assert json.load(response.value) == {
+                "error": {
+                    "category": "service",
+                    "code": "internal_error",
+                    "message": "the local service failed unexpectedly",
+                }
+            }
+
+            with pytest.raises(
+                RuntimeError,
+                match="injected post-readiness fault",
+            ):
+                serving.result(timeout=10)
+        finally:
+            if not serving.done():
+                _request_json(
+                    f"http://{readiness.host}:{readiness.port}/v1/shutdown",
+                    readiness.capability_token,
+                    method="POST",
+                )
 
 
 def test_built_wheel_starts_the_service_and_executes_packaged_authority(

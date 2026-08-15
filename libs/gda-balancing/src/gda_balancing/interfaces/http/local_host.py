@@ -14,9 +14,12 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from gda_balancing.interfaces.http.service_errors import service_error_response
+from gda_balancing.interfaces.http.service_errors import (
+    internal_service_error_response,
+    service_error_response,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +31,7 @@ class LocalHostReadiness:
 
 ApplicationFactory = Callable[[], ASGIApp]
 ReadinessEmitter = Callable[[LocalHostReadiness], None]
+FaultReporter = Callable[[Exception], None]
 
 
 class ShutdownResponse(BaseModel):
@@ -62,6 +66,31 @@ class BearerCapabilityMiddleware:
         await self._app(scope, receive, send)
 
 
+class FatalApplicationFaultMiddleware:
+    """Stop the foreground host after one unexpected application fault."""
+
+    def __init__(self, app: ASGIApp, report_fault: FaultReporter) -> None:
+        self._app = app
+        self._report_fault = report_fault
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        response_started = False
+
+        async def observe_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self._app(scope, receive, observe_send)
+        except Exception as error:
+            self._report_fault(error)
+            if not response_started:
+                response = internal_service_error_response()
+                await response(scope, receive, send)
+
+
 def _local_companion_app(
     execution_api: ASGIApp,
     capability_token: str,
@@ -72,8 +101,15 @@ def _local_companion_app(
         request_shutdown()
         return response
 
+    async def unexpected_internal_error(
+        _request: Request,
+        _error: Exception,
+    ) -> Response:
+        return internal_service_error_response()
+
     app = Starlette(
         debug=False,
+        exception_handlers={Exception: unexpected_internal_error},
         routes=[
             Route("/v1/shutdown", shutdown, methods=["POST"]),
             Mount("/", app=execution_api),
@@ -124,12 +160,19 @@ async def _serve(
 ) -> int:
     capability_token = secrets.token_urlsafe(32)
     server_ref: list[uvicorn.Server] = []
+    fatal_error: list[Exception] = []
 
     def request_shutdown() -> None:
         server_ref[0].should_exit = True
 
-    app = _local_companion_app(
-        application_factory(), capability_token, request_shutdown
+    def report_fault(error: Exception) -> None:
+        if not fatal_error:
+            fatal_error.append(error)
+            request_shutdown()
+
+    app = FatalApplicationFaultMiddleware(
+        _local_companion_app(application_factory(), capability_token, request_shutdown),
+        report_fault,
     )
     config = uvicorn.Config(
         app,
@@ -160,4 +203,6 @@ async def _serve(
         )
     )
     await task
+    if fatal_error:
+        raise fatal_error[0]
     return 0
