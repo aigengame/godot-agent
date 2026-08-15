@@ -222,11 +222,12 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
 
 # --- The #651 verdict: gda decides whether the engine ran what it was asked to.
 #
-# Godot exits 0 for a missing entry script AND for one that fails to parse, so the
-# passthrough reported a phantom success for both. These drive the operation with
-# stderr captured VERBATIM from a real engine run (the same captures the parser's
-# own tests use, see tests/test_script_errors.py) so the fixtures cannot drift into
-# something the engine never prints.
+# Godot exits 0 for a missing entry script, for one that fails to parse, AND for one
+# that is not a SceneTree/MainLoop, so the passthrough reported a phantom success for
+# all three. These drive the operation with stderr captured VERBATIM from a real
+# engine run (the same captures the parser's own tests use, see
+# tests/test_script_error_parser.py) so the fixtures cannot drift into something the
+# engine never prints.
 
 MISSING_STDERR = """\
 ERROR: Attempt to open script 'res://tests/logic.gd' resulted in error 'File not found'.
@@ -250,6 +251,11 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'missing_method' in base 'Nil'.
           GDScript backtrace (most recent call first):
               [0] _boom (res://tests/logic.gd:10)
               [1] _initialize (res://tests/logic.gd:4)
+"""
+
+NOT_A_MAIN_LOOP_STDERR = """\
+ERROR: Can't load the script "res://tests/logic.gd" as it doesn't inherit from SceneTree or MainLoop.
+   at: start (main/main.cpp:4286)
 """
 
 
@@ -307,6 +313,32 @@ def test_runtime_script_error_is_surfaced_as_a_diagnostic_not_a_failure():
     assert outcome.stderr == RUNTIME_ERROR_STDERR
 
 
+def test_not_a_main_loop_entry_is_a_failure_despite_the_zero_exit():
+    # The third never-ran shape: the script exists and compiles, but cannot BE the
+    # entry point, so the engine refuses it and exits 0. It reuses the registered
+    # `incompatible_script_type` — the same condition `script attach` names for a
+    # base type that is wrong for the requested use.
+    outcome, _ = _run(RunResult(stdout="", stderr=NOT_A_MAIN_LOOP_STDERR, exit_code=0))
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "incompatible_script_type"
+    assert outcome.exit_code == EXIT_OPERATION
+    assert "SceneTree" in outcome.error.message
+
+
+def test_every_entry_failure_kind_has_a_verdict_code():
+    # A kind in the precedence list with no row in the code map would be a KeyError
+    # on a real failure path — the one way this pair can break. Pin them in lockstep,
+    # and pin that every code they name is actually registered.
+    from gda.commands.script import _ENTRY_FAILURE_CODES
+    from gda.error_codes import ERROR_CODE_BY_CODE
+    from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
+
+    assert set(_ENTRY_FAILURE_CODES) == set(_ENTRY_FAILURE_PRECEDENCE)
+    for code in _ENTRY_FAILURE_CODES.values():
+        assert code in ERROR_CODE_BY_CODE
+
+
 def test_strict_maps_a_non_zero_exit_onto_the_registered_failure():
     # GDA-DF-017, opted in: a test that quit(1) becomes the script_failed envelope so
     # a shell `&&` chain stops. The gda exit is the REGISTERED operation code, never
@@ -319,7 +351,45 @@ def test_strict_maps_a_non_zero_exit_onto_the_registered_failure():
     assert outcome.error.code == "script_failed"
     assert outcome.exit_code == EXIT_OPERATION
     assert "status 3" in outcome.error.message
-    assert outcome.error.diagnostics == "boom\n"
+
+
+def test_strict_carries_both_script_streams_as_evidence():
+    # THE point of the flag: a GDScript test runner reports through print(), i.e.
+    # STDOUT. An envelope carrying only stderr would hand a CI caller a failure with
+    # no content, so diagnostics carries both streams under fixed labels.
+    outcome, _ = _run(
+        RunResult(
+            stdout="FAIL test_damage: expected 5 got 4\n",
+            stderr="engine warning\n",
+            exit_code=1,
+        ),
+        strict=True,
+    )
+
+    assert isinstance(outcome, Failure)
+    diagnostics = outcome.error.diagnostics
+    assert "FAIL test_damage: expected 5 got 4" in diagnostics
+    assert "engine warning" in diagnostics
+    assert diagnostics == (
+        "--- script stdout ---\n"
+        "FAIL test_damage: expected 5 got 4\n"
+        "--- script stderr ---\n"
+        "engine warning\n"
+    )
+
+
+def test_strict_evidence_layout_is_stable_when_a_stream_is_empty():
+    # Both sections are ALWAYS present — an empty stream yields an empty section, not
+    # a missing one — so a consumer can split on the labels without first discovering
+    # which streams the script happened to write to.
+    outcome, _ = _run(
+        RunResult(stdout="", stderr="only stderr\n", exit_code=1), strict=True
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.diagnostics == (
+        "--- script stdout ---\n--- script stderr ---\nonly stderr\n"
+    )
 
 
 def test_strict_leaves_a_zero_exit_a_success():

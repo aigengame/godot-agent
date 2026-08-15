@@ -547,8 +547,11 @@ class ScriptRunParams(BaseModel):
             "Treat a non-zero script exit status as a gda failure: emit the error "
             "envelope with code 'script_failed' and exit 4, instead of the default "
             "passthrough success. Opt-in, for shell '&&' chains and CI gates that "
-            "key on the process exit code. A script that never ran (missing, or a "
-            "failed load/compile) fails either way (ADR-0031 amendment)."
+            "key on the process exit code. The envelope keeps the evidence: its "
+            "message names the exit status, and its 'diagnostics' string carries "
+            "BOTH of the script's streams under the fixed labels "
+            "'--- script stdout ---' and '--- script stderr ---'. A script that "
+            "never ran fails either way (ADR-0031 amendment)."
         ),
     )
 
@@ -615,13 +618,14 @@ class ScriptRunResult(BaseModel):
 #   export channel uses, into its existing codes (``binary_not_found`` /
 #   ``launch_timeout`` / ``engine_crashed``). No new GDScript-mirrored codes.
 # - **the script never RAN** — the engine exited normally but its stderr proves it
-#   could not load the entry script (missing, or a failed parse/compile of the
-#   script or a dependency it preloads) → an **Error envelope** carrying
-#   ``script_not_found`` / ``script_compile_failed`` (#651, ADR-0031 amendment).
-#   Godot reports all of these on stderr and STILL exits 0, so passing that status
-#   through reported a phantom success. gda is the authority on whether the engine
-#   ran what it was asked to; the verdict is read from the parsed stderr evidence
-#   (:mod:`gda.script_errors`), never from the exit code.
+#   could not run the entry script: it is missing, it (or a dependency it preloads)
+#   failed to parse/compile, or it compiles but is not a ``SceneTree``/``MainLoop``
+#   → an **Error envelope** carrying ``script_not_found`` /
+#   ``script_compile_failed`` / ``incompatible_script_type`` (#651, ADR-0031
+#   amendment). Godot reports all of these on stderr and STILL exits 0, so passing
+#   that status through reported a phantom success. gda is the authority on whether
+#   the engine ran what it was asked to; the verdict is read from the parsed stderr
+#   evidence (:mod:`gda.script_errors`), never from the exit code.
 # - **the script ran to completion** — the engine exited normally
 #   (``exit_code >= 0``) → a **success** :class:`ScriptRunResult` carrying
 #   ``{exit_status, stdout, stderr, diagnostics}`` **passed through verbatim, even
@@ -677,16 +681,29 @@ class LaunchFn(Protocol):
     ) -> RunResult: ...
 
 
-# The verdict a proven entry-load failure maps to (#651). ``script_compile_failed``
-# is REUSED from ``script attach`` rather than duplicated: the condition is the same
-# one it already names — this script does not compile — and ADR-0002 prefers reusing
-# a code and discriminating via the message. The generic ``LOAD_FAILED`` (the engine
-# gave up on the entry point without naming a missing file) lands there too: the
-# file was readable, so "could not be loaded or compiled" is what gda actually knows.
+# The verdict each proven entry-load failure maps to (#651). Two of the three codes
+# are REUSED from ``script attach`` rather than duplicated, because the conditions
+# are the ones it already names (ADR-0002 — reuse the code, discriminate via the
+# message):
+#
+# - ``script_compile_failed`` — this script does not compile. The engine's explicit
+#   load-failure sentence (COMPILE_FAILED), the parse diagnostic behind it
+#   (PARSE_ERROR), and the generic give-up (LOAD_FAILED) all land here: whichever
+#   sentence the engine chose, what gda knows is that the entry could not be loaded
+#   or compiled.
+# - ``incompatible_script_type`` — this script compiles, but its base type is wrong
+#   for the requested use. ``script attach`` means "wrong for the target node";
+#   ``script run`` means "does not extend SceneTree/MainLoop, so it cannot be a
+#   one-shot entry point". Same condition, different target.
+#
+# Every kind in ``_ENTRY_FAILURE_PRECEDENCE`` MUST have a row here — a missing row
+# would be a KeyError on a real failure path, so a test pins the two in lockstep.
 _ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
     ScriptErrorKind.SCRIPT_MISSING: "script_not_found",
     ScriptErrorKind.COMPILE_FAILED: "script_compile_failed",
+    ScriptErrorKind.PARSE_ERROR: "script_compile_failed",
     ScriptErrorKind.LOAD_FAILED: "script_compile_failed",
+    ScriptErrorKind.NOT_A_MAIN_LOOP: "incompatible_script_type",
 }
 
 
@@ -769,7 +786,7 @@ def run_script_run_operation(
     # The script RAN. Its own status is data by default (the ADR-0031 crux) and a
     # gda failure only when the caller opted in with --strict.
     if strict and raw.exit_code != 0:
-        return script_exit_status_failure(script, raw.exit_code, raw.stderr)
+        return script_exit_status_failure(script, raw.exit_code, raw.stdout, raw.stderr)
 
     # The public promotion of the internal Raw run: the thin boundary DTO built by
     # dropping launch_failure (lifted into the Error envelope above) and renaming
@@ -1306,7 +1323,10 @@ def run_script(
         help=(
             "Fail when the script exits non-zero: emit the 'script_failed' error "
             "envelope and exit 4 instead of the default passthrough success. For "
-            "shell '&&' chains and CI gates. A script that never ran fails either way."
+            "shell '&&' chains and CI gates. The envelope's message names the exit "
+            "status and its diagnostics carry both script streams, labelled "
+            "'--- script stdout ---' / '--- script stderr ---'. A script that never "
+            "ran fails either way."
         ),
     ),
     json_output: bool = json_option(),
@@ -1324,15 +1344,18 @@ def run_script(
     assertion-failed logic-seam test) is data the agent reads, not a gda failure —
     read ``exit_status``, do not assume ``success == zero``. Pass ``--strict`` to
     invert that one default and get the ``script_failed`` envelope (exit 4) for a
-    non-zero status, so a shell ``&&`` chain or CI gate stops on it.
+    non-zero status, so a shell ``&&`` chain or CI gate stops on it; that envelope
+    carries the script's own stdout and stderr in its ``diagnostics``.
 
-    A script that never RAN is a failure either way: a missing res:// entry script is
-    ``script_not_found``, and an entry script (or a dependency it preloads) that
-    fails to parse or compile is ``script_compile_failed`` — Godot reports both on
-    stderr and still exits 0, so gda decides these from the engine's error stream,
-    not its exit code. Recognized script errors — including a runtime GDScript error
-    the script itself survived — are also surfaced as structured ``diagnostics`` on a
-    successful result.
+    A script that never RAN is a failure either way. Godot reports all three of these
+    on stderr and still exits 0, so gda decides them from the engine's error stream,
+    not its exit code: a missing res:// entry script is ``script_not_found``; an
+    entry script (or a dependency it preloads) that fails to parse or compile is
+    ``script_compile_failed``; and one that compiles but does not extend
+    ``SceneTree``/``MainLoop``, so it cannot be an entry point at all, is
+    ``incompatible_script_type``. Recognized script errors — including a runtime
+    GDScript error the script itself survived — are also surfaced as structured
+    ``diagnostics`` on a successful result.
 
     Only a gda-/engine-level failure (binary not launchable, timeout, or a signal
     crash) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``

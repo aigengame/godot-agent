@@ -89,35 +89,56 @@ class ScriptErrorKind(str, Enum):
     """What a recognized engine error line says about a script (#651).
 
     A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. The three ``*_FAILED``/``MISSING`` kinds mean
-    the named script **never ran**; the two error kinds mean it was loaded and
-    something went wrong before or during execution.
+    that carry :class:`ScriptError`. **Five** of the six kinds mean the named
+    script **never ran** — it was missing, unreadable, non-compiling, or unusable
+    as an entry point. Only ``RUNTIME_ERROR`` means the script was loaded and
+    running when the error was raised.
     """
 
     #: A compile failure in the named script (its own syntax error, or a
     #: dependency it preloads that does not resolve). The script never ran.
     PARSE_ERROR = "parse_error"
-    #: A GDScript error raised while the script was already executing.
+    #: A GDScript error raised while the script was already executing. The ONLY
+    #: kind that says the script ran.
     RUNTIME_ERROR = "runtime_error"
     #: The named script does not exist. It never ran.
     SCRIPT_MISSING = "script_missing"
     #: The named script exists but could not be loaded (an open failure other
-    #: than a missing file, or the engine giving up on the entry point).
+    #: than a missing file, or the engine giving up on the entry point). It
+    #: never ran.
     LOAD_FAILED = "load_failed"
     #: The named script was read but did not compile. It never ran.
     COMPILE_FAILED = "compile_failed"
     #: The named script compiles but does not extend ``SceneTree``/``MainLoop``,
-    #: so it cannot be a one-shot ``--script`` entry point.
+    #: so it cannot be a one-shot ``--script`` entry point. It never ran.
     NOT_A_MAIN_LOOP = "not_a_main_loop"
 
 
-#: The kinds that prove a script never ran, most specific first. The order IS the
-#: verdict precedence used by :func:`entry_load_failure`: a missing file is a
-#: better explanation than the generic "can't load" the engine emits beside it.
+#: The kinds that prove a script never ran, in verdict precedence — the order
+#: :func:`entry_load_failure` returns them in when a run emits several. It runs
+#: EARLIEST-STAGE, MOST SPECIFIC first, because the engine reports the whole
+#: cascade and only the first cause explains the rest:
+#:
+#: 1. ``SCRIPT_MISSING`` — a file that does not exist cannot compile, so it
+#:    outranks the generic "can't load" the engine emits beside it;
+#: 2. ``COMPILE_FAILED`` — the engine's explicit "Failed to load script … with
+#:    error …" verdict sentence;
+#: 3. ``PARSE_ERROR`` — the individual diagnostic that CAUSED (2). Ranked below it
+#:    because (2) is the engine's own conclusion, but kept in the list so a
+#:    non-compiling entry is still caught if a build ever emits the diagnostic
+#:    without the conclusion;
+#: 4. ``LOAD_FAILED`` — "can't load", the least specific reason;
+#: 5. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
+#:    already existed AND compiled; it is a refusal, not a load failure.
+#:
+#: ``RUNTIME_ERROR`` is absent by construction: it is the one kind that proves the
+#: script DID run.
 _ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.SCRIPT_MISSING,
     ScriptErrorKind.COMPILE_FAILED,
+    ScriptErrorKind.PARSE_ERROR,
     ScriptErrorKind.LOAD_FAILED,
+    ScriptErrorKind.NOT_A_MAIN_LOOP,
 )
 
 
@@ -131,10 +152,10 @@ class ScriptError(BaseModel):
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine script failure this line reports. "
-            "'script_missing', 'compile_failed', 'parse_error', 'load_failed' and "
-            "'not_a_main_loop' all mean the named script never ran; "
-            "'runtime_error' means it was running and raised."
+            "Which known engine script failure this line reports. Five of the six "
+            "mean the named script never ran: 'script_missing', 'compile_failed', "
+            "'parse_error', 'load_failed' and 'not_a_main_loop'. Only "
+            "'runtime_error' means the script was loaded and running when it raised."
         )
     )
     message: str = Field(

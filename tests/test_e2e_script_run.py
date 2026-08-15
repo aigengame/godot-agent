@@ -28,8 +28,28 @@ prints. A fixture-driven test would only prove the parser matches our fixtures.
 - a runtime GDScript error the script survived → still a SUCCESS, with the error
   surfaced as a classified diagnostic (GDA-DF-007);
 - a deliberate ``quit(1)`` under ``--strict`` → the ``script_failed`` envelope and
-  a non-zero gda process exit (GDA-DF-017), while the default arm above is
-  unchanged.
+  a non-zero gda process exit (GDA-DF-017), carrying the suite's own printed
+  output as evidence, while the default arm above is unchanged.
+
+**No e2e arm for the not-a-main-loop shape, deliberately.** An entry script that
+compiles but does not extend ``SceneTree``/``MainLoop`` also never runs, and gda
+now classifies it as ``incompatible_script_type`` — but the engine has **two**
+behaviours for it and only one is a phantom success:
+
+- it errors (``Can't load the script … as it doesn't inherit from SceneTree or
+  MainLoop``) and exits ``0`` — the phantom success this classification fixes.
+  Observed on a real run and pinned by ``tests/test_script_error_parser.py`` /
+  ``tests/test_script_run_operation.py`` against that verbatim stderr;
+- it errors and then **keeps running** — the engine falls through to the project's
+  normal main loop, which idles forever headless. This is what a clean fixture
+  project does here (reproduced repeatedly; not caused by the import cache or by
+  other non-compiling scripts in the project, both refuted by probe).
+
+The second is already a failure by a different route (``launch_timeout``, the
+#655 path), so gda never reports success either way. Reproducing the first
+on demand is not possible from project contents, and asserting only the weak
+"never a success" invariant would cost a 120s timeout per run for no added
+signal — so this shape stays unit-covered, with real captured stderr.
 
 The launch-timeout and signal-crash arms of the shared classifier are covered by
 ``tests/test_script_run_operation.py`` and ``tests/test_classify_launch_or_crash.py``
@@ -106,6 +126,18 @@ func _initialize() -> void:
 func _boom() -> void:
 \tvar d = null
 \td.missing_method()
+"""
+
+# A failing suite that reports the way a real GDScript test runner does — through
+# print(), i.e. STDOUT. It is the fixture for the --strict evidence assertion:
+# an envelope carrying only stderr would hold none of these lines.
+FAILING_SUITE_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tprint("FAIL test_damage: expected 5 got 4")
+\tprint("1 of 3 tests failed")
+\tquit(1)
 """
 
 
@@ -328,6 +360,41 @@ def test_script_run_strict_fails_on_an_explicit_non_zero_quit(godot_project):
     assert err["code"] == "script_failed"
     assert err["category"] == "operation"
     assert "status 1" in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_run_strict_envelope_carries_the_suites_stdout(godot_project):
+    # The evidence assertion, against the REAL engine: a GDScript suite reports through
+    # print(), so its failure detail is on STDOUT. The --strict envelope must carry it —
+    # a CI caller that only gets an exit code and an empty diagnostics learns nothing.
+    (godot_project / "suite_fail.gd").write_text(FAILING_SUITE_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://suite_fail.gd",
+        "--strict",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_failed"
+    diagnostics = err["diagnostics"]
+    # Both labelled sections are present, and the suite's own printed failure detail
+    # survives into the envelope.
+    assert "--- script stdout ---" in diagnostics
+    assert "--- script stderr ---" in diagnostics
+    assert "FAIL test_damage: expected 5 got 4" in diagnostics
+    assert "1 of 3 tests failed" in diagnostics
+    # The printed lines are in the stdout section, not misfiled under stderr.
+    stdout_section, _, stderr_section = diagnostics.partition("--- script stderr ---")
+    assert "1 of 3 tests failed" in stdout_section
+    assert "1 of 3 tests failed" not in stderr_section
 
 
 @pytest.mark.e2e

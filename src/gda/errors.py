@@ -440,7 +440,39 @@ def script_did_not_run_failure(
     )
 
 
-def script_exit_status_failure(script: str, exit_status: int, stderr: str) -> Failure:
+# The section headers of a `script_failed` envelope's ``diagnostics`` (#651). The
+# layout is fixed and both sections are ALWAYS emitted — an empty stream yields an
+# empty section rather than a missing one — so a consumer can split on the headers
+# without first discovering which streams the script happened to write to.
+SCRIPT_OUTPUT_STDOUT_HEADER = "--- script stdout ---"
+SCRIPT_OUTPUT_STDERR_HEADER = "--- script stderr ---"
+
+
+def _labelled_script_output(stdout: str, stderr: str) -> str:
+    """Both of the child's streams as one labelled ``diagnostics`` string (#651).
+
+    ``GdaError.diagnostics`` is a free-form ``str`` (ADR-0004), and for a failure
+    that IS the script's own — ``script_failed`` — the script's own output is the
+    diagnostic. A GDScript test runner reports through ``print()``, i.e. stdout, so
+    carrying stderr alone would hand a ``--strict`` CI caller a failure with no
+    content. Both streams are labelled rather than concatenated so the caller can
+    still tell which is which.
+    """
+    parts = []
+    for header, stream in (
+        (SCRIPT_OUTPUT_STDOUT_HEADER, stdout),
+        (SCRIPT_OUTPUT_STDERR_HEADER, stderr),
+    ):
+        # Keep each section's payload verbatim, only guaranteeing the newline that
+        # puts the next header on its own line.
+        body = stream if stream.endswith("\n") or not stream else stream + "\n"
+        parts.append(f"{header}\n{body}")
+    return "".join(parts)
+
+
+def script_exit_status_failure(
+    script: str, exit_status: int, stdout: str, stderr: str
+) -> Failure:
     """The ``script run --strict`` verdict for a non-zero script exit (#651).
 
     Opt-in only. The default remains ADR-0031's passthrough — a deliberate
@@ -449,13 +481,19 @@ def script_exit_status_failure(script: str, exit_status: int, stderr: str) -> Fa
     where a zero gda exit silently accepts a failed test suite. The child status is
     NOT propagated as the process exit code; it is mapped onto the registered
     ``script_failed``/exit ``4`` so a script's ``quit(3)`` cannot alias an unrelated
-    registry code (``EXIT_VERSION``). The status itself stays readable in the
-    message, and the script's stderr in ``diagnostics``.
+    registry code (``EXIT_VERSION``).
+
+    The evidence the caller needs is preserved: the status stays readable in the
+    message, and ``diagnostics`` carries BOTH of the script's streams under fixed
+    labels. Carrying stderr alone would defeat the flag's own use case — a GDScript
+    test runner reports through ``print()``. The status survives only as message
+    prose; a structured status field on the failure channel would need an ADR-0004
+    envelope change, deferred to that decision (#655).
     """
     return make_failure(
         "script_failed",
         f"script run --strict: {script} exited with status {exit_status}",
-        stderr,
+        _labelled_script_output(stdout, stderr),
     )
 
 

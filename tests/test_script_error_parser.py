@@ -133,15 +133,53 @@ def test_runtime_error_is_not_an_entry_failure():
     assert entry_load_failure(errors, "res://runtime_error.gd") is None
 
 
-def test_not_a_main_loop_is_recognized_but_is_not_a_load_verdict():
-    # The script compiles and exists; it just cannot BE the entry point. It is
-    # surfaced as a diagnostic, and mapping it to a verdict is left to a decision
-    # of its own rather than folded into the #651 load-failure codes.
+def test_not_a_main_loop_is_an_entry_failure():
+    # The script exists and compiles; it just cannot BE the entry point — so it never
+    # ran, which is the whole criterion. Exactly the GDA-DF-032 phantom-success shape
+    # in a different disguise, so it fails like the others.
     errors = parse_script_errors(NOT_A_MAIN_LOOP_STDERR)
 
     assert [e.kind for e in errors] == [ScriptErrorKind.NOT_A_MAIN_LOOP]
     assert errors[0].path == "res://plain.gd"
-    assert entry_load_failure(errors, "res://plain.gd") is None
+    verdict = entry_load_failure(errors, "res://plain.gd")
+    assert verdict is not None
+    assert verdict.kind is ScriptErrorKind.NOT_A_MAIN_LOOP
+
+
+def test_a_parse_error_alone_still_fails_the_entry():
+    # Robustness arm: on this engine a parse error always arrives WITH the "Failed to
+    # load script" conclusion, and that conclusion is what normally decides the
+    # verdict. Should a build ever emit the diagnostic without the conclusion, the
+    # entry still did not compile, so it must still fail.
+    only_the_diagnostic = PARSE_ERROR_STDERR.split("ERROR: Failed to load")[0]
+    errors = parse_script_errors(only_the_diagnostic)
+
+    assert [e.kind for e in errors] == [ScriptErrorKind.PARSE_ERROR]
+    verdict = entry_load_failure(errors, "res://parse_error.gd")
+    assert verdict is not None
+    assert verdict.kind is ScriptErrorKind.PARSE_ERROR
+
+
+def test_every_never_ran_kind_is_an_entry_failure_candidate():
+    # The enum's published description promises that five of the six kinds mean the
+    # script never ran. `entry_load_failure` is what acts on that promise, so the two
+    # must not drift: exactly `runtime_error` is excluded.
+    from gda.script_errors import _ENTRY_FAILURE_PRECEDENCE
+
+    assert set(ScriptErrorKind) - set(_ENTRY_FAILURE_PRECEDENCE) == {
+        ScriptErrorKind.RUNTIME_ERROR
+    }
+
+
+def test_the_earliest_stage_cause_wins_when_several_are_reported():
+    # The engine reports the whole cascade; only the first cause explains the rest.
+    # A missing file outranks the generic "can't load" emitted beside it (asserted
+    # above), and a compile failure outranks the parse diagnostic that caused it.
+    errors = parse_script_errors(PARSE_ERROR_STDERR)
+    verdict = entry_load_failure(errors, "res://parse_error.gd")
+
+    assert verdict is not None
+    assert verdict.kind is ScriptErrorKind.COMPILE_FAILED
 
 
 def test_a_failure_naming_another_script_is_not_the_entry_verdict():

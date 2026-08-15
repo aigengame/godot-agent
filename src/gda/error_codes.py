@@ -350,16 +350,26 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "`script attach` refuses to bind it to a node, and `script run` reports "
         "that the entry script (or a dependency it preloads) never ran.",
     ),
-    # `script run`'s two verdict codes (#651, ADR-0031 amendment). Both are decided
-    # by gda from the engine's stderr AFTER the run, so both are CLASSIFIER-source
-    # and NOT GDScript-mirrored — the entry script is the user's own and emits no
-    # ADR-0002 sentinel. A missing entry script reuses no existing code because the
-    # generic `path_not_found` is operation-reported (operations.gd mints it for a
-    # path the OPERATION resolved), whereas this one is read out of stderr for a run
-    # the engine exited 0 from. A failed COMPILE, by contrast, reuses
-    # `script_compile_failed` above rather than minting a near-duplicate: the
-    # condition is the same one `script attach` already names (ADR-0002 — reuse the
-    # code, discriminate via the message).
+    # `script run`'s two NEW verdict codes (#651, ADR-0031 amendment). Both are
+    # decided by gda from the engine's stderr AFTER the run, so both are
+    # CLASSIFIER-source and NOT GDScript-mirrored — the entry script is the user's
+    # own and emits no ADR-0002 sentinel.
+    #
+    # Reuse-vs-mint is decided by SEMANTIC MATCH, not by a code's `source`: a code's
+    # source records where it canonically originates, and reusing one from another
+    # site is the established pattern (`script_path_invalid_failure` reuses
+    # operation-source `invalid_path` from the CLI). So this change reuses
+    # operation-source `script_compile_failed` and `incompatible_script_type` from
+    # the classifier, because `script run` hits the very conditions they name — a
+    # script that does not compile, and one whose base type is wrong for the
+    # requested use (ADR-0002 — reuse the code, discriminate via the message).
+    #
+    # `script_not_found` is minted rather than reusing `path_not_found` for the
+    # opposite reason: the MEANINGS differ. `path_not_found` is "a file the
+    # operation was asked to act on is absent" — a filesystem fact about an
+    # operand. This is "the engine could not load the entry script, so the run
+    # never happened" — a fact about the run itself, which an agent branches on
+    # differently (re-check the path vs. abandon the result entirely).
     ErrorCodeSpec(
         "script_not_found",
         ErrorCategory.OPERATION,
@@ -382,7 +392,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A script compiles but its native base type is incompatible with the target node's type.",
+        "A script compiles but its base type is incompatible with the requested "
+        "use: `script attach`'s target node type, or `script run`'s requirement "
+        "that a one-shot entry script extend SceneTree/MainLoop.",
     ),
     ErrorCodeSpec(
         "signal_not_found",

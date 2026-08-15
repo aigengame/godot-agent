@@ -63,19 +63,34 @@ An operation failure payload has this wire shape:
 The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
+(`diagnostics` is a free-form string, so a channel with better evidence to offer
+may fill it differently: `script run --strict` carries the user script's own
+stdout *and* stderr there under fixed labels, because for that failure the
+script's output is the diagnostic — see the ADR-0031 amendment.)
 
 ### stderr as advisory diagnostics
 
-stderr is still **never** parsed for the success/failure *outcome* or for stable
-error codes — those come only from the exit code and the stdout sentinel, as
-above. A command **may**, however, surface engine error text from stderr as
-**advisory, best-effort diagnostics** on its *success* result, when a useful
-detail is available nowhere else. `script validate` (#118) is the established
-case: when it reports `valid=false`, the per-error `line` and `message` exist
-only in the engine's stderr (no bound API exposes them), so `gda` parses them
-into the result's `diagnostics`. This stays within the contract: the diagnostics
-are advisory (they may hold only the first error, and `column` is unavailable on
-the standard build), and they never determine the outcome or a stable code.
+On **this sentinel channel**, stderr is still **never** parsed for the
+success/failure *outcome* or for stable error codes — those come only from the
+exit code and the stdout sentinel, as above. A command **may**, however, surface
+engine error text from stderr as **advisory, best-effort diagnostics** on its
+*success* result, when a useful detail is available nowhere else. `script
+validate` (#118) is the established case: when it reports `valid=false`, the
+per-error `line` and `message` exist only in the engine's stderr (no bound API
+exposes them), so `gda` parses them into the result's `diagnostics`. This stays
+within the contract: the diagnostics are advisory (they may hold only the first
+error, and `column` is unavailable on the standard build), and they never
+determine the outcome or a stable code.
+
+> **Scope note (2026-08-15, #651).** The rule above governs the sentinel channel,
+> where an outcome is always available from the exit code plus the sentinel.
+> ADR-0031's `script run` is a **different execution shape**: the entry script is
+> the user's own, so it emits no sentinel, and the engine exits `0` even when it
+> never ran the script. There, the engine's error stream is the *only* evidence of
+> the outcome, so that channel **does** derive its verdict from parsed stderr —
+> keyed on recognized engine sentences, never on free-text matching. This does not
+> relax the sentinel rule; it records that the sentinel rule presupposes a sentinel.
+> See the ADR-0031 amendment.
 
 ## `GdaError.code` registry
 
@@ -133,7 +148,7 @@ operation, and parse codes the CLI assigns).
 | `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
 | `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — read from stderr, since the engine still exits 0 (#651). |
 | `script_failed` | `operation` | `classifier` | `4` | A `script run --strict` script ran to completion and chose a non-zero exit status; strict mode maps that opted-in failure onto the uniform error envelope. Never reported without `--strict` (ADR-0031 amendment, #651). |
-| `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its native base type is incompatible with the target node's type. |
+| `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its base type is incompatible with the requested use: `script attach`'s target node type, or `script run`'s requirement that a one-shot entry script extend `SceneTree`/`MainLoop` (#651). |
 | `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
 | `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |

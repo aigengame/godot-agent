@@ -10,16 +10,29 @@ status: accepted
 > decision below is unchanged for a **completed** run; this note draws the line the original text
 > left implicit, and adds one opt-in inversion.
 >
-> **1. A script that never ran is a failure, by default.** Godot reports a missing `--script` entry
-> point, and an entry script (or a dependency it preloads) that fails to parse or compile, **only on
-> stderr — and still exits `0`** (verified against Godot 4.6.3). Passing that status through made
-> `gda script run res://does-not-exist.gd` return `{"exit_status": 0}`, which no reading of the
-> contract calls a successful run. These are **defects, not the contract**: the passthrough exists
-> because gda does not know a user script's *semantics*, and a script that never started has none.
-> They now classify to the registered `script_not_found` / `script_compile_failed` **Error
-> envelope** (both `operation` category, exit `4`). The verdict is read from the engine's error
-> stream, never from the exit code, and is keyed on the **entry script's own `res://` path** — a
-> running script that itself fails to load some *other* resource stays a success.
+> **1. A script that never ran is a failure, by default.** Godot reports **three** such shapes
+> **only on stderr — and still exits `0`** (verified against Godot 4.6.3): a missing `--script` entry
+> point; an entry script (or a dependency it preloads) that fails to parse or compile; and one that
+> compiles but does not extend `SceneTree`/`MainLoop`, so it can never be a one-shot entry point.
+> Passing that status through made `gda script run res://does-not-exist.gd` return
+> `{"exit_status": 0}`, which no reading of the contract calls a successful run. These are
+> **defects, not the contract**: the passthrough exists because gda does not know a user script's
+> *semantics*, and a script that never started has none. They now classify to an **Error envelope**
+> (all `operation` category, exit `4`):
+>
+> | shape | code |
+> | --- | --- |
+> | the entry script does not exist | `script_not_found` (new) |
+> | the entry script or a preloaded dependency does not compile | `script_compile_failed` (reused) |
+> | the entry script compiles but is not a `SceneTree`/`MainLoop` | `incompatible_script_type` (reused) |
+>
+> The two reused codes already name these exact conditions for `script attach`; only the genuinely
+> new condition — "the engine could not load the entry script, so the run never happened" — is
+> minted. The verdict is read from the engine's error stream, never from the exit code, and is keyed
+> on the **entry script's own `res://` path**: a running script that itself fails to load some
+> *other* resource stays a success. When a run emits several of these, the earliest-stage, most
+> specific cause wins (missing > compile > parse > load > not-a-main-loop) — the engine reports the
+> whole cascade, and only the first cause explains the rest.
 >
 > **2. `--strict` inverts the non-zero-exit default, opt-in only.** The considered option
 > "map a non-zero *script* exit to a synthesized `script_failed`" stays **rejected as the default**,
@@ -28,10 +41,13 @@ status: accepted
 > step — cannot express that with a command that always exits `0` (GDA-DF-017). `--strict` is that
 > expression: for that invocation, a completed run with a non-zero `exit_status` becomes the
 > registered `script_failed` envelope. The child status is **not** propagated as gda's process exit
-> code — a script's `quit(3)` would alias `EXIT_VERSION` — so strict exits `4` and keeps the status
-> readable in the message and the script's stderr in `diagnostics`. The script's **stdout is not
-> carried by the envelope**; re-run without `--strict` to read the full passthrough result.
-> Without the flag, behaviour is exactly as decided below.
+> code — a script's `quit(3)` would alias `EXIT_VERSION` — so strict exits `4`.
+>
+> The envelope keeps the evidence the flag exists to act on. `diagnostics` carries **both** of the
+> script's streams under the fixed labels `--- script stdout ---` and `--- script stderr ---` (both
+> sections always present, empty when the stream was). Carrying stderr alone would defeat the flag's
+> own use case: a GDScript test runner reports through `print()`, i.e. stdout, so a CI caller would
+> receive a failure with no content. Without the flag, behaviour is exactly as decided below.
 >
 > **3. The success result gains classified `diagnostics`.** Recognized script errors parsed out of
 > the engine's stderr are surfaced as structured entries alongside the verbatim `stderr`, so a
@@ -40,10 +56,14 @@ status: accepted
 > success/failure verdict, never the parsed text. Not interpreting the *script's* semantics was
 > never a reason to ignore the *engine's* report.
 >
-> **Not decided here:** a script that compiles but does not extend `SceneTree`/`MainLoop` also never
-> runs, and the engine reports it the same way. It is parsed and surfaced as a diagnostic
-> (`not_a_main_loop`) but does **not** flip the verdict — it is neither missing nor non-compiling,
-> so it needs a code and a decision of its own.
+> **Shape of the two diagnostics channels — deliberately different, and not symmetric.** The
+> structured `ScriptError[]` of point 3 appears **only on success results**, which are typed models
+> free to carry any shape. The **failure** channel is ADR-0004's `GdaError`, whose `diagnostics` is a
+> free-form `str`, so everything a failure reports — the labelled streams of point 2, the engine
+> stderr behind a point-1 verdict — is **prose**. The child's numeric exit status likewise survives
+> only as message prose, not as a structured field. Giving the failure channel structured
+> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; #655 flags it.
+> This amendment deliberately does **not** make that change.
 
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine
