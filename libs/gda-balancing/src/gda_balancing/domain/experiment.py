@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -354,9 +355,9 @@ def check_experiment(
 ) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
     context = authority_context or packaged_authority_context()
-    kernel = context.kernel
-    language_bundle = context.language_bundle
-    max_source_bytes = cast(int, language_bundle["resources"]["max_source_bytes"])
+    max_source_bytes = cast(
+        int, context.language_bundle["resources"]["max_source_bytes"]
+    )
     observation = read_bounded_input_with_sha256(path, max_source_bytes)
     if observation.data is None:
         return _refusal(
@@ -381,6 +382,49 @@ def check_experiment(
             pointer="",
             message="Experiment Specification is not canonical JSON data",
         )
+    return _check_experiment_value(value, context, model_artifacts=None)
+
+
+def check_experiment_value(
+    value: dict[str, Any],
+    model_artifacts: Mapping[str, dict[str, Any]],
+    *,
+    authority_context: AdmittedAuthorityContext | None = None,
+) -> CheckedExperiment | Schema2RefusalReport:
+    """Admit an in-memory Experiment through the canonical semantic path."""
+    context = authority_context or packaged_authority_context()
+    try:
+        data = canonical_bytes(cast(JsonValue, value))
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return _refusal(
+            stage="parse",
+            code="language.source_parse_failure",
+            identity="unidentified",
+            pointer="",
+            message="Experiment Specification is not canonical JSON data",
+        )
+    if len(data) > cast(
+        int, context.language_bundle["resources"]["max_source_bytes"]
+    ):
+        return _refusal(
+            stage="ingress",
+            code="language.source_too_large",
+            identity=f"sha256:{hashlib.sha256(data).hexdigest()}",
+            pointer="",
+            message="Experiment Specification exceeds the admitted ingress bound",
+        )
+    return _check_experiment_value(value, context, model_artifacts=model_artifacts)
+
+
+def _check_experiment_value(
+    value: dict[str, Any],
+    context: AdmittedAuthorityContext,
+    *,
+    model_artifacts: Mapping[str, dict[str, Any]] | None,
+) -> CheckedExperiment | Schema2RefusalReport:
+    """Apply Experiment semantics after transport-specific ingestion."""
+    kernel = context.kernel
+    language_bundle = context.language_bundle
     experiment_identity = content_identity(
         _EXPERIMENT_IDENTITY_DOMAIN, cast(JsonValue, value)
     )
@@ -461,10 +505,10 @@ def check_experiment(
 
     model = value["model"]
     artifact_kinds = {
-        "build_receipt": "build-receipt",
-        "package_lock": "package-lock",
-        "resolved_model": "resolved-model",
-        "rir": "rir-semantic-payload",
+        "build_receipt": ("build-receipt", "build-receipt"),
+        "package_lock": ("package-lock", "package-lock"),
+        "resolved_model": ("resolved-model", "resolved-model"),
+        "rir": ("rir-semantic-payload", "rir-semantic-payload"),
     }
     identity_members = {
         "build_receipt": "build_receipt_identity",
@@ -473,29 +517,42 @@ def check_experiment(
         "rir": "rir_identity",
     }
     artifacts: dict[str, dict[str, Any]] = {}
-    for name, kind in artifact_kinds.items():
-        try:
-            artifact = find_published_artifact(
-                model[identity_members[name]],
-                kind,
-                language_bundle,
-            )
-        except PublishedArtifactIntegrityError as err:
-            return _refusal(
-                stage="resolution",
-                code="language.resolved_authority_mismatch",
-                identity=experiment_identity,
-                pointer=f"/model/{identity_members[name]}",
-                message=f"Exact {kind} publication failed integrity verification: {err}",
-            )
-        if artifact is None:
-            return _refusal(
-                stage="resolution",
-                code="language.resolved_authority_mismatch",
-                identity=experiment_identity,
-                pointer=f"/model/{identity_members[name]}",
-                message=f"Exact {kind} is unavailable in the committed artifact store",
-            )
+    for name, (logical_name, kind) in artifact_kinds.items():
+        if model_artifacts is None:
+            try:
+                artifact = find_published_artifact(
+                    model[identity_members[name]],
+                    kind,
+                    language_bundle,
+                )
+            except PublishedArtifactIntegrityError as err:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolved_authority_mismatch",
+                    identity=experiment_identity,
+                    pointer=f"/model/{identity_members[name]}",
+                    message=(
+                        f"Exact {kind} publication failed integrity verification: {err}"
+                    ),
+                )
+            if artifact is None:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolved_authority_mismatch",
+                    identity=experiment_identity,
+                    pointer=f"/model/{identity_members[name]}",
+                    message=f"Exact {kind} is unavailable in the committed artifact store",
+                )
+        else:
+            artifact = model_artifacts.get(logical_name)
+            if artifact is None or artifact.get("artifact_kind") != kind:
+                return _refusal(
+                    stage="resolution",
+                    code="language.resolved_authority_mismatch",
+                    identity=experiment_identity,
+                    pointer=f"/model/{identity_members[name]}",
+                    message=f"Exact {kind} is unavailable in the supplied Model artifact set",
+                )
         artifacts[name] = artifact
     if not admit_resolved_model(
         {

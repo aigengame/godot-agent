@@ -6,8 +6,14 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
+
+
+_ROGUELIKE_EXAMPLE = (
+    Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
+)
 
 
 def _console_script() -> str:
@@ -55,12 +61,19 @@ def _request_json(
     token: str,
     *,
     method: str = "GET",
+    body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    if method == "POST" and data is None:
+        data = b""
     request = Request(
         url,
-        data=b"" if method == "POST" else None,
+        data=data,
         method=method,
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+        },
     )
     with urlopen(request, timeout=10) as response:
         assert response.status == 200
@@ -106,3 +119,30 @@ def test_serve_reports_status_and_shuts_down() -> None:
         assert process.wait(timeout=10) == 0
         assert process.stdout is not None
         assert process.stdout.read() == ""
+
+
+def test_session_creation_admits_complete_model_and_experiment_values() -> None:
+    model_source = json.loads(
+        (_ROGUELIKE_EXAMPLE / "model-source.json").read_text(encoding="utf-8")
+    )
+    experiment = json.loads(
+        (_ROGUELIKE_EXAMPLE / "experiment.json").read_text(encoding="utf-8")
+    )
+
+    with _running_service() as (_process, readiness):
+        created = _request_json(
+            f"{readiness['base_url']}/v1/execution-sessions",
+            readiness["capability_token"],
+            method="POST",
+            body={
+                "model_source": model_source,
+                "experiment_specification": experiment,
+            },
+        )
+
+        assert created["outcome"] == "success"
+        assert created["session_id"]
+        assert created["resolved_model_identity"] == (
+            experiment["model"]["resolved_model_identity"]
+        )
+        assert created["revision_id"].startswith("sha256:")
