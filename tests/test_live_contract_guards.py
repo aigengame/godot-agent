@@ -150,14 +150,19 @@ def test_launch_marker_mirrors_the_harness_const():
 
 
 # A representative Session log covering the three shapes `parse_log_records` /
-# `parse_errors` classify: an opt-in `<<<GDA:LOG>>>` record WITH a `fields` payload
-# (#282), a runtime GDScript error carrying an `at:` line AND a backtrace (so
-# `callstack` / `source` are populated, #283), and plain info lines.
+# `parse_errors` classify — an opt-in `<<<GDA:LOG>>>` record WITH a `fields` payload
+# (#282), runtime engine errors carrying `at:` lines AND a backtrace (so
+# `callstack` / `source` are populated, #283), and plain info lines — and, per
+# ADR-0026's closed enums, EVERY valid level (debug/info/warning/error) and origin
+# (engine/script/shader/gda_log), so a consumer model that rejects any member
+# fails this guard rather than the nightly e2e tier.
 SESSION_LOG = (
     "Godot Engine v4.6.stable.official - https://godotengine.org\n"
     + LOG_BEGIN
     + '{"level": "warning", "message": "low health", '
     + '"fields": {"hp": 3, "actor": "panda", "airborne": true}}\n'
+    + LOG_BEGIN
+    + '{"level": "debug", "message": "tick"}\n'
     + "plain output line\n"
     "SCRIPT ERROR: Invalid call. Nonexistent function 'do_thing' in base 'Nil'.\n"
     "   at: b (res://main.gd:9)\n"
@@ -165,6 +170,8 @@ SESSION_LOG = (
     "       [0] b (res://main.gd:9)\n"
     "       [1] a (res://main.gd:6)\n"
     "       [2] _ready (res://main.gd:3)\n"
+    "SHADER ERROR: shader compilation failed\n"
+    "   at: compile (res://wave.gdshader:3)\n"
     "WARNING: a warning happened\n"
     "   at: _process (res://main.gd:20)\n"
 )
@@ -183,9 +190,19 @@ def test_logger_tail_wire_records_validate_against_its_result_model():
     dumped = result.model_dump(mode="json")
     assert len(dumped["records"]) == len(records)
 
-    gda_log = next(r for r in dumped["records"] if r["origin"] == "gda_log")
-    assert gda_log["level"] == "warning"
+    gda_log = next(
+        r
+        for r in dumped["records"]
+        if r["origin"] == "gda_log" and r["level"] == "warning"
+    )
     assert gda_log["fields"] == {"hp": 3, "actor": "panda", "airborne": True}
+
+    debug_log = next(
+        r
+        for r in dumped["records"]
+        if r["origin"] == "gda_log" and r["level"] == "debug"
+    )
+    assert debug_log["message"] == "tick"
 
     script_error = next(r for r in dumped["records"] if r["origin"] == "script")
     assert script_error["level"] == "error"
@@ -195,11 +212,20 @@ def test_logger_tail_wire_records_validate_against_its_result_model():
         "line": 9,
     }
 
-    # The passive floor's other two origins are accepted by the closed enums too.
-    assert {"engine", "gda_log", "script", None} <= {
-        r["origin"] for r in dumped["records"]
+    shader_error = next(r for r in dumped["records"] if r["origin"] == "shader")
+    assert shader_error["level"] == "error"
+
+    # Every valid member of ADR-0026's closed enums crossed the wire above, so a
+    # consumer model that rejects any of them fails the validate call, and a
+    # fixture regression that drops a member fails these set equalities.
+    assert {r["origin"] for r in dumped["records"]} == {
+        None,
+        "engine",
+        "script",
+        "shader",
+        "gda_log",
     }
-    assert {r["level"] for r in dumped["records"]} <= {
+    assert {r["level"] for r in dumped["records"]} == {
         "debug",
         "info",
         "warning",
@@ -222,6 +248,12 @@ def test_diag_errors_wire_entries_validate_against_its_result_model():
     assert script_error["function"] == "b"
     assert script_error["file"] == "res://main.gd"
     assert script_error["line"] == 9
+
+    # The shader sub-kind survives the round trip too (ADR-0026's fourth origin
+    # maps from this diag level).
+    shader = next(e for e in dumped["errors"] if e["level"] == "shader_error")
+    assert shader["file"] == "res://wave.gdshader"
+    assert shader["line"] == 3
     # The backtrace frames survive as typed frames, ordered most-recent-first.
     assert script_error["callstack"] == [
         {"function": "b", "file": "res://main.gd", "line": 9},
