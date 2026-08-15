@@ -1,20 +1,22 @@
 """End-to-end human-mode CLI output for every command (issue #140 follow-up).
 
 PR #143 extracted human rendering into ``gda.render`` and pinned the renderers
-in isolation (``test_render.py``). But the command-level *human* output path —
-invoking a command WITHOUT ``--json`` through the real Typer CLI and asserting
-the exact ``stdout`` text — was only covered for ``script validate/attach/set``.
-This closes that gap: one parameterized test drives every command in human mode
-against a fake runner and pins the exact bytes the CLI prints, so #139's
-``render`` dispatch + #140's ``gda.render`` renderers are behavior-pinned
-end-to-end, not just unit-tested in isolation.
+in isolation (``test_render.py``); since ADR-0040 the renderers live in their
+command-group modules. But the command-level *human* output path — invoking a
+command WITHOUT ``--json`` through the real Typer CLI and asserting the exact
+``stdout`` text — was only covered for ``script validate/attach/set``. This
+closes that gap: one parameterized test drives every command in human mode
+against a fake runner and pins the exact bytes the CLI prints, so the
+descriptor-bound renderers are behavior-pinned end-to-end, not just unit-tested
+in isolation.
 
 The canned success payloads mirror the per-command ``--json`` tests
 (``test_scene_commands.py``, ``test_node_commands.py``, ``test_script_commands.py``,
 ``test_info_command.py``) so the faked results match each command's result-model
-shape. The expected strings are transcribed directly from ``gda.render``: a
-renderer produces a newline-free string and the CLI's ``typer.echo`` appends
-exactly one trailing newline, so each case asserts ``stdout == expected + "\n"``.
+shape. The expected strings are transcribed directly from the group modules'
+renderers: a renderer produces a newline-free string and the CLI's ``typer.echo``
+appends exactly one trailing newline, so each case asserts
+``stdout == expected + "\n"``.
 
 These run engine-free (FakeRunner) under ``-m "not e2e"``.
 """

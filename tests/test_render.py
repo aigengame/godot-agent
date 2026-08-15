@@ -1,11 +1,13 @@
-"""The presentation layer (``gda.render``) — issue #140.
+"""The presentation layer — issue #140.
 
-Human rendering lives in a dedicated module, one renderer per result type, reading
-typed surfaces (a value helper, a shared script-metadata interface) rather than
-reaching into a model's ``.value`` or across a union of result types. These are
-unit tests on the renderers themselves; the end-to-end human-output text per
-command is pinned by ``test_human_output.py``, and the descriptor-carried
-renderer invariant (every command has one, none orphaned — ADR-0023) by
+Human rendering is one renderer per result type, reading typed surfaces (a value
+helper, a shared script-metadata interface) rather than reaching into a model's
+``.value`` or across a union of result types. Since ADR-0040 each renderer lives
+in its command-group module next to the descriptor that binds it; ``gda.render``
+keeps only the shared helpers. These are unit tests on the renderers themselves;
+the end-to-end human-output text per command is pinned by
+``test_human_output.py``, and the descriptor-carried renderer invariant (every
+command has one, none orphaned — ADR-0023) by
 ``test_command_descriptor_registry.py``.
 
 Since ADR-0023 each command binds its renderer on its ``HeadlessCommand``
