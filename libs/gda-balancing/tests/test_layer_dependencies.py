@@ -138,6 +138,30 @@ def test_migrated_layers_do_not_import_upward() -> None:
     assert violations == []
 
 
+def test_execution_http_api_does_not_depend_on_the_local_host() -> None:
+    module = "gda_balancing.interfaces.http.api_v1"
+    imports = _resolved_imports(
+        module,
+        _SOURCE_ROOT / "interfaces" / "http" / "api_v1.py",
+        _production_modules(),
+    )
+
+    assert "gda_balancing.interfaces.http.local_host" not in imports
+
+
+def test_domain_and_application_do_not_import_http_frameworks() -> None:
+    known_modules = _production_modules()
+    violations = [
+        f"{module} imports {imported}"
+        for module, path in _architectural_modules().items()
+        if _layer(module) in {"domain", "application"}
+        for imported in _resolved_imports(module, path, known_modules)
+        if imported.split(".", 1)[0] in {"starlette", "uvicorn"}
+    ]
+
+    assert violations == []
+
+
 def test_every_production_module_has_one_declared_owner() -> None:
     unowned = [
         str(path.relative_to(_SOURCE_ROOT))

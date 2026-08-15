@@ -626,6 +626,41 @@ def test_restart_does_not_recover_process_local_sessions() -> None:
         assert error["error"]["code"] == "unknown_execution_session"
 
 
+def test_disconnected_run_has_no_durable_result_and_can_be_rerun() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (process, readiness):
+        created = _create_session(readiness, model_source, experiment)
+        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+        connection.request(
+            "POST",
+            f"/v1/execution-sessions/{created['session_id']}/runs",
+            body=json.dumps({"revision_id": created["revision_id"]}),
+            headers={
+                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Content-Type": "application/json",
+            },
+        )
+        connection.close()
+
+        rerun = _request_json(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert process.poll() is None
+        assert rerun["outcome"] == "success"
+        assert (
+            rerun["artifacts"]["reproduction-receipt"]["experiment_identity"]
+            == created["revision_id"]
+        )
+
+
 def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
     model_source, experiment = _roguelike_documents()
 
@@ -662,6 +697,31 @@ def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
         assert process.wait(timeout=10) == 0
         assert process.stdout is not None
         assert process.stdout.read() == ""
+
+
+def test_forced_process_termination_discards_all_session_state() -> None:
+    model_source, experiment = _roguelike_documents()
+
+    with _running_service() as (first_process, first_readiness):
+        created = _create_session(first_readiness, model_source, experiment)
+        first_process.kill()
+        assert first_process.wait(timeout=10) != 0
+        assert first_process.stdout is not None
+        assert first_process.stdout.read() == ""
+
+    with _running_service() as (_second_process, second_readiness):
+        status, error = _request_error(
+            (
+                f"{second_readiness['base_url']}/v1/execution-sessions/"
+                f"{created['session_id']}/runs"
+            ),
+            second_readiness["capability_token"],
+            method="POST",
+            body={"revision_id": created["revision_id"]},
+        )
+
+        assert status == 404
+        assert error["error"]["code"] == "unknown_execution_session"
 
 
 def test_bind_failure_uses_the_descriptor_internal_error_contract() -> None:
