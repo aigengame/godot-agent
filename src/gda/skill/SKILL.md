@@ -169,8 +169,9 @@ children of a `Container` are layout-managed; use those offset properties
 explicitly instead. Live `game set --property position` mirrors this policy, while
 `game rect` remains a read-only rendered-geometry query.
 
-`scene create --root-type Control` writes a root with zero anchors and zero
-offsets — a zero-size rect at the origin, not a viewport-filling layout.
+`scene create` with a `Control`-derived `--root-type` (`Control`, `Panel`, any
+container) writes a root with zero anchors and zero offsets — a zero-size rect
+at the origin, not a viewport-filling layout.
 Container minimum sizes can keep descendants visible and mask this until
 `game rect` reports the root, and its child layers, at `[0, 0]` size. Fix it by
 setting the root's `anchor_right` and `anchor_bottom` to `1` with `node set`
