@@ -1,6 +1,5 @@
 """Root CLI metadata options."""
 
-import re
 import tomllib
 from importlib.metadata import version
 from pathlib import Path
@@ -8,13 +7,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from gda.cli import app
+from tests.support import plain_text
 
 ROOT = Path(__file__).resolve().parents[1]
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-
-
-def _plain(text: str) -> str:
-    return ANSI_ESCAPE.sub("", text)
 
 
 def test_root_version_option_prints_package_version():
@@ -29,7 +24,7 @@ def test_root_help_advertises_version_option():
     result = CliRunner().invoke(app, ["--help"])
 
     assert result.exit_code == 0
-    assert "--version" in _plain(result.stdout)
+    assert "--version" in plain_text(result.stdout)
 
 
 def test_root_version_option_does_not_require_godot(monkeypatch):

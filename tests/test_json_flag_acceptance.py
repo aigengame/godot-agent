@@ -23,7 +23,7 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, plain_text
 
 
 # --- the `schema` subcommand parser site -------------------------------------
@@ -66,18 +66,21 @@ def test_root_accepts_json_before_help():
     # The dogfooding report (GDA-DF-018, root-help part): a machine client had to
     # special-case exactly the discovery surface before it could discover the
     # subcommands. Help output stays TEXT — the root has no result to serialize —
-    # so this pins acceptance, not a structured help payload.
+    # so this pins acceptance, not a structured help payload: the flag changes
+    # nothing, the same help comes back.
     result = CliRunner().invoke(app, ["--json", "--help"])
+    without_flag = CliRunner().invoke(app, ["--help"])
 
     assert result.exit_code == 0, result.stdout
-    assert "Usage: gda" in result.stdout
+    assert "Usage: gda" in plain_text(result.stdout)
+    assert result.stdout == without_flag.stdout
 
 
 def test_root_help_advertises_the_json_option():
     result = CliRunner().invoke(app, ["--help"])
 
     assert result.exit_code == 0
-    assert "--json" in result.stdout
+    assert "--json" in plain_text(result.stdout)
 
 
 def test_root_json_composes_with_a_subcommand():
@@ -120,4 +123,4 @@ def test_real_out_of_process_cli_accepts_json_at_both_sites():
     assert root_help.returncode == 0, root_help.stderr
     # `-m gda` names itself "python -m gda" in the usage line, so match the shape
     # of the root usage rather than the program name.
-    assert "[OPTIONS] COMMAND" in root_help.stdout
+    assert "[OPTIONS] COMMAND" in plain_text(root_help.stdout)
