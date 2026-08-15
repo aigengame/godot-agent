@@ -170,6 +170,7 @@ class TestPerDescriptorRows:
         extended = create_model(
             "Extended", __base__=descriptor.output_model, unexpected=(int, 7)
         )
+
         def emit_extended(_input, emit_ready, _stderr):
             emit_ready(extended.model_construct(unexpected=7))
             return 0
@@ -426,6 +427,7 @@ class TestSurfaceLaws:
         )
         for report in (minimal, at_bound):
             for descriptor in REGISTRY:
+
                 def emit_legacy(_input, emit_ready, _stderr, *, value=report):
                     emit_ready(value)
                     return 0
@@ -434,9 +436,7 @@ class TestSurfaceLaws:
                     (
                         dataclasses.replace(item, foreground_runner=emit_legacy)
                         if item.execution_lifecycle == "foreground-service"
-                        else dataclasses.replace(
-                            item, handler=lambda _i, _r=report: _r
-                        )
+                        else dataclasses.replace(item, handler=lambda _i, _r=report: _r)
                     )
                     if item is descriptor
                     else item

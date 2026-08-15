@@ -40,7 +40,9 @@ ExperimentExecutionOutcome = (
 )
 
 
-def execute_checked_experiment(checked: CheckedExperiment) -> ExperimentExecutionOutcome:
+def execute_checked_experiment(
+    checked: CheckedExperiment,
+) -> ExperimentExecutionOutcome:
     """Execute a fully admitted Experiment without filesystem publication."""
     evaluation = evaluate_experiment(checked)
     if isinstance(evaluation, RuntimeRefusalOutcome):

@@ -403,9 +403,7 @@ def check_experiment_value(
             pointer="",
             message="Experiment Specification is not canonical JSON data",
         )
-    if len(data) > cast(
-        int, context.language_bundle["resources"]["max_source_bytes"]
-    ):
+    if len(data) > cast(int, context.language_bundle["resources"]["max_source_bytes"]):
         return _refusal(
             stage="ingress",
             code="language.source_too_large",

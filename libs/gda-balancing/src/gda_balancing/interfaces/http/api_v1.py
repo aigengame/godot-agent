@@ -176,9 +176,7 @@ def create_api_v1() -> ASGIApp:
     sessions = ExecutionSessions()
     max_source_bytes = cast(
         int,
-        packaged_authority_context().language_bundle["resources"][
-            "max_source_bytes"
-        ],
+        packaged_authority_context().language_bundle["resources"]["max_source_bytes"],
     )
 
     async def status(_request: Request) -> Response:
@@ -294,18 +292,14 @@ def create_api_v1() -> ASGIApp:
             )
         )
 
-    async def invalid_http_request(
-        _request: Request, _error: Exception
-    ) -> Response:
+    async def invalid_http_request(_request: Request, _error: Exception) -> Response:
         return service_error_response(
             code="invalid_request",
             message="the request does not match the closed HTTP schema",
             status_code=400,
         )
 
-    async def request_too_large(
-        _request: Request, _error: Exception
-    ) -> Response:
+    async def request_too_large(_request: Request, _error: Exception) -> Response:
         return service_error_response(
             code="request_too_large",
             message="the request body exceeds the HTTP protocol limit",

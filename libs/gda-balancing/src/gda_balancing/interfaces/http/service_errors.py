@@ -37,8 +37,8 @@ def service_error_response(
 ) -> JSONResponse:
     """Render one closed protocol error without a Domain refusal."""
     return JSONResponse(
-        ServiceErrorEnvelope(
-            error=ServiceError(code=code, message=message)
-        ).model_dump(mode="json"),
+        ServiceErrorEnvelope(error=ServiceError(code=code, message=message)).model_dump(
+            mode="json"
+        ),
         status_code=status_code,
     )
