@@ -34,6 +34,7 @@ from gda.errors import (
 )
 from gda.headless import (
     HeadlessCommand,
+    emit_result,
     godot_option,
     json_option,
     params_json_option,
@@ -210,6 +211,18 @@ def render_engine_version(version: "EngineVersion") -> str:
     return version.string
 
 
+def render_surface_manifest(manifest: "SurfaceManifest") -> str:
+    """Render the aggregate surface manifest — JSON either way (ADR-0012).
+
+    ``gda schema`` is the whole-surface JSON manifest: its machine form IS its
+    human form, so its renderer and its ``--json`` serialization are the same
+    bytes. That is what makes ``--json`` idempotent here (#671) — the flag is
+    accepted, so an agent following the "always pass ``--json``" rule reaches the
+    manifest, and the output is unchanged either way.
+    """
+    return manifest.model_dump_json()
+
+
 def render_skill(skill: "SkillResult") -> str:
     """Render ``gda skill`` as text (ADR-0024).
 
@@ -350,6 +363,7 @@ def register(root: typer.Typer) -> None:
 
     @root.command(cls=schema_command_class(SchemaAllParams, SurfaceManifest))
     def schema(
+        json_output: bool = json_option(),
         schema: bool = schema_option(),
     ) -> None:
         """Emit the whole command surface as one JSON manifest; no Godot is spawned.
@@ -360,5 +374,14 @@ def register(root: typer.Typer) -> None:
         at startup to generate its tool surface, so it stays a faithful mirror of the
         installed ``gda`` with no codegen step. As a meta command (ADR-0005) it is
         top-level and ungrouped, a sibling of ``gda info``.
+
+        `--json` is accepted and idempotent: the manifest is already the JSON
+        result, so the flag changes nothing and an agent can pass it uniformly.
         """
-        typer.echo(build_surface_manifest(root).model_dump_json())
+        # Emission goes through the shared success channel (`emit_result`) with
+        # this command's own renderer, exactly like an operational command — the
+        # renderer just happens to produce the same JSON the `--json` branch
+        # serializes, which is what makes the flag idempotent. Accepting it is
+        # the point (#671): the ONE rule an agent follows — "always pass --json"
+        # — must not exit 2 on the very surface that describes the others.
+        emit_result(build_surface_manifest(root), json_output, render_surface_manifest)

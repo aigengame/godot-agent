@@ -105,6 +105,15 @@ _HELPER_RENDERERS = {
     "render_shader_metadata",  # the shared shader-metadata surface
 }
 
+# Renderers bound to a command that carries NO ``HeadlessCommand`` descriptor, so
+# they can never appear in the descriptor-derived ``bound`` set. ``gda schema`` is
+# the only such command (non-dispatchable by design, ADR-0012 Plan A: a pure
+# self-describer with no backing operation) — it still renders its result through
+# the shared success channel, just not through a descriptor.
+_DESCRIPTORLESS_RENDERERS = {
+    "render_surface_manifest",  # `gda schema`'s manifest (JSON either way, #671)
+}
+
 
 def _renderer_modules():
     """Every module a renderer can live in: the shared helpers plus each group.
@@ -122,8 +131,9 @@ def _renderer_modules():
 
 def test_no_renderer_is_orphaned():
     # Every ``render_*`` in gda.render or a group module is either bound to a command
-    # (reachable via a descriptor) or a known internal helper — no dead renderer
-    # survives the move off the type-keyed table.
+    # (reachable via a descriptor), a known internal helper, or the renderer of the one
+    # descriptorless command — no dead renderer survives the move off the type-keyed
+    # table.
     defined = {
         name
         for module in _renderer_modules()
@@ -131,7 +141,7 @@ def test_no_renderer_is_orphaned():
         if name.startswith("render_") and callable(getattr(module, name))
     }
     bound = {cmd.render.__name__ for _, cmd in _dispatchable()}
-    orphaned = defined - bound - _HELPER_RENDERERS
+    orphaned = defined - bound - _HELPER_RENDERERS - _DESCRIPTORLESS_RENDERERS
     assert not orphaned, (
         f"render_* functions defined but bound to no command and not a known helper: "
         f"{sorted(orphaned)}"

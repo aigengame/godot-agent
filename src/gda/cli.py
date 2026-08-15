@@ -8,8 +8,8 @@ slice (models, renderers, descriptors, Typer bodies) and mounts its sub-app;
 Mounting IS the registration — the live Typer tree stays the only registry
 (ADR-0012/0023), so nothing here is a parallel table to keep in sync.
 
-Also here: the root ``--version`` option and the no-op root callback that keeps
-``gda`` a command *group*. ``gda.cli:app`` is the packaged entry point.
+Also here: the root ``--version`` / ``--json`` options and the no-op root callback
+that keeps ``gda`` a command *group*. ``gda.cli:app`` is the packaged entry point.
 """
 
 from importlib.metadata import version as package_version
@@ -91,11 +91,28 @@ def main(
         is_eager=True,
         help="Show the installed gda version and exit.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        # Eager so the flag is bound into the root context BEFORE the other eager
+        # root options run their callbacks — a root option that WANTS to render a
+        # JSON payload (the `--version` payload, #659) can then read it off
+        # ``ctx.params`` instead of re-parsing argv.
+        is_eager=True,
+        help="Accepted at the root for uniformity with the subcommands; the root "
+        "itself emits no JSON payload (`--help` stays text).",
+    ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""
     # A no-op callback keeps gda a command *group* so meta commands like
     # `gda info` stay named subcommands (ADR-0005) rather than collapsing to
     # the top level, as Typer does for a single-command app.
+    #
+    # `--json` is accepted here so the ONE documented rule an agent follows —
+    # "always pass --json" — never dies with exit 2 on the discovery surface
+    # (`gda --json --help`, `gda --json <group> <command> …`, #671). The root has
+    # no result of its own to serialize, so accepting it is idempotent today; it
+    # is the option a root payload (`--version --json`, #659) will consume.
 
 
 meta_commands.register(app)
