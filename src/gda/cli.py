@@ -94,13 +94,18 @@ def main(
     json_output: bool = typer.Option(
         False,
         "--json",
-        # Eager so the flag is bound into the root context BEFORE the other eager
-        # root options run their callbacks — a root option that WANTS to render a
-        # JSON payload (the `--version` payload, #659) can then read it off
-        # ``ctx.params`` instead of re-parsing argv.
+        # Eager, so the flag is in the root context before the OTHER eager root
+        # options run their callbacks — but only for the `--json`-FIRST spelling:
+        # click processes eager params in argv order, so `gda --version --json`
+        # still runs the version callback first, with this flag unbound. A root
+        # payload that must serve both orders (#659) therefore cannot be rendered
+        # from inside an eager `--version` callback; both orders are pinned in
+        # tests/test_json_flag_acceptance.py. (A SUBCOMMAND is unaffected either
+        # way: click finishes the root's params before it parses one.)
         is_eager=True,
-        help="Accepted at the root for uniformity with the subcommands; the root "
-        "itself emits no JSON payload (`--help` stays text).",
+        help="Emit the invoked command's result as JSON — the same as passing "
+        "--json after the command; the root itself prints no JSON payload "
+        "(`--help` stays text).",
     ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""
@@ -110,9 +115,12 @@ def main(
     #
     # `--json` is accepted here so the ONE documented rule an agent follows —
     # "always pass --json" — never dies with exit 2 on the discovery surface
-    # (`gda --json --help`, `gda --json <group> <command> …`, #671). The root has
-    # no result of its own to serialize, so accepting it is idempotent today; it
-    # is the option a root payload (`--version --json`, #659) will consume.
+    # (`gda --json --help`, `gda --json <group> <command> …`, #671). It is NOT
+    # inert: the invoked command's own `--json` inherits this value
+    # (gda.headless._inherit_root_json), so the root and post-command spellings
+    # mean the same thing — accepting a flag that silently returned human text
+    # would be worse than the loud usage error it replaced. The root itself has no
+    # result to serialize; a root JSON payload (`--version --json`) is #659.
 
 
 meta_commands.register(app)

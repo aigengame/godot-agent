@@ -78,9 +78,34 @@ def command_constraints(
     )
 
 
+def _inherit_root_json(
+    ctx: typer.Context, param: typer.CallbackParam, value: bool
+) -> bool:
+    """Let a root ``--json`` stand for the command's own (#671).
+
+    The Skill teaches ONE rule — "always pass ``--json``" — and an agent may spell
+    it at the root (``gda --json node get …``) or after the command
+    (``gda node get … --json``). The two must MEAN the same thing, or accepting the
+    root flag would be worse than rejecting it: a silently inert flag returns human
+    text to a caller that asked for JSON, where the old ``No such option`` at least
+    failed loudly.
+
+    A command's own flag wins when given; otherwise the root's value is read off the
+    root context. Click fully processes the root group's params before it parses a
+    subcommand, so the value is already there — no argv re-parsing. Living on the
+    shared :func:`json_option` means every call site inherits it with no per-command
+    wiring, including the ``--params-json`` dispatch path, which reads
+    ``ctx.params`` after this callback has run.
+    """
+    return bool(value) or bool(ctx.find_root().params.get("json_output"))
+
+
 def json_option() -> bool:
     return typer.Option(
-        False, "--json", help="Emit the result as a single JSON object."
+        False,
+        "--json",
+        callback=_inherit_root_json,
+        help="Emit the result as a single JSON object.",
     )
 
 
