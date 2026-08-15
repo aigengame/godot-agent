@@ -39,6 +39,7 @@ class LocalHostReadiness:
 ApplicationFactory = Callable[[], ASGIApp]
 ReadinessEmitter = Callable[[LocalHostReadiness], None]
 FaultReporter = Callable[[Exception], None]
+AdmissionProbe = Callable[[], bool]
 
 
 class ShutdownResponse(BaseModel):
@@ -63,12 +64,18 @@ class _ShutdownEndpoint:
         await response(scope, receive, send)
 
 
-class BearerCapabilityMiddleware:
-    """Require the process capability on every versioned local-host route."""
+class LocalHostAdmissionMiddleware:
+    """Require the process capability and an accepting local host."""
 
-    def __init__(self, app: ASGIApp, capability_token: str) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        capability_token: str,
+        accepts_requests: AdmissionProbe,
+    ) -> None:
         self._app = app
         self._authorization = f"Bearer {capability_token}".encode("ascii")
+        self._accepts_requests = accepts_requests
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not scope.get("path", "").startswith("/v1/"):
@@ -83,6 +90,14 @@ class BearerCapabilityMiddleware:
                 code="authentication_required",
                 message="a valid local process capability is required",
                 status_code=401,
+            )
+            await response(scope, receive, send)
+            return
+        if not self._accepts_requests():
+            response = service_error_response(
+                code="service_shutting_down",
+                message="the local service is shutting down",
+                status_code=503,
             )
             await response(scope, receive, send)
             return
@@ -117,6 +132,7 @@ class FatalApplicationFaultMiddleware:
 def _local_companion_app(
     execution_api: ASGIApp,
     capability_token: str,
+    accepts_requests: AdmissionProbe,
     request_shutdown: Callable[[], None],
 ) -> ASGIApp:
     async def unexpected_internal_error(
@@ -139,7 +155,11 @@ def _local_companion_app(
         ],
     )
     app.router.redirect_slashes = False
-    return BearerCapabilityMiddleware(app, capability_token)
+    return LocalHostAdmissionMiddleware(
+        app,
+        capability_token,
+        accepts_requests,
+    )
 
 
 def run_local_host(
@@ -185,8 +205,14 @@ async def _serve(
     capability_token = secrets.token_urlsafe(32)
     server_ref: list[uvicorn.Server] = []
     fatal_error: list[Exception] = []
+    accepting_requests = True
+
+    def accepts_requests() -> bool:
+        return accepting_requests
 
     def request_shutdown() -> None:
+        nonlocal accepting_requests
+        accepting_requests = False
         server_ref[0].should_exit = True
 
     def report_fault(error: Exception) -> None:
@@ -195,7 +221,12 @@ async def _serve(
             request_shutdown()
 
     app = FatalApplicationFaultMiddleware(
-        _local_companion_app(application_factory(), capability_token, request_shutdown),
+        _local_companion_app(
+            application_factory(),
+            capability_token,
+            accepts_requests,
+            request_shutdown,
+        ),
         report_fault,
     )
     config = uvicorn.Config(

@@ -18,6 +18,7 @@ ServiceErrorCode = Literal[
     "invalid_request",
     "method_not_allowed",
     "request_too_large",
+    "service_shutting_down",
     "unsupported_media_type",
     "unknown_endpoint",
     "unknown_execution_session",
@@ -83,6 +84,8 @@ async def read_bounded_request_body(
     max_bytes: int,
 ) -> bytes:
     """Read one request body without trusting declared or streamed length."""
+    if request.scope.get("query_string", b""):
+        raise InvalidHttpRequest
     declared_length = request.headers.get("content-length")
     if declared_length is not None:
         try:

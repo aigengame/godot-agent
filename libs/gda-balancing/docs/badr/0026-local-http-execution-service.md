@@ -124,7 +124,8 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   report the protocol major and toolkit version. Request and response schemas are closed. A breaking
   protocol change uses a new major path. Bodyless routes reject non-empty bodies. Unknown endpoints,
   unsupported methods, and undeclared trailing-slash variants use the same closed service-error
-  envelope as other protocol failures.
+  envelope as other protocol failures. The first routes declare no query parameters and reject any
+  non-empty query input.
 - Pydantic request and response models are the single executable source for the first HTTP schemas.
   bADR-0026 and `docs/ARCHITECTURE.md` describe meaning and boundaries without copying every field.
   The existing Command-descriptor `--schema` convention describes the `serve` command and readiness
@@ -223,10 +224,11 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
   infer success. It may explicitly restart the service, recreate a session from complete authored
   documents, and rerun the exact revision. The service does not automatically replay an ambiguous
   in-flight request or add a recovery log, retry queue, or circuit breaker.
-- The authenticated shutdown endpoint stops new work, lets work already inside the synchronous
-  execution boundary finish, returns an acknowledgement, and exits. The owning client may terminate
-  the child process after its own graceful-shutdown timeout. Non-persistent service state cannot be
-  partially published by forced process termination.
+- The authenticated shutdown endpoint closes local request admission before it returns an
+  acknowledgement. A later request that still reaches the host receives the closed
+  `service_shutting_down` response. Work that already passed admission can finish before the process
+  exits. The owning client may terminate the child process after its own graceful-shutdown timeout.
+  Non-persistent service state cannot be partially published by forced process termination.
 
 The protocol is intentionally small but not frozen at this feature set. Its stable obligations are
 authority preservation, exact identity, explicit selection, deterministic ordering, typed outcomes,

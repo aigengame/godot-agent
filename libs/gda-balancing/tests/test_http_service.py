@@ -481,6 +481,43 @@ def test_routes_without_request_models_reject_bodies_before_side_effects() -> No
         assert process.poll() is None
 
 
+def test_declared_routes_reject_undeclared_query_input() -> None:
+    with _running_service() as (process, readiness):
+        status_code, status_error = _request_error(
+            f"{readiness['base_url']}/v1/status?unknown=true",
+            readiness["capability_token"],
+        )
+        run_code, run_error = _request_error(
+            (
+                f"{readiness['base_url']}/v1/execution-sessions/unknown/runs"
+                "?unknown=true"
+            ),
+            readiness["capability_token"],
+            method="POST",
+            body={"revision_id": "unknown"},
+        )
+        shutdown_code, shutdown_error = _request_error(
+            f"{readiness['base_url']}/v1/shutdown?unknown=true",
+            readiness["capability_token"],
+            method="POST",
+        )
+
+        assert status_code == run_code == shutdown_code == 400
+        assert (
+            status_error
+            == run_error
+            == shutdown_error
+            == {
+                "error": {
+                    "category": "service",
+                    "code": "invalid_request",
+                    "message": "the request does not match the closed HTTP schema",
+                }
+            }
+        )
+        assert process.poll() is None
+
+
 def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None:
     with _running_service() as (_process, readiness):
         unknown_status, unknown_error = _request_error(
@@ -537,6 +574,35 @@ def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None
         assert shutdown_response.value.code == 405
         assert shutdown_response.value.headers["Allow"] == "POST"
         assert shutdown_method_error == method_error
+
+
+def test_shutdown_closes_request_admission_before_acknowledgement() -> None:
+    with _running_service() as (process, readiness):
+        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+        headers = {
+            "Authorization": f"Bearer {readiness['capability_token']}",
+        }
+        try:
+            connection.request("POST", "/v1/shutdown", body=b"", headers=headers)
+            shutdown_response = connection.getresponse()
+            shutdown = json.load(shutdown_response)
+            connection.request("GET", "/v1/status", headers=headers)
+            status_response = connection.getresponse()
+            error = json.load(status_response)
+        finally:
+            connection.close()
+
+        assert shutdown_response.status == 200
+        assert shutdown == {"status": "shutting-down"}
+        assert status_response.status == 503
+        assert error == {
+            "error": {
+                "category": "service",
+                "code": "service_shutting_down",
+                "message": "the local service is shutting down",
+            }
+        }
+        assert process.wait(timeout=10) == 0
 
 
 def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
