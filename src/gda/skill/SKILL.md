@@ -115,6 +115,11 @@ Godot may leave `Viewport.get_mouse_position()` and
 `Node2D.get_global_mouse_position()` stale in daemon sessions, so game code that
 needs the injected coordinate should read it from the input event.
 
+Live operations keep serving even while `SceneTree.paused` is true, but injected
+input still only reaches nodes whose process mode is `PROCESS_MODE_ALWAYS` or
+`PROCESS_MODE_WHEN_PAUSED` — a paused game's ordinary handlers will not see it, so
+drive resume through a pause-menu-style always-processing handler.
+
 ### Structured logging from game code
 
 To emit a record `gda logger tail` reads back as a rich, field-carrying `LogRecord`,

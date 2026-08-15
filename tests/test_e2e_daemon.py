@@ -1040,13 +1040,90 @@ PAUSE_MAIN_TSCN = (
 
 @pytest.mark.e2e
 def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_dir):
-    # The #656 DoD: opening a real pause menu sets SceneTree.paused, and the
-    # harness must keep serving `game get` / `screen capture` / `input sequence`
-    # through it — and an injected "resume" input must be able to unpause the
-    # session, proving this is not the dead-end the dogfooding note (GDA-DF-013)
-    # reported (input injection is itself a harness op, so if the harness stopped
-    # ticking on pause there would be no way back in). Needs a real DisplayServer
-    # for the capture leg, so this gates like the other windowed e2e tests.
+    # The #656 DoD's headless core: opening a real pause menu sets SceneTree.paused,
+    # and the harness must keep serving `game get` / `input sequence` through it —
+    # and an injected "resume" input must be able to unpause the session, proving
+    # this is not the dead-end the dogfooding note (GDA-DF-013) reported (input
+    # injection is itself a harness op, so if the harness stopped ticking on pause
+    # there would be no way back in). A default (headless) session, so this runs
+    # everywhere a daemon e2e runs — including CI's display-less godot-e2e job; the
+    # `screen capture` leg needs a real DisplayServer and lives in the windowed-gated
+    # test below instead.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert tree_is_paused() is False
+
+        # Pause the game the way a real pause menu does: a live `game set` flips
+        # SceneTree.paused through the Resumer's forwarding property.
+        paused_set = run(
+            "game",
+            "set",
+            "/root/Main/Resumer",
+            "--property",
+            "tree_paused",
+            "--value",
+            "true",
+        )
+        assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
+        assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
+
+        # Control: the DEFAULT-process-mode Ticker genuinely stops advancing while
+        # paused — proving the pause took effect, not just that the flag reads back.
+        stalled_before = ticker_ticks()
+        stalled_after = ticker_ticks()
+        assert stalled_after == stalled_before
+
+        # The harness-served ops the #656 acceptance criteria name must still serve
+        # while paused: a live read and an input injection.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_screen_capture_while_scenetree_paused(
+    tmp_path, daemon_runtime_dir
+):
+    # The #656 DoD's windowed leg, split from the headless core above because
+    # `screen capture` needs a real DisplayServer (`daemon start --windowed`) —
+    # gated like the other windowed e2e tests, so it runs on a developer's local
+    # GUI macOS session (or under xvfb on Linux) but skips on CI's display-less
+    # godot-e2e job, unlike the headless core test.
     from gda.display import windowed_unavailable_reason
 
     reason = windowed_unavailable_reason()
@@ -1076,20 +1153,9 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
             timeout=120,
         )
 
-    def ticker_ticks() -> int:
-        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
-        assert got.returncode == 0, got.stdout + got.stderr
-        return json.loads(got.stdout)["properties"][0]["value"]
-
-    def tree_is_paused() -> bool:
-        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
-        assert got.returncode == 0, got.stdout + got.stderr
-        return json.loads(got.stdout)["properties"][0]["value"]
-
     try:
         started = run("daemon", "start", "--windowed")
         assert started.returncode == 0, started.stdout + started.stderr
-        assert tree_is_paused() is False
 
         # Pause the game the way a real pause menu does: a live `game set` flips
         # SceneTree.paused through the Resumer's forwarding property.
@@ -1104,41 +1170,11 @@ def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_
         )
         assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
         assert json.loads(paused_set.stdout)["verified"] is True
-        assert tree_is_paused() is True
-
-        # Control: the DEFAULT-process-mode Ticker genuinely stops advancing while
-        # paused — proving the pause took effect, not just that the flag reads back.
-        stalled_before = ticker_ticks()
-        stalled_after = ticker_ticks()
-        assert stalled_after == stalled_before
-
-        # The harness-served ops the #656 acceptance criteria name must still serve
-        # while paused: a live read, a screen capture, and an input injection.
-        read_while_paused = run("game", "get", "/root/Main/Resumer")
-        assert read_while_paused.returncode == 0, (
-            read_while_paused.stdout + read_while_paused.stderr
-        )
 
         capture_path = tmp_path / "paused.png"
         captured = run("screen", "capture", "--output", str(capture_path))
         assert captured.returncode == 0, captured.stdout + captured.stderr
-        assert captured.returncode == 0
         assert capture_path.exists()
         assert capture_path.stat().st_size > 0
-
-        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
-        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
-        # handler — which flips SceneTree.paused back off.
-        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
-        resumed = run("input", "sequence", "--events", events)
-        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
-        assert json.loads(resumed.stdout)["kind"] == "sequence"
-
-        # The session is genuinely responsive again: the paused flag cleared, and
-        # the default-process-mode Ticker resumes advancing.
-        assert tree_is_paused() is False
-        resumed_before = ticker_ticks()
-        resumed_after = ticker_ticks()
-        assert resumed_after > resumed_before
     finally:
         run("daemon", "stop")
