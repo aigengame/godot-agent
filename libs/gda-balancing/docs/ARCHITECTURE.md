@@ -602,13 +602,17 @@ flowchart TB
 The diagram shows allowed cross-layer imports. It does not show processing or Standard Schema
 authority.
 
-- `interfaces` owns inbound protocol binding and presentation. The current `interfaces/cli` adapter
-  owns Command descriptors, the immutable registry, schema and manifest projection, argv binding,
-  help, rendering, envelopes, and exit codes. An executable Interface entry point is the
+- `interfaces` owns inbound protocol binding and presentation. The `interfaces/cli` adapter owns
+  Command descriptors, the immutable registry, schema and manifest projection, argv binding, help,
+  rendering, envelopes, and exit codes. The loopback HTTP adapter owns its versioned routes, closed
+  transport schemas, authentication, and status mapping. Its local companion host owns the
+  in-process server lifecycle, readiness, and shutdown. An executable Interface entry point is the
   composition root for its process. Interface adapters translate values. They do not implement
-  language or evaluation rules.
+  language or evaluation rules (bADR-0026).
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
-  does not parse an external protocol, write presentation channels, or build Interface envelopes.
+  also coordinates process-local Execution sessions, immutable Experiment revisions, and their
+  ordering. It does not parse an external protocol, write presentation channels, build Interface
+  envelopes, or own admission and Runtime semantics.
 - `domain` owns authority admission and lifecycle. It also owns the Kernel-defined canonical JSON
   profile and the Formula, Model, Runtime, Experiment, Evidence, and Template rules. It owns
   artifact identity and publication policy. Publication policy uses atomic filesystem mechanisms
@@ -637,8 +641,8 @@ policy from domain-neutral storage mechanisms.
 
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
-| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes | Current Structured CLI commands, Surface manifest, envelopes, and exit codes |
-| Application | Public use cases | Coordinate each public operation without Interface protocol or presentation rules | Typed results or refusals, plus publication receipts when the operation publishes artifacts |
+| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes | Structured CLI commands, the loopback Execution HTTP API, Surface manifest, envelopes, and exit codes |
+| Application | Public use cases | Coordinate each public operation and process-local Execution-session ordering without Interface protocol or presentation rules | Typed results or refusals, session/revision handles, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |

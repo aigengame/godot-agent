@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Provide a local HTTP execution service
@@ -70,8 +70,8 @@ Model, Experiment, Runtime, artifact, identity, or refusal authority.
 
 ### Foreground command lifecycle
 
-- `serve` remains one registered Command descriptor in the existing descriptor registry. If this
-  decision is accepted, it narrowly amends bADR-0008, bADR-0011, and bADR-0021 with one
+- `serve` remains one registered Command descriptor in the existing descriptor registry. This
+  decision narrowly amends bADR-0008, bADR-0011, and bADR-0021 with one
   `foreground-service` execution marking and a typed readiness result. It adds no second command
   list, schema path, dispatch path, or general service framework.
 - The descriptor owns the command input, readiness model, usage and internal-error schemas, help,
@@ -250,8 +250,8 @@ obsolete first-version convenience boundary.
   clients; browser launch or origin adaptation remains evidence-driven Interface work.
 - Consumer-specific process discovery, UI, content projection, source location, and distribution
   remain outside this decision.
-- This proposed record does not authorize implementation or alter accepted Runtime and Experiment
-  contracts until the design is accepted.
+- This record authorizes the local service without altering Runtime or Experiment semantic
+  authority.
 
 ## Validation
 
