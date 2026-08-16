@@ -87,14 +87,15 @@ def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
     source = launch.read_text(encoding="utf-8")
     assert "GDA_BALANCING_EXECUTABLE" in source
     assert "--gda-balancing-executable=" in source
-    assert "exec \"$godot_executable\"" in source
+    assert "exec \"$" in source
+    assert '"${arguments[@]}"' in source
     assert "PyInstaller" not in source
     assert not (_PLAYTEST / "scripts" / "export_macos.sh").exists()
     assert not (_PLAYTEST / "scripts" / "smoke_export_macos.sh").exists()
     assert not (_PLAYTEST / "export_presets.cfg").exists()
 
 
-def test_playtest_keeps_focused_godot_behavior_proofs():
+def test_playtest_keeps_focused_runtime_behavior_proofs():
     expected = {
         "test_gda_execution_client.gd",
         "test_gda_execution_client_discovery.gd",
