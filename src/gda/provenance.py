@@ -11,6 +11,9 @@ model:
 
 * the installed ``gda`` version, the executable that ran, and the interpreter
   running it;
+* the directory the ``gda`` package was actually IMPORTED from — the one field
+  read from the loaded module rather than from installer metadata, so a
+  ``sys.path`` shadow cannot leave the rest of the payload confidently wrong;
 * the install kind — a built ``wheel`` (no source checkout) or an ``editable``
   install, read from the PEP 610 ``direct_url.json`` the installer recorded, since
   the version string alone cannot tell them apart and ``pip show`` is unavailable
@@ -25,7 +28,10 @@ where an engine spawn crashes, which is exactly when provenance matters most —
 the engine VERSION (which only a running engine reports) is left ``None`` with a
 stated reason, rather than making the preflight depend on the thing it is meant to
 diagnose. Reading the Git revision does run ``git``; that is a different process
-from the one under suspicion, and it degrades to ``None`` when unavailable.
+from the one under suspicion, it degrades to ``None`` when unavailable, and it runs
+with the inherited repository-redirect variables stripped (:data:`GIT_REDIRECT_ENV`)
+so a gda called from inside another repository's hook cannot be handed that
+repository's revision.
 
 There is deliberately no schema or protocol version here: ``gda`` has none, and
 inventing one would create a contract nothing else honors.
@@ -99,12 +105,14 @@ class SourceCheckout(BaseModel):
 class GodotProvenance(BaseModel):
     """The engine side of the provenance, resolved WITHOUT launching Godot.
 
-    ``binary`` is the path the same precedence every command uses (``--godot`` →
-    ``$GDA_GODOT`` → the built-in default) would resolve; it is reported as
-    resolved, not checked for existence, because probing the file is a different
-    question from "which engine would this gda use". ``version`` stays ``None``
-    unless the version is obtainable without a launch — it is not today, so
-    ``version_unavailable_reason`` says so.
+    ``binary`` is what ``$GDA_GODOT`` → the built-in default resolves to. That is
+    the whole precedence reachable here: ``--godot`` is a per-COMMAND option, and
+    this surface is the root, which has none — so the reported path is the engine a
+    command with no ``--godot`` would use, and an explicit flag on a later command
+    still overrides it. It is reported as resolved, not checked for existence,
+    because probing the file is a different question from "which engine would this
+    gda use". ``version`` stays ``None`` unless the version is obtainable without a
+    launch — it is not today, so ``version_unavailable_reason`` says so.
     """
 
     binary: str
@@ -122,6 +130,12 @@ class VersionProvenance(BaseModel):
     )
     interpreter: str = Field(
         description="The absolute path of the Python interpreter running gda."
+    )
+    package_path: str = Field(
+        description="The absolute directory the running gda PACKAGE was imported "
+        "from. Every other field here is read from distribution metadata; this one "
+        "is read from the loaded module, so a mismatch between them (a PYTHONPATH "
+        "or sys.path shadow) is visible instead of silent."
     )
     install_kind: InstallKind = Field(
         description="Whether gda was installed as a built wheel or as an editable "
@@ -188,6 +202,31 @@ def _recorded_source_root(direct_url: Optional[dict[str, Any]]) -> Optional[Path
     return Path(path) if path else None
 
 
+# Git environment variables that redirect git at a repository OTHER than the one
+# ``-C`` names — ``$GIT_DIR`` in particular WINS over ``-C``. gda is invoked from
+# exactly the places that set them (a git hook, ``git rebase --exec``, ``git bisect
+# run``, a CI wrapper), where inheriting them would make this surface report another
+# repository's HEAD as this checkout's revision: a ``root`` and a ``revision`` from
+# different trees, silently, which is worse than the ``None`` this module promises
+# when an answer is unavailable. So they are dropped for the provenance calls.
+GIT_REDIRECT_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+)
+
+
+def _git_env() -> dict[str, str]:
+    """The environment the provenance ``git`` calls run in."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_REDIRECT_ENV}
+    # A read-only preflight must never take (or wait on) the agent's own
+    # `index.lock`: `git status` would otherwise refresh the index on disk.
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
 def _git_output(source_root: Path, *args: str) -> Optional[str]:
     """Run ``git -C <source_root> <args>`` and return stdout, or ``None``.
 
@@ -195,7 +234,8 @@ def _git_output(source_root: Path, *args: str) -> Optional[str]:
     root not being a repository, a non-zero exit, or the timeout — so a caller
     reports "not resolvable" instead of guessing. ``-C`` gives the usual Git
     meaning of "the repository containing this directory", so a source root nested
-    below the repository root still resolves.
+    below the repository root still resolves — and :func:`_git_env` makes ``-C``
+    the only thing that decides which repository is read.
     """
     try:
         completed = subprocess.run(
@@ -203,6 +243,7 @@ def _git_output(source_root: Path, *args: str) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=GIT_TIMEOUT_SECONDS,
+            env=_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -235,6 +276,20 @@ def _running_executable() -> str:
     return os.path.abspath(raw)
 
 
+def _imported_package_path() -> str:
+    """The directory the running ``gda`` package was IMPORTED from.
+
+    Every other field is read from distribution metadata, which describes what an
+    installer recorded — not what Python actually loaded. A ``sys.path`` shadow (a
+    ``PYTHONPATH`` entry, a ``gda`` directory in the cwd) makes a wheel install
+    truthfully report ``wheel`` while the code that ran is a mutable source tree.
+    This module lives INSIDE the package, so its own ``__file__`` is that code's
+    address, and reporting it makes ``install_kind`` falsifiable rather than
+    something a reader has to take on trust.
+    """
+    return os.path.abspath(os.path.dirname(__file__))
+
+
 def build_version_provenance() -> VersionProvenance:
     """Build the ``gda --version --json`` payload; never launches Godot."""
     direct_url = read_direct_url()
@@ -244,6 +299,7 @@ def build_version_provenance() -> VersionProvenance:
         gda_version=package_version(DISTRIBUTION),
         executable=_running_executable(),
         interpreter=sys.executable,
+        package_path=_imported_package_path(),
         install_kind=InstallKind.EDITABLE if editable else InstallKind.WHEEL,
         # A wheel has no checkout to report; an editable install whose recorded
         # origin is not a local directory has one we cannot name, and both are

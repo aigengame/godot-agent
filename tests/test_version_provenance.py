@@ -22,6 +22,7 @@ These are fast tests: nothing here spawns Godot.
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -61,12 +62,17 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def make_git_checkout(repo: Path) -> str:
-    """Create a one-commit git repository at ``repo``; return its HEAD revision."""
+    """Create a one-commit git repository at ``repo``; return its HEAD revision.
+
+    The committed file carries the repository's own path, so two fixture repos
+    never share a tree and therefore never share a revision — which is what lets a
+    test tell "read the right repository" from "read any repository".
+    """
     repo.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["git", "init", "-q", str(repo)], check=True, capture_output=True, env=GIT_ENV
     )
-    (repo / "pyproject.toml").write_text("[project]\nname = 'gda'\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text(f"# {repo}\n", encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "init")
     return _git(repo, "rev-parse", "HEAD").strip()
@@ -128,6 +134,7 @@ def test_payload_carries_the_required_provenance_fields():
         "gda_version",
         "executable",
         "interpreter",
+        "package_path",
         "install_kind",
         "source",
         "godot",
@@ -135,6 +142,7 @@ def test_payload_carries_the_required_provenance_fields():
     assert payload["install_kind"] in {"wheel", "editable"}
     assert Path(payload["executable"]).is_absolute()
     assert Path(payload["interpreter"]).is_absolute()
+    assert Path(payload["package_path"]).is_absolute()
 
 
 def test_payload_declares_no_schema_or_protocol_version():
@@ -194,6 +202,30 @@ def test_editable_install_outside_git_reports_null_revision(monkeypatch, tmp_pat
     assert payload.source.root == str(missing)
     assert payload.source.revision is None
     assert payload.source.dirty is None
+
+
+def test_an_inherited_git_dir_cannot_redirect_the_revision(monkeypatch, tmp_path):
+    # `$GIT_DIR` WINS over `git -C`, and gda is invoked from exactly the places
+    # that set it — a git hook, `git rebase --exec`, `git bisect run`, a CI
+    # wrapper. Unscrubbed, the payload paired THIS checkout's `root` with ANOTHER
+    # repository's `revision`, silently: worse than the null this surface promises
+    # when it cannot answer.
+    ours = tmp_path / "ours"
+    theirs = tmp_path / "theirs"
+    our_revision = make_git_checkout(ours)
+    their_revision = make_git_checkout(theirs)
+    assert our_revision != their_revision  # the fixture can tell them apart
+
+    monkeypatch.setenv("GIT_DIR", str(theirs / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(theirs))
+    fake_editable_install(monkeypatch, ours)
+
+    payload = build_version_provenance()
+
+    assert payload.source is not None
+    assert payload.source.root == str(ours)
+    assert payload.source.revision == our_revision
+    assert payload.source.revision != their_revision
 
 
 def test_editable_install_with_a_non_local_url_reports_no_checkout(monkeypatch):
@@ -289,6 +321,46 @@ def test_the_wheel_payload_reaches_the_cli(monkeypatch):
     assert payload["source"] is None
 
 
+# --- the imported package, not just the recorded install ----------------------
+
+
+def test_package_path_names_the_module_that_actually_ran():
+    payload = build_version_provenance()
+
+    assert payload.package_path == str(Path(provenance.__file__).parent)
+
+
+def test_package_path_exposes_a_sys_path_shadow(tmp_path):
+    # The falsifiability check. `install_kind`, `source` and the version all come
+    # from distribution METADATA, which describes what an installer recorded — not
+    # what Python loaded. Put a copy of the package earlier on sys.path and the
+    # metadata keeps describing the installed one while a different tree runs, so
+    # without this field the payload would be confidently wrong about the code its
+    # evidence came from.
+    shadow_root = tmp_path / "shadow"
+    shadow_root.mkdir()
+    installed = Path(provenance.__file__).parent
+    shutil.copytree(installed, shadow_root / "gda")
+
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(shadow_root),
+        "PYTHONSAFEPATH": "1",  # keep the cwd from shadowing it back
+    }
+    done = subprocess.run(
+        [*GDA_CMD, "--version", "--json"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+    )
+
+    assert done.returncode == 0, done.stderr
+    payload = json.loads(done.stdout)
+    assert payload["package_path"] == str(shadow_root / "gda")
+    assert payload["package_path"] != str(installed)
+
+
 # --- the direct_url seam ------------------------------------------------------
 
 
@@ -345,6 +417,10 @@ def test_the_surface_never_launches_godot(monkeypatch):
 
     assert result.exit_code == 0, result.stdout
     # Whatever it did spawn, it was git resolving the checkout — never the engine.
+    # `assert spawned` first: this checkout IS an editable install, so git runs;
+    # without it, an empty list would satisfy the `all(...)` below vacuously and
+    # the guard would keep passing after it stopped guarding anything.
+    assert spawned
     assert all(cmd[:1] == ["git"] for cmd in spawned), spawned
     assert not [cmd for cmd in spawned if "Godot" in " ".join(cmd)]
 

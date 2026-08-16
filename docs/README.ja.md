@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ce2d4b2b58ded651a3307b9bac75fcedc2780d9a0a7702fb6ad67c8dbe785f00 -->
+<!-- gda-readme-i18n: source=README.md sha256=c31d9f6a9b9d8a0dd3cef9f34f4ad27a2077b8cf697c9e181463e930594873b7 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -560,7 +560,7 @@ Godot は daemon セッション内で `get_mouse_position()` /
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
 | `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |
-| `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、代わりに構造化されたインストール来歴を出力します — バージョン、実行ファイルとインタプリタのパス、インストール種別(`wheel` か `editable`)、そして editable インストールの場合はソースチェックアウトとその Git リビジョンおよび未コミット変更の有無です(Godot は起動されません)。長時間の実行前のプリフライトに便利です: editable インストールは実行中にリビジョンが変わり得ます。 |
+| `--version` | インストール済みの `gda` のバージョンを表示します。`--json` を付けると、代わりに構造化されたインストール来歴を出力します — バージョン、実行ファイル・インタプリタ・実際に読み込まれたパッケージのパス、インストール種別(`wheel` か `editable`)、そして editable インストールの場合はソースチェックアウトとその Git リビジョンおよび未コミット変更の有無です(Godot は起動されません)。長時間の実行前のプリフライトに便利です: editable インストールは実行中にリビジョンが変わり得ます。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
 
 ---
