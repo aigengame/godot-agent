@@ -689,8 +689,14 @@ def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_rea
         run("daemon", "stop")
 
 
-def _gda(tmp_path, env):
-    """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper."""
+def _gda(tmp_path, env, timeout=90):
+    """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper.
+
+    ``timeout`` defaults to 90s (the value every existing call site relied on
+    implicitly); a windowed session is heavier to launch, so callers that start
+    one pass a larger value (e.g. ``timeout=120``, matching the windowed e2e
+    tests elsewhere) instead of hand-rolling a near-duplicate of this helper.
+    """
 
     def run(*args):
         return subprocess.run(
@@ -706,7 +712,7 @@ def _gda(tmp_path, env):
             capture_output=True,
             text=True,
             env=env,
-            timeout=90,
+            timeout=timeout,
         )
 
     return run
@@ -1124,6 +1130,14 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
     # gated like the other windowed e2e tests, so it runs on a developer's local
     # GUI macOS session (or under xvfb on Linux) but skips on CI's display-less
     # godot-e2e job, unlike the headless core test.
+    #
+    # This restores the issue's INTEGRATED paused-session sequence on the one path
+    # that can exercise every op it names in a single session: capture alone could
+    # pass even with a capture-specific regression elsewhere in the harness, so
+    # after the paused capture this continues in the SAME session with a live read,
+    # a resume `input sequence` injection, and a responsiveness proof — the same
+    # read/resume/responsiveness shape the headless test proves without a display,
+    # here proven end-to-end alongside the capture that needs one.
     from gda.display import windowed_unavailable_reason
 
     reason = windowed_unavailable_reason()
@@ -1133,25 +1147,17 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ}, timeout=120)
 
-    env = {**os.environ}
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
 
-    def run(*args):
-        return subprocess.run(
-            [
-                *GDA_CMD,
-                *args,
-                "--project",
-                str(tmp_path),
-                "--godot",
-                str(GODOT),
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120,
-        )
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
 
     try:
         started = run("daemon", "start", "--windowed")
@@ -1170,11 +1176,34 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         )
         assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
         assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
 
         capture_path = tmp_path / "paused.png"
         captured = run("screen", "capture", "--output", str(capture_path))
         assert captured.returncode == 0, captured.stdout + captured.stderr
         assert capture_path.exists()
         assert capture_path.stat().st_size > 0
+
+        # The SAME paused session still serves a live read right after the
+        # capture — the capture's time-windowed harness state did not wedge it.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
     finally:
         run("daemon", "stop")
