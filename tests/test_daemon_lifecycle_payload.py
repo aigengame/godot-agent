@@ -24,6 +24,7 @@ from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
     HARNESS_VERSION,
+    HarnessSnapshot,
     install_harness,
     installed_harness_version,
 )
@@ -792,6 +793,126 @@ def test_failed_start_restores_a_stale_harness_body_it_resynced(
     assert HARNESS_FILE in failure.error.diagnostics
 
 
+@pytest.fixture
+def read_only_project_godot():
+    """Make a project.godot unwritable, and always put the mode back.
+
+    The teardown matters: pytest's tmp_path cleanup fails on a directory whose files
+    it cannot remove, which would turn a real assertion failure into a confusing
+    cleanup error.
+    """
+    restore: list[tuple[_Path, int]] = []
+
+    def make(path: _Path) -> None:
+        restore.append((path, path.stat().st_mode))
+        path.chmod(0o444)
+
+    yield make
+    for path, mode in restore:
+        if path.exists():
+            path.chmod(mode)
+
+
+def test_failed_install_restores_a_project_whose_config_cannot_be_written(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # PR #680 recheck 2, the reproduced residue. `install_harness` materializes the
+    # harness FILE first and writes the autoload config SECOND, so a config write
+    # that fails leaves the harness on disk and raises — and the install call used to
+    # sit OUTSIDE the guarded region, so no restore ran and no receipt ever existed.
+    # A real filesystem fault (a read-only project.godot) drives it, not a stub.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    read_only_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    # The exception still surfaces to the caller exactly as before — the restore does
+    # not swallow or reclassify it.
+    with pytest.raises(PermissionError):
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    # ... but nothing of the half-finished install is left behind.
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    assert not (project / HARNESS_RES_DIR / f"{HARNESS_FILE}.uid").exists()
+    assert not (project / HARNESS_RES_DIR).exists()
+    assert not (project / "addons").exists()  # the dir the install created, too
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_install_keeps_a_pre_existing_harness_untouched(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # The same fault over a project that ALREADY has harness files (stale body) and
+    # its own addons/ directory: the restore must put the stale bytes back and delete
+    # NOTHING that predated the start.
+    #
+    # The autoload entry is deliberately ABSENT — a half-installed project, which is
+    # what makes the install need a config write and so hit the read-only fault. With
+    # a correct entry already in place the install writes no config at all and never
+    # fails, which is itself worth knowing: the fault only bites when project.godot
+    # actually has to change.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    harness.parent.mkdir(parents=True)
+    stale = b"# gda-harness-version: stale-old\nextends Node\n# my own edits\n"
+    harness.write_bytes(stale)
+    sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
+    sidecar.write_bytes(b"uid://bxxxxxxxxxxxxx\n")
+    before = project_godot.read_bytes()
+    read_only_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    # The install re-materializes the stale body, then fails on the config write.
+    with pytest.raises(PermissionError):
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    assert harness.read_bytes() == stale  # restored verbatim, still stale
+    assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"
+    assert (project / HARNESS_RES_DIR).is_dir()  # pre-existing dirs survive
+    assert (project / "addons").is_dir()
+    assert project_godot.read_bytes() == before
+
+
+def test_failed_install_leaves_a_tracked_project_porcelain_clean(
+    tmp_path, short_runtime, monkeypatch, read_only_project_godot
+):
+    # Repro (a) as the user meets it: as a git diff. The half-finished install must
+    # leave nothing for `git status` to report.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(project), *args], capture_output=True, text=True
+        )
+
+    assert git("init", "-q").returncode == 0
+    git("config", "user.email", "unit@example.invalid")
+    git("config", "user.name", "gda unit")
+    assert git("add", "-A").returncode == 0
+    assert git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert git("status", "--porcelain").stdout == ""
+
+    read_only_project_godot(project_godot)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+
+    with pytest.raises(PermissionError):
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    status = git("status", "--porcelain")
+    assert status.stdout == "", (
+        "the half-finished install left the tracked project dirty:\n" + status.stdout
+    )
+
+
 def test_failed_start_leaves_a_tracked_project_porcelain_clean(
     tmp_path, short_runtime, monkeypatch
 ):
@@ -849,10 +970,10 @@ def test_failed_start_reports_the_residual_delta_when_restore_also_fails(
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
     monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
 
-    def boom(project, snapshot, installed):
+    def boom(self):
         raise OSError("injected: restore cannot write")
 
-    monkeypatch.setattr(daemon_ops, "restore_install", boom)
+    monkeypatch.setattr(HarnessSnapshot, "restore", boom)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, "godot", version_check=_OK_VERSION

@@ -50,10 +50,8 @@ from gda.dispatch import dispatch_recipe
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
-    HarnessInstall,
     HarnessSnapshot,
     install_harness,
-    restore_install,
     uninstall_harness,
 )
 from gda.headless import (
@@ -382,31 +380,35 @@ _START_FAILED = "the gda-daemon did not start (it never began accepting on its s
 
 
 def _restore_start_install(
-    project: Path, snapshot: HarnessSnapshot, installed: HarnessInstall
+    snapshot: HarnessSnapshot,
 ) -> "tuple[str, ...] | OSError":
     """Undo a failed start's harness install; the undone set, or the error that stopped it.
+
+    Takes ONLY the snapshot: the restore must work for a start that failed at any
+    point after the snapshot was taken, including PART WAY THROUGH the install itself
+    (a read-only ``project.godot`` makes ``install_harness`` raise after it has
+    already materialized the harness), where no receipt exists to consult (PR #680
+    recheck 2).
 
     Never raises: a restore failure must not replace the start failure the caller is
     already reporting — it is reported ALONGSIDE it, as the mutation the user now has
     to clean up by hand.
     """
     try:
-        return restore_install(project, snapshot, installed)
+        return snapshot.restore()
     except OSError as exc:
         return exc
 
 
-def _failed_start_failure(
-    project: Path, snapshot: HarnessSnapshot, installed: HarnessInstall
-) -> Failure:
+def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
     """The ``daemon_not_running`` failure for a start that never became ready.
 
     Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
     unchanged, no new error code): what was restored, or — when the restore itself
     failed — the files that still differ from their pre-start bytes, measured off
-    the snapshot rather than predicted from the receipt.
+    the snapshot rather than predicted from a receipt.
     """
-    outcome = _restore_start_install(project, snapshot, installed)
+    outcome = _restore_start_install(snapshot)
     if isinstance(outcome, OSError):
         pending = ", ".join(snapshot.pending())
         return make_failure(
@@ -524,27 +526,30 @@ def run_daemon_start_operation(
         if reason is not None:
             return make_failure("live_windowed_unavailable", reason, "")
 
-    # The harness install happens BEFORE the daemon exists, so everything after it
-    # runs with the project already mutated. Any failure from here on therefore puts
-    # the project back (PR #680) — otherwise a start that never came up leaves an
-    # install the user got no use of, and the failure envelope says nothing about it.
+    # The harness install happens BEFORE the daemon exists, so everything from the
+    # install onward runs against a project gda has already mutated. The snapshot is
+    # therefore taken FIRST and the install itself sits INSIDE the guarded region
+    # (PR #680 recheck 2): `install_harness` materializes the harness file before it
+    # writes the autoload config, so a config write that fails — a read-only
+    # `project.godot` is enough — used to escape with the harness already on disk,
+    # before any restore could run and with no receipt ever produced.
     #
-    # The restore is driven by a SNAPSHOT taken before the install, not by the
-    # install's receipt (PR #680 recheck): an install that re-materializes a stale
-    # harness body or re-points an existing autoload entry CREATES nothing, so a
-    # receipt has no prior bytes to put back and the rewrite would silently stand.
-    # The exception arm re-raises unchanged; it is there so a crash cannot leave
-    # residue either.
+    # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
+    # receipt cannot describe how to undo an install that re-materialized a stale
+    # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
+    # install has no receipt at all. The exception arm re-raises unchanged, so the
+    # caller still sees the original error exactly as before — only the residue is
+    # gone.
     snapshot = HarnessSnapshot.capture(project)
-    installed = install_harness(project)
     try:
+        installed = install_harness(project)
         (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
         pid = _await_ready(paths)
     except BaseException:
-        _restore_start_install(project, snapshot, installed)
+        _restore_start_install(snapshot)
         raise
     if pid is None:
-        return _failed_start_failure(project, snapshot, installed)
+        return _failed_start_failure(snapshot)
     return DaemonStartResult(
         pid=pid,
         socket_path=str(paths.cli_socket),

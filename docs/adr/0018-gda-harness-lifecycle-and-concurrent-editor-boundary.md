@@ -116,22 +116,28 @@ so two instances can touch the project at once.
 > the shared Godot-convention directory another addon may be about to populate.
 >
 > **Point 1's install is now transactional at the `daemon start` boundary.** The install
-> precedes the daemon, so a start that fails afterwards (the spawn raises, or the daemon
-> never begins accepting) used to leave the project mutated and say nothing about it. Such
-> a start now restores the project to its exact pre-start bytes and reports the outcome in
-> the failure's `diagnostics` — what was put back, or, if the restoration itself fails,
-> which files still differ. A start that wrote nothing restores nothing, so a pre-existing
-> installation is never disturbed.
+> precedes the daemon, so a start that fails at any point from the install onward used to
+> leave the project mutated and say nothing about it. The transaction therefore opens
+> **before the install**, not after it: the snapshot is taken first and `install_harness`
+> runs inside the guarded region, because the install is itself multi-step — it
+> materializes the harness file and writes the autoload config second, so a config write
+> that fails (a read-only `project.godot` is enough) leaves the harness on disk and raises.
+> A failed start now restores the project to its exact pre-start bytes, and the structured
+> failure reports the outcome in its `diagnostics` — what was put back, or, if the
+> restoration itself fails, which files still differ. A start that wrote nothing restores
+> nothing, so a pre-existing installation is never disturbed. An exception still propagates
+> to the caller unchanged; only the residue is gone.
 >
-> The restoration is driven by an **in-memory snapshot** of the prior bytes
-> (`HarnessSnapshot`, the same mechanism ADR-0028's export strip uses), NOT by the install
-> receipt. A receipt is insufficient by construction: an install that re-materializes a
-> stale harness body, or re-points an existing autoload entry, *creates* nothing — so a
-> receipt-driven rollback has no prior bytes to put back and silently leaves the rewrite
-> standing, which is the very defect class this outcome note exists to close. The receipt
-> still contributes the one thing a file snapshot cannot model: the directories the install
-> made. Nothing is persisted into the project, so the "no recorded pre-install state" rule
-> above is untouched — that rule is about markers left behind in the user's project.
+> The restoration is driven **solely** by an in-memory snapshot of the prior state
+> (`HarnessSnapshot`, the same mechanism ADR-0028's export strip uses), never by the
+> install receipt. A receipt is insufficient twice over: an install that re-materializes a
+> stale harness body or re-points an existing autoload entry *creates* nothing, so there
+> are no prior bytes to put back; and an install that fails part way through produces no
+> receipt at all. The snapshot therefore records absent **files** and absent
+> **directories**, which is the whole reversal — the receipt's job is to REPORT what a
+> successful install created, not to describe how to undo it. Nothing is persisted into the
+> project, so the "no recorded pre-install state" rule above is untouched — that rule is
+> about markers left behind in the user's project.
 >
 > Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
 > reports `created_paths` / `created_sections` and `daemon uninstall` reports

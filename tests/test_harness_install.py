@@ -25,9 +25,9 @@ from gda.harness.install import (
     HARNESS_VERSION,
     HarnessSnapshot,
     harness_artifacts,
+    harness_directories,
     install_harness,
     installed_harness_version,
-    restore_install,
     uninstall_harness,
 )
 
@@ -557,12 +557,28 @@ def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):
     )
 
 
-# --- Snapshot-exact restoration of a failed install (#680 recheck) ------------
+# --- Snapshot-exact restoration of a failed install (#680 rechecks) -----------
 # A `daemon start` installs the harness BEFORE the daemon exists, so a start that
-# never comes ready must hand the project back untouched. The restore is driven by
-# a HarnessSnapshot of the prior bytes, NOT by the install receipt: an install that
-# rewrites a stale body or re-points an existing entry CREATES nothing, so a receipt
-# has no prior bytes to put back.
+# never comes ready must hand the project back untouched. The restore is the
+# snapshot's own job and takes NOTHING from the install receipt: an install that
+# rewrites a stale body or re-points an existing entry CREATES nothing (so a receipt
+# has no prior bytes to put back), and an install that fails part way through
+# produces no receipt at all. The snapshot therefore records absent FILES and absent
+# DIRECTORIES, which is the whole reversal.
+
+
+def test_snapshot_records_the_directories_the_install_would_create(tmp_path):
+    # The receipt-independence hinges on this: the snapshot must know which of the
+    # install's directories it created, so the restore can remove those and keep the
+    # ones the project already had.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+
+    fresh = HarnessSnapshot.capture(tmp_path)
+    assert fresh.absent_directories == harness_directories(tmp_path)
+
+    (tmp_path / "addons").mkdir()
+    partial = HarnessSnapshot.capture(tmp_path)
+    assert partial.absent_directories == (tmp_path / HARNESS_RES_DIR,)
 
 
 def test_restore_undoes_a_fresh_install_completely(tmp_path):
@@ -571,8 +587,8 @@ def test_restore_undoes_a_fresh_install_completely(tmp_path):
     before = project_godot.read_bytes()
 
     snapshot = HarnessSnapshot.capture(tmp_path)
-    install = install_harness(tmp_path)
-    undone = restore_install(tmp_path, snapshot, install)
+    install_harness(tmp_path)
+    undone = snapshot.restore()
 
     assert project_godot.read_bytes() == before
     assert not (tmp_path / "addons").exists()  # incl. the addons dir gda created
@@ -609,7 +625,7 @@ def test_restore_puts_a_stale_harness_body_back_unchanged(tmp_path):
     assert install.created_paths == ()
     assert harness.read_bytes() != stale  # the install really did rewrite it
 
-    undone = restore_install(tmp_path, snapshot, install)
+    undone = snapshot.restore()
 
     assert harness.read_bytes() == stale  # the user's stale body is back, verbatim
     assert project_godot.read_bytes() == godot_before
@@ -628,12 +644,12 @@ def test_restore_puts_a_re_pointed_autoload_entry_back(tmp_path):
     before = project_godot.read_bytes()
 
     snapshot = HarnessSnapshot.capture(tmp_path)
-    install = install_harness(tmp_path)
+    install_harness(tmp_path)
     assert 'GdaHarness="*res://legacy/old.gd"' not in project_godot.read_text(
         encoding="utf-8"
     )  # the install really did re-point it
 
-    restore_install(tmp_path, snapshot, install)
+    snapshot.restore()
 
     assert project_godot.read_bytes() == before  # original target restored, not dropped
 
@@ -649,7 +665,7 @@ def test_restore_of_an_unchanged_install_does_nothing(tmp_path):
     snapshot = HarnessSnapshot.capture(tmp_path)
     repeat = install_harness(tmp_path)  # idempotent no-op
     assert repeat.changed is False
-    undone = restore_install(tmp_path, snapshot, repeat)
+    undone = snapshot.restore()
 
     assert undone == ()
     assert project_godot.read_bytes() == installed_bytes
@@ -663,8 +679,8 @@ def test_restore_keeps_an_addons_dir_the_project_already_had(tmp_path):
     (tmp_path / "addons").mkdir()
 
     snapshot = HarnessSnapshot.capture(tmp_path)
-    install = install_harness(tmp_path)
-    restore_install(tmp_path, snapshot, install)
+    install_harness(tmp_path)
+    snapshot.restore()
 
     assert (tmp_path / "addons").is_dir()
     assert not (tmp_path / HARNESS_RES_DIR).exists()
@@ -675,11 +691,11 @@ def test_restore_keeps_a_created_dir_that_meanwhile_gained_content(tmp_path):
     # between install and restore must not be swept away with it.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
     snapshot = HarnessSnapshot.capture(tmp_path)
-    install = install_harness(tmp_path)
+    install_harness(tmp_path)
     bystander = tmp_path / HARNESS_RES_DIR / "notes.md"
     bystander.write_text("someone else's file\n", encoding="utf-8")
 
-    restore_install(tmp_path, snapshot, install)
+    snapshot.restore()
 
     assert bystander.exists()  # kept, and so is the directory holding it
     assert not _harness_file(tmp_path).exists()  # the harness itself still went
@@ -697,7 +713,7 @@ def test_restore_preserves_a_sibling_autoload_and_its_section(tmp_path):
     snapshot = HarnessSnapshot.capture(tmp_path)
     install = install_harness(tmp_path)
     assert install.created_sections == ()  # gda joined a section, it did not make one
-    restore_install(tmp_path, snapshot, install)
+    snapshot.restore()
 
     assert project_godot.read_bytes() == before
 
