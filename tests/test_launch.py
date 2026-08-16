@@ -134,8 +134,10 @@ def test_builds_headless_argv_from_binary_and_tail(monkeypatch):
 
     launch(Path("/x/Godot"), ["--path", "/p", "--version"], cwd=None, timeout=60.0)
 
-    # The primitive always prepends `[binary, --headless]` to the caller's tail.
-    assert captured["cmd"] == ["/x/Godot", "--headless", "--path", "/p", "--version"]
+    # The primitive always prepends `[binary, --headless, --log-file <gda path>]`
+    # to the caller's tail: gda owns the engine log target on every launch (#653).
+    assert captured["cmd"][:3] == ["/x/Godot", "--headless", "--log-file"]
+    assert captured["cmd"][4:] == ["--path", "/p", "--version"]
 
 
 def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(monkeypatch):

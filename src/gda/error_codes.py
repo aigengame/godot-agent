@@ -87,6 +87,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "Godot launched but did not return before the runner timeout.",
     ),
     ErrorCodeSpec(
+        "user_data_unwritable",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.RUNNER,
+        "Godot's user-data location is not writable, so the launch was refused.",
+    ),
+    ErrorCodeSpec(
         "unsupported_version",
         ErrorCategory.VERSION,
         EXIT_VERSION,
