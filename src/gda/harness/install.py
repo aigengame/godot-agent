@@ -344,17 +344,25 @@ class HarnessSnapshot:
         return tuple(changed)
 
     def pending(self) -> tuple[str, ...]:
-        """The captured files whose on-disk bytes still differ from the snapshot.
+        """The captured paths whose on-disk state still differs from the snapshot.
 
         What a caller reports when its own restore failed: the REAL residual delta,
         measured rather than predicted, so the user is told exactly what is left to
-        put right by hand.
+        put right by hand — files whose bytes differ, then directories that were
+        absent at capture but still exist (a restore can fail after the files are
+        already back, leaving only directory residue; PR #680 recheck 3).
         """
-        return tuple(
+        residue = [
             _res_path(self.project, path)
             for path, before in self.files
             if (path.read_bytes() if path.exists() else None) != before
+        ]
+        residue.extend(
+            _res_path(self.project, directory)
+            for directory in self.absent_directories
+            if directory.is_dir()
         )
+        return tuple(residue)
 
 
 def installed_harness_version(project: Path) -> Optional[str]:

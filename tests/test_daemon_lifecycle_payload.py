@@ -988,6 +988,44 @@ def test_failed_start_reports_the_residual_delta_when_restore_also_fails(
     assert "project.godot" in failure.error.diagnostics
 
 
+def test_failed_start_names_directory_residue_when_only_the_rmdir_fails(
+    tmp_path, short_runtime, monkeypatch
+):
+    # PR #680 recheck 3: a restore can fail AFTER every captured file is already
+    # back — the directory removal is its last step — leaving only a gda-created
+    # directory behind. `pending()` measures files by bytes, so the residual list
+    # was empty exactly when the residue was directory-only; the measured delta
+    # must name still-present captured-absent directories too.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    real_rmdir = _Path.rmdir
+
+    def boom(self):
+        raise OSError("injected: directory removal failure")
+
+    monkeypatch.setattr(_Path, "rmdir", boom)
+    try:
+        failure = daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+    finally:
+        monkeypatch.setattr(_Path, "rmdir", real_rmdir)
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_not_running"
+    assert "could NOT be rolled back" in failure.error.diagnostics
+    assert "injected: directory removal failure" in failure.error.diagnostics
+    # Every captured file is back, so the ONLY residue is the created directory —
+    # and it is named, not silently omitted.
+    harness_dir = project / HARNESS_RES_DIR
+    assert harness_dir.is_dir()
+    assert not (harness_dir / HARNESS_FILE).exists()
+    assert f"res://{HARNESS_RES_DIR}" in failure.error.diagnostics
+    assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" not in failure.error.diagnostics
+
+
 # --- the mutation receipt on both halves (#654) -------------------------------
 
 

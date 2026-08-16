@@ -721,7 +721,10 @@ def test_restore_preserves_a_sibling_autoload_and_its_section(tmp_path):
 def test_snapshot_pending_names_what_a_failed_restore_leaves_behind(tmp_path):
     # When the restore itself fails, the caller reports the REAL residual delta —
     # measured against the snapshot, not predicted from the receipt — so the user is
-    # told exactly which files still differ from their pre-start state.
+    # told exactly which paths still differ from their pre-start state: changed
+    # files first, then created directories that still exist (a restore can fail
+    # after the files are already back, leaving directory-only residue; PR #680
+    # recheck 3).
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
     snapshot = HarnessSnapshot.capture(tmp_path)
@@ -729,7 +732,12 @@ def test_snapshot_pending_names_what_a_failed_restore_leaves_behind(tmp_path):
 
     install_harness(tmp_path)
 
-    assert snapshot.pending() == ("project.godot", HARNESS_RES_PATH)
+    assert snapshot.pending() == (
+        "project.godot",
+        HARNESS_RES_PATH,
+        "res://addons",
+        f"res://{HARNESS_RES_DIR}",
+    )
 
 
 def test_ready_gates_on_template_feature_as_its_first_statement():

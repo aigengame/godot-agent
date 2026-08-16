@@ -405,8 +405,8 @@ def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
 
     Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
     unchanged, no new error code): what was restored, or — when the restore itself
-    failed — the files that still differ from their pre-start bytes, measured off
-    the snapshot rather than predicted from a receipt.
+    failed — the paths (files AND created directories) that still differ from their
+    pre-start state, measured off the snapshot rather than predicted from a receipt.
     """
     outcome = _restore_start_install(snapshot)
     if isinstance(outcome, OSError):
@@ -414,7 +414,7 @@ def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
         return make_failure(
             "daemon_not_running",
             _START_FAILED,
-            f"the harness install could NOT be rolled back ({outcome}); these files "
+            f"the harness install could NOT be rolled back ({outcome}); these paths "
             f"still differ from their pre-start state: {pending}",
         )
     if not outcome:
