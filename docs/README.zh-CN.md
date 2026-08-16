@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0a6f25dcbdb21fee38368041398cf6c9f45acdfbe2aecc1bcfff64418717f45b -->
+<!-- gda-readme-i18n: source=README.md sha256=7e7ef59df7e407b072ba03aa8dd6fb0325c4043a1e064f1ffb98cafa3230dc6a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -357,8 +357,8 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `set`               | 修改一个属性。 |
 | 领域动词        | `play`、`run`、`export`、`import` 等，保留它们的自然含义。 |
 
-每条命令都支持 `--json` 和 `--schema`——只有 `gda schema` 例外，它会直接把聚合清单
-作为 JSON 输出。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
+每条命令都支持 `--json` 和 `--schema`——`gda schema` 同样接受 `--json`，但它不会改变任何
+输出，因为聚合清单本身就是 JSON。读取或修改 `res://` 路径的命令会解析一个[项目上下文](#configuration)。
 运行 `gda <group> <command> --help` 查看完整 flag——`gda --help` 是已安装命令的权威清单。
 
 **第一次用？** 一条不错的上手路径：`gda info` → `gda scene create` → `gda node add` →
@@ -476,7 +476,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个 Live 操作时启动（`screen` 截图需加 `--windowed`）。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
-| `daemon uninstall` | 从项目中移除游戏内 `gda` harness——autoload 条目、harness 文件及其 `.uid` 附属文件，以及不再包含任何键的 `[autoload]` 段，使 `project.godot` 恢复到安装前的字节内容（针对 Godot 自身写出的文件）；结果会逐项列出被移除的每个路径与段。这是一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离 harness。 |
+| `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
 
@@ -536,7 +536,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 
 | Flag       | 说明                                                               |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出。不加它时，命令会打印一份简洁的、供人阅读的渲染结果。 |
+| `--json`    | 在 stdout 上把结果作为单个 JSON 对象输出。不加它时，命令会打印一份简洁的、供人阅读的渲染结果。根级同样接受该 flag：`gda --json <group> <command>` 与写在命令之后含义相同。 |
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
