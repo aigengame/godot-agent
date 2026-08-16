@@ -29,6 +29,7 @@ from gda_balancing.application.execution_sessions import (
 )
 from gda_balancing.domain.authority.context import packaged_authority_context
 from gda_balancing.domain.runtime.projections import evaluator_build_identity
+from gda_balancing.interfaces.http.api_v1 import create_api_v1
 from gda_balancing.interfaces.http.local_host import (
     LocalHostReadiness,
     run_local_host,
@@ -1035,6 +1036,69 @@ def test_post_readiness_application_fault_stops_the_local_host() -> None:
             with pytest.raises(
                 RuntimeError,
                 match="injected post-readiness fault",
+            ):
+                serving.result(timeout=10)
+        finally:
+            if not serving.done():
+                _request_json(
+                    f"http://{readiness.host}:{readiness.port}/v1/shutdown",
+                    readiness.capability_token,
+                    method="POST",
+                )
+
+
+def test_post_readiness_production_route_fault_stops_the_local_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readiness_queue: Queue[LocalHostReadiness] = Queue(maxsize=1)
+
+    def fail_session_creation(
+        _sessions: ExecutionSessions,
+        _model_source: dict[str, Any],
+        _experiment_specification: dict[str, Any],
+    ) -> None:
+        raise RuntimeError("injected production route fault")
+
+    monkeypatch.setattr(ExecutionSessions, "create", fail_session_creation)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        serving = executor.submit(
+            run_local_host,
+            host="127.0.0.1",
+            port=0,
+            application_factory=create_api_v1,
+            emit_ready=readiness_queue.put,
+        )
+        readiness = readiness_queue.get(timeout=10)
+        try:
+            request = Request(
+                f"http://{readiness.host}:{readiness.port}/v1/execution-sessions",
+                data=json.dumps(
+                    {
+                        "model_source": {},
+                        "experiment_specification": {},
+                    }
+                ).encode("utf-8"),
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {readiness.capability_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with pytest.raises(HTTPError) as response:
+                urlopen(request, timeout=10)
+            assert response.value.code == 500
+            assert json.load(response.value) == {
+                "error": {
+                    "category": "service",
+                    "code": "internal_error",
+                    "message": "the local service failed unexpectedly",
+                }
+            }
+
+            with pytest.raises(
+                RuntimeError,
+                match="injected production route fault",
             ):
                 serving.result(timeout=10)
         finally:
