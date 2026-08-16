@@ -382,18 +382,24 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
 
 
 def script_path_invalid_failure(path: str) -> Failure:
-    """The ``invalid_path`` failure for a ``script run`` path that is not ``res://`` (ADR-0031).
+    """The ``invalid_path`` failure for an ABSOLUTE ``script run`` path (ADR-0031, #675).
 
-    ``script run`` is res://-only: a res:// path resolves against the ``--project``
-    context (ADR-0006), and the motivating need is project-scoped. An absolute or
-    otherwise non-``res://`` path is a structured ``invalid_path`` failure decided
-    at the CLI, *before* any engine launch — never a crash or a raw engine failure
-    (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
-    the whole taxonomy reads from one place.
+    ``script run`` is project-scoped: it takes the two forms the rest of the
+    ``script`` group takes — a project-relative path or a ``res://`` address — and
+    both resolve against the ``--project`` context (ADR-0006). An ABSOLUTE path is
+    the one remaining refusal: it names a location outside that context, and
+    running a standalone script projectless stays out of scope (ADR-0031
+    amendment). The refusal is a structured ``invalid_path`` decided at the CLI,
+    *before* any engine launch — never a crash or a raw engine failure (an explicit
+    ABI edge of ADR-0031). Kept beside the other pre-run failures so the whole
+    taxonomy reads from one place.
     """
     return make_failure(
         "invalid_path",
-        f"script run requires a res:// script path, got: {path!r}",
+        (
+            "script run requires a project-relative or res:// script path, "
+            f"got the absolute path: {path!r}"
+        ),
         "",
     )
 

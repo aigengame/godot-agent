@@ -17,6 +17,7 @@ SAME recipe (ADR-0015), not the wrong runner.
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -52,6 +53,9 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
     assert data == {
+        # The canonical res:// address of what ran (#675) — present on every success
+        # result, whichever of the two accepted forms the caller used.
+        "path": "res://logic.gd",
         "exit_status": 0,
         "stdout": "hi\n",
         "stderr": "",
@@ -160,19 +164,85 @@ def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
     assert calls, "the launch seam was never reached via --params-json"
 
 
-def test_non_res_path_emits_invalid_path_envelope(monkeypatch, tmp_path):
+@pytest.mark.parametrize("form", ["logic.gd", "res://logic.gd"])
+def test_both_path_forms_are_accepted_at_the_cli(monkeypatch, tmp_path, form):
+    # AC of #675 at the CLI boundary: ONE script-path representation now serves both
+    # `script validate` and `script run`. Whichever form the caller types, the launch
+    # gets the canonical res:// address and the result reports it back.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", form, "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["path"] == "res://logic.gd"
+    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    assert args == ["--path", str(project), "--script", "res://logic.gd"]
+
+
+def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path):
+    # ADR-0015: the argv and --params-json paths must agree on the new form as well,
+    # since the acceptance rides on the model's shared NormalizedPath plus the one
+    # operation-side lift — not on argv-only handling.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "logic.gd"}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["path"] == "res://logic.gd"
+    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    assert args[-1] == "res://logic.gd"
+
+
+def test_absolute_path_emits_invalid_path_envelope(monkeypatch, tmp_path):
+    # The one path form still refused (#675 narrowed the edge): an absolute path is
+    # outside the --project context, so it is a structured envelope before any launch.
     project = _project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
         app,
-        ["script", "run", "logic.gd", "--project", str(project), "--json"],
+        ["script", "run", "/abs/logic.gd", "--project", str(project), "--json"],
     )
 
     assert result.exit_code != 0
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "invalid_path"
     assert not calls, "no engine launch on an invalid path"
+
+
+def test_a_tilde_path_is_refused_as_the_absolute_path_it_means(monkeypatch, tmp_path):
+    # The shared NormalizedPath is what makes this honest (#675): `~/logic.gd` expands
+    # to an absolute path and is refused as one, instead of being lifted into a
+    # nonsense `res://~/logic.gd` naming a directory called `~` inside the project.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "~/logic.gd", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert "res://~" not in err["message"]
+    assert not calls
 
 
 def test_no_resolved_project_emits_project_not_found(monkeypatch, tmp_path):

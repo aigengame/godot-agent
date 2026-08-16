@@ -78,6 +78,36 @@ status: accepted
 > `diagnostics` and a status named in the message, but it is not typed. That gap is the deferral
 > above, not an oversight.
 
+> **Amendment (2026-08-16, #675) — `script run` accepts BOTH script-path forms; the `res://`-only
+> scope below is superseded.** That scope rests on a rationale that does not hold: "consistent with
+> the rest of the `script` command group (which all act on `res://`)". The rest of the group takes a
+> **project-relative** path as well, through the shared path normalization every path-taking command
+> uses (ADR-0006, ADR-0015). `script run` alone refused it, so a caller who addressed a script one way
+> for `script validate` had to rewrite it for `script run` (dogfooding GDA-DF-019).
+>
+> **`script run` now accepts the project-relative form beside `res://`.** A project-relative path is
+> lifted onto the scheme it is already relative to — the `res://` root of the resolved `--project`
+> (ADR-0006) — and then put through the same `canonical_res_path` the amendment above introduced. Both
+> spellings therefore converge on **one** address before any launch, so the argv handed to the engine,
+> the entry-load verdict matching, and every message keep the single canonical identity that amendment
+> established. No second normalization rule is added.
+>
+> **The success result gains a `path` field** carrying that canonical `res://` address. A caller who
+> addressed the script project-relatively reads back what the engine was actually asked to run —
+> otherwise the accepted form and the form every failure message quotes would differ with nothing to
+> connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
+>
+> **An absolute path is still refused** with `invalid_path`. The ABI edge below names "a non-`res://`
+> **or absolute** script path"; only its first half is lifted here. Running a standalone script by
+> absolute path remains out of scope for the reason the decision records — it is the projectless case
+> — and the dogfooding evidence asked only for the project-relative form. The refusal message now
+> names both accepted forms instead of `res://` alone.
+>
+> The `script validate` result still echoes the path spelling it was given, as every sentinel
+> operation does. Making one operation report a canonical form would trade this inconsistency for a
+> different one, so it is left alone deliberately; the convergence decided here is `script run`'s,
+> whose path must be canonical because its verdict machinery matches on it.
+
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine
 CLI mode for editor-only capabilities (e.g. `--export-*`), whose outcome `gda` classifies from the

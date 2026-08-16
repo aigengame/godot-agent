@@ -12,7 +12,9 @@ ADR-0031 specifies:
 - a script that ``quit(1)`` → still a **SUCCESS** carrying ``exit_status != 0`` and
   a **zero** gda process exit (the crux: gda does not interpret the script's
   semantics, so a deliberate non-zero quit is data, not a gda failure);
-- the pre-run ABI edges — a non-``res://`` path and no resolved project — are
+- both accepted script-path forms — project-relative and ``res://`` (#675) — run
+  the same script and report the same canonical ``res://`` ``path``;
+- the pre-run ABI edges — an ABSOLUTE path and no resolved project — are
   structured ``invalid_path`` / ``project_not_found`` failures decided before any
   launch;
 - an unlaunchable binary is the shared classifier's ``binary_not_found``.
@@ -226,13 +228,44 @@ def test_script_run_non_zero_quit_is_success_not_a_gda_failure(godot_project):
 
 
 @pytest.mark.e2e
-def test_script_run_non_res_path_is_invalid_path(godot_project):
-    # A non-res:// path is a structured invalid_path decided BEFORE any launch — an
-    # explicit ABI edge (ADR-0031), never a crash or raw engine failure.
+@pytest.mark.parametrize("form", ["hello.gd", "res://hello.gd"])
+def test_script_run_accepts_both_path_forms(godot_project, form):
+    # The #675 AC against the real engine: the project-relative form the rest of the
+    # script group accepts now runs here too, and both forms report back the ONE
+    # canonical res:// address — so a caller need not rewrite a path between
+    # `script validate` and `script run`.
+    (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
+
     run = _run_gda(
         "script",
         "run",
-        "hello.gd",  # not res://
+        form,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["path"] == "res://hello.gd"
+    assert data["exit_status"] == 0
+    assert "hello from script run" in data["stdout"]
+
+
+@pytest.mark.e2e
+def test_script_run_absolute_path_is_invalid_path(godot_project):
+    # The one path form still refused (#675): an absolute path is a structured
+    # invalid_path decided BEFORE any launch — an explicit ABI edge (ADR-0031),
+    # never a crash or raw engine failure.
+    (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        str(godot_project / "hello.gd"),  # absolute, even though it EXISTS
         "--project",
         str(godot_project),
         "--godot",
@@ -354,6 +387,11 @@ def test_script_run_runtime_error_is_a_success_carrying_diagnostics(godot_projec
         "res://sub/../no-such-script.gd",
         "res://./no-such-script.gd",
         "res://sub//..//no-such-script.gd",
+        # #675: the project-relative form is lifted onto res:// BEFORE the same
+        # canonicalization runs, so its aliases must reach the verdict identically.
+        "no-such-script.gd",
+        "sub/../no-such-script.gd",
+        "./no-such-script.gd",
     ],
 )
 def test_script_run_missing_entry_verdict_survives_path_aliasing(
@@ -389,6 +427,12 @@ def test_script_run_missing_entry_verdict_survives_path_aliasing(
         "res://sub/../suite.gd",
         "res://./suite.gd",
         "res://sub//..//suite.gd",
+        # #675: the same guard for the newly accepted form. A broken entry addressed
+        # project-relatively must still classify script_compile_failed — if the lift
+        # bypassed the canonical identity, this would regress to a phantom success.
+        "suite.gd",
+        "sub/../suite.gd",
+        "./suite.gd",
     ],
 )
 def test_script_run_compile_failed_verdict_survives_path_aliasing(
