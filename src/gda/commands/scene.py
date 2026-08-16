@@ -419,7 +419,18 @@ def create(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Create a new .tscn scene file with the given root node type."""
+    """Create a new .tscn scene file with the given root node type.
+
+    A Control-derived root is created with zero anchors and zero offsets,
+    so it does not fill the viewport. A root class with no intrinsic
+    minimum size (plain Control, Panel, an empty container) renders as a
+    zero-size rect at the origin; a class with an intrinsic minimum (e.g.
+    Button, Label) renders at that minimum instead, still not the
+    viewport. Container minimum sizes can keep descendants visible and
+    mask this. Fill the viewport by setting the root's anchor_right and
+    anchor_bottom to 1 with 'gda node set' (offsets stay 0); confirm with
+    'gda game rect', which reports the root's rendered rect at runtime.
+    """
     # Normalization + root-name derivation live in SceneCreateParams (ADR-0015),
     # so this body is a thin argv→model adapter and the --params-json path agrees.
     dispatch_domain(
