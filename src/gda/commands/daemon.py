@@ -537,16 +537,24 @@ def run_daemon_start_operation(
     # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
     # receipt cannot describe how to undo an install that re-materialized a stale
     # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
-    # install has no receipt at all. The exception arm re-raises unchanged, so the
-    # caller still sees the original error exactly as before — only the residue is
-    # gone.
+    # install has no receipt at all. The exception arm re-raises the ORIGINAL error
+    # as the primary failure; when the restore itself also fails, that outcome and
+    # the measured residual paths ride along as an exception note (PR #688 review) —
+    # silently dropping them would hide residue ADR-0018 requires reporting.
     snapshot = HarnessSnapshot.capture(project)
     try:
         installed = install_harness(project)
         (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
         pid = _await_ready(paths)
-    except BaseException:
-        _restore_start_install(snapshot)
+    except BaseException as exc:
+        outcome = _restore_start_install(snapshot)
+        if isinstance(outcome, OSError):
+            pending = ", ".join(snapshot.pending())
+            exc.add_note(
+                f"additionally, the harness install could NOT be rolled back "
+                f"({outcome}); these paths still differ from their pre-start "
+                f"state: {pending}"
+            )
         raise
     if pid is None:
         return _failed_start_failure(snapshot)
