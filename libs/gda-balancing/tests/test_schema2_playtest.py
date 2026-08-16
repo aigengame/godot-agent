@@ -87,7 +87,7 @@ def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
     source = launch.read_text(encoding="utf-8")
     assert "GDA_BALANCING_EXECUTABLE" in source
     assert "--gda-balancing-executable=" in source
-    assert "exec \"$" in source
+    assert 'exec "$' in source
     assert '"${arguments[@]}"' in source
     assert "PyInstaller" not in source
     assert not (_PLAYTEST / "scripts" / "export_macos.sh").exists()
