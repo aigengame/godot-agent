@@ -3,11 +3,24 @@ extends RefCounted
 
 const MODULE_ID := "reward-build"
 const PARAMETER_NAME := "rare_weight"
+const MAINTAINED_SOURCE_DIRECTORY := "res://../roguelike-reward-build"
+const MODEL_SOURCE_FILE := "model-source.json"
+const EXPERIMENT_FILE := "experiment.json"
 
 var _experiment: Dictionary = {}
 var _model_id := ""
 var _minimum := 0
 var _maximum := 0
+
+
+func load_maintained() -> Dictionary:
+	var source_directory := ProjectSettings.globalize_path(
+		MAINTAINED_SOURCE_DIRECTORY
+	).simplify_path()
+	return self.load(
+		source_directory.path_join(MODEL_SOURCE_FILE),
+		source_directory.path_join(EXPERIMENT_FILE),
+	)
 
 
 func load(model_source_path: String, experiment_path: String) -> Dictionary:

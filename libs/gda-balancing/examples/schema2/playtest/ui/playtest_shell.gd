@@ -137,6 +137,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif (
 		_feedback_panel.visible == false
 		and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]
+		and _primary_button.visible
+		and not _primary_button.disabled
 	):
 		get_viewport().set_input_as_handled()
 		primary_action_requested.emit()
@@ -150,6 +152,7 @@ func _input(event: InputEvent) -> void:
 	):
 		if (
 			_primary_button.visible
+			and not _primary_button.disabled
 			and _primary_button.get_global_rect().has_point(event.position)
 		):
 			get_viewport().set_input_as_handled()

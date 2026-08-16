@@ -8,14 +8,8 @@ var _failures: Array[String] = []
 
 
 func _init() -> void:
-	var example_dir := ProjectSettings.globalize_path("res://").path_join(
-		"../roguelike-reward-build"
-	).simplify_path()
 	var documents := RewardRunDocuments.new()
-	var loaded: Dictionary = documents.load(
-		example_dir.path_join("model-source.json"),
-		example_dir.path_join("experiment.json"),
-	)
+	var loaded: Dictionary = documents.load_maintained()
 	_expect(loaded.get("ok", false), "maintained Reward Run documents load")
 	if loaded.get("ok", false):
 		_expect(

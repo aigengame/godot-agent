@@ -23,14 +23,9 @@ func _ready() -> void:
 	_controller.name = "RewardRunController"
 	add_child(_controller)
 	_view.bind(_controller)
-	var example_dir := ProjectSettings.globalize_path("res://").path_join(
-		"../roguelike-reward-build"
-	).simplify_path()
 	_controller.configure(
 		_client,
 		_user_option("gda-balancing-executable"),
-		example_dir.path_join("model-source.json"),
-		example_dir.path_join("experiment.json"),
 	)
 	await _controller.start()
 

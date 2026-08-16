@@ -44,7 +44,7 @@ func start(executable_path: String = "") -> Dictionary:
 		or not value.get("capability_token") is String
 	):
 		_force_stop()
-		return _failure("incompatible_readiness", JSON.stringify(value))
+		return _failure("incompatible_readiness", _compatibility_detail(value))
 	_base_url = value["base_url"]
 	_capability_token = value["capability_token"]
 
@@ -57,7 +57,17 @@ func start(executable_path: String = "") -> Dictionary:
 	):
 		await shutdown()
 		return _failure("incompatible_service", JSON.stringify(status))
-	return {"ok": true, "value": value}
+	return {"ok": true}
+
+
+func _compatibility_detail(readiness: Dictionary) -> String:
+	return JSON.stringify(
+		{
+			"protocol": readiness.get("protocol"),
+			"status": readiness.get("status"),
+			"toolkit_version": readiness.get("toolkit_version"),
+		}
+	)
 
 
 func _resolve_executable(explicit_path: String) -> Dictionary:

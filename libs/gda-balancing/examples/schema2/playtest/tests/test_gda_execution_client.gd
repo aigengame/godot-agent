@@ -22,6 +22,19 @@ func _run() -> void:
 	get_root().add_child(client)
 	var started: Dictionary = await client.start(executable)
 	_expect(started.get("ok", false), "client starts a compatible local service")
+	_expect(not started.has("value"), "readiness credential stays inside the Add-on")
+	var detail: String = client._compatibility_detail(
+		{
+			"capability_token": "must-not-cross-the-boundary",
+			"protocol": "future",
+			"status": "ready",
+			"toolkit_version": "future",
+		}
+	)
+	_expect(
+		not detail.contains("must-not-cross-the-boundary"),
+		"incompatible readiness detail omits the credential",
+	)
 	if not started.get("ok", false):
 		client.queue_free()
 		_finish()
@@ -75,7 +88,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 7, "status": "passed"}))
+		print(JSON.stringify({"passed": 9, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

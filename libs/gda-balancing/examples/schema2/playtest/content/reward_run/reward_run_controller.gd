@@ -16,6 +16,8 @@ const RewardFeedbackRecorder = preload(
 const RewardRun = preload("res://systems/reward_run.gd")
 const FEEDBACK_PATH := "user://reward_run_feedback.json"
 const TRIAL_IDS: Array[String] = ["trial-one", "trial-two"]
+const FIRST_TARGET_HEALTH := 30
+const SECOND_TARGET_HEALTH := 90
 
 var phase := "loading"
 var current_trial := ""
@@ -24,8 +26,6 @@ var last_feedback_path := ""
 
 var _client: Node
 var _executable_path := ""
-var _model_source_path := ""
-var _experiment_path := ""
 var _documents := RewardRunDocuments.new()
 var _projector := RewardRunArtifactProjector.new()
 var _feedback := RewardFeedbackRecorder.new(FEEDBACK_PATH)
@@ -47,13 +47,9 @@ func _init() -> void:
 func configure(
 	client: Node,
 	executable_path: String,
-	model_source_path: String,
-	experiment_path: String,
 ) -> void:
 	_client = client
 	_executable_path = executable_path
-	_model_source_path = model_source_path
-	_experiment_path = experiment_path
 
 
 func start() -> Dictionary:
@@ -107,7 +103,13 @@ func start_trial(reward_frequency: int) -> Dictionary:
 	_trials.append(trial)
 	current_trial = trial["id"]
 	_busy = false
-	_run.start(trial)
+	_run.start(
+		trial["id"],
+		trial["reward"],
+		trial["build"],
+		FIRST_TARGET_HEALTH,
+		SECOND_TARGET_HEALTH,
+	)
 	_log_event(
 		"trial_started",
 		{
@@ -136,6 +138,8 @@ func primary_action() -> void:
 			_log_event("playtest_ready_for_feedback", {})
 			return
 		_emit_frequency_choice()
+		return
+	if phase not in ["before_fight", "reward_ready", "after_fight"]:
 		return
 	_run.primary_action()
 
@@ -213,10 +217,7 @@ func _prepare_live_session() -> Dictionary:
 			"trial_index": _trials.size(),
 		}
 	)
-	var loaded: Dictionary = _documents.load(
-		_model_source_path,
-		_experiment_path,
-	)
+	var loaded: Dictionary = _documents.load_maintained()
 	if not loaded.get("ok", false):
 		return _fail_preparation(loaded)
 	_model_source = loaded["model_source"]

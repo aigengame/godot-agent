@@ -16,9 +16,6 @@ func _init() -> void:
 
 func _run() -> void:
 	var executable := OS.get_environment("GDA_BALANCING_EXECUTABLE")
-	var example_dir := ProjectSettings.globalize_path("res://").path_join(
-		"../roguelike-reward-build"
-	).simplify_path()
 	var client := GdaExecutionClient.new()
 	get_root().add_child(client)
 	var controller := RewardRunController.new()
@@ -26,8 +23,6 @@ func _run() -> void:
 	controller.configure(
 		client,
 		executable,
-		example_dir.path_join("model-source.json"),
-		example_dir.path_join("experiment.json"),
 	)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "live Reward Run prepares")

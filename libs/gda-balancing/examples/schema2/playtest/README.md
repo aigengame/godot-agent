@@ -87,9 +87,10 @@ GDA_GODOT=/absolute/path/to/godot \
 ```
 
 This one command starts Godot. The injected Add-on starts and owns `gda-balancing serve`. The
-launch script supplies an absolute executable from `GDA_BALANCING_EXECUTABLE`, the current `PATH`,
-or this package's `.venv`. When no path is supplied, the Add-on performs its own `PATH` lookup. An
-invalid explicit path does not silently select another installation.
+launch script supplies an absolute executable from `GDA_BALANCING_EXECUTABLE` or the current
+`PATH`. When no path is supplied, the Add-on performs its own `PATH` lookup. An invalid explicit
+path reaches the Add-on and produces the same visible retry instead of silently selecting another
+installation.
 
 This is a repository-local product. It does not package Python, embed a companion executable, or
 claim standalone export support.
@@ -115,6 +116,8 @@ GDA_BALANCING_EXECUTABLE="$PWD/.venv/bin/gda-balancing" \
 The focused Godot scripts also cover executable discovery, direct maintained-document loading,
 same-session revisions, artifact projection, refusal atomicity, retry, UI control binding,
 Gameplay, display preferences, localization, and feedback persistence.
+`test_reward_run_main_live.gd` additionally runs the critical UI → bootstrap → Content → Add-on →
+real-service path through two revisions and feedback save.
 
 For a visual check, use the launch command and complete both trials with mouse and keyboard. `gda`
 may be used to inspect the scene, inject input, capture screenshots, and read errors during

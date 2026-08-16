@@ -10,10 +10,14 @@ var _failures: Array[String] = []
 
 class RecordingController extends RewardRunController:
 	var requested_weights: Array[int] = []
+	var primary_actions := 0
 
 	func start_trial(reward_frequency: int) -> Dictionary:
 		requested_weights.append(reward_frequency)
 		return {"ok": true}
+
+	func primary_action() -> void:
+		primary_actions += 1
 
 
 func _init() -> void:
@@ -27,6 +31,16 @@ func _run() -> void:
 	get_root().add_child(view)
 	await process_frame
 	view.bind(controller)
+	controller.view_state_changed.emit(
+		{"phase": "preparing", "trial_count": 2, "trial_index": 0}
+	)
+	await process_frame
+	var early_action := InputEventKey.new()
+	early_action.pressed = true
+	early_action.keycode = KEY_SPACE
+	Input.parse_input_event(early_action)
+	await process_frame
+	_expect(controller.primary_actions == 0, "hidden action ignores keyboard input")
 	controller.view_state_changed.emit(
 		{
 			"phase": "choose_frequency",
@@ -81,7 +95,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 7, "status": "passed"}))
+		print(JSON.stringify({"passed": 8, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

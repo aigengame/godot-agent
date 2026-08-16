@@ -119,7 +119,7 @@ func _test_feedback(trials: Array[Dictionary]) -> void:
 
 func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:
 	var run := RewardRun.new()
-	run.start(trial)
+	run.start(trial["id"], trial["reward"], trial["build"], 30, 90)
 	for unused in 3:
 		run.primary_action()
 	_expect(run.snapshot()["phase"] == "reward_ready", "first target unlocks reward")

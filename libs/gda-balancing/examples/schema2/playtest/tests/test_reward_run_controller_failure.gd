@@ -43,9 +43,6 @@ func _init() -> void:
 
 
 func _run() -> void:
-	var example_dir := ProjectSettings.globalize_path("res://").path_join(
-		"../roguelike-reward-build"
-	).simplify_path()
 	var client := RefusingExecutionClient.new()
 	get_root().add_child(client)
 	var controller := RewardRunController.new()
@@ -53,9 +50,10 @@ func _run() -> void:
 	controller.configure(
 		client,
 		"unused-by-boundary-test",
-		example_dir.path_join("model-source.json"),
-		example_dir.path_join("experiment.json"),
 	)
+	controller.primary_action()
+	_expect(controller.phase == "loading", "input before preparation is ignored")
+	_expect(controller.current_state().is_empty(), "early input emits no gameplay state")
 	var prepared: Dictionary = await controller.start()
 	_expect(prepared.get("ok", false), "controller prepares through its boundary")
 
@@ -87,7 +85,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 8, "status": "passed"}))
+		print(JSON.stringify({"passed": 10, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

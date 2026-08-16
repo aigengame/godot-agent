@@ -73,10 +73,16 @@ def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
         _PLAYTEST / "content" / "reward_run" / "reward_run_documents.gd"
     ).read_text(encoding="utf-8")
     assert "GdaExecutionClient" in main
-    assert "../roguelike-reward-build" in main
-    assert "model-source.json" in main
-    assert "experiment.json" in main
+    assert "roguelike-reward-build" not in main
+    assert "model-source.json" not in main
+    assert "experiment.json" not in main
     assert "reward_cases" not in main
+    assert (
+        'const MAINTAINED_SOURCE_DIRECTORY := "res://../roguelike-reward-build"'
+        in documents
+    )
+    assert 'const MODEL_SOURCE_FILE := "model-source.json"' in documents
+    assert 'const EXPERIMENT_FILE := "experiment.json"' in documents
     assert 'const PARAMETER_NAME := "rare_weight"' in documents
 
 
@@ -87,6 +93,7 @@ def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
     source = launch.read_text(encoding="utf-8")
     assert "GDA_BALANCING_EXECUTABLE" in source
     assert "--gda-balancing-executable=" in source
+    assert ".venv" not in source
     assert 'exec "$' in source
     assert '"${arguments[@]}"' in source
     assert "PyInstaller" not in source
@@ -104,6 +111,7 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
         "test_reward_run_controller_live.gd",
         "test_reward_run_documents.gd",
         "test_reward_run_live_trials.gd",
+        "test_reward_run_main_live.gd",
         "test_reward_run_view.gd",
     }
     assert {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")} == expected

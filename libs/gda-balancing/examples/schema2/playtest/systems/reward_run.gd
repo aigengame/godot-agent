@@ -9,23 +9,32 @@ enum Phase {
 	COMPLETE,
 }
 
-const FIRST_TARGET_HEALTH := 30
-const SECOND_TARGET_HEALTH := 90
-
 var _trial: Dictionary = {}
 var _phase := Phase.BEFORE_FIGHT
 var _power := 0
 var _target_health := 0
 var _target_max_health := 0
+var _second_target_health := 0
 var _hits := 0
 
 
-func start(trial: Dictionary) -> void:
-	_trial = trial.duplicate(true)
+func start(
+	trial_id: String,
+	reward: Dictionary,
+	build: Dictionary,
+	first_target_health: int,
+	second_target_health: int,
+) -> void:
+	_trial = {
+		"id": trial_id,
+		"reward": reward.duplicate(true),
+		"build": build.duplicate(true),
+	}
 	_phase = Phase.BEFORE_FIGHT
 	_power = int(_trial["build"]["power_before"])
-	_target_health = FIRST_TARGET_HEALTH
-	_target_max_health = FIRST_TARGET_HEALTH
+	_target_health = first_target_health
+	_target_max_health = first_target_health
+	_second_target_health = second_target_health
 	_hits = 0
 	state_changed.emit(snapshot())
 
@@ -65,8 +74,8 @@ func _strike() -> void:
 
 func _equip_reward() -> void:
 	_power = int(_trial["build"]["power_after"])
-	_target_health = SECOND_TARGET_HEALTH
-	_target_max_health = SECOND_TARGET_HEALTH
+	_target_health = _second_target_health
+	_target_max_health = _second_target_health
 	_phase = Phase.AFTER_FIGHT
 	state_changed.emit(snapshot())
 
