@@ -120,8 +120,8 @@ func show_error(message: String) -> void:
 
 func show_feedback_saved(payload: Dictionary, path: String) -> void:
 	DisplayServer.clipboard_set(JSON.stringify(payload, "\t"))
-	_feedback_path = path
-	_feedback_status.text = tr("FEEDBACK_SAVED") % path
+	_feedback_path = ProjectSettings.globalize_path(path)
+	_feedback_status.text = tr("FEEDBACK_SAVED") % _feedback_path
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

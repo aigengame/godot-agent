@@ -25,9 +25,10 @@ The main screen offers 1080p, 2K (2560×1440), and 4K resolution options. It sta
 a 1920×1080 logical canvas. The language option switches all player-facing text between English
 and Simplified Chinese. English is the default.
 
-After both trials, **Save & Copy Feedback** writes `user://reward_run_feedback.json` and copies the
-same payload to the clipboard. The payload contains the chosen frequency, observed reward/build
-result, perception answers, notes, and opaque maintainer provenance.
+After both trials, **Save & Copy Feedback** writes `user://reward_run_feedback.json`, shows its
+platform-specific absolute path, and copies the same payload to the clipboard. The payload contains
+the chosen frequency, observed reward/build result, perception answers, notes, and opaque
+maintainer provenance.
 
 ## Visual checkpoints
 

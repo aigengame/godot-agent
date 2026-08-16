@@ -49,6 +49,13 @@ func _run() -> void:
 		save.pressed.emit()
 		await process_frame
 	_expect(not controller.last_feedback_path.is_empty(), "feedback saves through main")
+	var absolute_feedback_path := ProjectSettings.globalize_path(
+		"user://reward_run_feedback.json"
+	)
+	_expect(
+		_view_contains_text(view, absolute_feedback_path),
+		"feedback status shows the absolute saved file path",
+	)
 	await controller.shutdown()
 	main.queue_free()
 	_finish()
@@ -81,9 +88,17 @@ func _expect(condition: bool, message: String) -> void:
 		_failures.append(message)
 
 
+func _view_contains_text(view: Control, expected: String) -> bool:
+	for node in view.find_children("*", "Label", true, false):
+		var label := node as Label
+		if label != null and label.text.contains(expected):
+			return true
+	return false
+
+
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 14, "status": "passed"}))
+		print(JSON.stringify({"passed": 15, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:
