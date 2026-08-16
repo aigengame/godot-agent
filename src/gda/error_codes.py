@@ -1,9 +1,23 @@
 """Authoritative registry of public ``GdaError.code`` values.
 
 The registry is the machine-readable companion to ADR-0002's table. Every code
-emitted in a public ``GdaError`` must be declared here; GDScript mirrors only
-the ``operation`` source subset because only those codes are reported by
-headless operations.
+emitted in a public ``GdaError`` must be declared here.
+
+**What ``source`` means.** It names a code's *authoritative origin channel* — the
+layer that defines the failure and owns reporting it — and it governs **GDScript
+mirror membership**: ``operations.gd`` declares exactly the ``operation``-source
+codes, because those are the ones a headless operation may report back through
+the ADR-0002 sentinel.
+
+It is **not an exclusive emitter list**. The Python classifier may additionally
+assign any registered code whose semantics match the failure it recognized —
+including an ``operation``-source one — when it learns of that failure from the
+engine's own output rather than from a sentinel. This predates the
+classifier-side reuse in #651: ``script_path_invalid_failure`` has long minted
+operation-source ``invalid_path`` from the CLI. Two consequences worth stating
+because they have been misread: reuse-vs-mint is decided by **semantic match**,
+never by ``source``; and classifier reuse adds no member and removes none, so the
+mirror derivation is untouched by it.
 """
 
 from dataclasses import dataclass
@@ -21,7 +35,13 @@ from gda.models import ErrorCategory
 
 
 class ErrorCodeSource(str, Enum):
-    """Where a public ``GdaError.code`` originates."""
+    """A code's authoritative origin channel — see the module docstring.
+
+    The layer that defines the failure and owns reporting it, and the key the
+    GDScript mirror's membership is derived from. NOT an exclusive emitter list:
+    the Python classifier may also assign a code whose semantics match a failure
+    it recognized from the engine's output.
+    """
 
     RUNNER = "runner"
     CLASSIFIER = "classifier"
@@ -37,10 +57,11 @@ class ErrorCodeSpec:
     A single row fully defines a code's public ABI: its coarse ``category``, the
     process ``exit_code`` a shell consumer keys on (per-code, not per-category:
     within ENVIRONMENT, ``binary_not_found`` exits 127 but ``launch_timeout``
-    exits 124), the ``source`` that may report it, and its ``description``.
-    Failure construction derives ``category`` and ``exit_code`` from here, so it
-    no longer restates either at the call site — both come from the row
-    (ADR-0002, #141).
+    exits 124), the ``source`` that authoritatively owns it — an origin channel
+    and the mirror-membership key, not an exclusive emitter list (see the module
+    docstring) — and its ``description``. Failure construction derives
+    ``category`` and ``exit_code`` from here, so it no longer restates either at
+    the call site — both come from the row (ADR-0002, #141).
     """
 
     code: str
@@ -346,14 +367,54 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A script could not be attached to a node because it does not compile.",
+        "A script does not compile, so the requested work could not proceed: "
+        "`script attach` refuses to bind it to a node, and `script run` reports "
+        "that the entry script (or a dependency it preloads) never ran.",
+    ),
+    # `script run`'s two NEW verdict codes (#651, ADR-0031 amendment). Both are
+    # decided by gda from the engine's stderr AFTER the run, so both are
+    # CLASSIFIER-source and NOT GDScript-mirrored — the entry script is the user's
+    # own and emits no ADR-0002 sentinel.
+    #
+    # Reuse-vs-mint is decided by SEMANTIC MATCH, not by `source` (the module
+    # docstring is the single home of what `source` does and does not mean). This
+    # change reuses operation-source `script_compile_failed` and
+    # `incompatible_script_type` from the classifier, because `script run` hits the
+    # very conditions they name — a script that does not compile, and one whose
+    # base type is wrong for the requested use (ADR-0002 — reuse the code,
+    # discriminate via the message).
+    #
+    # `script_not_found` is minted rather than reusing `path_not_found` for the
+    # opposite reason: the MEANINGS differ. `path_not_found` is "a file the
+    # operation was asked to act on is absent" — a filesystem fact about an
+    # operand. This is "the engine could not load the entry script, so the run
+    # never happened" — a fact about the run itself, which an agent branches on
+    # differently (re-check the path vs. abandon the result entirely).
+    ErrorCodeSpec(
+        "script_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run` entry script does not exist in the project, so the engine "
+        "never ran it (it still exits 0; gda reads the failure from stderr).",
+    ),
+    ErrorCodeSpec(
+        "script_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A `script run --strict` script ran to completion and chose a non-zero exit "
+        "status; strict mode maps that opted-in failure onto the uniform error "
+        "envelope. Never reported without --strict (ADR-0031).",
     ),
     ErrorCodeSpec(
         "incompatible_script_type",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A script compiles but its native base type is incompatible with the target node's type.",
+        "A script compiles but its base type is incompatible with the requested "
+        "use: `script attach`'s target node type, or `script run`'s requirement "
+        "that a one-shot entry script extend SceneTree/MainLoop.",
     ),
     ErrorCodeSpec(
         "signal_not_found",

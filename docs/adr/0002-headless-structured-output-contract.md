@@ -77,6 +77,55 @@ into the result's `diagnostics`. This stays within the contract: the diagnostics
 are advisory (they may hold only the first error, and `column` is unavailable on
 the standard build), and they never determine the outcome or a stable code.
 
+> **Scope note (2026-08-15, #651) — the two rules above presuppose the sentinel
+> channel, which ADR-0031's `script run` does not have.** Both the "stderr is never
+> parsed for the outcome" rule and the "copies stderr into diagnostics" wrapper
+> behaviour are stated for the sentinel pipeline, where an outcome is always
+> available from the exit code plus the stdout sentinel, and where the engine's
+> stderr is the only diagnostic on offer. `script run` (ADR-0031) is a **different
+> execution shape**: the entry script is the user's own, so it emits no sentinel,
+> and the engine exits `0` even when it never ran the script. Two consequences,
+> both scoped to that channel:
+>
+> - **Outcome.** The engine's error stream is the *only* evidence that the script
+>   never ran, so that channel **does** derive its verdict from parsed stderr —
+>   keyed on recognized engine sentences, never on free-text matching.
+> - **Diagnostics.** `GdaError.diagnostics` is a free-form string, so a channel
+>   with better evidence to offer may fill it differently: `script run --strict`
+>   carries the user script's own stdout *and* stderr there under fixed labels,
+>   because for that failure the script's output *is* the diagnostic.
+>
+> Neither relaxes the sentinel rules; both record that those rules presuppose a
+> sentinel. See the ADR-0031 amendment.
+>
+> One consequence for the registry below: a row's `source` names the code's
+> **authoritative origin channel**, not an exclusive list of what may emit it. When
+> the classifier recognizes the same semantic failure from the engine's output
+> rather than from a sentinel, it may assign an `operation`-source code — as
+> `invalid_path` already does for a CLI-side path rejection. The GDScript mirror is
+> derived from operation-source *membership*, which such reuse does not change.
+
+> **Scope note, extended 2026-08-16 (#651 review recheck) — naming the sentences
+> this qualifies.** Two accepted sentences read as an exclusive rule and are the
+> ones the paragraph above narrows: the registry section's "GDScript mirrors only
+> the rows whose source is `operation`, because only those codes can be reported by
+> headless operations", and the `Source` column's implied "the source that may
+> report it".
+>
+> Both stay true of what they actually govern — **mirror membership and the
+> sentinel channel**: `operations.gd` declares exactly the `operation`-source rows,
+> and only those may come back through the ADR-0002 sentinel as an operation's own
+> report. Neither constrains the **Python classifier**, which may assign any
+> registered code whose semantics match the failure it recognized, including an
+> `operation`-source one — a practice `invalid_path` established long before #651.
+>
+> So: `source` is an **origin-and-membership** field, never an emitter whitelist.
+> Nothing derives behavior from the exclusive reading — `classify_run` keys on
+> operation-source *membership* to validate a sentinel-reported code, and the
+> mirror test keys on the same membership — so this is a correction to the recorded
+> meaning, not a change to the contract. `src/gda/error_codes.py`'s module
+> docstring is the single home of this definition.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is
@@ -130,8 +179,10 @@ operation, and parse codes the CLI assigns).
 | `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property expects a type `node set` / `resource set` cannot yet assign a `res://` resource to: a script `class_name`-typed property (deferred to the ADR-0032 resolver) or an Object property with no declared engine class (ADR-0033, #363). |
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
-| `script_compile_failed` | `operation` | `operation` | `4` | A script could not be attached to a node because it does not compile. |
-| `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its native base type is incompatible with the target node's type. |
+| `script_compile_failed` | `operation` | `operation` | `4` | A script does not compile, so the requested work could not proceed: `script attach` refuses to bind it to a node, and `script run` reports that the entry script (or a dependency it preloads) never ran (#651). |
+| `script_not_found` | `operation` | `classifier` | `4` | A `script run` entry script does not exist in the project, so the engine never ran it — read from stderr, since the engine still exits 0 (#651). |
+| `script_failed` | `operation` | `classifier` | `4` | A `script run --strict` script ran to completion and chose a non-zero exit status; strict mode maps that opted-in failure onto the uniform error envelope. Never reported without `--strict` (ADR-0031 amendment, #651). |
+| `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its base type is incompatible with the requested use: `script attach`'s target node type, or `script run`'s requirement that a one-shot entry script extend `SceneTree`/`MainLoop` (#651). |
 | `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
 | `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |

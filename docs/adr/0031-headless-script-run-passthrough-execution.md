@@ -4,6 +4,80 @@ status: accepted
 
 # Headless script-run execution: a third shape — pass the user script's run through, classify only launch/crash
 
+> **Amendment (2026-08-15, #651) — `gda` is the authority on whether the engine RAN the script;
+> the script stays the authority on what its own exit status means.** Dogfooding (GDA-DF-007,
+> GDA-DF-017, GDA-DF-032) found the passthrough reporting success for runs that never happened. The
+> decision below is unchanged for a **completed** run; this note draws the line the original text
+> left implicit, and adds one opt-in inversion.
+>
+> **1. A script that never ran is a failure, by default.** Godot reports **three** such shapes
+> **only on stderr — and still exits `0`**: a missing `--script` entry point; an entry script (or a
+> dependency it preloads) that fails to parse or compile; and one that compiles but does not extend
+> `SceneTree`/`MainLoop`, so it can never be a one-shot entry point. The first two were verified
+> against Godot 4.6.3 as reliably reproducible. The **third is not**: its exit-0 form is real and
+> captured, but the engine more often prints nothing and simply keeps idling — falling through to
+> the project's main loop — which surfaces as `launch_timeout` (#655). That is a failure by another
+> route, so gda never reports success for it either way; only the exit-0 form is what this decision
+> has to correct.
+>
+> Passing that status through made `gda script run res://does-not-exist.gd` return
+> `{"exit_status": 0}`, which no reading of the contract calls a successful run. These are
+> **defects, not the contract**: the passthrough exists because gda does not know a user script's
+> *semantics*, and a script that never started has none. They now classify to an **Error envelope**
+> (all `operation` category, exit `4`):
+>
+> | shape | code |
+> | --- | --- |
+> | the entry script does not exist | `script_not_found` (new) |
+> | the entry script or a preloaded dependency does not compile | `script_compile_failed` (reused) |
+> | the entry script compiles but is not a `SceneTree`/`MainLoop` | `incompatible_script_type` (reused) |
+>
+> The two reused codes already name these exact conditions for `script attach`; only the genuinely
+> new condition — "the engine could not load the entry script, so the run never happened" — is
+> minted. The verdict is read from the engine's error stream, never from the exit code, and is keyed
+> on the **entry script's own `res://` path**: a running script that itself fails to load some
+> *other* resource stays a success. When a run emits several of these, the earliest-stage, most
+> specific cause wins (missing > compile > parse > load > not-a-main-loop) — the engine reports the
+> whole cascade, and only the first cause explains the rest.
+>
+> **2. `--strict` inverts the non-zero-exit default, opt-in only.** The considered option
+> "map a non-zero *script* exit to a synthesized `script_failed`" stays **rejected as the default**,
+> for the reason recorded below: the Raw-run promotion is what lets a user script use its exit codes
+> freely. But a caller whose gate *is* the process exit code — a shell `&&` chain, a conventional CI
+> step — cannot express that with a command that always exits `0` (GDA-DF-017). `--strict` is that
+> expression: for that invocation, a completed run with a non-zero `exit_status` becomes the
+> registered `script_failed` envelope. The child status is **not** propagated as gda's process exit
+> code — a script's `quit(3)` would alias `EXIT_VERSION` — so strict exits `4`.
+>
+> The envelope keeps the evidence the flag exists to act on. `diagnostics` carries **both** of the
+> script's streams under the fixed labels `--- script stdout ---` and `--- script stderr ---` (both
+> sections always present, empty when the stream was). Carrying stderr alone would defeat the flag's
+> own use case: a GDScript test runner reports through `print()`, i.e. stdout, so a CI caller would
+> receive a failure with no content. Without the flag, behaviour is exactly as decided below.
+>
+> **3. The success result gains classified `diagnostics`.** Recognized script errors parsed out of
+> the engine's stderr are surfaced as structured entries alongside the verbatim `stderr`, so a
+> runtime GDScript error the script *survived* (leaving a clean `exit_status`) is visible without
+> matching engine prose. Advisory, in ADR-0002's sense: the stable outcome is still the
+> success/failure verdict, never the parsed text. Not interpreting the *script's* semantics was
+> never a reason to ignore the *engine's* report.
+>
+> **Shape of the two diagnostics channels — deliberately different, and not symmetric.** The
+> structured `ScriptError[]` of point 3 appears **only on success results**, which are typed models
+> free to carry any shape. The **failure** channel is ADR-0004's `GdaError`, whose `diagnostics` is a
+> free-form `str`, so everything a failure reports — the labelled streams of point 2, the engine
+> stderr behind a point-1 verdict — is **prose**. The child's numeric exit status likewise survives
+> only as message prose, not as a structured field. Giving the failure channel structured
+> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; **#687 owns it**
+> (#655's timeout envelope names the same constraint and adopts #687's outcome).
+> This amendment deliberately does **not** make that change.
+>
+> This bounds how far #651's "preserve the raw process status and stderr as secondary evidence"
+> criterion is met here: **fully on the success path** (verbatim `stdout`/`stderr` plus the typed
+> `ScriptError[]`), **partially on failure paths** — the evidence is there, as labelled prose in
+> `diagnostics` and a status named in the message, but it is not typed. That gap is the deferral
+> above, not an oversight.
+
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine
 CLI mode for editor-only capabilities (e.g. `--export-*`), whose outcome `gda` classifies from the

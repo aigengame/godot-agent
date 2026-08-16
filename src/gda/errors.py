@@ -415,6 +415,88 @@ def script_run_project_not_found_failure() -> Failure:
     )
 
 
+def script_did_not_run_failure(
+    code: str, script: str, detail: str, stderr: str
+) -> Failure:
+    """The ``script run`` verdict for an entry script that never ran (#651).
+
+    ADR-0031 passes a completed run's exit status through verbatim, because gda
+    does not know the user script's semantics. That reasoning does not reach a run
+    where the script never STARTED: Godot reports a missing or non-compiling
+    ``--script`` entry point on stderr and still exits ``0``, so passing that
+    status through reports a phantom success for a failure no reading of the
+    contract calls one. gda is the authority on whether the engine ran what it was
+    asked to, so this is a classifier decision, keyed on the parsed stderr evidence
+    (:func:`gda.script_errors.entry_load_failure`) rather than on the exit code.
+
+    ``code`` is the registered verdict (``script_not_found`` /
+    ``script_compile_failed``), ``detail`` the engine's own sentence, kept in the
+    message so the agent sees WHY without parsing ``diagnostics``.
+    """
+    return make_failure(
+        code,
+        f"script run: {script} did not run — {detail}",
+        stderr,
+    )
+
+
+# The section headers of a `script_failed` envelope's ``diagnostics`` (#651). The
+# layout is fixed and both sections are ALWAYS emitted — an empty stream yields an
+# empty section rather than a missing one — so a consumer can split on the headers
+# without first discovering which streams the script happened to write to.
+SCRIPT_OUTPUT_STDOUT_HEADER = "--- script stdout ---"
+SCRIPT_OUTPUT_STDERR_HEADER = "--- script stderr ---"
+
+
+def _labelled_script_output(stdout: str, stderr: str) -> str:
+    """Both of the child's streams as one labelled ``diagnostics`` string (#651).
+
+    ``GdaError.diagnostics`` is a free-form ``str`` (ADR-0004), and for a failure
+    that IS the script's own — ``script_failed`` — the script's own output is the
+    diagnostic. A GDScript test runner reports through ``print()``, i.e. stdout, so
+    carrying stderr alone would hand a ``--strict`` CI caller a failure with no
+    content. Both streams are labelled rather than concatenated so the caller can
+    still tell which is which.
+    """
+    parts = []
+    for header, stream in (
+        (SCRIPT_OUTPUT_STDOUT_HEADER, stdout),
+        (SCRIPT_OUTPUT_STDERR_HEADER, stderr),
+    ):
+        # Keep each section's payload verbatim, only guaranteeing the newline that
+        # puts the next header on its own line.
+        body = stream if stream.endswith("\n") or not stream else stream + "\n"
+        parts.append(f"{header}\n{body}")
+    return "".join(parts)
+
+
+def script_exit_status_failure(
+    script: str, exit_status: int, stdout: str, stderr: str
+) -> Failure:
+    """The ``script run --strict`` verdict for a non-zero script exit (#651).
+
+    Opt-in only. The default remains ADR-0031's passthrough — a deliberate
+    ``quit(1)`` is data the agent reads — so ``--strict`` is how a caller says "for
+    THIS run, treat the script's own failure as mine": the shell-chain and CI case,
+    where a zero gda exit silently accepts a failed test suite. The child status is
+    NOT propagated as the process exit code; it is mapped onto the registered
+    ``script_failed``/exit ``4`` so a script's ``quit(3)`` cannot alias an unrelated
+    registry code (``EXIT_VERSION``).
+
+    The evidence the caller needs is preserved: the status stays readable in the
+    message, and ``diagnostics`` carries BOTH of the script's streams under fixed
+    labels. Carrying stderr alone would defeat the flag's own use case — a GDScript
+    test runner reports through ``print()``. The status survives only as message
+    prose; a structured status field on the failure channel would need an ADR-0004
+    envelope change, deferred to that decision (#655).
+    """
+    return make_failure(
+        "script_failed",
+        f"script run --strict: {script} exited with status {exit_status}",
+        _labelled_script_output(stdout, stderr),
+    )
+
+
 def invalid_project_failure(reason: str) -> Failure:
     """The ``project_not_found`` failure for an explicit ``--project``/``$GDA_PROJECT``
     that is empty or is not a Godot project (#353).
