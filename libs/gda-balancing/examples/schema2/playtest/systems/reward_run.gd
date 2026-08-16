@@ -19,14 +19,12 @@ var _hits := 0
 
 
 func start(
-	trial_id: String,
 	reward: Dictionary,
 	build: Dictionary,
 	first_target_health: int,
 	second_target_health: int,
 ) -> void:
 	_trial = {
-		"id": trial_id,
 		"reward": reward.duplicate(true),
 		"build": build.duplicate(true),
 	}
@@ -56,8 +54,6 @@ func snapshot() -> Dictionary:
 		"reward": _trial.get("reward", {}).duplicate(true),
 		"target_health": _target_health,
 		"target_max_health": _target_max_health,
-		"title": _trial.get("title", ""),
-		"trial_id": _trial.get("id", ""),
 	}
 
 

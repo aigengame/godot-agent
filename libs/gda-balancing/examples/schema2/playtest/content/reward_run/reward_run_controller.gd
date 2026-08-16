@@ -104,7 +104,6 @@ func start_trial(reward_frequency: int) -> Dictionary:
 	current_trial = trial["id"]
 	_busy = false
 	_run.start(
-		trial["id"],
 		trial["reward"],
 		trial["build"],
 		FIRST_TARGET_HEALTH,
