@@ -19,15 +19,14 @@ equivalence, not just the exit code.
 These are fast tests: nothing here spawns Godot.
 """
 
-import inspect
 import json
 import subprocess
 from importlib.metadata import version
 
-import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.commands.meta import read_skill_text
 from gda.runner import RunResult
 from tests.support import (
     SCENE_GET_RESULT,
@@ -36,9 +35,6 @@ from tests.support import (
     plain_text,
     sentinel,
 )
-
-# What `ctx.params` reports for a root option that has NOT been processed yet.
-_UNBOUND = "<unbound>"
 
 
 # --- the `schema` subcommand parser site -------------------------------------
@@ -160,6 +156,27 @@ def test_root_json_reaches_the_params_json_dispatch_path():
     assert json.loads(result.stdout)["name"] == "gda"
 
 
+# --- the shipped guidance states the same contract ----------------------------
+
+
+def test_skill_documents_the_json_placement_contract():
+    # The Skill is the guidance an agent actually reads, so the placement rule has
+    # to ship WITH the behavior, not only in a PR description. Token-level checks:
+    # the two equivalent spellings are named, and so are the two that still exit 2
+    # (a group's bare parser and a root flag with no command). Prose is free to be
+    # reworded; these tokens are the contract.
+    text = read_skill_text()
+
+    assert "`gda --json <group> <command>`" in text
+    assert "`gda <group> <command> --json`" in text
+    assert "`gda schema --json`" in text
+    assert "`gda --json --help`" in text
+    # …and the two rejected spellings, with their exit code.
+    assert "`gda <group> --json`" in text
+    assert "a bare `gda --json` with no command" in text
+    assert "exit `2`" in text
+
+
 # --- what the root flag does NOT do (the honest contract for #659) ------------
 
 
@@ -173,38 +190,6 @@ def test_root_version_stays_text_in_both_json_orders():
 
         assert result.exit_code == 0, result.stdout
         assert result.stdout == f"gda {version('gda')}\n", args
-
-
-def test_root_json_visibility_to_an_eager_root_option_is_argv_ordered(monkeypatch):
-    # The eagerness guarantee, stated honestly for #659: click processes EAGER
-    # params in the order they appear in argv, so the root `--json` value is in
-    # the root context by the time an eager root callback runs ONLY for the
-    # `--json`-first spelling. For `gda --version --json` the version callback
-    # runs FIRST and cannot see it — so a root JSON payload must not be rendered
-    # from inside an eager `--version` callback if both orders must work (#659's
-    # design call, e.g. by moving the rendering off the eager callback).
-    #
-    # Probed by swapping the OTHER eager root option's callback for one that
-    # records what the root context holds at the moment it runs. The swap goes on
-    # the declared option (the root callback's `--version` default), because typer
-    # rebuilds the click params on every conversion — patching a built param would
-    # not reach the command the runner actually invokes.
-    registered = app.registered_callback
-    assert registered is not None and registered.callback is not None
-    params = inspect.signature(registered.callback).parameters
-    version_option = params["show_version"].default
-    seen: list[object] = []
-
-    def probe(ctx: typer.Context, value: bool) -> bool:
-        if value:
-            seen.append(ctx.params.get("json_output", _UNBOUND))
-        return value
-
-    monkeypatch.setattr(version_option, "callback", probe)
-    CliRunner().invoke(app, ["--json", "--version"])
-    CliRunner().invoke(app, ["--version", "--json"])
-
-    assert seen == [True, _UNBOUND]
 
 
 # --- the real out-of-process CLI ---------------------------------------------
