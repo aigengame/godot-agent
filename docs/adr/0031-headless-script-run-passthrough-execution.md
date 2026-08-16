@@ -68,8 +68,14 @@ status: accepted
 > free-form `str`, so everything a failure reports — the labelled streams of point 2, the engine
 > stderr behind a point-1 verdict — is **prose**. The child's numeric exit status likewise survives
 > only as message prose, not as a structured field. Giving the failure channel structured
-> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; #655 flags it.
+> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; **#655 owns it**.
 > This amendment deliberately does **not** make that change.
+>
+> This bounds how far #651's "preserve the raw process status and stderr as secondary evidence"
+> criterion is met here: **fully on the success path** (verbatim `stdout`/`stderr` plus the typed
+> `ScriptError[]`), **partially on failure paths** — the evidence is there, as labelled prose in
+> `diagnostics` and a status named in the message, but it is not typed. That gap is the deferral
+> above, not an oversight.
 
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine

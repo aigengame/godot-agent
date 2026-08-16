@@ -105,6 +105,27 @@ the standard build), and they never determine the outcome or a stable code.
 > `invalid_path` already does for a CLI-side path rejection. The GDScript mirror is
 > derived from operation-source *membership*, which such reuse does not change.
 
+> **Scope note, extended 2026-08-16 (#651 review recheck) — naming the sentences
+> this qualifies.** Two accepted sentences read as an exclusive rule and are the
+> ones the paragraph above narrows: the registry section's "GDScript mirrors only
+> the rows whose source is `operation`, because only those codes can be reported by
+> headless operations", and the `Source` column's implied "the source that may
+> report it".
+>
+> Both stay true of what they actually govern — **mirror membership and the
+> sentinel channel**: `operations.gd` declares exactly the `operation`-source rows,
+> and only those may come back through the ADR-0002 sentinel as an operation's own
+> report. Neither constrains the **Python classifier**, which may assign any
+> registered code whose semantics match the failure it recognized, including an
+> `operation`-source one — a practice `invalid_path` established long before #651.
+>
+> So: `source` is an **origin-and-membership** field, never an emitter whitelist.
+> Nothing derives behavior from the exclusive reading — `classify_run` keys on
+> operation-source *membership* to validate a sentinel-reported code, and the
+> mirror test keys on the same membership — so this is a correction to the recorded
+> meaning, not a change to the contract. `src/gda/error_codes.py`'s module
+> docstring is the single home of this definition.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is
