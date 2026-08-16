@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 import jsonschema
 
+import gda_balancing.application.experiment_execution as experiment_execution_application_module
 import gda_balancing.application.experiment_run as experiment_run_application_module
 import gda_balancing.domain.experiment as experiment_admission_module
 import gda_balancing.domain.artifacts as artifacts_module
@@ -8773,7 +8774,7 @@ def test_periodic_effect_publication_fault_recovers_one_complete_lifecycle(
             raise AssertionError("Invocation-key recovery reran the periodic evaluator")
 
         monkeypatch.setattr(
-            experiment_run_application_module,
+            experiment_execution_application_module,
             "evaluate_experiment",
             evaluator_must_not_run,
         )
@@ -9232,7 +9233,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         raise AssertionError("Invocation-key recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_run_application_module,
+        experiment_execution_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -9305,7 +9306,7 @@ def test_committed_recovery_requires_semantic_artifact_set_revalidation(
         raise AssertionError("semantically invalid recovery reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_run_application_module,
+        experiment_execution_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )
@@ -9363,7 +9364,7 @@ def test_committed_recovery_revalidates_the_presentation_trust_boundary(
         raise AssertionError("invalid recovery presentation reran the evaluator")
 
     monkeypatch.setattr(
-        experiment_run_application_module,
+        experiment_execution_application_module,
         "evaluate_experiment",
         evaluator_must_not_run,
     )

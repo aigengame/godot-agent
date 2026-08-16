@@ -54,6 +54,7 @@ SHARDS: Final[dict[str, tuple[str, ...]]] = {
     "experiment": ("test_schema2_experiment_cli.py",),
     "composition": (
         "test_cli_conformance.py",
+        "test_http_service.py",
         "test_schema2_bootstrap_composition.py",
         "test_schema2_template_cli.py",
     ),

@@ -11,6 +11,13 @@ status: accepted
 > The five-way outcome algebra, exit/channel meanings, one structured payload, and sanitized
 > internal failure remain retained constraints.
 
+> **Foreground-service amendment (2026-08-15, bADR-0026):** A descriptor marked
+> `foreground-service` emits and flushes its one typed success result when the local service is
+> ready, then remains active until shutdown. It emits no second stdout result. Before readiness,
+> the existing usage/internal channel and exit laws apply unchanged. After readiness, stderr is an
+> operational log stream; a later internal failure writes its sanitized `internal_error` envelope
+> as the final log record and exits 4. This is the only exception to the single-document stderr law.
+
 PRD #501 US19 requires structured JSON output and typed machine-readable refusals
 distinct from pass/fail verdicts; bADR-0004 fixes the refusal semantics and hands their
 CLI surface — envelope shape and exit codes — to this gate (#518). This bADR fixes what

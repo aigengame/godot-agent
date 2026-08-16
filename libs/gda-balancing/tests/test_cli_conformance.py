@@ -58,7 +58,22 @@ _IDS = [" ".join(_command_path(descriptor)) for descriptor in REGISTRY]
 @pytest.mark.parametrize("descriptor", REGISTRY, ids=_IDS)
 class TestPerDescriptorRows:
     def test_success_row(self, descriptor, run_cli, invocation):
-        exit_code, stdout, stderr = run_cli(invocation(descriptor))
+        registry = None
+        if descriptor.execution_lifecycle == "foreground-service":
+            readiness = descriptor.fixtures.foreground_readiness
+            assert readiness is not None
+
+            def emit_fixture(_input, emit_ready, _stderr):
+                emit_ready(descriptor.output_model.model_validate(readiness))
+                return 0
+
+            registry = tuple(
+                dataclasses.replace(item, foreground_runner=emit_fixture)
+                if item is descriptor
+                else item
+                for item in REGISTRY
+            )
+        exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
         jsonschema.validate(payload, descriptor.output_model.model_json_schema())
@@ -124,8 +139,19 @@ class TestPerDescriptorRows:
         class Bogus(BaseModel):
             unexpected: int = 7
 
+        def emit_bogus(_input, emit_ready, _stderr):
+            emit_ready(Bogus())
+            return 0
+
         registry = tuple(
-            dataclasses.replace(d, handler=lambda _i: Bogus()) for d in REGISTRY
+            (
+                dataclasses.replace(d, foreground_runner=emit_bogus)
+                if d.execution_lifecycle == "foreground-service"
+                else dataclasses.replace(d, handler=lambda _i: Bogus())
+            )
+            if d is descriptor
+            else d
+            for d in REGISTRY
         )
         exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
         assert (exit_code, stdout) == (4, "")
@@ -144,13 +170,25 @@ class TestPerDescriptorRows:
         extended = create_model(
             "Extended", __base__=descriptor.output_model, unexpected=(int, 7)
         )
-        registry = tuple(
-            dataclasses.replace(
-                d,
-                handler=lambda i, _d=d, _e=extended: _e.model_validate(
-                    {**_d.handler(i).model_dump(), "unexpected": 7}
-                ),
+
+        def emit_extended(_input, emit_ready, _stderr):
+            emit_ready(extended.model_construct(unexpected=7))
+            return 0
+
+        def extended_one_shot(value, *, source=descriptor, model=extended):
+            assert source.handler is not None
+            return model.model_validate(
+                {**source.handler(value).model_dump(), "unexpected": 7}
             )
+
+        registry = tuple(
+            (
+                dataclasses.replace(d, foreground_runner=emit_extended)
+                if d.execution_lifecycle == "foreground-service"
+                else dataclasses.replace(d, handler=extended_one_shot)
+            )
+            if d is descriptor
+            else d
             for d in REGISTRY
         )
         exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
@@ -298,6 +336,38 @@ class TestPerDescriptorRows:
 
 
 class TestSurfaceLaws:
+    def test_foreground_fault_after_readiness_preserves_the_two_stream_contract(
+        self,
+        run_cli,
+    ):
+        descriptor = next(
+            item
+            for item in REGISTRY
+            if item.execution_lifecycle == "foreground-service"
+        )
+        readiness = descriptor.fixtures.foreground_readiness
+        assert readiness is not None
+
+        def emit_then_fail(_input, emit_ready, _stderr):
+            emit_ready(descriptor.output_model.model_validate(readiness))
+            raise RuntimeError("injected post-readiness fault")
+
+        registry = tuple(
+            dataclasses.replace(item, foreground_runner=emit_then_fail)
+            if item is descriptor
+            else item
+            for item in REGISTRY
+        )
+
+        exit_code, stdout, stderr = run_cli(_command_path(descriptor), registry)
+
+        assert exit_code == 4
+        assert json.loads(stdout) == readiness
+        error = _assert_envelope(stderr, "internal")
+        assert error["code"] == "internal_error"
+        assert error["message"] == "the toolkit failed unexpectedly (RuntimeError)"
+        assert "Traceback" not in stderr
+
     def test_error_schema_is_line_or_descriptor_owned(self, run_cli):
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])
@@ -388,11 +458,22 @@ class TestSurfaceLaws:
             truncated=True,
         )
         for report in (minimal, at_bound):
-            registry = tuple(
-                dataclasses.replace(d, handler=lambda _i, _r=report: _r)
-                for d in REGISTRY
-            )
-            for descriptor in registry:
+            for descriptor in REGISTRY:
+
+                def emit_legacy(_input, emit_ready, _stderr, *, value=report):
+                    emit_ready(value)
+                    return 0
+
+                registry = tuple(
+                    (
+                        dataclasses.replace(item, foreground_runner=emit_legacy)
+                        if item.execution_lifecycle == "foreground-service"
+                        else dataclasses.replace(item, handler=lambda _i, _r=report: _r)
+                    )
+                    if item is descriptor
+                    else item
+                    for item in REGISTRY
+                )
                 exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
                 assert (exit_code, stdout) == (4, "")
                 assert _assert_envelope(stderr, "internal")["code"] == "internal_error"

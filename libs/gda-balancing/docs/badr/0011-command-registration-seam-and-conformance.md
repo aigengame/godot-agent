@@ -10,6 +10,13 @@ status: accepted
 > generalizes the descriptor/harness for the 2.x artifact surface. One registration seam,
 > projection-derived help/schema/dispatch, and exhaustive conformance remain retained.
 
+> **Foreground-service amendment (2026-08-15, bADR-0026):** The descriptor gains one
+> `foreground-service` execution marking and a typed readiness result. The same descriptor remains
+> the only source for argv binding, help, `--schema`, Surface-manifest projection, errors, and
+> conformance fixtures. An Interface-owned foreground runner emits readiness after the bound local
+> host can accept requests, then waits for shutdown. This is a second execution lifecycle, not a
+> second command registry, dispatch surface, or Domain execution path.
+
 #518 requires the CLI contract to be structurally self-enforcing: a single seam every
 command plugs into, plus a conformance test that walks the registered surface asserting
 envelope and exit-code behavior — enforcement by architecture and tests, never by
@@ -49,7 +56,8 @@ here.
     *sufficient* to dispatch — without them the single-seam claim would be
     unearned (gda ADR-0023 carries the same fact as its `operation` + runner
     selection);
-  - its execution markings — today exactly one, **stochastic** (bADR-0010);
+  - its execution markings — **stochastic** (bADR-0010) and the narrowly scoped
+    **foreground-service** lifecycle (bADR-0026);
   - its **conformance fixtures**: a valid invocation case and, for document-taking
     commands, a refusing-input case — the harness's per-command fuel, registered
     with the command so test coverage structurally cannot lag the surface.
@@ -108,6 +116,12 @@ here.
     (bADR-0009);
   - reserved names → no command occupies `evaluation`/`tuning` before their owning
     issues land (bADR-0007).
+
+  A foreground-service descriptor replaces the one-shot success/internal rows with lifecycle rows:
+  readiness is flushed exactly once before the process waits; stdout stays silent afterward;
+  normal shutdown exits 0 without a terminal result; and startup or post-readiness faults follow
+  bADR-0026's channel and exit laws. Its usage, schema, manifest, help, and fault-injection rows
+  remain descriptor-derived.
 
 - **The CLI-usage code family and the fixed `internal_error` code live in one
   registry** (bADR-0008), read by dispatch

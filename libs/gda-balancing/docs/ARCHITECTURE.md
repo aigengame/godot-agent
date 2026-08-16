@@ -27,7 +27,7 @@ module, or prototype may become an accidental second specification.
 | --- | --- | --- |
 | This `ARCHITECTURE.md` | Macro topology, subsystem responsibilities, cross-subsystem invariants, delivery order | Machine semantics, detailed decision rationale, acceptance status |
 | [`BALANCING-CONTEXT.md`](../BALANCING-CONTEXT.md) | Canonical domain terms and distinctions | Architecture planning or executable semantics |
-| [bADR-0012…0025](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
+| [bADR-0012…0026](badr/) | Binding detailed decisions and their rationale | Consolidated system narrative or implementation status |
 | [Product PRD #501](https://github.com/aigengame/godot-agent/issues/501) | `gda-balancing` product outcomes, milestones, and relationship to the `gda` family | Standard Schema 2.0 architecture details |
 | [PRD #534](https://github.com/aigengame/godot-agent/issues/534) | Product requirements, acceptance criteria, and live completion tracking | Macro architecture or machine semantics |
 | [`standard-schema-2.0/`](standard-schema-2.0/) | Acceptance artifacts, coverage matrices, and prototype evidence status | Language authority or proof by prose |
@@ -79,7 +79,8 @@ Standard Schema 2.0 must:
 - use one Metrics schema for simulated and observed Metric samples and datasets;
 - preserve an immutable chain from Evaluation runs through comparisons and Evidence assertions to
   Approval Records;
-- expose the same artifact and outcome model through a structured CLI surface;
+- expose the same artifact and outcome model through structured inbound Interfaces, including the
+  Structured CLI and local Execution HTTP API;
 - refuse unsupported or ambiguous behavior explicitly instead of accepting an open-ended escape
   hatch; and
 - make implementation-independent conformance testable from authoritative machine rules and
@@ -159,7 +160,7 @@ flowchart TB
     subgraph HOST["Conforming host implementation"]
         direction TB
         subgraph UI["UI / Interfaces"]
-            U["Structured CLI<br/>binding · descriptors · rendering"]
+            U["Inbound Interfaces<br/>Structured CLI · local Execution HTTP API"]
         end
         subgraph APP["Application"]
             A["Public use cases<br/>one operation at a time"]
@@ -199,7 +200,7 @@ flowchart TB
     end
 
     O["Published immutable facts<br/>Resolved Model · Metric dataset · Evaluation run<br/>Evidence assertion · Locators · Receipts"]
-    S["Structured CLI outcome<br/>envelope · stdout/stderr · exit code"]
+    S["Interface outcomes<br/>CLI envelope and channels · HTTP JSON response"]
     G["Approval Record<br/>independent governance decision"]
 
     K -->|"supplies machine authority"| B
@@ -588,7 +589,7 @@ Standard Schema semantics. The Kernel and LDB remain the machine authorities.
 
 ```mermaid
 flowchart TB
-    I["UI / Interfaces<br/>CLI binding, descriptors, registry, rendering"]
+    I["UI / Interfaces<br/>inbound protocol binding and presentation"]
     A["Application<br/>end-to-end use cases"]
     D["Domain<br/>Standard Schema rules and artifact policy"]
     N["Infrastructure<br/>domain-neutral I/O and atomic mechanisms"]
@@ -601,12 +602,17 @@ flowchart TB
 The diagram shows allowed cross-layer imports. It does not show processing or Standard Schema
 authority.
 
-- `interfaces/cli` owns Command descriptors, the immutable registry, schema and manifest
-  projection, argv binding, help, rendering, envelopes, and exit codes. It also contains the
-  executable composition root. CLI adapters translate values. They do not implement language or
-  evaluation rules.
+- `interfaces` owns inbound protocol binding and presentation. The `interfaces/cli` adapter owns
+  Command descriptors, the immutable registry, schema and manifest projection, argv binding, help,
+  rendering, envelopes, and exit codes. The loopback HTTP adapter owns its versioned routes, closed
+  transport schemas, authentication, and status mapping. Its local companion host owns the
+  in-process server lifecycle, readiness, and shutdown. An executable Interface entry point is the
+  composition root for its process. Interface adapters translate values. They do not implement
+  language or evaluation rules (bADR-0026).
 - `application` coordinates one public use case at a time. It returns typed results or refusals. It
-  does not parse argv, write stdout or stderr, select exit codes, or build CLI envelopes.
+  also coordinates process-local Execution sessions, immutable Experiment revisions, and their
+  ordering. It does not parse an external protocol, write presentation channels, build Interface
+  envelopes, or own admission and Runtime semantics.
 - `domain` owns authority admission and lifecycle. It also owns the Kernel-defined canonical JSON
   profile and the Formula, Model, Runtime, Experiment, Evidence, and Template rules. It owns
   artifact identity and publication policy. Publication policy uses atomic filesystem mechanisms
@@ -635,8 +641,8 @@ policy from domain-neutral storage mechanisms.
 
 | Layer | Subsystem | Responsibility | Produces or exposes |
 | --- | --- | --- | --- |
-| UI / Interfaces | Structured CLI | Bind argv, dispatch commands, and render public outcomes | Descriptor-derived commands, Surface manifest, CLI envelopes, and exit codes |
-| Application | Public use cases | Coordinate each public operation without CLI syntax or rendering rules | Typed results or refusals, plus publication receipts when the operation publishes artifacts |
+| UI / Interfaces | Inbound adapters | Bind external protocols and present public outcomes | Structured CLI commands, the loopback Execution HTTP API, Surface manifest, envelopes, and exit codes |
+| Application | Public use cases | Coordinate each public operation and process-local Execution-session ordering without Interface protocol or presentation rules | Typed results or refusals, session/revision handles, plus publication receipts when the operation publishes artifacts |
 | Domain | Kernel/LDB bootstrap | Admit and identify the exact language definition | Kernel identity, whole-LDB identity, and admission outcome |
 | Domain | Package resolver | Select one deterministic and compatible package closure | Canonical Package Lock and resolution receipt |
 | Domain | Model compiler | Parse and check source, lower it to RIR, and build exact Model semantics | Authoring AST, Typed HIR, RIR semantic payload, Debug Map, and Resolved Model |
@@ -1369,7 +1375,7 @@ tolerances refuse. Missing, unexpected, and mismatched observations are reported
 agreement cannot be manufactured by comparing only convenient fields or by copying Experiment
 intent into the LDB.
 
-## 10. CLI and artifact publication
+## 10. Public interfaces and artifact publication
 
 ### 10.1 Public command taxonomy
 
@@ -1385,10 +1391,14 @@ The Standard Schema 2.x CLI follows artifact ownership rather than internal impl
 | `experiment` | `check`, `run`, `replay`, `compare` | Validate and execute evaluation intent |
 | `evidence` | `inspect`, `verify` | Inspect and independently validate Evidence graphs |
 | `calibration`, `approval` | Reserved | Future surfaces; absence is explicit |
-| meta | `version`, `manifest`, `help` | Product and command-surface discovery |
+| meta | `version`, `manifest`, `serve`, `help` | Product discovery and local service lifecycle |
 
 There is no public `runtime` or `metrics` command group: those are execution and artifact concepts
 owned through model/experiment operations, not independent user workflows.
+
+The ungrouped `serve` command starts the loopback-only Execution HTTP Interface. It is a foreground
+operational command, not a new semantic command group. bADR-0026 owns its transport and lifecycle
+boundaries.
 
 Each command has one structured **Command descriptor** that owns its parameters, defaults,
 channels, outcome decoding, and schema reference. Help, structured parameter schema, `--schema`, and
@@ -1427,7 +1437,7 @@ coverage from implementation proof.
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | A non-RPG economy Event reached Lock, RIR, evaluator, trace, Snapshot, and a Metric dataset under the superseded provisional Kernel. That result does not carry to the replacement Kernel identity; the public Extension Invariance Receipt and broader mechanic breadth remain open |
-| Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
+| Operability | Descriptor-derived CLI, local Execution HTTP Interface, immutable artifacts, idempotent invocation, receipts | Local descriptor, HTTP, and publication paths were exercised; production adapters and complete public surface remain open |
 
 The current evidence supports these status statements:
 
@@ -1762,7 +1772,8 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |
 | Sealed multi-member LDB graph | [bADR-0023](badr/0023-sealed-multi-member-language-definition-bundle.md) | Root/package admission, public retrieval, packaging, and mutation vectors |
 | Canonical Formula notation | [bADR-0024](badr/0024-canonical-reversible-formula-notation.md) | Formula pairing, parse/render, and JSON contract vectors |
-| Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, public CLI regressions, and source/wheel parity |
+| Host implementation dependencies | [bADR-0025](badr/0025-dependency-directed-implementation-layers.md) | Import-direction gate, Interface-boundary regressions, and source/wheel parity |
+| Local Execution HTTP Interface | [bADR-0026](badr/0026-local-http-execution-service.md) | Loopback service, closed protocol, exact revisions, and CLI/HTTP parity vectors |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”
