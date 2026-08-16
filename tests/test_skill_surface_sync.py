@@ -110,32 +110,79 @@ def test_gate_catches_a_dropped_command():
     assert parse_skill_groups(doctored).get("scene") != surface_groups().get("scene")
 
 
+# The Scene-authoring paragraph documenting the Control-root zero-size pitfall
+# (GDA-DF-006, #672), anchored on its stable opening line.
+_SCENE_CREATE_ROOT_NOTE_ANCHOR = "`scene create` with a `Control-derived`"
+
+
+def _extract_scene_create_root_note(text: str) -> str:
+    """Extract just the Control-root zero-size paragraph from the bundled skill.
+
+    Scoped to this one paragraph, not a search across the whole file: SKILL.md
+    mentions `game rect` and `node set` elsewhere for unrelated reasons, so an
+    unscoped token search can stay green even if THIS paragraph's semantic
+    content regresses (PR #676 review round 2 recheck). If the anchor line is
+    ever reworded away, this fails loudly with a clear message rather than
+    silently matching an empty or wrong span.
+    """
+    start = text.find(_SCENE_CREATE_ROOT_NOTE_ANCHOR)
+    assert start != -1, (
+        "SKILL.md's Control-root zero-size paragraph anchor "
+        f"{_SCENE_CREATE_ROOT_NOTE_ANCHOR!r} was not found in the bundled skill — "
+        "the paragraph was reworded or removed; update this anchor to match."
+    )
+    end = text.find("\n\n", start)
+    assert end != -1, (
+        "the Control-root paragraph starting at the anchor never reaches a "
+        "blank-line paragraph break"
+    )
+    return text[start:end]
+
+
+def _normalize_whitespace(text: str) -> str:
+    # Both surfaces hand-wrap their prose at ~88 columns, so a load-bearing phrase
+    # can straddle a line break (e.g. "...no intrinsic\nminimum size..."). Collapsing
+    # whitespace runs to a single space keeps token matching robust to rewrapping.
+    return re.sub(r"\s+", " ", text)
+
+
 def test_scene_create_control_root_note_agrees_with_skill():
     # `gda scene create --help` (the command docstring, projected verbatim into
-    # `gda schema`'s "scene create" description) and this Scene-authoring section
-    # independently document the same Control-derived zero-size root pitfall
-    # (GDA-DF-006, #672) in two hand-maintained prose surfaces. They already diverged
-    # once — a scope fix (Control -> Control-derived) landed in SKILL.md without the
-    # matching help-text edit (PR #676 review) — so this is a minimal token-level guard,
-    # not a full prose-equality pin: the two surfaces deliberately differ in voice, but
-    # must name the same fix properties, the same check command, and agree on the same
-    # root-class scope.
+    # `gda schema`'s "scene create" description) and the SKILL.md Scene-authoring
+    # paragraph independently document the same Control-derived zero-size root
+    # pitfall (GDA-DF-006, #672) in two hand-maintained prose surfaces. They have
+    # already diverged twice: a scope fix (Control -> Control-derived) landed in
+    # SKILL.md without the matching help-text edit (PR #676 review round 1); and an
+    # earlier version of this test searched tokens across the whole bundled skill,
+    # so it could stay green even if the zero-size-is-conditional fact regressed,
+    # since `game rect` / `node set` also occur elsewhere in SKILL.md for unrelated
+    # reasons (PR #676 review round 2 recheck). This guards the SPECIFIC paragraph
+    # for the SPECIFIC semantic facts the round corrected — the zero anchors/offsets
+    # behavior, the intrinsic-minimum-size conditional, the fix properties, and the
+    # check command — as tokens, not full prose equality (the two surfaces
+    # deliberately differ in voice).
     by_name = {
         c["name"]: c["description"]
         for c in build_surface_manifest(app).model_dump()["commands"]
     }
-    scene_create_description = by_name["scene create"]
+    scene_create_description = _normalize_whitespace(by_name["scene create"])
+    skill_paragraph = _normalize_whitespace(_extract_scene_create_root_note(BUNDLED))
 
-    load_bearing_tokens = ["anchor_right", "anchor_bottom", "game rect"]
+    load_bearing_tokens = [
+        "zero anchors",
+        "zero offsets",
+        "intrinsic minimum",
+        "zero-size",
+        "anchor_right",
+        "anchor_bottom",
+        "node set",
+        "game rect",
+        "Control-derived",
+    ]
     for token in load_bearing_tokens:
         assert token in scene_create_description, (
             f"'scene create' help text missing {token!r}: {scene_create_description!r}"
         )
-        assert token in BUNDLED, f"SKILL.md missing {token!r}"
-
-    assert "Control-derived" in scene_create_description, (
-        "'scene create' help text dropped the Control-derived scope token"
-    )
-    assert "Control-derived" in BUNDLED, (
-        "SKILL.md dropped the Control-derived scope token"
-    )
+        assert token in skill_paragraph, (
+            f"SKILL.md's Control-root paragraph missing {token!r}: {skill_paragraph!r}"
+        )
