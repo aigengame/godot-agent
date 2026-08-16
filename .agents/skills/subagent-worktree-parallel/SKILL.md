@@ -47,7 +47,9 @@ the cost/benefit table).
   the change, including the real integration/e2e/compile/parse path and relevant non-test
   checks. Classify gates that require protected infrastructure, secrets, policy evaluation,
   or unavailable hardware as **CI-only**. If a gate cannot run, record why, the substitute
-  evidence, and the remaining risk; never report it as passed. (REFERENCE §3, §6)
+  evidence, and the remaining risk; never report it as passed. A capability-gated test must
+  demonstrably execute in at least one enforced tier — split the core behavior out of the
+  gate. (REFERENCE §3, §6)
 - **The orchestrator (the "lead") independently re-verifies before merging.** Subagent implements and
   produces the authorized local artifact in its worktree; the lead re-runs locally
   reproducible gates and spot-checks the diff. "Done but no artifact" = needs takeover.
@@ -87,9 +89,11 @@ choose mode/permissions → decompose + dependency analysis → plan waves
 2. **Decompose + analyze dependencies.** Split the work into end-to-end slices. Mark which
    are independent (parallel-safe) vs. coupled (must serialize). Up front, identify the
    **append hotspots** — central registries, enums, dispatch tables, render/plugin maps,
-   shared test files that *every* slice edits — that is where merge cost concentrates —
-   and give each hotspot exactly **one owner slice** for the wave; the others flag needed
-   changes instead of editing. (REFERENCE §1)
+   generated/stamped artifacts (translation stamps, lockfiles), shared test files that
+   *every* slice edits — that is where merge cost concentrates — and give each hotspot
+   exactly **one owner slice** for the wave; the others flag needed changes instead of
+   editing. A flagged change still lands in a file before that slice merges, and
+   ownership expires when the owner finishes without it. (REFERENCE §1)
 3. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence each foundation
    slice before its dependent follow-up slices. Decide the integration order now. In
    planning-only mode, return the plan here. (REFERENCE §2)
@@ -98,7 +102,8 @@ choose mode/permissions → decompose + dependency analysis → plan waves
    requires early durable local artifacts when authorized, and includes the applicable
    validation gates. (REFERENCE §3)
 5. **Verify, hand off, or publish.** As each implementer finishes, run locally reproducible
-   gates, serialize shared-global-resource tests, audit affected public surfaces, and record
+   gates, serialize shared-global-resource tests (REFERENCE §6: lock-directory protocol and
+   stale-lock arbitration), audit affected public surfaces, and record
    every CI-only or unavailable gate with substitute evidence and remaining risk. If remote
    writes are not authorized, return the local artifact and stop. If they are authorized,
    the orchestrator performs only the listed remote actions. (REFERENCE §6, §7)

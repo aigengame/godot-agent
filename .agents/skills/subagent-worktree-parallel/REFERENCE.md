@@ -26,11 +26,22 @@ edits, where all the integration cost concentrates:
 - renderer / plugin / handler maps
 - shared model or schema registration
 - shared test files / fixtures
+- generated or stamped shared artifacts — checksums/markers computed over other
+  content (translation-sync stamps, lockfiles, generated indexes)
 - public docs, command catalogs, generated/translated docs, and bundled agent skills
   that mirror the public surface
 
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
+
+**Generated/stamped artifacts break the disjointness heuristic.** A file carrying a
+checksum, stamp, or marker computed over other content (a translation-sync stamp, a
+lockfile hash) conflicts even when two slices edit DISJOINT content regions — both sides
+regenerate the marker to different values. Treat every such file as a guaranteed-conflict
+hotspot: give it an owner like any other, expect the second slice's merge to need a
+serialized rebase, and resolve by re-running the generator on the merged tree (§4) — a
+hosting service's "mergeable" verdict taken before the sibling merged is not durable for
+these files.
 
 **Assign each hotspot exactly one owner slice per wave.** When two slices *could*
 legitimately touch the same shared file (one refactors a module, another instances it),
@@ -42,6 +53,17 @@ slice — never suppresses it (the disjointness guardrail below still holds) —
 non-owner's needed change lands via the owner, a lead-reassigned ownership, or a
 serialized follow-up. One real wave ran a view-layer refactor in parallel with a
 consumer of those same files at zero conflicts this way.
+
+**Ownership is a wave-time lease, not a lock that outlives its owner — and a flagged
+change must end in a landed edit.** Two real failure modes: (1) *Deferral is not
+delivery.* A shared-file change parked in a report or change-request description is a
+coordination message to the lead, not a shipped artifact — a reviewer will correctly fail
+an acceptance criterion whose text exists only outside the artifact, especially for
+user/agent-facing guidance. Every flagged change lands in a file before the flagging
+slice's change request merges: via the owner, a lead-reassigned ownership, or a
+serialized follow-up — pick one and schedule it. (2) *The lease expires with the owner.*
+When the owner slice finishes WITHOUT touching the shared file, the lead reassigns it to
+the slice that needs it rather than keeping a now-pointless deferral alive.
 
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design
@@ -172,6 +194,10 @@ remote-write authority.
    asynchronously, so a previously mergeable change can become conflicting after a sibling merges.
 3. **A clean auto-merge still gets the integration gate** (§6) — the marker-free traps
    in §5 hide precisely in conflict-free rebases.
+4. **Regenerate, don't hand-merge, stamped markers.** When the conflicting hunk is a
+   generated checksum/stamp over content both sides changed, take either side's marker,
+   merge the content normally, then re-run the project's generator on the merged tree and
+   commit its output — the regenerated value is the only correct resolution (§1).
 
 **Base remediation invalidates dependent-change evidence.** If change A is the base for
 change B, then every review fix, documentation fix, or history rewrite on A requires a
@@ -345,12 +371,26 @@ the documented environment can be reproduced safely. If it cannot, record the li
   on-disk fixture/path — concurrent runs across worktrees race and produce spurious
   failures (or crashes) that look like product bugs. Serialize those runs; keep only the
   isolated fast tier parallel.
+  A working mechanism is a shared lock DIRECTORY in a scratch path every dispatch prompt
+  names: `mkdir` to acquire (atomic), `rmdir` to release, bounded retries while held. Two
+  hygiene rules keep it live: acquire immediately BEFORE the serialized run and release
+  immediately after it returns (also on failure) — never pre-acquire ahead of other work,
+  and never hold the lock across the agent's own pause or handoff (a real run stranded a
+  pre-acquired lock for half an hour when its holder was suspended, starving every
+  sibling). The lead arbitrates staleness on evidence, not patience: no relevant process
+  running anywhere plus an old lock mtime ⇒ reclaim it.
 - **Guard against silent skips.** A test that *skips* when a precondition is unmet (a
   missing binary, absent templates, a feature-detect that quietly returns false) leaves
   CI green while coverage silently drops. Turn on your runner's skip-reason reporting
   (so every skip and its reason is visible) and add a **hard assertion** that when the
   resource *is* present on disk, the precondition must be true — so a broken detector
   goes red, not silently skipped.
+  The capability-split variant of the same trap: a test gated on an environment capability
+  (a display server, a device, an external binary) can pass on a developer machine yet
+  skip in EVERY enforced CI tier — the suite stays green while the guard protects nothing.
+  Split such a test: the core behavior ungated so the enforced tiers execute it, and only
+  the capability-dependent leg behind the gate; then confirm each new test actually runs
+  in at least one enforced tier, or record it as CI-only with substitute evidence.
 - **Fix a finding at the right altitude.** A defect that surfaces on one slice may be a
   *cross-cutting cause*. Fix it in a shared follow-up rather than band-aiding the one
   slice — especially when sibling slices each grew their own *partial* handling that the
@@ -394,6 +434,12 @@ the documented environment can be reproduced safely. If it cannot, record the li
 - **Trivial mechanical validation failures are the lead's to fix in place when authorized.** A formatter diff or
   an import sort on an otherwise-verified branch is cheaper to fix, test, and push
   yourself than to re-dispatch an agent for.
+- **Two missed rounds on one finding flips the fix to the lead.** Re-dispatching a review
+  finding to its implementer is right the first time — its context is warm. When a second
+  round still misses the finding's essence, a third dispatch costs more than doing the
+  work: the lead implements the fix directly (same worktree, same gates, same report duty)
+  and tells the implementer what changed. Complements the takeover recipe below; the
+  trigger is repeated misunderstanding, not a missing artifact.
 - **"Completed but no artifact" = needs-takeover.** Never trust a completion claim —
   independently verify with `git status` (clean?), `git log` (recent commits?), and
   remote-tracking when a push was authorized and expected. An agent report with no
