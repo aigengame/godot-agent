@@ -91,6 +91,7 @@ HARNESS_VERSION = "6"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
+_PROJECT_FILE = "project.godot"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
 
 
@@ -112,13 +113,10 @@ class HarnessInstall:
     install and on a version resync — nothing new appears there; the rewrite is what
     ``synced`` reports.
 
-    ``wrote_autoload_entry`` completes the receipt for :func:`rollback_install`: True
-    when this call wrote the harness ``[autoload]`` entry, whether it ADDED one or
-    re-pointed an existing one. It is deliberately not part of the public
-    ``daemon start`` result — it exists so a failed start can undo precisely the
-    config edit it made (PR #680 review), which the created-path/section lists alone
-    cannot express (an entry added to a section that already existed shows up in
-    neither).
+    The receipt says what this call CREATED; it deliberately does not try to describe
+    how to undo the call. Undoing is :func:`restore_install`'s job, driven by a
+    :class:`HarnessSnapshot` of the prior bytes — the receipt contributes only the
+    directories a file snapshot cannot model (PR #680 recheck).
     """
 
     changed: bool
@@ -126,7 +124,6 @@ class HarnessInstall:
     version: str
     created_paths: tuple[str, ...] = ()
     created_sections: tuple[str, ...] = ()
-    wrote_autoload_entry: bool = False
 
 
 @dataclass(frozen=True)
@@ -224,11 +221,12 @@ def harness_artifacts(project: Path) -> tuple[Path, ...]:
     """Every file in ``project`` that the harness install owns: script + ``.uid``.
 
     The ONLY enumeration of them, in deletion order (the script first, then the
-    sidecar). Both consumers read it rather than restating it: :func:`_remove_files`
-    deletes exactly these, and ``gda export run``'s transactional strip (ADR-0028)
-    snapshots exactly these before stripping. A second hand-maintained list here
-    would let the two drift — a file uninstall removes but the snapshot never
-    captured would simply never come back, breaking ADR-0028's "dev project left
+    sidecar). Every consumer reads it rather than restating it: :func:`_remove_files`
+    deletes exactly these, and :class:`HarnessSnapshot` captures exactly these (plus
+    ``project.godot``) for both transactional callers — ``gda export run``'s strip
+    (ADR-0028) and ``gda daemon start``'s failed-start restore. A second
+    hand-maintained list would let them drift — a file one side removes but the
+    other never captured would simply never come back, breaking the "left
     byte-identical" guarantee (#654; the drift risk was called out in PR #680 review,
     which is why removal now iterates this instead of its own tuple).
     """
@@ -236,8 +234,94 @@ def harness_artifacts(project: Path) -> tuple[Path, ...]:
 
 
 def _res_path(project: Path, path: Path) -> str:
-    """A project-internal filesystem path as the ``res://`` string results report."""
-    return f"res://{path.relative_to(project).as_posix()}"
+    """A project-internal path as the string results and diagnostics report it.
+
+    ``res://…`` for everything inside the project tree, except ``project.godot``
+    itself, which every other message in this area already calls by its plain name.
+    """
+    relative = path.relative_to(project).as_posix()
+    return relative if relative == _PROJECT_FILE else f"res://{relative}"
+
+
+@dataclass(frozen=True)
+class HarnessSnapshot:
+    """The EXACT pre-mutation bytes of every file a harness install or strip touches.
+
+    The shared transactional mechanism behind both callers that must be able to hand
+    a project back untouched:
+
+    - ``gda export run`` (ADR-0028) strips the harness so it cannot reach the
+      artifact, then restores this snapshot — NOT a fresh install, which would
+      canonicalize a noncanonical autoload, synthesize one for a stray harness file
+      that had none, or rewrite a stale body to the current version.
+    - ``gda daemon start`` (#654, PR #680 recheck) installs the harness BEFORE the
+      daemon exists, so a start that never comes ready restores this snapshot.
+
+    Snapshot-EXACT is what makes the second caller correct, and a receipt of what the
+    install created cannot substitute for it. An install that RE-MATERIALIZES a stale
+    harness body, or RE-POINTS an existing autoload entry, creates nothing — so a
+    receipt-driven rollback has no prior bytes to put back and silently leaves the
+    rewrite in place. Only the bytes captured here can restore that.
+
+    The file list is ``project.godot`` plus :func:`harness_artifacts`, so it cannot
+    drift from what an uninstall removes. An ABSENT file is recorded faithfully as
+    ``None`` and restored by DELETION, which is what makes a fresh install reversible
+    by the same mechanism as a resync.
+
+    Held in memory for the duration of one operation and never written to disk: the
+    "no recorded pre-install state" rule of #654 is about persisted markers left in
+    the user's project, which this never creates.
+    """
+
+    project: Path
+    files: tuple[tuple[Path, Optional[bytes]], ...]
+
+    @classmethod
+    def capture(cls, project: Path) -> "HarnessSnapshot":
+        paths = (project / _PROJECT_FILE, *harness_artifacts(project))
+        return cls(
+            project,
+            tuple(
+                (path, path.read_bytes() if path.exists() else None) for path in paths
+            ),
+        )
+
+    def restore(self) -> tuple[str, ...]:
+        """Put every captured file back; returns a label per file actually changed.
+
+        A file absent at capture is deleted (the caller created it); otherwise its
+        exact bytes are rewritten — but only when the current state differs, so a
+        no-op restore touches nothing and cannot bump an mtime against a concurrent
+        editor (ADR-0018). ``project.godot`` comes first, so a partially-completed
+        restore never leaves an autoload entry pointing at a script already gone.
+        """
+        changed: list[str] = []
+        for path, before in self.files:
+            current = path.read_bytes() if path.exists() else None
+            if current == before:
+                continue
+            label = _res_path(self.project, path)
+            if before is None:
+                path.unlink()
+                changed.append(f"removed {label}")
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(before)
+                changed.append(f"restored {label}")
+        return tuple(changed)
+
+    def pending(self) -> tuple[str, ...]:
+        """The captured files whose on-disk bytes still differ from the snapshot.
+
+        What a caller reports when its own restore failed: the REAL residual delta,
+        measured rather than predicted, so the user is told exactly what is left to
+        put right by hand.
+        """
+        return tuple(
+            _res_path(self.project, path)
+            for path, before in self.files
+            if (path.read_bytes() if path.exists() else None) != before
+        )
 
 
 def installed_harness_version(project: Path) -> Optional[str]:
@@ -357,7 +441,7 @@ def install_harness(project: Path) -> HarnessInstall:
     existed = _harness_dest(project).exists()
     created_paths = _created_paths(project)
     materialized = _materialize(project)
-    project_godot = project / "project.godot"
+    project_godot = project / _PROJECT_FILE
     edit = _ensure_autoload(_read_config(project_godot))
     if edit.changed:
         _write_config(project_godot, edit.text)
@@ -370,7 +454,6 @@ def install_harness(project: Path) -> HarnessInstall:
         version=HARNESS_VERSION,
         created_paths=created_paths if materialized else (),
         created_sections=edit.sections,
-        wrote_autoload_entry=edit.changed,
     )
 
 
@@ -536,7 +619,7 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
       missing state (uninstall could infer it just as well as it infers the empty
       section) but that removal would buy nothing: see :func:`_remove_files`.
     """
-    project_godot = project / "project.godot"
+    project_godot = project / _PROJECT_FILE
     edit = _ConfigEdit("", False)
     if project_godot.exists():
         edit = _remove_autoload(_read_config(project_godot))
@@ -550,69 +633,40 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
     )
 
 
-def install_footprint(install: HarnessInstall) -> tuple[str, ...]:
-    """Everything ``install`` reports having written, as human-readable names.
-
-    What :func:`rollback_install` undoes — and therefore what a caller must tell the
-    user to clean up by hand if that rollback itself fails (PR #680 review).
-    """
-    if not install.changed:
-        return ()
-    footprint = list(install.created_paths)
-    if install.wrote_autoload_entry:
-        footprint.append(f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot")
-    footprint.extend(
-        f"the {section} section in project.godot"
-        for section in install.created_sections
-    )
-    return tuple(footprint)
-
-
-def rollback_install(project: Path, install: HarnessInstall) -> tuple[str, ...]:
-    """Undo exactly what ``install`` reports it wrote; returns what was undone.
+def restore_install(
+    project: Path, snapshot: HarnessSnapshot, install: HarnessInstall
+) -> tuple[str, ...]:
+    """Put ``project`` back exactly as ``snapshot`` found it; returns what was undone.
 
     The paired failure path for a caller that installs the harness and then cannot
     finish — ``gda daemon start``, whose spawn or readiness wait may fail AFTER the
-    install. Without this the project keeps an install the user never got any use
-    of, and the failure envelope says nothing about it (PR #680 review, claim 2).
+    install. Without it the project keeps an install the user never got any use of,
+    and the failure envelope says nothing about it (PR #680 review).
 
-    Driven entirely by the in-hand receipt, so it can only remove what THIS install
-    added: a ``changed=False`` install (the harness was already there) rolls back
-    nothing at all. Crash-safe ordering matches :func:`uninstall_harness` — the
-    ``[autoload]`` entry first, then the files innermost-out — so a mid-rollback
-    failure never leaves an autoload pointing at a script that is already gone.
+    Composes the two mechanisms this module already owns, because neither is
+    sufficient alone (PR #680 recheck):
 
-    Two deliberate differences from ``uninstall_harness``:
+    - :meth:`HarnessSnapshot.restore` returns every captured FILE to its pre-install
+      bytes. This is what a receipt cannot do: an install that re-materialized a
+      stale harness body, or re-pointed an existing autoload entry, CREATED nothing,
+      so a receipt-driven rollback had no prior bytes to put back and silently left
+      the rewrite in place — a failed start changing tracked content with nothing to
+      show for it, the exact defect class #654 exists to kill.
+    - the install receipt's ``created_paths`` then removes the DIRECTORIES the
+      install made, which a file snapshot does not model. Only now-empty ones are
+      removed, so a directory that meanwhile acquired other content is left alone.
 
-    - ``res://addons`` IS removed when the receipt says this install created it.
-      Uninstall cannot tell whose directory it is; a rollback can, because the
-      receipt records it, and it is undoing one specific call rather than a whole
-      installation history.
-    - a pre-existing entry this install RE-POINTED is removed, not restored to its
-      old value (which is not recorded). Removal is the safe direction, matching
-      ADR-0028's stance for a mid-export crash: harness-ABSENT is recoverable by the
-      next ``daemon start``, a dangling autoload is startup error spam.
+    An install that changed nothing still restores nothing: the snapshot matches
+    disk, so :meth:`HarnessSnapshot.restore` reports no changes and no created path
+    exists to remove. ``res://addons`` IS removed when the receipt says this install
+    created it — uninstall cannot tell whose directory that is, but a rollback can,
+    because it is undoing one specific call rather than a whole install history.
     """
-    if not install.changed:
-        return ()
-    undone: list[str] = []
-    project_godot = project / "project.godot"
-    if install.wrote_autoload_entry and project_godot.exists():
-        edit = _remove_autoload(_read_config(project_godot))
-        if edit.changed:
-            _write_config(project_godot, edit.text)
-            undone.append(f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot")
-            undone.extend(
-                f"the {section} section in project.godot" for section in edit.sections
-            )
-    # Innermost first: the file, then the directories that held it.
+    undone = list(snapshot.restore())
+    # Innermost first, so a directory is only considered once its contents are gone.
     for res_path in reversed(install.created_paths):
         path = project / res_path.removeprefix("res://")
-        if path.is_dir():
-            if not any(path.iterdir()):
-                path.rmdir()
-                undone.append(res_path)
-        elif path.exists():
-            path.unlink()
-            undone.append(res_path)
+        if path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+            undone.append(f"removed {res_path}")
     return tuple(undone)

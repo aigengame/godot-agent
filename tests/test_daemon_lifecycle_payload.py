@@ -11,6 +11,7 @@ readiness / liveness seams are stubbed so the focus is the additive
 
 import json
 import os
+import subprocess
 from pathlib import Path as _Path
 
 import pytest
@@ -754,20 +755,104 @@ def test_start_rolls_back_when_the_spawn_itself_raises(
     assert not (project / "addons").exists()
 
 
-def test_failed_start_reports_the_footprint_when_rollback_also_fails(
+def test_failed_start_restores_a_stale_harness_body_it_resynced(
     tmp_path, short_runtime, monkeypatch
 ):
-    # A rollback failure must not replace the start failure; it is reported ALONGSIDE
-    # it, naming what the user now has to remove by hand (ADR-0004 shape unchanged —
-    # same code, prose in `diagnostics`).
+    # PR #680 recheck, the reproduced residue. A project that ALREADY has a correct
+    # harness autoload entry and a STALE harness body on disk: the start's install
+    # re-materializes the body and creates nothing, so the receipt is empty and the
+    # receipt-driven rollback did nothing — a failed start silently replaced tracked
+    # content and reported no footprint at all. The snapshot restores it verbatim.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    project_godot.write_text(
+        project_godot.read_text(encoding="utf-8")
+        + f'\n[autoload]\n\nGdaHarness="*res://{HARNESS_RES_DIR}/{HARNESS_FILE}"\n',
+        encoding="utf-8",
+    )
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    harness.parent.mkdir(parents=True)
+    stale = b"# gda-harness-version: stale-old\nextends Node\n# my own edits\n"
+    harness.write_bytes(stale)
+    godot_before = project_godot.read_bytes()
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_not_running"
+    # EVERY file is byte-identical to pre-start, the stale body included.
+    assert harness.read_bytes() == stale
+    assert project_godot.read_bytes() == godot_before
+    # And the restore is reported, so the rewrite is never silent.
+    assert "rolled back" in failure.error.diagnostics
+    assert HARNESS_FILE in failure.error.diagnostics
+
+
+def test_failed_start_leaves_a_tracked_project_porcelain_clean(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The same residue seen the way a user sees it: as a git diff. A stale harness
+    # body is COMMITTED, the start fails, and `git status --porcelain` must be empty
+    # — the check that does not depend on the test naming the right file. No engine
+    # needed, so this stays in the fast suite alongside the e2e round trip.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    project_godot.write_text(
+        project_godot.read_text(encoding="utf-8")
+        + f'\n[autoload]\n\nGdaHarness="*res://{HARNESS_RES_DIR}/{HARNESS_FILE}"\n',
+        encoding="utf-8",
+    )
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    harness.parent.mkdir(parents=True)
+    harness.write_bytes(
+        b"# gda-harness-version: stale-old\nextends Node\n# my own edits\n"
+    )
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(project), *args], capture_output=True, text=True
+        )
+
+    assert git("init", "-q").returncode == 0
+    git("config", "user.email", "unit@example.invalid")
+    git("config", "user.name", "gda unit")
+    assert git("add", "-A").returncode == 0
+    assert git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert git("status", "--porcelain").stdout == ""  # a clean baseline
+
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    status = git("status", "--porcelain")
+    assert status.stdout == "", (
+        "the failed start left the tracked project dirty:\n" + status.stdout
+    )
+
+
+def test_failed_start_reports_the_residual_delta_when_restore_also_fails(
+    tmp_path, short_runtime, monkeypatch
+):
+    # A restore failure must not replace the start failure; it is reported ALONGSIDE
+    # it, naming what the user now has to put right by hand (ADR-0004 shape unchanged
+    # — same code, prose in `diagnostics`). The set is MEASURED against the snapshot,
+    # so it reports what actually still differs rather than predicting from a receipt.
     project = _project(tmp_path)
     monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
     monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
 
-    def boom(project, installed):
-        raise OSError("injected: rollback cannot write")
+    def boom(project, snapshot, installed):
+        raise OSError("injected: restore cannot write")
 
-    monkeypatch.setattr(daemon_ops, "rollback_install", boom)
+    monkeypatch.setattr(daemon_ops, "restore_install", boom)
 
     failure = daemon_ops.run_daemon_start_operation(
         project, "godot", version_check=_OK_VERSION
@@ -776,10 +861,10 @@ def test_failed_start_reports_the_footprint_when_rollback_also_fails(
     assert isinstance(failure, Failure), failure
     assert failure.error.code == "daemon_not_running"  # still the start's failure
     assert "could NOT be rolled back" in failure.error.diagnostics
-    assert "injected: rollback cannot write" in failure.error.diagnostics
-    # The footprint the user must clean up is spelled out.
+    assert "injected: restore cannot write" in failure.error.diagnostics
+    # The files still differing from their pre-start state are spelled out.
     assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" in failure.error.diagnostics
-    assert "the [autoload] section in project.godot" in failure.error.diagnostics
+    assert "project.godot" in failure.error.diagnostics
 
 
 # --- the mutation receipt on both halves (#654) -------------------------------

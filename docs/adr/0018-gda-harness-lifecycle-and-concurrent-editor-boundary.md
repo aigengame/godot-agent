@@ -118,10 +118,20 @@ so two instances can touch the project at once.
 > **Point 1's install is now transactional at the `daemon start` boundary.** The install
 > precedes the daemon, so a start that fails afterwards (the spawn raises, or the daemon
 > never begins accepting) used to leave the project mutated and say nothing about it. Such
-> a start now rolls back exactly what the install receipt reports, and reports the outcome
-> in the failure's `diagnostics` — what was undone, or, if the rollback itself fails, the
-> footprint the user must remove by hand. A start that installed nothing
-> (`changed=false`) rolls back nothing, so a pre-existing installation is never disturbed.
+> a start now restores the project to its exact pre-start bytes and reports the outcome in
+> the failure's `diagnostics` — what was put back, or, if the restoration itself fails,
+> which files still differ. A start that wrote nothing restores nothing, so a pre-existing
+> installation is never disturbed.
+>
+> The restoration is driven by an **in-memory snapshot** of the prior bytes
+> (`HarnessSnapshot`, the same mechanism ADR-0028's export strip uses), NOT by the install
+> receipt. A receipt is insufficient by construction: an install that re-materializes a
+> stale harness body, or re-points an existing autoload entry, *creates* nothing — so a
+> receipt-driven rollback has no prior bytes to put back and silently leaves the rewrite
+> standing, which is the very defect class this outcome note exists to close. The receipt
+> still contributes the one thing a file snapshot cannot model: the directories the install
+> made. Nothing is persisted into the project, so the "no recorded pre-install state" rule
+> above is untouched — that rule is about markers left behind in the user's project.
 >
 > Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
 > reports `created_paths` / `created_sections` and `daemon uninstall` reports

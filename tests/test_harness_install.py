@@ -23,11 +23,11 @@ from gda.harness.install import (
     HARNESS_UID_FILE,
     HARNESS_UID_RES_PATH,
     HARNESS_VERSION,
+    HarnessSnapshot,
     harness_artifacts,
-    install_footprint,
     install_harness,
     installed_harness_version,
-    rollback_install,
+    restore_install,
     uninstall_harness,
 )
 
@@ -557,92 +557,163 @@ def test_harness_artifacts_names_the_script_and_its_uid_sidecar(tmp_path):
     )
 
 
-# --- Receipt-driven rollback of a failed install (#680 review, claim 2) --------
+# --- Snapshot-exact restoration of a failed install (#680 recheck) ------------
+# A `daemon start` installs the harness BEFORE the daemon exists, so a start that
+# never comes ready must hand the project back untouched. The restore is driven by
+# a HarnessSnapshot of the prior bytes, NOT by the install receipt: an install that
+# rewrites a stale body or re-points an existing entry CREATES nothing, so a receipt
+# has no prior bytes to put back.
 
 
-def test_rollback_undoes_a_fresh_install_completely(tmp_path):
-    # A caller that installs and then cannot finish (a `daemon start` whose daemon
-    # never becomes ready) must be able to hand the project back exactly as it was.
+def test_restore_undoes_a_fresh_install_completely(tmp_path):
     project_godot = tmp_path / "project.godot"
     project_godot.write_text(_NO_AUTOLOAD, encoding="utf-8")
     before = project_godot.read_bytes()
 
+    snapshot = HarnessSnapshot.capture(tmp_path)
     install = install_harness(tmp_path)
-    undone = rollback_install(tmp_path, install)
+    undone = restore_install(tmp_path, snapshot, install)
 
     assert project_godot.read_bytes() == before
     assert not (tmp_path / "addons").exists()  # incl. the addons dir gda created
     assert undone == (
-        f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot",
-        "the [autoload] section in project.godot",
-        HARNESS_RES_PATH,
-        "res://addons/gda_harness",
-        "res://addons",
+        "restored project.godot",
+        f"removed {HARNESS_RES_PATH}",
+        "removed res://addons/gda_harness",
+        "removed res://addons",
     )
 
 
-def test_rollback_of_an_unchanged_install_does_nothing(tmp_path):
-    # The harness was already there, so this install created nothing (`changed`
-    # False) and the rollback must not touch a pre-existing installation.
+def test_restore_puts_a_stale_harness_body_back_unchanged(tmp_path):
+    # PR #680 recheck, the reproduced residue. A project with a CORRECT pre-existing
+    # autoload entry and a STALE harness body: install re-materializes the body and
+    # creates nothing, so `changed=True` with an EMPTY receipt. The receipt-driven
+    # rollback therefore did nothing and the rewrite silently stood — a failed start
+    # changing tracked content with no footprint report at all. The snapshot restores
+    # the stale bytes exactly, leaving them stale.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        _NO_AUTOLOAD + f'\n[autoload]\n\nGdaHarness="*{HARNESS_RES_PATH}"\n',
+        encoding="utf-8",
+    )
+    harness = _harness_file(tmp_path)
+    harness.parent.mkdir(parents=True)
+    stale = b"# gda-harness-version: stale-old\nextends Node\n# my own edits\n"
+    harness.write_bytes(stale)
+    godot_before = project_godot.read_bytes()
+
+    snapshot = HarnessSnapshot.capture(tmp_path)
+    install = install_harness(tmp_path)
+    # Precondition: this is the shape a receipt cannot express.
+    assert install.changed is True and install.synced is True
+    assert install.created_paths == ()
+    assert harness.read_bytes() != stale  # the install really did rewrite it
+
+    undone = restore_install(tmp_path, snapshot, install)
+
+    assert harness.read_bytes() == stale  # the user's stale body is back, verbatim
+    assert project_godot.read_bytes() == godot_before
+    assert undone == (f"restored {HARNESS_RES_PATH}",)
+
+
+def test_restore_puts_a_re_pointed_autoload_entry_back(tmp_path):
+    # The other half of the same residue: an entry pointing somewhere else is
+    # RE-POINTED by install, which again creates nothing. The receipt-driven rollback
+    # removed the entry outright; the snapshot restores its original target.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        'config_version=5\n\n[autoload]\n\nGdaHarness="*res://legacy/old.gd"\n',
+        encoding="utf-8",
+    )
+    before = project_godot.read_bytes()
+
+    snapshot = HarnessSnapshot.capture(tmp_path)
+    install = install_harness(tmp_path)
+    assert 'GdaHarness="*res://legacy/old.gd"' not in project_godot.read_text(
+        encoding="utf-8"
+    )  # the install really did re-point it
+
+    restore_install(tmp_path, snapshot, install)
+
+    assert project_godot.read_bytes() == before  # original target restored, not dropped
+
+
+def test_restore_of_an_unchanged_install_does_nothing(tmp_path):
+    # The harness was already there and current, so this install wrote nothing and
+    # the restore must not touch a pre-existing installation.
     project_godot = tmp_path / "project.godot"
     project_godot.write_text(_NO_AUTOLOAD, encoding="utf-8")
     install_harness(tmp_path)  # the real install
     installed_bytes = project_godot.read_bytes()
 
+    snapshot = HarnessSnapshot.capture(tmp_path)
     repeat = install_harness(tmp_path)  # idempotent no-op
     assert repeat.changed is False
-    undone = rollback_install(tmp_path, repeat)
+    undone = restore_install(tmp_path, snapshot, repeat)
 
     assert undone == ()
     assert project_godot.read_bytes() == installed_bytes
     assert _harness_file(tmp_path).exists()  # the pre-existing install survives
 
 
-def test_rollback_keeps_an_addons_dir_the_project_already_had(tmp_path):
-    # The rollback removes `res://addons` only because the receipt says THIS install
-    # created it — a project that already had one keeps it.
+def test_restore_keeps_an_addons_dir_the_project_already_had(tmp_path):
+    # `res://addons` is removed only because the receipt says THIS install created
+    # it — a project that already had one keeps it.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
     (tmp_path / "addons").mkdir()
 
+    snapshot = HarnessSnapshot.capture(tmp_path)
     install = install_harness(tmp_path)
-    rollback_install(tmp_path, install)
+    restore_install(tmp_path, snapshot, install)
 
     assert (tmp_path / "addons").is_dir()
     assert not (tmp_path / HARNESS_RES_DIR).exists()
 
 
-def test_rollback_preserves_a_sibling_autoload_and_its_section(tmp_path):
+def test_restore_keeps_a_created_dir_that_meanwhile_gained_content(tmp_path):
+    # Only NOW-EMPTY directories go: something else landing in addons/gda_harness
+    # between install and restore must not be swept away with it.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    snapshot = HarnessSnapshot.capture(tmp_path)
+    install = install_harness(tmp_path)
+    bystander = tmp_path / HARNESS_RES_DIR / "notes.md"
+    bystander.write_text("someone else's file\n", encoding="utf-8")
+
+    restore_install(tmp_path, snapshot, install)
+
+    assert bystander.exists()  # kept, and so is the directory holding it
+    assert not _harness_file(tmp_path).exists()  # the harness itself still went
+
+
+def test_restore_preserves_a_sibling_autoload_and_its_section(tmp_path):
     # The entry gda added comes off; a section that was NOT gda's to create (a
-    # sibling autoload holds it up) stays, so the rollback is byte-exact here too.
+    # sibling autoload holds it up) stays, so the restore is byte-exact here too.
     project_godot = tmp_path / "project.godot"
     project_godot.write_text(
         _NO_AUTOLOAD + '\n[autoload]\n\nOther="*res://other.gd"\n', encoding="utf-8"
     )
     before = project_godot.read_bytes()
 
+    snapshot = HarnessSnapshot.capture(tmp_path)
     install = install_harness(tmp_path)
     assert install.created_sections == ()  # gda joined a section, it did not make one
-    rollback_install(tmp_path, install)
+    restore_install(tmp_path, snapshot, install)
 
     assert project_godot.read_bytes() == before
 
 
-def test_install_footprint_names_what_a_failed_rollback_leaves_behind(tmp_path):
-    # When the rollback itself fails, the caller reports this set so the user knows
-    # exactly what to remove by hand.
+def test_snapshot_pending_names_what_a_failed_restore_leaves_behind(tmp_path):
+    # When the restore itself fails, the caller reports the REAL residual delta —
+    # measured against the snapshot, not predicted from the receipt — so the user is
+    # told exactly which files still differ from their pre-start state.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
-    install = install_harness(tmp_path)
+    snapshot = HarnessSnapshot.capture(tmp_path)
+    assert snapshot.pending() == ()  # nothing has changed yet
 
-    assert install_footprint(install) == (
-        "res://addons",
-        "res://addons/gda_harness",
-        HARNESS_RES_PATH,
-        f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot",
-        "the [autoload] section in project.godot",
-    )
-    # Nothing was written -> nothing to clean up.
-    assert install_footprint(install_harness(tmp_path)) == ()
+    install_harness(tmp_path)
+
+    assert snapshot.pending() == ("project.godot", HARNESS_RES_PATH)
 
 
 def test_ready_gates_on_template_feature_as_its_first_statement():
