@@ -9,9 +9,10 @@ _GENERATED = _PLAYTEST / "generated"
 
 def test_playtest_runtime_dependencies_point_downward():
     allowed_dependencies = {
+        "addons": {"addons"},
         "systems": {"systems"},
-        "content": {"content", "systems"},
-        "ui": {"ui", "content", "systems"},
+        "content": {"addons", "content", "systems"},
+        "ui": {"content", "ui"},
     }
     dependency_pattern = re.compile(r"res://(addons|systems|content|ui)/")
 
@@ -20,7 +21,7 @@ def test_playtest_runtime_dependencies_point_downward():
             dependencies = set(dependency_pattern.findall(script.read_text()))
             assert dependencies <= allowed, (script, dependencies - allowed)
 
-    assert not (_PLAYTEST / "addons").exists()
+    assert not (_PLAYTEST / "addons" / "gda_balancing_client" / "plugin.cfg").exists()
     project_settings = list(_PLAYTEST.glob("project.*"))
     assert len(project_settings) == 1
     assert "[autoload]" not in project_settings[0].read_text()
