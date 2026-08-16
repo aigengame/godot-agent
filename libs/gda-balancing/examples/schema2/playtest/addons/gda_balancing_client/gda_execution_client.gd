@@ -15,8 +15,10 @@ var _stderr: FileAccess
 func start(executable_path: String = "") -> Dictionary:
 	if _pid > 0:
 		return _failure("already_started", "the local service is already running")
-	if executable_path.is_empty() or not FileAccess.file_exists(executable_path):
-		return _failure("executable_not_found", executable_path)
+	var resolved := _resolve_executable(executable_path)
+	if not resolved.get("ok", false):
+		return resolved
+	executable_path = resolved["value"]
 
 	var process := OS.execute_with_pipe(
 		executable_path,
@@ -56,6 +58,23 @@ func start(executable_path: String = "") -> Dictionary:
 		await shutdown()
 		return _failure("incompatible_service", JSON.stringify(status))
 	return {"ok": true, "value": value}
+
+
+func _resolve_executable(explicit_path: String) -> Dictionary:
+	if not explicit_path.is_empty():
+		if FileAccess.file_exists(explicit_path):
+			return {"ok": true, "value": explicit_path}
+		return _failure("executable_not_found", explicit_path)
+
+	var separator := ";" if OS.get_name() == "Windows" else ":"
+	var executable_name := (
+		"gda-balancing.exe" if OS.get_name() == "Windows" else "gda-balancing"
+	)
+	for directory in OS.get_environment("PATH").split(separator, false):
+		var candidate := directory.path_join(executable_name)
+		if FileAccess.file_exists(candidate):
+			return {"ok": true, "value": candidate}
+	return _failure("executable_not_found", executable_name)
 
 
 func create_session(model_source: Dictionary, experiment: Dictionary) -> Dictionary:
