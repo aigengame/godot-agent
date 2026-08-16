@@ -48,7 +48,7 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.models import GdaError, OperationErrorEnvelope
+from gda.models import EnvironmentProbe, GdaError, OperationErrorEnvelope
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
@@ -66,7 +66,12 @@ class Failure:
     exit_code: int
 
 
-def make_failure(code: str, message: str, stderr: str) -> Failure:
+def make_failure(
+    code: str,
+    message: str,
+    stderr: str,
+    probe: EnvironmentProbe | None = None,
+) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
     Only ``code``, the per-occurrence ``message`` (it embeds the binary path,
@@ -76,6 +81,11 @@ def make_failure(code: str, message: str, stderr: str) -> Failure:
     (ADR-0002, #141) rather than re-stated — and re-checked — at each site. The
     ``GdaError`` wrapping lives here once, so the call sites read as the taxonomy
     itself: a ``(code, message)`` row per failure mode.
+
+    ``probe`` is the optional :class:`EnvironmentProbe` context (ADR-0004
+    amendment, #667): the host call that decided an ENVIRONMENT failure gda
+    resolved by probing the machine rather than by running the engine. It stays
+    ``None`` — and so out of the emitted JSON entirely — for every other failure.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
@@ -86,6 +96,7 @@ def make_failure(code: str, message: str, stderr: str) -> Failure:
             code=code,
             message=message,
             diagnostics=stderr,
+            probe=probe,
         ),
         exit_code=spec.exit_code,
     )
@@ -282,16 +293,18 @@ def classify_run(
 
 # Codes the daemon IPC client / the daemon surface through the live sentinel that
 # classify_run would otherwise misroute. The LIVE codes are live-runtime failures;
-# ``live_unsupported_platform`` and ``live_windowed_unavailable`` are
-# ENVIRONMENT-category pre-launch preconditions but still arrive via the live path
-# (``live_windowed_unavailable`` is raised at the daemon's session-launch boundary and
-# relayed as a live reply, #345), so classify_live must surface them too — else
-# classify_run falls back to operation_failed for a non-operation code.
+# ``live_unsupported_platform``, ``live_windowed_unavailable`` and
+# ``live_windowed_permission_denied`` are ENVIRONMENT-category pre-launch
+# preconditions but still arrive via the live path (both windowed codes are raised at
+# the daemon's session-launch boundary and relayed as a live reply, #345/#667), so
+# classify_live must surface them too — else classify_run falls back to
+# operation_failed for a non-operation code.
 # ``project_not_found`` is deliberately NOT here — it is an operation-source code
 # classify_run already maps, so it falls through to the shared decision tree.
 _LIVE_CLIENT_CODES = LIVE_ERROR_CODES | {
     "live_unsupported_platform",
     "live_windowed_unavailable",
+    "live_windowed_permission_denied",
 }
 
 

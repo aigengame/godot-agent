@@ -222,6 +222,7 @@ operation, and parse codes the CLI assigns).
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 | `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
+| `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested and the host HAS a window server, but this process is denied access to it (e.g. a sandbox); retry outside the restriction rather than treating the host as display-less (Phase 2, #667). |
 
 ## Considered options
 

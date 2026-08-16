@@ -777,6 +777,25 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " the host has no usable DisplayServer (no on-console GUI session / no"
         " $DISPLAY), so the session cannot come up; refused before spawning Godot.",
     ),
+    # The PERMISSION half of the pre-launch display precondition (#667). Same
+    # category/exit as `live_windowed_unavailable` — both refuse a windowed start
+    # pre-launch — but a different FACT about the world, and so a different code:
+    # the host CAN show a window, this process is merely not allowed to reach the
+    # window server. Conflating them is what the dogfooding (GDA-DF-029) hit — a
+    # sandboxed run read as a machine-capability gap, so rendered QA was silently
+    # skipped instead of retried outside the sandbox. Distinct from
+    # `live_display_unavailable`, which is the harness's CAPTURE-time code for a
+    # session that was started headless. Classifier-source, NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_windowed_permission_denied",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.CLASSIFIER,
+        "A windowed live session was requested (`gda daemon start --windowed`) and"
+        " the host HAS a window server, but this process is denied access to it"
+        " (e.g. a sandbox); retry outside the restriction rather than treating the"
+        " host as display-less.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}

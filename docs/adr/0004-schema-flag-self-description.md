@@ -24,6 +24,45 @@ status: accepted
 > the surrounding prose cannot drift. Like `kind`, gda-mcp ignores it (ADR-0012),
 > so it stays a strict superset — backward compatible.
 
+> **Amendment (2026-08-16, #667):** the uniform failure envelope (`GdaError`, the
+> `error` half of every command's `--schema`) gains ONE optional key — `probe`, an
+> `EnvironmentProbe` `{name, platform}` naming the host call that decided an
+> ENVIRONMENT failure `gda` resolved by probing the machine rather than by running
+> the engine (`CGSessionCopyCurrentDictionary`,
+> `bootstrap_look_up(com.apple.windowserver.active)`, `$DISPLAY / $WAYLAND_DISPLAY`).
+> Motivation: `--windowed` refusals had two causes — no window server on the host,
+> versus this process denied access to one — distinguishable only by reading English
+> prose, so automation recorded a sandbox boundary as a machine-capability gap and
+> silently skipped rendered QA (dogfooding GDA-DF-029).
+>
+> Three properties keep it additive:
+>
+> - **Optional and OMITTED, never `null`.** `emit_failure` serializes with
+>   `exclude_none`, so every failure that sets no probe emits byte-identically to
+>   before. Only the two windowed-refusal codes set one today.
+> - **The stable trio is untouched.** `category` / `code` / `message` (and
+>   `diagnostics`) keep their contract; `probe` is context ABOUT the classification,
+>   never a substitute for branching on `code`. `gda-mcp` passes the envelope through
+>   to its `is_error` channel unchanged and needs no adapter work (ADR-0012).
+> - **Schema-derived, zero per-command cost.** `error` is still the one shared
+>   `GdaErrorEnvelope` schema, identical for every command — it changed once, for all.
+>
+> **Scope boundary with #687.** #687 owns the separate, larger decision on whether the
+> failure ABI carries operation-scoped typed EVIDENCE — a script's numeric exit status,
+> parsed `ScriptError[]`, a timeout's elapsed seconds (#651, #655). This amendment
+> deliberately does NOT decide that and does not pre-empt its shape: `probe` answers
+> only "which host call decided this environment verdict", a fixed two-string context
+> with no per-operation variation. The two axes compose — an evidence key adopted by
+> #687 would sit alongside `probe` under the same "optional keys are omitted when
+> absent" rule established here — and #687 stays free to adopt, reshape, or decline
+> typed evidence on its own merits.
+>
+> **Not carried on the daemon relay.** The daemon→CLI wire envelope is ADR-0002's
+> `{code, message}` (extra keys rejected), so the launch-boundary guard inside
+> `gda-daemon` relays the code and prose but no `probe`; the field is populated where
+> the probe RAN in-process. Widening the cross-language wire contract is out of scope
+> here.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

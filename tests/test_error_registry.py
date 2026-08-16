@@ -175,6 +175,36 @@ def test_live_windowed_unavailable_flows_through_classify_live():
     assert outcome.error.diagnostics == "why-here"
 
 
+def test_live_windowed_permission_denied_flows_through_classify_live():
+    # #667: the sandbox-denial sibling is raised at the same daemon launch boundary
+    # and relayed the same way, so it needs the same whitelist entry — without it
+    # classify_run would misroute an ENVIRONMENT code to operation_failed. It
+    # resolves to its own registered environment/127 shape, distinct from
+    # live_windowed_unavailable, so an agent can tell "retry outside the sandbox"
+    # from "this host cannot show a window".
+    from gda.daemon.protocol import error_reply
+    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.commands.game import GameTreeResult
+    from gda.runner import RunResult
+
+    assert "live_windowed_permission_denied" in _LIVE_CLIENT_CODES
+
+    reply = error_reply(
+        "live_windowed_permission_denied",
+        "denied access to the window server",
+        diagnostics="why-here",
+    )
+    outcome = classify_live(RunResult(**reply), None, GameTreeResult)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "live_windowed_permission_denied"
+    assert outcome.error.category is ErrorCategory.ENVIRONMENT
+    assert outcome.exit_code == 127
+    assert outcome.error.diagnostics == "why-here"
+    # Relayed over the ADR-0002 wire envelope, which carries no probe context.
+    assert outcome.error.probe is None
+
+
 def test_harness_live_error_codes_are_registered_live_codes():
     # The per-op LIVE failures the gda harness reports (#220) are registered
     # LIVE-category classifier-source codes: because their category is LIVE,

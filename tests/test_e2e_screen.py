@@ -26,7 +26,7 @@ import subprocess
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable_reason
+from gda.display import windowed_unavailable
 from tests.support import GDA_CMD
 
 from .conftest import project_godot
@@ -56,14 +56,15 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 # "macOS always has one" assumption: headless macOS (SSH / CI / sandbox) has no
 # on-console window-server session even though `launchctl managername` reports
 # "Aqua", and a windowed Godot aborts in AppKit registration there — so the gate is
-# the shared `gda.display.windowed_unavailable_reason()` helper (#345), which probes
+# the shared `gda.display.windowed_unavailable()` helper (#345), which probes
 # CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
 # skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
 # screen tests below still run. Forward-compatible: wire Xvfb into CI (DISPLAY set)
 # and these run rather than skip.
-_NO_DISPLAY_REASON = windowed_unavailable_reason()
+_NO_DISPLAY = windowed_unavailable()
+_NO_DISPLAY_REASON = None if _NO_DISPLAY is None else _NO_DISPLAY.reason
 _needs_display = pytest.mark.skipif(
-    _NO_DISPLAY_REASON is not None,
+    _NO_DISPLAY is not None,
     reason=_NO_DISPLAY_REASON or "the host has a usable DisplayServer",
 )
 

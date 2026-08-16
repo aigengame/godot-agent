@@ -46,19 +46,49 @@ class ErrorCategory(str, Enum):
     LIVE = "live"
 
 
+# WHY this exists (kept as a comment, not a docstring): a model docstring becomes
+# the schema `description`, and the error envelope's schema is repeated for EVERY
+# command in `gda schema` — so rationale here would be paid ~67 times by every agent
+# reading the manifest. The decision and its reasoning live in the ADR-0004
+# amendment (#667); the docstring below stays the one-line contract.
+#
+# The short version: gda decides some ENVIRONMENT failures by asking the host a
+# question directly ("can a window open here?") rather than by observing an engine
+# run. WHICH OS call answered separates "this machine cannot do it" from "this
+# PROCESS was not allowed to" — skip the capability, versus retry outside the
+# restriction. #667: automation read a sandbox denial as a machine-capability gap
+# and silently skipped rendered QA, because that fact lived only in prose.
+class EnvironmentProbe(BaseModel):
+    """The host call that decided an environment failure: its ``name`` and ``platform``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    platform: str
+
+
 class GdaError(BaseModel):
     """A structured, stable failure of a ``gda`` operation (issue #3).
 
     Emitted as ``{"error": <this>}`` on stdout so an agent reacts to failure
     modes programmatically without parsing prose. ``category`` is the coarse,
     process-exit-code-aligned bucket; ``code`` is the finer, stable identifier;
-    ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002.
+    ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002;
+    ``probe`` is optional context on the few environment failures gda decides by
+    probing the host (ADR-0004 amendment, #667).
     """
 
     category: ErrorCategory
     code: str
     message: str
     diagnostics: str = ""
+    # OMITTED — not ``null`` — from every failure that sets none: the emit path
+    # (:func:`gda.headless.emit_failure`) serializes with ``exclude_none``, so each
+    # other code's envelope JSON stays byte-identical to the pre-amendment contract.
+    # Deliberately the minimal axis — WHICH host call decided — never the
+    # operation-scoped typed EVIDENCE of a failure (parsed script errors, exit
+    # statuses), which is #687's separate decision (ADR-0004 amendment, #667).
+    probe: EnvironmentProbe | None = None
 
 
 class GdaErrorEnvelope(BaseModel):

@@ -134,7 +134,33 @@ def test_error_envelope_round_trips_a_failure():
 
     assert isinstance(envelope.error, GdaError)
     assert envelope.error.code == "path_not_found"
-    assert json.loads(envelope.model_dump_json()) == payload
+    # `exclude_none` is the public emit convention (ADR-0004 amendment, #667): the
+    # envelope's optional context keys are OMITTED, never emitted as `null`, so a
+    # failure that sets none is byte-identical to the pre-amendment contract.
+    assert json.loads(envelope.model_dump_json(exclude_none=True)) == payload
+
+
+def test_error_envelope_round_trips_a_failure_carrying_probe_context():
+    # The other half of the amendment: a host-probe ENVIRONMENT failure DOES carry
+    # the deciding call as data, and that shape round-trips through the same model.
+    payload = {
+        "error": {
+            "category": "environment",
+            "code": "live_windowed_permission_denied",
+            "message": "denied access to the macOS window server",
+            "diagnostics": "",
+            "probe": {
+                "name": "bootstrap_look_up(com.apple.windowserver.active)",
+                "platform": "darwin",
+            },
+        }
+    }
+
+    envelope = GdaErrorEnvelope.model_validate(payload)
+
+    assert envelope.error.probe is not None
+    assert envelope.error.probe.platform == "darwin"
+    assert json.loads(envelope.model_dump_json(exclude_none=True)) == payload
 
 
 def test_scene_create_result_round_trips():
