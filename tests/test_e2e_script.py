@@ -19,6 +19,8 @@ from gda.runner import OPERATIONS_GD
 
 from tests.support import GDA_CMD
 
+from .conftest import project_godot
+
 GODOT = resolve_godot_binary()
 
 
@@ -894,6 +896,115 @@ def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(validated, "invalid_path")
     assert ".gd" in err["message"]
+
+
+# --- script validate: project context (#658, GDA-DF-035) ---
+
+
+def _nested_project_script(root):
+    """A project NESTED in a plain workspace dir, holding a res://-dependent script.
+
+    The GDA-DF-035 shape: a game project that lives inside a larger repository,
+    with a script whose ``res://`` preload only resolves against the project's own
+    root. Returns ``(workspace, project, script)``.
+    """
+    workspace = root / "workspace"
+    project = workspace / "game"
+    (project / "scripts").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-nested"), encoding="utf-8"
+    )
+    (project / "scripts" / "card.gd").write_text(
+        "extends Node\n\nclass_name Card\n\nfunc rank() -> int:\n\treturn 3\n",
+        encoding="utf-8",
+    )
+    script = project / "deck.gd"
+    script.write_text(
+        "extends Node\n\n"
+        'const Card = preload("res://scripts/card.gd")\n\n'
+        "func top() -> int:\n"
+        "\tvar c := Card.new()\n"
+        "\treturn c.rank()\n",
+        encoding="utf-8",
+    )
+    return workspace, project, script
+
+
+@pytest.mark.e2e
+def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
+    # The #658 regression, against the real engine: the SAME script under a nested
+    # project, validated from an ancestor directory, gets opposite verdicts
+    # depending on which project it was compiled against — and `project_root` says
+    # which one produced each. That is the reading GDA-DF-035 lacked: from the
+    # ancestor, `res://scripts/card.gd` is missing and a type-inference error is
+    # DERIVED from that miss, on a script that is perfectly valid in its own
+    # project. gda resolves no project from the target path (ADR-0006), so the
+    # ancestor run stays projectless — `project_root: null` is the signal that the
+    # dependency errors are about the missing project context, not the source.
+    workspace, project, script = _nested_project_script(tmp_path)
+
+    from_ancestor = subprocess.run(
+        [
+            *GDA_CMD,
+            "script",
+            "validate",
+            "game/deck.gd",
+            "--godot",
+            str(GODOT),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=workspace,
+    )
+
+    assert from_ancestor.returncode == 0, from_ancestor.stdout + from_ancestor.stderr
+    wrong_root = json.loads(from_ancestor.stdout)
+    assert wrong_root["project_root"] is None
+    assert wrong_root["valid"] is False
+    # The false cascade the issue reports: the preload miss plus at least one
+    # error derived from it.
+    assert any(
+        "res://scripts/card.gd" in diag["message"] for diag in wrong_root["diagnostics"]
+    )
+
+    with_owning_project = _gda(
+        "script", "validate", str(script), "--project", str(project), "--json"
+    )
+
+    assert with_owning_project.returncode == 0, (
+        with_owning_project.stdout + with_owning_project.stderr
+    )
+    right_root = json.loads(with_owning_project.stdout)
+    assert right_root["valid"] is True
+    assert right_root["diagnostics"] == []
+    assert right_root["project_root"] == str(project)
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path):
+    # The refusal at the real-engine tier: pointed at a project that does not own
+    # the script, gda reports the mismatch itself rather than the engine's false
+    # dependency errors — and names both sides. The refusal is structured
+    # (project_not_found, exit 4), so an agent branches on it instead of reading a
+    # cascade of parse errors that describe nothing wrong with the file.
+    _, project, script = _nested_project_script(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "project.godot").write_text(
+        project_godot("gda-e2e-other"), encoding="utf-8"
+    )
+
+    validated = _gda(
+        "script", "validate", str(script), "--project", str(other), "--json"
+    )
+
+    err = _assert_operation_error(validated, "project_not_found")
+    assert str(script) in err["message"]
+    assert str(other) in err["message"]
+    # Refused BEFORE parsing: no engine ran, so no diagnostic about the file.
+    assert "res://scripts/card.gd" not in validated.stdout
+    assert err["diagnostics"] == ""
 
 
 # --- script attach (issue #118) ---

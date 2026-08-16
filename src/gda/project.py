@@ -28,6 +28,47 @@ GDA_PROJECT_ENV = "GDA_PROJECT"
 PROJECT_MARKER = "project.godot"
 
 
+def is_engine_virtual_path(path: str) -> bool:
+    """True when ``path`` is an engine-resolved virtual path (``res://``, …).
+
+    ADR-0006's one test for "the engine resolves this against the project, gda
+    does not touch it" — ``res://``, ``user://`` and ``uid://`` all carry the
+    ``://`` scheme separator, which a filesystem path never does. Owned here, in
+    the project-resolution module, and read by both callers of the rule:
+    :func:`gda.models.normalize_path` (which passes such a path through
+    unexpanded) and :func:`path_outside_project` (which can make no filesystem
+    statement about one).
+    """
+    return "://" in path
+
+
+def path_outside_project(path: str, project: Path) -> Path | None:
+    """The resolved location of ``path`` when it falls OUTSIDE ``project``.
+
+    The containment check behind the "this target does not belong to the
+    resolved project" refusal. Returns ``None`` when the path belongs to the
+    project — either because it is an engine-virtual path, which by
+    construction addresses the project the engine was launched with, or because
+    its filesystem location is the project directory or a descendant of it.
+    Otherwise it returns that location, so the caller can name *where* the
+    target actually is in its diagnostic.
+
+    Both sides are resolved before comparison: a caller's path may be relative
+    to the cwd, and ``resolve_project_dir`` returns the directory as it was
+    named (``--project /tmp/game``), so comparing raw values would call a
+    contained path "outside" whenever a symlink sits on either side — on macOS
+    the temp directory alone (``/tmp`` → ``/private/tmp``) is enough.
+    ``resolve()`` is non-strict, so a path that does not exist still yields the
+    location it would occupy rather than raising.
+    """
+    if is_engine_virtual_path(path):
+        return None
+    location = Path(path).expanduser().resolve()
+    if location.is_relative_to(project.expanduser().resolve()):
+        return None
+    return location
+
+
 def _project_or_raise(raw: str, source: str) -> Path:
     """Expand ``raw`` to a project directory, or raise if it is not one."""
     candidate = Path(raw).expanduser()

@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from gda.project import GDA_PROJECT_ENV, PROJECT_MARKER, resolve_project_dir
+from gda.project import (
+    GDA_PROJECT_ENV,
+    PROJECT_MARKER,
+    path_outside_project,
+    resolve_project_dir,
+)
 
 
 def _make_project(path: Path) -> Path:
@@ -64,3 +69,80 @@ def test_explicit_non_project_dir_is_rejected(tmp_path):
 def test_explicit_empty_string_is_not_silently_swallowed(tmp_path):
     with pytest.raises(ValueError):
         resolve_project_dir("", env={GDA_PROJECT_ENV: str(_make_project(tmp_path))})
+
+
+# --- containment: does this target belong to the resolved project? (#658) -----
+
+
+def test_path_inside_the_project_is_not_outside(tmp_path):
+    proj = _make_project(tmp_path / "game")
+    script = proj / "actors" / "hero.gd"
+
+    assert path_outside_project(str(script), proj) is None
+
+
+def test_path_in_a_sibling_tree_is_outside_and_reports_its_location(tmp_path):
+    # The refusal's evidence: the caller must be able to name WHERE the target
+    # actually is, so the check returns the resolved location rather than a bool.
+    proj = _make_project(tmp_path / "game")
+    script = tmp_path / "other" / "hero.gd"
+
+    assert path_outside_project(str(script), proj) == script.resolve()
+
+
+def test_engine_virtual_paths_are_never_outside(tmp_path):
+    # res:// (and its user:// / uid:// siblings) address the project the engine
+    # was launched with, so they are inside by construction — gda makes no
+    # filesystem statement about them (ADR-0006).
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project("res://hero.gd", proj) is None
+    assert path_outside_project("user://save.gd", proj) is None
+    assert path_outside_project("uid://abc123", proj) is None
+
+
+def test_a_symlinked_project_spelling_still_contains_its_own_files(tmp_path):
+    # Both sides are resolved before comparison, so the SAME directory reached
+    # by two spellings compares equal. Without this the check would refuse every
+    # correct call made through a symlink — on macOS the temp dir alone
+    # (/tmp -> /private/tmp) is such a spelling.
+    proj = _make_project(tmp_path / "game")
+    link = tmp_path / "game-link"
+    link.symlink_to(proj, target_is_directory=True)
+
+    assert path_outside_project(str(link / "hero.gd"), proj) is None
+    assert path_outside_project(str(proj / "hero.gd"), link) is None
+
+
+def test_a_relative_path_is_resolved_against_the_cwd(tmp_path, monkeypatch):
+    # A caller's path may be relative; it means "relative to where gda was run",
+    # so containment is decided after resolving it there.
+    proj = _make_project(tmp_path / "game")
+    monkeypatch.chdir(proj)
+
+    assert path_outside_project("hero.gd", proj) is None
+    assert (
+        path_outside_project("../elsewhere/hero.gd", proj)
+        == (tmp_path / "elsewhere" / "hero.gd").resolve()
+    )
+
+
+def test_a_nonexistent_path_is_still_classified(tmp_path):
+    # The check runs BEFORE the engine opens anything, so it must not depend on
+    # the target existing (a missing file inside the project is the operation's
+    # own path_not_found, reported by the engine as before).
+    proj = _make_project(tmp_path / "game")
+
+    assert path_outside_project(str(proj / "gone.gd"), proj) is None
+    assert path_outside_project(str(tmp_path / "gone.gd"), proj) is not None
+
+
+def test_a_project_nested_inside_the_resolved_one_is_not_refused(tmp_path):
+    # The deliberate scope line (#658): a script in a project NESTED under the
+    # resolved one is contained, so it is NOT refused — finding the nearest
+    # project.godot is exactly the derivation ADR-0006 rejected, and waits on an
+    # amendment. The mismatch stays visible through the result's project_root.
+    outer = _make_project(tmp_path / "outer")
+    _make_project(outer / "inner")
+
+    assert path_outside_project(str(outer / "inner" / "deck.gd"), outer) is None

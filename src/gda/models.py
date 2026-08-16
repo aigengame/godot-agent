@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
+from gda.project import is_engine_virtual_path
 
 
 class ErrorCategory(str, Enum):
@@ -256,8 +257,13 @@ def normalize_path(path: str) -> str:
     Lives here, not at the CLI layer, so the argv path and the ``--params-json``
     path normalize identically (ADR-0015): the model is the single home of
     normalization, applied wherever the model is constructed.
+
+    Which paths are engine-virtual is ADR-0006's rule, owned by
+    :func:`gda.project.is_engine_virtual_path` — the same test the project
+    containment check reads, so the two cannot disagree about what ``res://``
+    means.
     """
-    if "://" in path:
+    if is_engine_virtual_path(path):
         return path
     return str(Path(path).expanduser())
 

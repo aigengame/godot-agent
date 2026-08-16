@@ -514,6 +514,138 @@ def test_script_validate_help_mentions_valid_false_success_result():
     assert "invalid exits 0 with valid=false" in result.stdout
 
 
+# --- project context: the refusal and the reported root (#658) ----------------
+
+
+def _project(tmp_path, name: str):
+    """A directory Godot counts as a project (it holds the marker)."""
+    proj = tmp_path / name
+    proj.mkdir(parents=True, exist_ok=True)
+    (proj / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return proj
+
+
+def test_script_validate_refuses_a_script_outside_the_resolved_project(
+    monkeypatch, tmp_path
+):
+    # GDA-DF-035: compiling a script against a project that does not own it makes
+    # every res:// dependency resolve against the wrong root, so the engine
+    # reports a cascade of false missing-file and derived type errors. gda refuses
+    # instead — BEFORE the engine runs, which is what `fake.calls == []` pins —
+    # and names both sides so the reader sees which one is wrong.
+    proj = _project(tmp_path, "game")
+    outsider = tmp_path / "elsewhere" / "deck.gd"
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "validate", str(outsider), "--project", str(proj), "--json"],
+    )
+
+    assert result.exit_code == 4
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "project_not_found"
+    assert error["category"] == "operation"
+    # Both locations are named: where the file is, and which project was resolved.
+    assert str(outsider.resolve()) in error["message"]
+    assert str(proj.resolve()) in error["message"]
+    # Nothing was parsed: no engine call was made at all.
+    assert fake.calls == []
+
+
+def test_script_validate_refusal_is_identical_on_the_params_json_path(
+    monkeypatch, tmp_path
+):
+    # ADR-0015 parity: --params-json builds the same model and must reach the same
+    # refusal. The check lives on the command's recipe — the one hook both input
+    # paths share — not in the argv body, which --params-json bypasses.
+    proj = _project(tmp_path, "game")
+    outsider = tmp_path / "elsewhere" / "deck.gd"
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "--params-json",
+            json.dumps({"path": str(outsider)}),
+            "--project",
+            str(proj),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert fake.calls == []
+
+
+def test_script_validate_reports_the_resolved_project_root(monkeypatch, tmp_path):
+    # The result names the root its res:// dependencies resolved against, so a
+    # reader can tell a real compile error from a wrong-project one without
+    # re-deriving gda's resolution.
+    proj = _project(tmp_path, "game")
+    script = proj / "deck.gd"
+    payload = {"path": str(script), "valid": True, "error_string": None}
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", str(script), "--project", str(proj), "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["project_root"] == str(proj)
+
+
+def test_script_validate_reports_a_null_project_root_when_projectless(
+    monkeypatch, tmp_path
+):
+    # Projectless (no --project, no $GDA_PROJECT, cwd is not a project) stays
+    # supported: a standalone script is still validated by filesystem path, and
+    # the null root tells the reader that res:// resolved against no project of
+    # gda's choosing — so any res:// dependency error is not to be trusted.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/ok.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["project_root"] is None
+    # The engine still ran: projectless is not a refusal.
+    assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
+
+
+def test_script_validate_does_not_refuse_a_res_path(monkeypatch, tmp_path):
+    # A res:// path addresses the resolved project by construction (ADR-0006), so
+    # containment makes no filesystem claim about it — it is never refused.
+    proj = _project(tmp_path, "game")
+    payload = {"path": "res://deck.gd", "valid": True, "error_string": None}
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "validate", "res://deck.gd", "--project", str(proj), "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [("script-validate", {"path": "res://deck.gd"})]
+
+
 def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
     # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
     # valid=false, and the per-command classifier parses the line/message
@@ -625,6 +757,52 @@ def test_script_validate_human_output_invalid_lists_diagnostics(monkeypatch):
     assert "invalid /tmp/proj/broken.gd" in result.stdout
     assert "Parse error." in result.stdout
     assert "line 3: Parse Error: the message." in result.stdout
+
+
+def test_script_validate_human_output_invalid_leads_with_the_project_root(
+    monkeypatch, tmp_path
+):
+    # An invalid verdict prints the project it was compiled against BEFORE the
+    # diagnostics (#658): when the root is wrong every line below it is an
+    # artefact of that one mistake, so the cause must not sit under the cascade.
+    proj = _project(tmp_path, "game")
+    script = proj / "broken.gd"
+    payload = {"path": str(script), "valid": False, "error_string": "Parse error."}
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", str(script), "--project", str(proj)]
+    )
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0] == f"invalid {script}"
+    assert lines[1] == f"  project: {proj}"
+
+
+def test_script_validate_human_output_names_projectless_explicitly(
+    monkeypatch, tmp_path
+):
+    # With no project resolved the line says so rather than printing an empty
+    # value — "(none resolved: projectless)" is the actionable reading of a
+    # res:// dependency error.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    payload = {
+        "path": "/tmp/proj/broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+    }
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
+
+    assert result.exit_code == 0
+    assert "  project: (none resolved: projectless)" in result.stdout
 
 
 def test_script_attach_human_output(monkeypatch):

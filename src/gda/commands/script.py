@@ -24,6 +24,7 @@ from typing import Optional, Protocol, runtime_checkable
 import typer
 from pydantic import BaseModel, Field, model_validator
 
+from gda import dispatch
 from gda.binary import resolve_godot_binary
 from gda.dispatch import dispatch_domain, dispatch_recipe
 from gda.errors import (
@@ -32,6 +33,7 @@ from gda.errors import (
     classify_run,
     script_did_not_run_failure,
     script_exit_status_failure,
+    script_outside_project_failure,
     script_path_invalid_failure,
     script_run_project_not_found_failure,
     unresolvable_binary_failure,
@@ -45,6 +47,7 @@ from gda.headless import (
     project_option,
 )
 from gda.models import CREATED_DIRS_DESC, NormalizedPath
+from gda.project import path_outside_project
 from gda.runner import RunResult, launch
 from gda.script_errors import (
     ScriptError,
@@ -504,6 +507,10 @@ class ScriptValidateResult(BaseModel):
     ``diagnostics`` is a best-effort list parsed from the engine's stderr (the
     only place line/message are available); it may hold only the first error, and
     is empty when the script is valid or nothing could be parsed.
+
+    ``project_root`` names the project the script was compiled against, so a
+    reader can tell a real compile error from one caused by the wrong project
+    context without re-deriving gda's resolution (#658).
     """
 
     path: str
@@ -522,6 +529,18 @@ class ScriptValidateResult(BaseModel):
         description=(
             "Best-effort advisory diagnostics parsed from the engine's stderr "
             "(line + message). May hold only the first error; empty when valid."
+        ),
+    )
+    project_root: str | None = Field(
+        default=None,
+        description=(
+            "The Godot project this script was compiled against — the root its "
+            "res:// dependencies resolved to (ADR-0006: --project, then "
+            "$GDA_PROJECT, then the current directory). Null when gda ran "
+            "projectless (no project resolved), where only filesystem paths "
+            "resolve; a script whose res:// dependencies were reported missing "
+            "with a null or unexpected root here has a project-context problem, "
+            "not a source problem."
         ),
     )
 
@@ -954,10 +973,19 @@ def render_script_attach(attached: "ScriptAttachResult") -> str:
 
 
 def render_script_validate(validated: "ScriptValidateResult") -> str:
-    """Render a validate result: valid/invalid plus best-effort diagnostics."""
+    """Render a validate result: valid/invalid plus best-effort diagnostics.
+
+    An INVALID verdict leads with the project the script was compiled against
+    (#658), before the diagnostics rather than after them: when the root is the
+    wrong one, every diagnostic below it is an artefact of that single mistake,
+    and the reader needs to see the cause before the cascade. A valid verdict
+    stays the one-line answer — the root only explains a failure.
+    """
     if validated.valid:
         return f"valid {validated.path}"
     lines = [f"invalid {validated.path}"]
+    root = validated.project_root or "(none resolved: projectless)"
+    lines.append(f"  project: {root}")
     if validated.error_string is not None:
         lines.append(f"  {validated.error_string}")
     for diag in validated.diagnostics:
@@ -1037,12 +1065,69 @@ SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
     render=render_script_attach,
 )
 
+
+def _script_validate_recipe(params, *, project, godot):
+    """Refuse → compile → report the root: ``script validate``'s recipe (#658).
+
+    The sentinel op still does the compiling (``cmd.execute``, as the export
+    recipe runs its preflight); this wraps it in the two decisions only the CLI
+    can make, because ADR-0006 keeps project resolution CLI-side and the engine
+    is TOLD the project through ``--path``, never asked about it.
+
+    First the refusal. A script outside the resolved project is refused HERE,
+    before the engine is spawned, so the false ``res://`` dependency cascade is
+    never produced (see :func:`~gda.errors.script_outside_project_failure`).
+    Only a *resolved* project can be missed, so projectless is not a refusal:
+    with no project resolved, gda validates a standalone script by filesystem
+    path exactly as before (ADR-0006's projectless fallback). Whether the script
+    belongs to some OTHER project is not asked — deriving a project from the
+    target path is what ADR-0006 rejected, and discovering the nearest
+    ``project.godot`` waits on an amendment to it.
+
+    Then the report: the resolved project is stamped onto the result as
+    ``project_root``, so a caller reading a ``valid=false`` verdict sees which
+    root the ``res://`` dependencies resolved against instead of inferring it.
+
+    ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (an invalid
+    ``--project``/``$GDA_PROJECT`` became a structured ``project_not_found``
+    before this runs, #353); ``None`` means projectless. ``params`` is the model
+    built once by the caller, identical on the argv and ``--params-json`` paths
+    (ADR-0015).
+    """
+    if project is not None:
+        outside = path_outside_project(params.path, project)
+        if outside is not None:
+            return script_outside_project_failure(outside, project)
+    # The runner seam is read off the module at call time — never imported by
+    # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
+    outcome = SCRIPT_VALIDATE_COMMAND.execute(
+        params,
+        godot=godot,
+        project=project,
+        make_runner=dispatch.make_runner,
+    )
+    if isinstance(outcome, Failure):
+        return outcome
+    outcome.project_root = str(project) if project is not None else None
+    return outcome
+
+
+# ``script validate`` stays a HEADLESS sentinel op — the engine does the
+# compiling — but carries a ``recipe`` (ADR-0023) because two parts of its
+# contract are decided at the CLI, where ADR-0006's resolved project lives: the
+# outside-the-project refusal and the ``project_root`` on the result. The recipe
+# channel is the ONE descriptor-driven hook both input paths share, so argv and
+# ``--params-json`` get the same behaviour (ADR-0015) without the shared dispatch
+# tail learning anything about this command. ``classify`` is untouched: the recipe
+# runs the same ``cmd.execute``, so the stderr diagnostics are still parsed in by
+# :func:`classify_script_validate`.
 SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
     operation="script-validate",
     input_model=ScriptValidateParams,
     output_model=ScriptValidateResult,
     render=render_script_validate,
     classify=classify_script_validate,
+    recipe=_script_validate_recipe,
 )
 
 
@@ -1313,8 +1398,20 @@ def validate_script(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false."""
-    dispatch_domain(
+    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false.
+
+    The script is compiled against the resolved project (ADR-0006: --project, then
+    $GDA_PROJECT, then the current directory) — the root its res:// dependencies
+    resolve against — and the result reports that root as 'project_root'. Read it
+    before trusting a verdict: a script compiled against the wrong project reports
+    every res:// dependency as missing, plus the type errors derived from them.
+
+    A script OUTSIDE the resolved project is refused with 'project_not_found'
+    before it is parsed, naming both the file and the project, rather than
+    reporting that false cascade. gda never derives the project from the script's
+    own path (ADR-0006), so pass --project for the project that owns the file.
+    """
+    dispatch_recipe(
         SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=path),
         json_output=json_output,
