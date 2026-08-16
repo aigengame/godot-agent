@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=0a6f25dcbdb21fee38368041398cf6c9f45acdfbe2aecc1bcfff64418717f45b -->
+<!-- gda-readme-i18n: source=README.md sha256=7e7ef59df7e407b072ba03aa8dd6fb0325c4043a1e064f1ffb98cafa3230dc6a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -368,8 +368,8 @@ y consistente, de modo que el mismo verbo significa lo mismo en cada grupo:
 | `set`               | Mutar una propiedad.                                              |
 | verbos de dominio   | `play`, `run`, `export`, `import`, … conservan su significado natural. |
 
-Cada comando admite `--json` y `--schema` — excepto el propio `gda schema`, que emite
-el manifiesto agregado como JSON directamente. Los comandos que leen o mutan una ruta `res://`
+Cada comando admite `--json` y `--schema` — `gda schema` también acepta `--json`, donde no
+cambia nada porque el manifiesto agregado ya es JSON. Los comandos que leen o mutan una ruta `res://`
 resuelven un [contexto de proyecto](#configuration). Ejecuta `gda <group> <command> --help` para ver todos los
 flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
@@ -491,7 +491,7 @@ normal.
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación live (`--windowed` para la captura de `screen`). |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
-| `daemon uninstall` | Elimina el harness `gda` dentro del juego del proyecto — la entrada de autoload, los archivos del harness y su archivo `.uid` asociado, además de una sección `[autoload]` que quede sin claves, de modo que `project.godot` vuelve a sus bytes previos a la instalación (para archivos que produce el propio escritor de Godot); el resultado enumera cada ruta y sección eliminada. Es un desmontaje explícito de herramientas de desarrollo; `gda export run` ya elimina el harness automáticamente de los artefactos exportados. |
+| `daemon uninstall` | Elimina el harness `gda` dentro del juego (entrada de autoload + archivos) del proyecto — un desmontaje explícito de herramientas de desarrollo; `gda export run` ya lo elimina automáticamente de los artefactos exportados. |
 
 **`game`** — el grafo de escena en runtime del juego en ejecución
 
@@ -555,7 +555,7 @@ de entrada.
 
 | Flag       | Descripción                                                        |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. |
+| `--json`    | Emite el resultado como un único objeto JSON en stdout. Sin él, los comandos imprimen una representación concisa y legible para humanos. También se acepta en la raíz: `gda --json <group> <command>` significa lo mismo que pasarlo después del comando. |
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |

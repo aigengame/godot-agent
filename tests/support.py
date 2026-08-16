@@ -12,9 +12,24 @@ between modules or imported test-module-to-test-module (issue #39).
 """
 
 import json
+import re
 import sys
 
 from gda.runner import RunResult
+
+# Typer renders help and usage errors through Rich, which colorizes when it
+# believes it is on a terminal — under GitHub Actions it does, while a local
+# `uv run pytest` usually does not. So the same assertion can pass locally and
+# fail in CI on escape sequences alone. Every assertion on help/usage TEXT goes
+# through `plain_text` (issue #671); assertions on a command's JSON result do
+# not need it (a JSON result is echoed verbatim, never Rich-rendered).
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def plain_text(text: str) -> str:
+    """Return ``text`` with any ANSI escape sequences removed."""
+    return ANSI_ESCAPE.sub("", text)
+
 
 # The gda CLI invocation prefix for e2e subprocess tests. Resolved as the gda
 # MODULE in *this* interpreter's environment — `[sys.executable, "-m", "gda"]` —

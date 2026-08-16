@@ -26,7 +26,6 @@ Typer → resolve → preflight → export → classify → JSON pipeline runs e
 """
 
 import json
-import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -36,6 +35,7 @@ from gda.runner import RunResult
 from tests.support import (
     FakeExportRunner,
     FakeRunner,
+    plain_text,
     sentinel,
 )
 
@@ -48,12 +48,6 @@ GET_RESULT = {
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
 }
-
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-
-
-def _plain(text: str) -> str:
-    return ANSI_ESCAPE.sub("", text)
 
 
 def _inject(monkeypatch, *, get=GET_RESULT, export=None):
@@ -181,7 +175,7 @@ def test_export_run_json_keeps_native_progress_on_stderr(monkeypatch, tmp_path):
         "warnings": [],
     }
     assert result.stdout == json.dumps(expected, separators=(",", ":")) + "\n"
-    assert _plain(result.stderr) == (
+    assert plain_text(result.stderr) == (
         'gda: exporting preset "Linux/X11" (release) ...\n'
     )
     assert export_runner.calls == [
@@ -697,7 +691,7 @@ def test_export_run_help_documents_output_resolution():
     result = CliRunner().invoke(app, ["export", "run", "--help"])
 
     assert result.exit_code == 0
-    help_text = _plain(result.stdout)
+    help_text = plain_text(result.stdout)
     normalized = " ".join(help_text.split())
     assert "--output" in help_text
     assert "invoker's current working directory" in normalized

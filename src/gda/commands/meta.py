@@ -350,6 +350,7 @@ def register(root: typer.Typer) -> None:
 
     @root.command(cls=schema_command_class(SchemaAllParams, SurfaceManifest))
     def schema(
+        json_output: bool = json_option(),
         schema: bool = schema_option(),
     ) -> None:
         """Emit the whole command surface as one JSON manifest; no Godot is spawned.
@@ -360,5 +361,15 @@ def register(root: typer.Typer) -> None:
         at startup to generate its tool surface, so it stays a faithful mirror of the
         installed ``gda`` with no codegen step. As a meta command (ADR-0005) it is
         top-level and ungrouped, a sibling of ``gda info``.
+
+        `--json` is accepted and idempotent: the manifest is already the JSON
+        result, so the flag changes nothing and an agent can pass it uniformly.
         """
+        # `json_output` is DECLARED but not read — the same idiom as `schema` /
+        # `params_json` on every other command, which the command class intercepts
+        # rather than the body. Here there is nothing to switch on: this command's
+        # only output IS the JSON manifest, so `--json` cannot change it. Declaring
+        # it is the point (#671): the ONE rule an agent follows — "always pass
+        # --json" — must not exit 2 on the very surface that describes the others,
+        # and the declared option is what inherits a root `--json` (gda.headless).
         typer.echo(build_surface_manifest(root).model_dump_json())

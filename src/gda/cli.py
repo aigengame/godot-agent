@@ -8,8 +8,8 @@ slice (models, renderers, descriptors, Typer bodies) and mounts its sub-app;
 Mounting IS the registration — the live Typer tree stays the only registry
 (ADR-0012/0023), so nothing here is a parallel table to keep in sync.
 
-Also here: the root ``--version`` option and the no-op root callback that keeps
-``gda`` a command *group*. ``gda.cli:app`` is the packaged entry point.
+Also here: the root ``--version`` / ``--json`` options and the no-op root callback
+that keeps ``gda`` a command *group*. ``gda.cli:app`` is the packaged entry point.
 """
 
 from importlib.metadata import version as package_version
@@ -35,6 +35,7 @@ from gda.commands import (
     shader as shader_commands,
     theme as theme_commands,
 )
+from gda.headless import set_root_json
 
 app = typer.Typer(
     name="gda",
@@ -84,6 +85,7 @@ def _version_callback(value: Optional[bool]) -> None:
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     show_version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -91,11 +93,37 @@ def main(
         is_eager=True,
         help="Show the installed gda version and exit.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        # Eager, so the flag is bound before the OTHER eager root options run their
+        # callbacks — but only for the `--json`-FIRST spelling: click processes
+        # eager params in argv order, so `gda --version --json` still runs the
+        # version callback first, with this flag unbound. A root payload that must
+        # serve both orders (#659) therefore cannot be rendered from inside an eager
+        # `--version` callback. (A SUBCOMMAND is unaffected either way: this
+        # callback body runs before click parses one.)
+        is_eager=True,
+        help="Emit the invoked command's result as JSON — the same as passing "
+        "--json after the command; the root itself prints no JSON payload "
+        "(`--help` stays text).",
+    ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""
-    # A no-op callback keeps gda a command *group* so meta commands like
-    # `gda info` stay named subcommands (ADR-0005) rather than collapsing to
-    # the top level, as Typer does for a single-command app.
+    # This callback keeps gda a command *group* so meta commands like `gda info`
+    # stay named subcommands (ADR-0005) rather than collapsing to the top level,
+    # as Typer does for a single-command app.
+    #
+    # `--json` is accepted here so the ONE documented rule an agent follows —
+    # "always pass --json" — never dies with exit 2 on the discovery surface
+    # (`gda --json --help`, `gda --json <group> <command> …`, #671). It is NOT
+    # inert: handing it to the shared option layer here makes the invoked command's
+    # own `--json` inherit it, so the root and post-command spellings mean the same
+    # thing — accepting a flag that silently returned human text would be worse than
+    # the loud usage error it replaced. How the value travels is that layer's
+    # contract (gda.headless.set_root_json), not this module's. The root itself has
+    # no result to serialize; a root JSON payload (`--version --json`) is #659.
+    set_root_json(ctx, json_output)
 
 
 meta_commands.register(app)

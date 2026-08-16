@@ -62,6 +62,14 @@ envelope as a pass for this command.
   (no Godot spawned).
 - `gda schema` — the **whole** surface as one JSON manifest.
 
+**`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
+same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
+both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
+Two limits: help output is always TEXT (`gda --json --help` returns the same help, never JSON), and
+two spellings are still usage errors (exit `2`) — `gda <group> --json` (a group's parser takes only
+`--help`; pass the flag to the command) and a bare `gda --json` with no command
+(`Missing command.`).
+
 ## Headless commands (Godot 4.4+, all platforms)
 
 | Group | Commands |
