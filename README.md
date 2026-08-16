@@ -479,7 +479,7 @@ a missing file still use the normal Error envelope.
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon uninstall` | Remove the in-game `gda` harness (autoload entry + files) from the project — an explicit dev-tooling teardown; `gda export run` already strips it from exported artifacts automatically. |
+| `daemon uninstall` | Remove the in-game `gda` harness from the project — the autoload entry, the harness files and its `.uid` sidecar, plus an `[autoload]` section left with no keys, so `project.godot` returns to its pre-install bytes (for files Godot's own writer produces); the result enumerates every path and section removed. An explicit dev-tooling teardown; `gda export run` already strips the harness from exported artifacts automatically. |
 
 **`game`** — the running game's runtime scene graph
 

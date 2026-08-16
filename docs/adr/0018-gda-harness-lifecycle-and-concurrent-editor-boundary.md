@@ -86,6 +86,66 @@ so two instances can touch the project at once.
 > file-only `exclude_filter`) stands; the rationale is "no error spam / no orphaned config,"
 > not "avoid a crash." Point 3's text is preserved as the point-in-time record.
 
+> **Outcome (2026-08-15, #654) — point 3's removal is widened to a full reversal, and
+> both halves now issue a receipt.** Dogfooding found the teardown incomplete: uninstall
+> returned `{"removed": true}` while leaving the engine-generated `gda_harness.gd.uid`
+> sidecar (which kept `addons/gda_harness/` non-empty, so the existing empty-directory
+> removal never fired) and an emptied generated `[autoload]` section, so a tracked
+> `project.godot` stayed modified after every live-QA session. Uninstall now also removes
+> the `.uid` sidecar and, when dropping the harness entry leaves `[autoload]` with no
+> keys, the section header and the blank separator the install appended — so
+> `project.godot` returns to its pre-install bytes. Line terminators are preserved, so a
+> CRLF project file is no longer silently rewritten to LF.
+>
+> The byte-identity guarantee is **scoped**, and `src/gda/harness/install.py`'s module
+> docstring is its authority — not this note, so the two cannot drift. In summary it
+> excludes three malformed inputs Godot's own `ConfigFile` writer cannot produce (a file
+> with mixed line terminators, one with no final terminator, and a CR-only file), each
+> left documented rather than coded around.
+>
+> Both decisions are read off the file **at uninstall time**: no pre-install state is
+> recorded and no marker file is ever written into the project — the same reason point 1
+> keeps the write install-time. Two states therefore stay outside the guarantee, for two
+> DIFFERENT reasons. The `[autoload]` section the harness entry sat in is dropped even if
+> it was ALREADY empty before the install: restoring that one genuinely would need
+> recorded pre-install state, and Godot's own `ConfigFile` writer never emits an empty
+> section, so the input is degenerate. (An empty `[autoload]` section the harness never
+> joined is left alone — removal is scoped to the section the entry came out of.) An
+> `addons/` directory gda created is left in place for an unrelated reason — an empty
+> directory is invisible to git, so it causes none of GDA-DF-020's churn, and `addons/` is
+> the shared Godot-convention directory another addon may be about to populate.
+>
+> **Point 1's install is now transactional at the `daemon start` boundary.** The install
+> precedes the daemon, so a start that fails at any point from the install onward used to
+> leave the project mutated and say nothing about it. The transaction therefore opens
+> **before the install**, not after it: the snapshot is taken first and `install_harness`
+> runs inside the guarded region, because the install is itself multi-step — it
+> materializes the harness file and writes the autoload config second, so a config write
+> that fails (a read-only `project.godot` is enough) leaves the harness on disk and raises.
+> A failed start now restores the project to its exact pre-start bytes, and the structured
+> failure reports the outcome in its `diagnostics` — what was put back, or, if the
+> restoration itself fails, which paths (files and created directories) still differ. A start that wrote nothing restores
+> nothing, so a pre-existing installation is never disturbed. An exception still propagates
+> to the caller unchanged; only the residue is gone.
+>
+> The restoration is driven **solely** by an in-memory snapshot of the prior state
+> (`HarnessSnapshot`, the same mechanism ADR-0028's export strip uses), never by the
+> install receipt. A receipt is insufficient twice over: an install that re-materializes a
+> stale harness body or re-points an existing autoload entry *creates* nothing, so there
+> are no prior bytes to put back; and an install that fails part way through produces no
+> receipt at all. The snapshot therefore records absent **files** and absent
+> **directories**, which is the whole reversal — the receipt's job is to REPORT what a
+> successful install created, not to describe how to undo it. Nothing is persisted into the
+> project, so the "no recorded pre-install state" rule above is untouched — that rule is
+> about markers left behind in the user's project.
+>
+> Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
+> reports `created_paths` / `created_sections` and `daemon uninstall` reports
+> `removed_paths` / `removed_sections`, so the install is an auditable mutation rather
+> than a silent write into a tracked project. ADR-0028's transactional export strip reads
+> its snapshot file list from the installer, so widening the uninstall does not make
+> `gda export run` delete a file its restore never puts back.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

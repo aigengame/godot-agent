@@ -10,6 +10,11 @@ fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
 #225 adds the harness-lifecycle e2e: start re-syncs the harness after a version
 bump (the installed copy declares an older version), and the paired
 ``gda daemon uninstall`` (install→uninstall idempotent; refused while running).
+
+#654 adds the FULL round trip on a tracked project — start → live op → stop →
+uninstall must leave ``project.godot`` byte-identical and no ``addons/`` residue.
+Only a real engine proves it: the ``.uid`` sidecar that used to survive uninstall is
+written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
@@ -783,6 +788,125 @@ def test_daemon_install_then_uninstall_is_paired_and_idempotent(
         again = run("daemon", "uninstall")
         assert again.returncode == 0, again.stdout + again.stderr
         assert json.loads(again.stdout)["removed"] is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_round_trip_restores_the_project_it_started_from(
+    tmp_path, daemon_runtime_dir
+):
+    # #654, the acceptance criterion of GDA-DF-009 / GDA-DF-020 / GDA-DF-039: after a
+    # REAL start -> live session -> stop -> uninstall, a tracked project must show no
+    # diff at all. Only a real engine proves it: the `.uid` sidecar that used to keep
+    # `addons/gda_harness/` alive is written by Godot's import pass, not by gda, so a
+    # fast test can only plant a stand-in. Here the engine writes it for real, and the
+    # assertions below are on the project's BYTES, not on the absence of a substring.
+    #
+    # The import is an explicit step because a plain game run does NOT write the
+    # sidecar — verified on Godot 4.6: `--headless --path <p> --quit` leaves
+    # `addons/gda_harness/` with the script alone. It appears once the project is
+    # SCANNED (`--import`, or a human opening the editor on it — ADR-0018's concurrent
+    # external editor, which is precisely how the dogfooding project grew one). Without
+    # this step the sidecar assertions below would pass vacuously.
+    #
+    # The project is a real GIT WORKING TREE (PR #680 review, claim 7): the acceptance
+    # criterion is about a TRACKED project, and byte comparisons on the files this test
+    # happens to name cannot see a stray file it forgot to name. `git status
+    # --porcelain` can — it is the same check the dogfooding sessions failed. Only
+    # `.godot/` is ignored (the engine's import cache, which no one commits); the
+    # harness, its sidecar and `addons/` are deliberately NOT ignored, so any residue
+    # shows up.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".godot/\n", encoding="utf-8")
+    before = project_godot.read_bytes()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    assert git("init", "-q").returncode == 0
+    assert git("config", "user.email", "e2e@example.invalid").returncode == 0
+    assert git("config", "user.name", "gda e2e").returncode == 0
+    assert git("add", "-A").returncode == 0
+    committed = git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert committed.returncode == 0, committed.stdout + committed.stderr
+    assert git("status", "--porcelain").stdout == ""  # a clean baseline to diff against
+
+    run = _gda(tmp_path, {**os.environ})
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        started_doc = json.loads(started.stdout)
+        # The start's mutation receipt names exactly what it wrote into the project.
+        assert started_doc["created_paths"] == [
+            "res://addons",
+            f"res://{HARNESS_RES_DIR}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        ]
+        assert started_doc["created_sections"] == ["[autoload]"]
+        assert harness.exists()
+        started_installed_bytes = project_godot.read_bytes()
+
+        # Drive one live op, so the harness is exercised the way a live-QA session
+        # exercises it, then tear the daemon down.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert run("daemon", "stop").returncode == 0
+
+        # Now let the ENGINE scan the project, the way a human opening the editor on
+        # it does. This is what writes the .uid sidecar next to the installed harness.
+        imported = subprocess.run(
+            [str(GODOT), "--headless", "--path", str(tmp_path), "--import"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
+        assert sidecar.exists(), (
+            "the engine did not write the .uid sidecar, so the removal assertions "
+            f"below would be vacuous\n{imported.stdout}{imported.stderr}"
+        )
+        # The scan itself must not have rewritten project.godot, or the byte
+        # comparison at the end would be measuring the engine, not the uninstall.
+        assert project_godot.read_bytes() == started_installed_bytes, (
+            "the engine's import rewrote project.godot"
+        )
+
+        uninstalled = run("daemon", "uninstall")
+        assert uninstalled.returncode == 0, uninstalled.stdout + uninstalled.stderr
+        removed = json.loads(uninstalled.stdout)
+        assert removed["removed"] is True
+        assert removed["removed_paths"] == [
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+            f"res://{HARNESS_RES_DIR}",
+        ]
+        assert removed["removed_sections"] == ["[autoload]"]
+
+        # Nothing of the harness survives: no script, no sidecar, no addon directory.
+        assert not harness.exists()
+        assert not sidecar.exists()
+        assert not (tmp_path / HARNESS_RES_DIR).exists()
+        # And project.godot is back to the bytes the project started with.
+        assert project_godot.read_bytes() == before
+
+        # The criterion itself: git sees NOTHING. This catches residue the byte
+        # assertions above cannot, because it does not depend on naming the file.
+        # The now-empty `addons/` survives on disk and is correctly invisible here —
+        # git does not track empty directories, which is why uninstall leaves it.
+        status = git("status", "--porcelain")
+        assert status.stdout == "", (
+            "the round trip left the tracked project dirty:\n" + status.stdout
+        )
     finally:
         run("daemon", "stop")
 

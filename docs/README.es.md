@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ed98a1240587c099da7c2ab4a397b9c9e035a41a5a8bf52a76753547fb6a35f4 -->
+<!-- gda-readme-i18n: source=README.md sha256=0a6f25dcbdb21fee38368041398cf6c9f45acdfbe2aecc1bcfff64418717f45b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -491,7 +491,7 @@ normal.
 | `daemon start` | Arranca el daemon por proyecto e instala el harness dentro del juego; la sesión del motor se lanza en la primera operación live (`--windowed` para la captura de `screen`). |
 | `daemon stop` | Detiene el daemon del proyecto y cualquier sesión del motor en ejecución. |
 | `daemon status` | Informa el estado del daemon (en ejecución, modo con ventana, sesión). |
-| `daemon uninstall` | Elimina el harness `gda` dentro del juego (entrada de autoload + archivos) del proyecto — un desmontaje explícito de herramientas de desarrollo; `gda export run` ya lo elimina automáticamente de los artefactos exportados. |
+| `daemon uninstall` | Elimina el harness `gda` dentro del juego del proyecto — la entrada de autoload, los archivos del harness y su archivo `.uid` asociado, además de una sección `[autoload]` que quede sin claves, de modo que `project.godot` vuelve a sus bytes previos a la instalación (para archivos que produce el propio escritor de Godot); el resultado enumera cada ruta y sección eliminada. Es un desmontaje explícito de herramientas de desarrollo; `gda export run` ya elimina el harness automáticamente de los artefactos exportados. |
 
 **`game`** — el grafo de escena en runtime del juego en ejecución
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ed98a1240587c099da7c2ab4a397b9c9e035a41a5a8bf52a76753547fb6a35f4 -->
+<!-- gda-readme-i18n: source=README.md sha256=0a6f25dcbdb21fee38368041398cf6c9f45acdfbe2aecc1bcfff64418717f45b -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -476,7 +476,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `daemon start` | 启动按项目运行的 daemon 并安装游戏内 harness；引擎会话会在第一个 Live 操作时启动（`screen` 截图需加 `--windowed`）。 |
 | `daemon stop` | 停止项目的 daemon 以及任何正在运行的引擎会话。 |
 | `daemon status` | 报告 daemon 的状态（是否运行、窗口模式、会话）。 |
-| `daemon uninstall` | 从项目中移除游戏内 `gda` harness（autoload 条目 + 文件）——一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离它。 |
+| `daemon uninstall` | 从项目中移除游戏内 `gda` harness——autoload 条目、harness 文件及其 `.uid` 附属文件，以及不再包含任何键的 `[autoload]` 段，使 `project.godot` 恢复到安装前的字节内容（针对 Godot 自身写出的文件）；结果会逐项列出被移除的每个路径与段。这是一次显式的开发工具卸载；`gda export run` 在导出产物时已经会自动剥离 harness。 |
 
 **`game`** — 正在运行的游戏的运行时场景图
 

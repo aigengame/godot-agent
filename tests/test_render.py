@@ -329,10 +329,28 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
 
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):
-    # #225: uninstall renders the paired removal, with the idempotent no-op form.
+    # #225 + #654: uninstall renders the removal SET (the receipt a reviewer reads to
+    # see what left a tracked project), with the idempotent no-op form. Paths first,
+    # then the project.godot sections; the entry-only case names the entry, so the
+    # human line is never a bare "uninstalled" with nothing behind it.
+    assert render_daemon_uninstall(
+        DaemonUninstallResult(
+            removed=True,
+            removed_paths=[
+                "res://addons/gda_harness/gda_harness.gd",
+                "res://addons/gda_harness/gda_harness.gd.uid",
+                "res://addons/gda_harness",
+            ],
+            removed_sections=["[autoload]"],
+        )
+    ) == (
+        "harness uninstalled: res://addons/gda_harness/gda_harness.gd, "
+        "res://addons/gda_harness/gda_harness.gd.uid, res://addons/gda_harness, "
+        "[autoload] in project.godot"
+    )
     assert (
         render_daemon_uninstall(DaemonUninstallResult(removed=True))
-        == "harness uninstalled"
+        == "harness uninstalled: the GdaHarness [autoload] entry in project.godot"
     )
     assert (
         render_daemon_uninstall(DaemonUninstallResult(removed=False))
