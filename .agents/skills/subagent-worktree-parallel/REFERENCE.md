@@ -378,7 +378,11 @@ the documented environment can be reproduced safely. If it cannot, record the li
   and never hold the lock across the agent's own pause or handoff (a real run stranded a
   pre-acquired lock for half an hour when its holder was suspended, starving every
   sibling). The lead arbitrates staleness on evidence, not patience: no relevant process
-  running anywhere plus an old lock mtime ⇒ reclaim it.
+  running anywhere plus an old lock mtime ⇒ reclaim it. And a bounded retry must
+  FAIL on exhaustion — report and stop, never fall through to running anyway: a real
+  agent's retry loop proceeded lock-less after its attempts ran out and then released
+  a lock a sibling held, silently unserializing both suites. Exhaustion is a signal
+  for the lead (likely a stale lock), not permission to skip the protocol.
 - **Guard against silent skips.** A test that *skips* when a precondition is unmet (a
   missing binary, absent templates, a feature-detect that quietly returns false) leaves
   CI green while coverage silently drops. Turn on your runner's skip-reason reporting
