@@ -128,6 +128,18 @@ func _boom() -> void:
 \td.missing_method()
 """
 
+# A script that RAN and tried to load a resource that is not there. It survives the
+# failed load and quit(0)s, so the run is a success — the resource-load errors are
+# diagnostics, not a verdict (#651 review claim 4).
+RUNTIME_RESOURCE_LOAD_GD = """\
+extends SceneTree
+
+func _initialize() -> void:
+\tvar r = load("res://missing.tres")
+\tprint("loaded=", r)
+\tquit(0)
+"""
+
 # A failing suite that reports the way a real GDScript test runner does — through
 # print(), i.e. STDOUT. It is the fixture for the --strict evidence assertion:
 # an envelope carrying only stderr would hold none of these lines.
@@ -333,6 +345,111 @@ def test_script_run_runtime_error_is_a_success_carrying_diagnostics(godot_projec
     runtime = next(d for d in data["diagnostics"] if d["kind"] == "runtime_error")
     assert runtime["path"] == "res://runtime_error.gd"
     assert runtime["line"] is not None
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "res://sub/../no-such-script.gd",
+        "res://./no-such-script.gd",
+        "res://sub//..//no-such-script.gd",
+    ],
+)
+def test_script_run_missing_entry_verdict_survives_path_aliasing(
+    godot_project, spelling
+):
+    # #651 review claim 1, against the REAL engine: Godot resolves the address
+    # before naming it, so these spellings all come back as `res://no-such-script.gd`.
+    # Comparing the engine's spelling with the caller's raw one used to MISROUTE this
+    # to script_compile_failed (only main.cpp's echoed argv matched). One canonical
+    # identity restores the specific verdict for every spelling.
+    (godot_project / "sub").mkdir(exist_ok=True)
+
+    run = _run_gda(
+        "script",
+        "run",
+        spelling,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_not_found"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "res://sub/../suite.gd",
+        "res://./suite.gd",
+        "res://sub//..//suite.gd",
+    ],
+)
+def test_script_run_compile_failed_verdict_survives_path_aliasing(
+    godot_project, spelling
+):
+    # The other half of claim 1, and the one that reported outright success before:
+    # a non-compiling entry invoked by a non-canonical spelling never matched the
+    # engine's canonical report, so gda passed the engine's exit 0 straight through.
+    (godot_project / "sub").mkdir(exist_ok=True)
+    (godot_project / "suite.gd").write_text(BAD_DEPENDENCY_GD, encoding="utf-8")
+    (godot_project / "broken_dep.gd").write_text(BROKEN_DEP_GD, encoding="utf-8")
+
+    run = _run_gda(
+        "script",
+        "run",
+        spelling,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "script_compile_failed"
+
+
+@pytest.mark.e2e
+def test_script_run_runtime_resource_load_failure_is_a_success_with_diagnostics(
+    godot_project,
+):
+    # #651 review claim 4, against the REAL engine: the script RAN and its load()
+    # failed. The run is a success (it completed and chose exit 0), and the engine's
+    # resource-load errors are surfaced as classified diagnostics naming the
+    # RESOURCE — not the entry — so the verdict is untouched.
+    (godot_project / "runtime_load.gd").write_text(
+        RUNTIME_RESOURCE_LOAD_GD, encoding="utf-8"
+    )
+
+    run = _run_gda(
+        "script",
+        "run",
+        "res://runtime_load.gd",
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+        retry=True,
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["exit_status"] == 0
+    assert "loaded=" in data["stdout"]
+    resource_errors = [
+        d for d in data["diagnostics"] if d["kind"] == "resource_load_failed"
+    ]
+    assert resource_errors, data["diagnostics"]
+    assert all(d["path"] == "res://missing.tres" for d in resource_errors)
 
 
 @pytest.mark.e2e

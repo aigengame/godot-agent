@@ -1,12 +1,12 @@
 """Classify Godot's script-error stderr lines into structured diagnostics (#651).
 
 The single home of *what Godot's error stream says about a script*. It is the
-read-side companion to :func:`gda.daemon.diag.parse_errors`, which is the single
-home of *how the engine formats an error line* (the two-line ``<TYPE>: <message>``
-/ ``   at: <function> (<file>:<line>)`` shape of ``core/io/logger.cpp``). This
-module reuses that parser verbatim and adds the one thing it does not do: decide
-which of the engine's known script-failure sentences a record is, and which
-``res://`` script the sentence is about.
+read-side companion to :mod:`gda.engine_log`, which is the single home of *how
+the engine formats an error line* (the two-line ``<TYPE>: <message>`` /
+``   at: <function> (<file>:<line>)`` shape of ``core/io/logger.cpp``). This
+module reuses that parser verbatim and adds the two things it does not do: decide
+which of the engine's known script-failure sentences a record is, and resolve
+which ``res://`` resource the sentence is about.
 
 The split matters because the engine reports a failed script run **only** on
 stderr — the process still exits ``0``. A missing entry script, a parse error in
@@ -29,6 +29,15 @@ Recognition is deliberately closed — only the sentences below are classified, 
 whole error stream (the verbatim stream is preserved separately by each caller).
 An unrecognized error or warning is skipped and never raises.
 
+**Resource identity is canonical, on both sides of every comparison.** Godot
+canonicalizes a ``res://`` path before reporting it, so an entry script invoked as
+``res://dir/../bad.gd`` comes back named ``res://bad.gd``. Comparing the engine's
+spelling against the caller's raw one silently missed the match and reported a
+phantom success, so every ``path`` this module produces — and every path
+:func:`entry_load_failure` compares against — is put through
+:func:`canonical_res_path` first. Lexical only: no filesystem access, no symlink
+resolution, so it stays a pure function.
+
 The recognized sentences, verbatim from Godot 4.6.3::
 
     SCRIPT ERROR: Parse Error: <message>
@@ -37,17 +46,20 @@ The recognized sentences, verbatim from Godot 4.6.3::
     ERROR: Attempt to open script 'res://gone.gd' resulted in error 'File not found'.
     ERROR: Can't load script: res://gone.gd
     ERROR: Can't load the script "res://plain.gd" as it doesn't inherit from SceneTree or MainLoop.
+    ERROR: Cannot open file 'res://missing.tres'.
+    ERROR: Failed loading resource: res://missing.tres.
 """
 
+import posixpath
 import re
 from collections.abc import Sequence
 from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from gda.daemon.diag import parse_errors
+from gda.engine_log import parse_errors
 
-# The res:// scheme prefix. A diagnostic's ``path`` is only ever a res:// script:
+# The res:// scheme prefix. A diagnostic's ``path`` is only ever a res:// address:
 # the engine's own ``at:`` frame for an engine-side error names a C++ source file
 # (``modules/gdscript/gdscript.cpp``), which is gda-irrelevant noise.
 _RES_PREFIX = "res://"
@@ -84,34 +96,82 @@ _NOT_A_MAIN_LOOP = re.compile(
     r"SceneTree or MainLoop"
 )
 
+# The two resource-load sentences (#651 review claim 4). Godot emits BOTH for one
+# failed `load()`/`preload()` of a non-script resource, from different layers:
+# `Cannot open file` from the format loader, `Failed loading resource` from
+# ResourceLoader. A missing SCRIPT also produces the second one, beside its own
+# more specific `Attempt to open script` sentence — which outranks it, so the
+# verdict is unaffected (see ``_ENTRY_FAILURE_PRECEDENCE``).
+_CANNOT_OPEN_FILE = re.compile(r"^Cannot open file '(?P<path>[^']*)'")
+
+# `ERROR: Failed loading resource: <path>.` — note the sentence-ending period,
+# which is NOT part of the path and is stripped when the address is read out.
+_FAILED_LOADING_RESOURCE = re.compile(r"^Failed loading resource: (?P<path>\S+?)\.?$")
+
+
+def canonical_res_path(path: str) -> str:
+    """The canonical lexical form of a ``res://`` address (#651 review claim 1).
+
+    ONE resource identity, used on both sides of every comparison and for the argv
+    gda hands the engine. Godot canonicalizes internally before it reports a path,
+    so ``res://dir/../bad.gd`` comes back as ``res://bad.gd``; comparing the
+    engine's spelling against the caller's raw one missed the match and let a
+    failed run report success.
+
+    Collapses ``.``/``..`` segments and duplicate slashes on the path part only
+    (posixpath semantics), leaving the ``res://`` scheme intact. Purely lexical —
+    no filesystem access — so it is safe on a path that does not exist, which is
+    exactly the missing-entry-script case. A non-``res://`` string is returned
+    unchanged: this normalizes an address, it does not validate one.
+    """
+    if not path.startswith(_RES_PREFIX):
+        return path
+    # Strip leading slashes before normpath: POSIX gives exactly two leading
+    # slashes a special meaning ("//a" stays "//a"), which would leave a
+    # `res:////a.gd` spelling uncanonicalized.
+    remainder = path[len(_RES_PREFIX) :].lstrip("/")
+    if not remainder:
+        return _RES_PREFIX
+    # normpath("") is ".", so the empty case is handled above rather than here.
+    return _RES_PREFIX + posixpath.normpath(remainder)
+
 
 class ScriptErrorKind(str, Enum):
-    """What a recognized engine error line says about a script (#651).
+    """What a recognized engine error line says about the resource it names (#651).
 
     A closed, public enum: it is projected into ``--schema`` through the results
-    that carry :class:`ScriptError`. **Five** of the six kinds mean the named
-    script **never ran** — it was missing, unreadable, non-compiling, or unusable
-    as an entry point. Only ``RUNTIME_ERROR`` means the script was loaded and
-    running when the error was raised.
+    that carry :class:`ScriptError`. Every kind except ``RUNTIME_ERROR`` reports
+    that the named resource could **not be loaded or run**; ``RUNTIME_ERROR``
+    reports an error raised by a script that was already executing.
+
+    Whether such a failure ended the *run* depends on **which** resource it names:
+    a load failure naming the entry script means the run never happened, while the
+    same failure naming something the running script merely tried to load does
+    not. :func:`entry_load_failure` is what applies that distinction; a ``kind``
+    alone does not decide it.
     """
 
     #: A compile failure in the named script (its own syntax error, or a
-    #: dependency it preloads that does not resolve). The script never ran.
+    #: dependency it preloads that does not resolve). That script never ran.
     PARSE_ERROR = "parse_error"
     #: A GDScript error raised while the script was already executing. The ONLY
-    #: kind that says the script ran.
+    #: kind that says the named script ran.
     RUNTIME_ERROR = "runtime_error"
-    #: The named script does not exist. It never ran.
+    #: The named script does not exist.
     SCRIPT_MISSING = "script_missing"
     #: The named script exists but could not be loaded (an open failure other
-    #: than a missing file, or the engine giving up on the entry point). It
-    #: never ran.
+    #: than a missing file, or the engine giving up on the entry point).
     LOAD_FAILED = "load_failed"
-    #: The named script was read but did not compile. It never ran.
+    #: The named script was read but did not compile.
     COMPILE_FAILED = "compile_failed"
     #: The named script compiles but does not extend ``SceneTree``/``MainLoop``,
-    #: so it cannot be a one-shot ``--script`` entry point. It never ran.
+    #: so it cannot be a one-shot ``--script`` entry point.
     NOT_A_MAIN_LOOP = "not_a_main_loop"
+    #: A resource the run tried to load could not be loaded — typically a
+    #: ``load()``/``preload()`` of a missing or unreadable non-script resource
+    #: (e.g. a ``.tres``), but the engine reports a missing script this way too,
+    #: beside its more specific sentence.
+    RESOURCE_LOAD_FAILED = "resource_load_failed"
 
 
 #: The kinds that prove a script never ran, in verdict precedence — the order
@@ -127,8 +187,11 @@ class ScriptErrorKind(str, Enum):
 #:    because (2) is the engine's own conclusion, but kept in the list so a
 #:    non-compiling entry is still caught if a build ever emits the diagnostic
 #:    without the conclusion;
-#: 4. ``LOAD_FAILED`` — "can't load", the least specific reason;
-#: 5. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
+#: 4. ``LOAD_FAILED`` — "can't load", the least specific script-level reason;
+#: 5. ``RESOURCE_LOAD_FAILED`` — the generic resource-layer failure. It is emitted
+#:    beside a missing script's own sentence, so it must rank below it; on its own
+#:    naming the entry it still means the entry never loaded;
+#: 6. ``NOT_A_MAIN_LOOP`` — last because it is only reachable by a script that
 #:    already existed AND compiled; it is a refusal, not a load failure.
 #:
 #: ``RUNTIME_ERROR`` is absent by construction: it is the one kind that proves the
@@ -138,6 +201,7 @@ _ENTRY_FAILURE_PRECEDENCE = (
     ScriptErrorKind.COMPILE_FAILED,
     ScriptErrorKind.PARSE_ERROR,
     ScriptErrorKind.LOAD_FAILED,
+    ScriptErrorKind.RESOURCE_LOAD_FAILED,
     ScriptErrorKind.NOT_A_MAIN_LOOP,
 )
 
@@ -152,10 +216,12 @@ class ScriptError(BaseModel):
 
     kind: ScriptErrorKind = Field(
         description=(
-            "Which known engine script failure this line reports. Five of the six "
-            "mean the named script never ran: 'script_missing', 'compile_failed', "
-            "'parse_error', 'load_failed' and 'not_a_main_loop'. Only "
-            "'runtime_error' means the script was loaded and running when it raised."
+            "Which known engine failure this line reports. Every kind except "
+            "'runtime_error' means the named resource could not be loaded or run; "
+            "'runtime_error' means a script was already executing when it raised. "
+            "Whether the RUN failed depends on whether 'path' is the entry script: "
+            "a load failure naming something the running script merely tried to "
+            "load is not a failed run."
         )
     )
     message: str = Field(
@@ -167,7 +233,9 @@ class ScriptError(BaseModel):
     path: str | None = Field(
         default=None,
         description=(
-            "The res:// script this error is about, or null when the engine named none."
+            "The res:// resource this error is about, in canonical form ('.'/'..' "
+            "segments and duplicate slashes collapsed), or null when the engine "
+            "named none."
         ),
     )
     line: int | None = Field(
@@ -201,9 +269,17 @@ def entry_load_failure(
     """The error proving ``script`` never ran as the entry point, or ``None``.
 
     ``script`` is the ``res://`` path the caller asked the engine to run. Matching
-    on that exact path is what keeps the verdict honest: a running script that
-    *itself* loads a missing or broken resource produces the very same engine
-    sentences for a DIFFERENT path, and must not be reported as a failed run.
+    on that path is what keeps the verdict honest: a running script that *itself*
+    loads a missing or broken resource produces the very same engine sentences for
+    a DIFFERENT path, and must not be reported as a failed run.
+
+    Both sides are canonicalized (:func:`canonical_res_path`) before comparison,
+    because the engine reports the canonical spelling of whatever it was given:
+    invoking ``res://dir/../bad.gd`` yields errors naming ``res://bad.gd``, and a
+    raw-string comparison would miss the match and report a phantom success. The
+    paths on ``errors`` are already canonical (the parser canonicalizes on the way
+    in); canonicalizing again here is idempotent and keeps the guarantee local, so
+    a caller passing hand-built errors cannot defeat it.
 
     A dependency's compile failure still fails the entry: the engine reports the
     unresolvable preload as "Failed to load script" naming the **entry** script
@@ -212,11 +288,17 @@ def entry_load_failure(
     Returns the most specific matching error (see ``_ENTRY_FAILURE_PRECEDENCE``);
     ``None`` when the entry point loaded, whatever else went wrong afterwards.
     """
+    entry = canonical_res_path(script)
     for kind in _ENTRY_FAILURE_PRECEDENCE:
         for error in errors:
-            if error.kind is kind and error.path == script:
+            if error.kind is kind and _matches(error.path, entry):
                 return error
     return None
+
+
+def _matches(path: str | None, entry: str) -> bool:
+    """Does a diagnostic's path name the (already canonical) entry script?"""
+    return path is not None and canonical_res_path(path) == entry
 
 
 def _classify(record: dict) -> ScriptError | None:
@@ -245,7 +327,11 @@ def _script_error(record: dict, message: str) -> ScriptError:
         else ScriptErrorKind.RUNTIME_ERROR
     )
     file = record.get("file")
-    path = file if isinstance(file, str) and file.startswith(_RES_PREFIX) else None
+    path = (
+        canonical_res_path(file)
+        if isinstance(file, str) and file.startswith(_RES_PREFIX)
+        else None
+    )
     return ScriptError(
         kind=kind,
         message=message,
@@ -257,11 +343,12 @@ def _script_error(record: dict, message: str) -> ScriptError:
 
 
 def _engine_error(message: str) -> ScriptError | None:
-    """A plain ``ERROR:`` record, if it is one of the known script-load sentences.
+    """A plain ``ERROR:`` record, if it is one of the known load-failure sentences.
 
     The path is read out of the MESSAGE, not the record's ``at:`` frame: these are
-    raised by the engine's own C++ (``main.cpp``, ``gdscript.cpp``), so the frame
-    names an engine source file. No script line is available for any of them.
+    raised by the engine's own C++ (``main.cpp``, ``gdscript.cpp``,
+    ``resource_loader.cpp``), so the frame names an engine source file. No script
+    line is available for any of them.
     """
     open_failed = _OPEN_FAILED.match(message)
     if open_failed is not None:
@@ -270,28 +357,47 @@ def _engine_error(message: str) -> ScriptError | None:
             if open_failed.group("reason") == _FILE_NOT_FOUND
             else ScriptErrorKind.LOAD_FAILED
         )
-        return ScriptError(kind=kind, message=message, path=open_failed.group("path"))
+        return _engine_diagnostic(kind, message, open_failed.group("path"))
     load_failed = _LOAD_FAILED.match(message)
     if load_failed is not None:
-        return ScriptError(
-            kind=ScriptErrorKind.COMPILE_FAILED,
-            message=message,
-            path=load_failed.group("path"),
+        return _engine_diagnostic(
+            ScriptErrorKind.COMPILE_FAILED, message, load_failed.group("path")
         )
     # Checked before the bare `Can't load script:` form — the two sentences share a
     # prefix word, and only the anchored patterns tell them apart.
     not_a_main_loop = _NOT_A_MAIN_LOOP.match(message)
     if not_a_main_loop is not None:
-        return ScriptError(
-            kind=ScriptErrorKind.NOT_A_MAIN_LOOP,
-            message=message,
-            path=not_a_main_loop.group("path"),
+        return _engine_diagnostic(
+            ScriptErrorKind.NOT_A_MAIN_LOOP, message, not_a_main_loop.group("path")
         )
     cant_load = _CANT_LOAD.match(message)
     if cant_load is not None:
-        return ScriptError(
-            kind=ScriptErrorKind.LOAD_FAILED,
-            message=message,
-            path=cant_load.group("path"),
+        return _engine_diagnostic(
+            ScriptErrorKind.LOAD_FAILED, message, cant_load.group("path")
+        )
+    # The resource layer's two sentences (#651 review claim 4). Both name a
+    # res:// address the run tried to load; whether that address is the ENTRY is
+    # what decides the verdict, and that is entry_load_failure's job, not this
+    # classifier's — so a runtime load() of a missing .tres lands here as an
+    # ordinary diagnostic on a successful run.
+    cannot_open = _CANNOT_OPEN_FILE.match(message)
+    if cannot_open is not None:
+        return _engine_diagnostic(
+            ScriptErrorKind.RESOURCE_LOAD_FAILED, message, cannot_open.group("path")
+        )
+    failed_loading = _FAILED_LOADING_RESOURCE.match(message)
+    if failed_loading is not None:
+        return _engine_diagnostic(
+            ScriptErrorKind.RESOURCE_LOAD_FAILED, message, failed_loading.group("path")
         )
     return None
+
+
+def _engine_diagnostic(kind: ScriptErrorKind, message: str, path: str) -> ScriptError:
+    """An engine-side load diagnostic, with its address canonicalized on the way in.
+
+    The one construction point for the message-derived paths, so every address
+    this module publishes is canonical and no future sentence can be added that
+    quietly skips normalization (#651 review claim 1).
+    """
+    return ScriptError(kind=kind, message=message, path=canonical_res_path(path))

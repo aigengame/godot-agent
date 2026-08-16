@@ -97,6 +97,13 @@ the standard build), and they never determine the outcome or a stable code.
 >
 > Neither relaxes the sentinel rules; both record that those rules presuppose a
 > sentinel. See the ADR-0031 amendment.
+>
+> One consequence for the registry below: a row's `source` names the code's
+> **authoritative origin channel**, not an exclusive list of what may emit it. When
+> the classifier recognizes the same semantic failure from the engine's output
+> rather than from a sentinel, it may assign an `operation`-source code — as
+> `invalid_path` already does for a CLI-side path rejection. The GDScript mirror is
+> derived from operation-source *membership*, which such reuse does not change.
 
 ## `GdaError.code` registry
 

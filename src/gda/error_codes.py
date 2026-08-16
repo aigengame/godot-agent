@@ -355,14 +355,25 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
     # CLASSIFIER-source and NOT GDScript-mirrored — the entry script is the user's
     # own and emits no ADR-0002 sentinel.
     #
-    # Reuse-vs-mint is decided by SEMANTIC MATCH, not by a code's `source`: a code's
-    # source records where it canonically originates, and reusing one from another
-    # site is the established pattern (`script_path_invalid_failure` reuses
-    # operation-source `invalid_path` from the CLI). So this change reuses
-    # operation-source `script_compile_failed` and `incompatible_script_type` from
-    # the classifier, because `script run` hits the very conditions they name — a
-    # script that does not compile, and one whose base type is wrong for the
-    # requested use (ADR-0002 — reuse the code, discriminate via the message).
+    # What `source` means, exactly: it names the code's AUTHORITATIVE ORIGIN
+    # CHANNEL — the layer that defines the failure and is responsible for reporting
+    # it. It is not an exclusive list of everything that may emit the code. gda's
+    # classifier may ADDITIONALLY assign an operation-source code when it
+    # recognizes the SAME semantic failure from the engine's own output rather than
+    # from a sentinel; `script_path_invalid_failure` reusing operation-source
+    # `invalid_path` from the CLI predates this change and is the precedent.
+    #
+    # Nothing downstream depends on `source` being exclusive: the GDScript mirror
+    # is derived from OPERATION-source MEMBERSHIP (operations.gd must declare every
+    # operation-source code), and classifier reuse neither adds nor removes a
+    # member, so the mirror test is unaffected either way.
+    #
+    # Reuse-vs-mint is therefore decided by SEMANTIC MATCH, not by `source`. This
+    # change reuses operation-source `script_compile_failed` and
+    # `incompatible_script_type` from the classifier, because `script run` hits the
+    # very conditions they name — a script that does not compile, and one whose
+    # base type is wrong for the requested use (ADR-0002 — reuse the code,
+    # discriminate via the message).
     #
     # `script_not_found` is minted rather than reusing `path_not_found` for the
     # opposite reason: the MEANINGS differ. `path_not_found` is "a file the

@@ -313,6 +313,60 @@ def test_runtime_script_error_is_surfaced_as_a_diagnostic_not_a_failure():
     assert outcome.stderr == RUNTIME_ERROR_STDERR
 
 
+def test_a_non_canonical_entry_spelling_still_reaches_the_verdict():
+    # #651 review claim 1, at the operation level: the engine reports the CANONICAL
+    # address it resolved, so an entry invoked as `res://sub/../logic.gd` came back
+    # named `res://tests/logic.gd`... never matching, and the failed run reported
+    # success. The operation now fixes one canonical identity before it launches.
+    outcome, launch = _run(
+        RunResult(stdout="", stderr=PARSE_ERROR_STDERR, exit_code=0),
+        script="res://tests/sub/../logic.gd",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_compile_failed"
+    # The canonical identity is what the engine is asked to run, too, so both sides
+    # of every later comparison agree.
+    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    assert args[-1] == "res://tests/logic.gd"
+    # ...and what the failure message names, so the agent sees one spelling.
+    assert "res://tests/logic.gd" in outcome.error.message
+
+
+def test_a_non_canonical_missing_entry_keeps_the_specific_code():
+    # The misrouting half of claim 1: with a raw comparison the only line matching
+    # the caller's spelling was main.cpp's echo, which maps to script_compile_failed.
+    # Canonicalizing restores script_not_found.
+    outcome, _ = _run(
+        RunResult(stdout="", stderr=MISSING_STDERR, exit_code=0),
+        script="res://tests/./logic.gd",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "script_not_found"
+
+
+def test_a_runtime_resource_load_failure_stays_a_success():
+    # #651 review claim 4: a script that RAN and failed to load a resource is still
+    # a successful run — the failure names a resource, not the entry — but the
+    # engine's report is now visible as a classified diagnostic instead of prose.
+    stderr = (
+        "ERROR: Cannot open file 'res://missing.tres'.\n"
+        "   at: load (scene/resources/resource_format_text.cpp:1430)\n"
+        "ERROR: Failed loading resource: res://missing.tres.\n"
+        "   at: _load (core/io/resource_loader.cpp:343)\n"
+    )
+    outcome, _ = _run(RunResult(stdout="loaded=<null>\n", stderr=stderr, exit_code=0))
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 0
+    assert [d.kind.value for d in outcome.diagnostics] == [
+        "resource_load_failed",
+        "resource_load_failed",
+    ]
+    assert outcome.diagnostics[0].path == "res://missing.tres"
+
+
 def test_not_a_main_loop_entry_is_a_failure_despite_the_zero_exit():
     # The third never-ran shape: the script exists and compiles, but cannot BE the
     # entry point, so the engine refuses it and exits 0. It reuses the registered

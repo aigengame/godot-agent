@@ -49,6 +49,7 @@ from gda.runner import RunResult, launch
 from gda.script_errors import (
     ScriptError,
     ScriptErrorKind,
+    canonical_res_path,
     entry_load_failure,
     parse_script_errors,
 )
@@ -703,6 +704,7 @@ _ENTRY_FAILURE_CODES: dict[ScriptErrorKind, str] = {
     ScriptErrorKind.COMPILE_FAILED: "script_compile_failed",
     ScriptErrorKind.PARSE_ERROR: "script_compile_failed",
     ScriptErrorKind.LOAD_FAILED: "script_compile_failed",
+    ScriptErrorKind.RESOURCE_LOAD_FAILED: "script_compile_failed",
     ScriptErrorKind.NOT_A_MAIN_LOOP: "incompatible_script_type",
 }
 
@@ -740,6 +742,16 @@ def run_script_run_operation(
     # Then require a resolved project — a res:// path needs one to resolve.
     if project is None:
         return script_run_project_not_found_failure()
+
+    # ONE canonical resource identity for the rest of this operation (#651 review
+    # claim 1). Fixed HERE, at the operation's input boundary, so the argv handed to
+    # the engine and every later comparison and message use the same spelling. The
+    # engine canonicalizes internally before it names a path in an error, so a raw
+    # `res://dir/../bad.gd` would never match the `res://bad.gd` it reports back —
+    # and the entry-load verdict would silently fall through to a phantom success.
+    # Done after the res:// gate so the rejection message still quotes what the user
+    # actually typed.
+    script = canonical_res_path(script)
 
     try:
         binary = resolve_godot_binary(godot)
