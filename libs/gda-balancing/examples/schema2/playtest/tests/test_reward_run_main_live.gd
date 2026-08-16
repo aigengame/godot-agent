@@ -1,6 +1,6 @@
 extends SceneTree
 
-const WAIT_FRAMES := 900
+const WAIT_TIMEOUT_MSEC := 60000
 
 var _failures: Array[String] = []
 
@@ -14,13 +14,17 @@ func _run() -> void:
 	var main := main_scene.instantiate()
 	get_root().add_child(main)
 	var view: Control = main.get_node("RewardRunView")
+	var controller: Node = main.get_node("RewardRunController")
 	var action := view.find_child("PrimaryAction", true, false) as Button
 	var frequency := view.find_child("RewardFrequency", true, false) as Range
 	_expect(action != null and frequency != null, "main scene exposes player controls")
-	_expect(
-		await _wait_for_phase(view, "choose_frequency"),
-		"main bootstrap reaches the first live trial",
-	)
+	var prepared := await _wait_for_phase(view, "choose_frequency")
+	_expect(prepared, "main bootstrap reaches the first live trial")
+	if not prepared:
+		await controller.shutdown()
+		main.queue_free()
+		_finish()
+		return
 
 	frequency.value = 5
 	action.pressed.emit()
@@ -44,7 +48,6 @@ func _run() -> void:
 	if save != null:
 		save.pressed.emit()
 		await process_frame
-	var controller: Node = main.get_node("RewardRunController")
 	_expect(not controller.last_feedback_path.is_empty(), "feedback saves through main")
 	await controller.shutdown()
 	main.queue_free()
@@ -65,7 +68,8 @@ func _complete_trial(view: Control, action: Button, second_hits: int) -> void:
 
 
 func _wait_for_phase(view: Control, expected: String) -> bool:
-	for unused in WAIT_FRAMES:
+	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
+	while Time.get_ticks_msec() < deadline:
 		if view._current_phase == expected:
 			return true
 		await process_frame
