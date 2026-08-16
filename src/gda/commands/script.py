@@ -575,12 +575,15 @@ class ScriptRunParams(BaseModel):
     """The operation params of ``gda script run`` (issue #343, ADR-0031, #675).
 
     ``path`` is the user script to run as a one-shot ``godot --headless --path
-    <project> --script <res://…>``, addressed in EITHER of the two forms the rest
-    of the ``script`` group takes: project-relative (``tests/logic.gd``) or
-    ``res://`` (``res://tests/logic.gd``). Both resolve against the ``--project``
-    context (ADR-0006) and converge on one canonical ``res://`` address in the
-    operation; only an ABSOLUTE path is refused, with ``invalid_path`` (ADR-0031
-    amendment). It carries the same ``NormalizedPath`` as every other path field,
+    <project> --script <res://…>``, addressed in EITHER of the two PORTABLE forms —
+    project-relative (``tests/logic.gd``) or ``res://`` (``res://tests/logic.gd``) —
+    which the rest of the ``script`` group takes as well. Both resolve against the
+    ``--project`` context (ADR-0006) and converge on one canonical ``res://`` address
+    in the operation. An absolute path, another engine scheme (``user://``,
+    ``uid://``) and a path collapsing to the project root are refused with
+    ``invalid_path`` (ADR-0031 amendment); ``script validate`` does take an absolute
+    path, so the two are not at full parity. It carries the same ``NormalizedPath``
+    as every other path field,
     so both input paths normalize identically (ADR-0015) and a ``~`` prefix expands
     to the absolute path it means — and is refused as one — rather than being read
     as a directory named ``~`` under the project. The project is process context
@@ -590,7 +593,8 @@ class ScriptRunParams(BaseModel):
     path: NormalizedPath = Field(
         description=(
             "The script to run, project-relative (tests/logic.gd) or as a res:// "
-            "path (res://tests/logic.gd). An absolute path is refused."
+            "path (res://tests/logic.gd). An absolute path, another engine scheme "
+            "(user://, uid://), or a path naming the project root is refused."
         )
     )
     strict: bool = Field(
@@ -702,10 +706,12 @@ class ScriptRunResult(BaseModel):
 #   for the shell-chain / CI callers whose gate IS the process exit code.
 #
 # Two explicit pre-run ABI edges (ADR-0031), both decided at the CLI before any
-# launch and returned as a structured ``GdaError`` (never a crash): an ABSOLUTE
-# script path → ``invalid_path``; no resolved project → ``project_not_found``. The
-# path edge is the narrowed one (ADR-0031 amendment, #675): the project-relative
-# form the rest of the group accepts is now accepted here too, lifted onto res://.
+# launch and returned as a structured ``GdaError`` (never a crash): a path that is
+# not a project-scoped script address → ``invalid_path``; no resolved project →
+# ``project_not_found``. The path edge is the narrowed one (ADR-0031 amendment,
+# #675): the project-relative form the rest of the group accepts is now accepted
+# here too, lifted onto res:// — while an absolute path, another engine scheme and
+# a path naming the project root stay refused (:func:`_project_scoped_res_path`).
 #
 # Like ``export run`` (:mod:`gda.commands.export`), :func:`run_script_run_operation`
 # RETURNS its outcome (``ScriptRunResult | Failure``) instead of emitting or
@@ -727,6 +733,49 @@ DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS = 120.0
 # res:// path is already one, and a project-relative path is relative to exactly
 # this root. An absolute/filesystem path is not, which is why it stays refused.
 _RES_PREFIX = "res://"
+
+# The canonical addresses that name the project ROOT rather than a script inside it.
+# Both spellings occur: `res://` (an empty remainder) and `res://.` (a remainder that
+# normalizes to `.`), so the degenerate check must cover the pair.
+_ROOT_ADDRESSES = frozenset({_RES_PREFIX, _RES_PREFIX + "."})
+
+
+def _project_scoped_res_path(script: str) -> str | None:
+    """The canonical ``res://`` address of an accepted script path, or ``None`` (#675).
+
+    The single acceptance gate for ``script run``'s path argument, applied BEFORE any
+    launch so every refusal is a structured ``invalid_path`` and never an engine
+    failure. It accepts the two PORTABLE forms — a ``res://`` address and a
+    project-relative path — and folds them onto one address through the shared
+    :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
+    path cannot diverge by input spelling.
+
+    Returns ``None`` for the three shapes that are not project-scoped script
+    addresses. Each must be caught HERE, because each is otherwise launched:
+
+    - an **absolute** path — outside the ``--project`` context (the reasons it stays
+      refused are recorded on :func:`gda.errors.script_path_invalid_failure`);
+    - **another engine scheme** (``user://``, ``uid://``) — lifting one would splice a
+      second scheme into a res:// address (``user://x.gd`` → ``res://user:/x.gd``) and
+      send the engine hunting for a path the caller never typed;
+    - a path that collapses to the project **root** (``""``, ``"."``, ``"sub/.."``) —
+      it names a directory, not a script. This one is the load-bearing case: an unset
+      shell variable makes ``gda script run "$SCRIPT"`` an empty path, and the engine
+      answers ``Can't load script: res://.`` — whose address the error parser reads
+      back as ``res://`` once the sentence period is stripped. That never matches the
+      entry, so the never-ran verdict misses it and the run reports a PHANTOM SUCCESS.
+      Refusing the address before the launch closes that path without touching the
+      parser's own res:// handling.
+    """
+    if Path(script).is_absolute():
+        return None
+    if "://" in script and not script.startswith(_RES_PREFIX):
+        return None
+    lifted = script if script.startswith(_RES_PREFIX) else _RES_PREFIX + script
+    canonical = canonical_res_path(lifted)
+    if canonical in _ROOT_ADDRESSES:
+        return None
+    return canonical
 
 
 class LaunchFn(Protocol):
@@ -808,31 +857,26 @@ def run_script_run_operation(
     run_launch = make_launch or launch
     # Pre-run ABI edges (ADR-0031), decided BEFORE any launch so they never surface
     # as a crash or a raw engine failure. Path first (it is the direct argument).
-    # BOTH project-scoped forms are accepted (ADR-0031 amendment, #675) — the
-    # project-relative path the rest of the script group takes and the res:// address
-    # — so only an ABSOLUTE path is refused here: it names a location outside the
-    # --project context, and the projectless standalone run stays out of scope.
-    if Path(script).is_absolute():
+    #
+    # ONE gate does both halves of the path edge (ADR-0031 amendment, #675): it
+    # ACCEPTS the two portable forms — the project-relative path the rest of the
+    # script group also takes, and the res:// address — and REFUSES everything that
+    # is not a project-scoped script address. What it returns is the single canonical
+    # resource identity for the rest of this operation (#651 review claim 1, extended
+    # to both forms): fixed HERE, at the input boundary, so the argv handed to the
+    # engine and every later comparison and message use the same spelling. The engine
+    # canonicalizes internally before it names a path in an error, so a raw
+    # `res://dir/../bad.gd` would never match the `res://bad.gd` it reports back — and
+    # the entry-load verdict would silently fall through to a phantom success. The
+    # raw `script` is kept for the refusal message, so it still quotes what the user
+    # actually typed.
+    canonical = _project_scoped_res_path(script)
+    if canonical is None:
         return script_path_invalid_failure(script)
     # Then require a resolved project — BOTH accepted forms resolve against one.
     if project is None:
         return script_run_project_not_found_failure()
-
-    # ONE canonical resource identity for the rest of this operation (#651 review
-    # claim 1; both input forms folded onto it by #675). Fixed HERE, at the
-    # operation's input boundary, so the argv handed to the engine and every later
-    # comparison and message use the same spelling. The engine canonicalizes
-    # internally before it names a path in an error, so a raw `res://dir/../bad.gd`
-    # would never match the `res://bad.gd` it reports back — and the entry-load
-    # verdict would silently fall through to a phantom success. A project-relative
-    # path is first lifted onto the scheme it is ALREADY relative to (the res:// root
-    # of the resolved project, ADR-0006); that lift adds no normalization rule of its
-    # own — the shared canonical_res_path still does all the collapsing, for either
-    # spelling. Done after the absolute gate so the rejection message still quotes
-    # what the user actually typed.
-    if not script.startswith(_RES_PREFIX):
-        script = _RES_PREFIX + script
-    script = canonical_res_path(script)
+    script = canonical
 
     try:
         binary = resolve_godot_binary(godot)
@@ -1510,7 +1554,8 @@ def run_script(
         ...,
         help=(
             "The script to run, project-relative (tests/logic.gd) or as a res:// "
-            "path (res://tests/logic.gd). An absolute path is refused."
+            "path (res://tests/logic.gd). An absolute path, another engine scheme "
+            "(user://, uid://), or a path naming the project root is refused."
         ),
     ),
     strict: bool = typer.Option(
@@ -1533,10 +1578,13 @@ def run_script(
 ) -> None:
     """Run a user script one-shot and pass its exit_status/stdout/stderr through.
 
-    Address the script the same way as for every other ``script`` command:
-    project-relative (``tests/logic.gd``) or as a ``res://`` path. Both resolve
-    against the ``--project`` context and are reported back as one canonical
-    ``res://`` ``path`` on the result; only an absolute path is refused.
+    Address the script in either portable form — project-relative
+    (``tests/logic.gd``) or as a ``res://`` path — the same two the rest of the
+    ``script`` group takes. Both resolve against the ``--project`` context and are
+    reported back as one canonical ``res://`` ``path`` on the result. An absolute
+    path, another engine scheme (``user://``, ``uid://``) and a path naming the
+    project root are refused before any launch; note ``script validate`` does accept
+    an absolute path, so the two commands are not at full parity.
 
     Runs the user's own script as ``godot --headless --path <project>
     --script <res://…>`` and returns its result verbatim (ADR-0031). This is the
@@ -1561,8 +1609,8 @@ def run_script(
 
     Only a gda-/engine-level failure (binary not launchable, timeout, or a signal
     crash) is a ``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``
-    envelope. An absolute path or no resolved project is a structured
-    ``invalid_path`` / ``project_not_found``.
+    envelope. A path that is not a project-scoped script address, or no resolved
+    project, is a structured ``invalid_path`` / ``project_not_found``.
     """
     dispatch_recipe(
         SCRIPT_RUN_COMMAND,

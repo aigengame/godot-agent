@@ -195,21 +195,37 @@ def test_both_path_forms_reach_one_canonical_address(script):
     assert outcome.path == "res://tests/logic.gd"
 
 
-def test_absolute_path_is_invalid_path():
-    # The ONE remaining path refusal (#675 narrowed the edge): an absolute path
-    # names a location outside the --project context, and the projectless standalone
-    # run stays out of scope. Structured invalid_path decided BEFORE any launch (an
-    # explicit ABI edge, ADR-0031) — never a crash.
-    outcome, launch = _run(
-        RunResult(stdout="", stderr="", exit_code=0), script="/abs/logic.gd"
-    )
+@pytest.mark.parametrize(
+    "script",
+    [
+        # Absolute: outside the --project context (#675 keeps this refusal).
+        "/abs/logic.gd",
+        # Another engine scheme: lifting one would splice a second scheme into a
+        # res:// address (`res://user:/x.gd`) and hunt a path nobody typed.
+        "user://x.gd",
+        "uid://cabc123",
+        # Collapses to the project ROOT — a directory, not a script. The empty string
+        # is the real-world shape: an unset `gda script run "$SCRIPT"`.
+        "",
+        ".",
+        "./",
+        "sub/..",
+    ],
+)
+def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
+    # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
+    # form must not accept everything ELSE that is merely non-absolute. The root case
+    # is load-bearing — the engine answers `Can't load script: res://.`, whose address
+    # the parser reads back as `res://` once the sentence period is stripped, so it
+    # never matches the entry and the run reported a PHANTOM SUCCESS (exit 0).
+    outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "invalid_path"
     assert not launch.calls, "no engine launch on an invalid path"
-    # The message quotes what the user typed and names BOTH accepted forms, so the
-    # rejection tells the caller how to address the script instead.
-    assert "/abs/logic.gd" in outcome.error.message
+    # The message quotes what the user typed and names the ACCEPTED forms, so one
+    # wording serves every refused shape and tells the caller what to pass instead.
+    assert repr(script) in outcome.error.message
     assert "project-relative" in outcome.error.message
     assert "res://" in outcome.error.message
 

@@ -209,15 +209,22 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
     assert args[-1] == "res://logic.gd"
 
 
-def test_absolute_path_emits_invalid_path_envelope(monkeypatch, tmp_path):
-    # The one path form still refused (#675 narrowed the edge): an absolute path is
-    # outside the --project context, so it is a structured envelope before any launch.
+@pytest.mark.parametrize(
+    "script", ["/abs/logic.gd", "user://x.gd", "uid://cabc123", "", ".", "sub/.."]
+)
+def test_a_non_project_scoped_path_emits_invalid_path_envelope(
+    monkeypatch, tmp_path, script
+):
+    # The refusals that survive #675's widening, at the CLI boundary: absolute,
+    # another engine scheme, and a path naming the project root. `""` is the shape a
+    # caller actually hits — an unset variable in `gda script run "$SCRIPT"` — which
+    # reached the engine and came back a phantom exit-0 success before this guard.
     project = _project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
         app,
-        ["script", "run", "/abs/logic.gd", "--project", str(project), "--json"],
+        ["script", "run", script, "--project", str(project), "--json"],
     )
 
     assert result.exit_code != 0

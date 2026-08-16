@@ -257,9 +257,10 @@ def test_script_run_accepts_both_path_forms(godot_project, form):
 
 @pytest.mark.e2e
 def test_script_run_absolute_path_is_invalid_path(godot_project):
-    # The one path form still refused (#675): an absolute path is a structured
-    # invalid_path decided BEFORE any launch — an explicit ABI edge (ADR-0031),
-    # never a crash or raw engine failure.
+    # Absolute stays refused (#675) even for a script that EXISTS in the project: the
+    # engine would report its errors under the res:// spelling, which would break the
+    # canonical-identity match the never-ran verdict depends on. A structured
+    # invalid_path decided BEFORE any launch — an explicit ABI edge (ADR-0031).
     (godot_project / "hello.gd").write_text(HELLO_GD, encoding="utf-8")
 
     run = _run_gda(
@@ -275,6 +276,37 @@ def test_script_run_absolute_path_is_invalid_path(godot_project):
 
     assert run.returncode == 4, run.stdout + run.stderr
     err = json.loads(run.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert err["category"] == "operation"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("script", ["", ".", "sub/..", "user://x.gd", "uid://cabc123"])
+def test_script_run_non_project_scoped_paths_are_refused_before_launch(
+    godot_project, script
+):
+    # Accepting the project-relative form must not accept everything merely
+    # non-absolute. Against the REAL engine, because the root case is exactly where
+    # the engine's own report defeats the verdict: `gda script run ""` normalized to
+    # `res://.`, launched, and the engine's `Can't load script: res://.` parsed back
+    # as `res://` — no match, so a run that never happened reported exit 0 SUCCESS.
+    # The other-scheme cases spawned the engine against `res://user:/x.gd`, an
+    # address the caller never typed. Both are now structured refusals, no launch.
+    run = _run_gda(
+        "script",
+        "run",
+        script,
+        "--project",
+        str(godot_project),
+        "--godot",
+        str(GODOT),
+        "--json",
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert "exit_status" not in data, "a refused path must never report a run"
+    err = data["error"]
     assert err["code"] == "invalid_path"
     assert err["category"] == "operation"
 

@@ -97,11 +97,23 @@ status: accepted
 > otherwise the accepted form and the form every failure message quotes would differ with nothing to
 > connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
 >
-> **An absolute path is still refused** with `invalid_path`. The ABI edge below names "a non-`res://`
-> **or absolute** script path"; only its first half is lifted here. Running a standalone script by
-> absolute path remains out of scope for the reason the decision records — it is the projectless case
-> — and the dogfooding evidence asked only for the project-relative form. The refusal message now
-> names both accepted forms instead of `res://` alone.
+> **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path,
+> **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
+> res:// address and send the engine after a path nobody typed), and a path that collapses to the
+> project **root** (`""`, `"."`, `"sub/.."` — it names a directory, not a script). The ABI edge below
+> names "a non-`res://` **or absolute** script path"; only its first half is lifted here.
+>
+> Absolute stays refused for two **verified** reasons, not merely as deferred scope. First, the engine
+> reports a failed run under the **`res://` spelling even when launched with an absolute in-project
+> path**, so accepting absolute without also mapping it back to `res://` would break the
+> canonical-identity match the verdict above depends on and reopen the phantom success it closed.
+> Second, `--script <absolute path OUTSIDE the project>` really **does execute** (verified against
+> Godot 4.6.3), so accepting absolute would widen the
+> [Project-code execution surface](../../CONTEXT.md) past ADR-0009's Trusted project — a trust
+> decision that belongs in its own ADR, not in a path-form amendment. `script validate` does accept an
+> absolute path today, so the two commands are **not** at full parity; the shared representation this
+> amendment establishes is the two **portable** forms, which is what an agent needs to address a
+> script once and use it for either.
 >
 > The `script validate` result still echoes the path spelling it was given, as every sentinel
 > operation does. Making one operation report a canonical form would trade this inconsistency for a
