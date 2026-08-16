@@ -212,8 +212,6 @@ def test_unwritable_log_target_is_a_typed_environment_error(
 
     run = _run_gda(
         "info",
-        "--project",
-        str(logging_project),
         "--json",
         env=_env(home, GDA_USER_DATA_ROOT=str(data_path / "denied")),
     )
@@ -264,7 +262,15 @@ def test_concurrent_invocations_do_not_share_a_log_target(logging_project):
     # the shape that used to race in rotate_file().
     procs = [
         subprocess.Popen(
-            [*GDA_CMD, "info", "--project", str(logging_project), "--json"],
+            [
+                *GDA_CMD,
+                "script",
+                "validate",
+                str(logging_project / "hello.gd"),
+                "--project",
+                str(logging_project),
+                "--json",
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
