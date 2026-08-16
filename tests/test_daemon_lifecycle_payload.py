@@ -1026,6 +1026,74 @@ def test_failed_start_names_directory_residue_when_only_the_rmdir_fails(
     assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" not in failure.error.diagnostics
 
 
+def test_original_failure_carries_the_rollback_failure_as_a_note(
+    tmp_path, short_runtime, monkeypatch
+):
+    # PR #688 review: when the start fails AND the snapshot restore also fails, the
+    # original error must stay the primary failure without swallowing the rollback
+    # outcome — it carries an exception note naming the restore failure and the
+    # measured residual paths, per ADR-0018's report-what-still-differs requirement.
+    project = _project(tmp_path)
+
+    def spawn_boom(*args, **kwargs):
+        raise OSError("injected: original spawn failure")
+
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
+
+    def restore_boom(self):
+        raise OSError("injected: restore cannot write")
+
+    monkeypatch.setattr(HarnessSnapshot, "restore", restore_boom)
+
+    with pytest.raises(OSError, match="injected: original spawn failure") as excinfo:
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    notes = "\n".join(getattr(excinfo.value, "__notes__", []))
+    assert "could NOT be rolled back" in notes
+    assert "injected: restore cannot write" in notes
+    # The residual delta is measured off the snapshot, files then directories.
+    assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" in notes
+    assert "project.godot" in notes
+
+
+def test_original_failure_survives_when_restore_and_measurement_both_fail(
+    tmp_path, short_runtime, monkeypatch
+):
+    # PR #688 recheck: the same filesystem condition can break the restore AND the
+    # residual measurement (an unreadable project.godot does both). The original
+    # operation error must stay the primary exception — never displaced by a thrown
+    # measurement — and the note must still report the rollback failure with the
+    # unmeasurable path named as residue.
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+
+    def spawn_boom(*args, **kwargs):
+        # The reviewer's real-I/O shape: the project file becomes unreadable
+        # immediately before the operation fails, after the install mutated it.
+        project_godot.chmod(0o000)
+        raise OSError("injected: original spawn failure")
+
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", spawn_boom)
+
+    try:
+        with pytest.raises(
+            OSError, match="injected: original spawn failure"
+        ) as excinfo:
+            daemon_ops.run_daemon_start_operation(
+                project, "godot", version_check=_OK_VERSION
+            )
+    finally:
+        project_godot.chmod(0o644)
+
+    notes = "\n".join(getattr(excinfo.value, "__notes__", []))
+    assert "could NOT be rolled back" in notes
+    assert "project.godot (state unmeasurable: " in notes
+    # The paths the measurement COULD read are still individually reported.
+    assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" in notes
+
+
 # --- the mutation receipt on both halves (#654) -------------------------------
 
 

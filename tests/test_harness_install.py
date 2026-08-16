@@ -740,6 +740,30 @@ def test_snapshot_pending_names_what_a_failed_restore_leaves_behind(tmp_path):
     )
 
 
+def test_snapshot_pending_marks_an_unreadable_path_instead_of_raising(tmp_path):
+    # PR #688 recheck: pending() runs on error-reporting paths, where a thrown
+    # measurement would displace the original failure. A path that cannot be read
+    # cannot be confirmed restored — it is reported as unmeasurable residue while
+    # every other path stays individually measured.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+    snapshot = HarnessSnapshot.capture(tmp_path)
+    install_harness(tmp_path)
+
+    project_godot = tmp_path / "project.godot"
+    project_godot.chmod(0o000)
+    try:
+        residue = snapshot.pending()
+    finally:
+        project_godot.chmod(0o644)
+
+    assert residue[0].startswith("project.godot (state unmeasurable: ")
+    assert residue[1:] == (
+        HARNESS_RES_PATH,
+        "res://addons",
+        f"res://{HARNESS_RES_DIR}",
+    )
+
+
 def test_ready_gates_on_template_feature_as_its_first_statement():
     # ADR-0028 defence in depth: an EXPORTED build must self-disable the harness,
     # "regardless of launch args". That holds iff `if OS.has_feature("template"):

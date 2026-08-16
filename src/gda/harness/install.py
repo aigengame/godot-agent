@@ -351,17 +351,30 @@ class HarnessSnapshot:
         put right by hand — files whose bytes differ, then directories that were
         absent at capture but still exist (a restore can fail after the files are
         already back, leaving only directory residue; PR #680 recheck 3).
+
+        NEVER raises for a per-path I/O failure: this runs on error-reporting
+        paths, where a thrown measurement would displace the original failure
+        (PR #688 recheck). A path that cannot be read cannot be confirmed
+        restored, so it IS residue — reported with the reason it could not be
+        measured; the other paths stay individually measured.
         """
-        residue = [
-            _res_path(self.project, path)
-            for path, before in self.files
-            if (path.read_bytes() if path.exists() else None) != before
-        ]
-        residue.extend(
-            _res_path(self.project, directory)
-            for directory in self.absent_directories
-            if directory.is_dir()
-        )
+        residue: list[str] = []
+        for path, before in self.files:
+            label = _res_path(self.project, path)
+            try:
+                current = path.read_bytes() if path.exists() else None
+            except OSError as exc:
+                residue.append(f"{label} (state unmeasurable: {exc})")
+                continue
+            if current != before:
+                residue.append(label)
+        for directory in self.absent_directories:
+            label = _res_path(self.project, directory)
+            try:
+                if directory.is_dir():
+                    residue.append(label)
+            except OSError as exc:
+                residue.append(f"{label} (state unmeasurable: {exc})")
         return tuple(residue)
 
 

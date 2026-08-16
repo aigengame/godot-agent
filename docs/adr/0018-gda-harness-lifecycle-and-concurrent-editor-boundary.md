@@ -124,7 +124,7 @@ so two instances can touch the project at once.
 > that fails (a read-only `project.godot` is enough) leaves the harness on disk and raises.
 > A failed start now restores the project to its exact pre-start bytes, and the structured
 > failure reports the outcome in its `diagnostics` — what was put back, or, if the
-> restoration itself fails, which paths (files and created directories) still differ. A start that wrote nothing restores
+> restoration itself fails, which paths (files and created directories) still differ — a path whose state cannot even be read is reported as unmeasurable residue rather than letting the measurement failure displace the original error. A start that wrote nothing restores
 > nothing, so a pre-existing installation is never disturbed. An exception still propagates
 > to the caller unchanged; only the residue is gone.
 >
