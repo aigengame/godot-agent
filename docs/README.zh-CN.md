@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bb3fb3e81210910899b8cfd05144fa9f969d9d214a0436f5e002a1f496c37f0e -->
+<!-- gda-readme-i18n: source=README.md sha256=ce2d4b2b58ded651a3307b9bac75fcedc2780d9a0a7702fb6ad67c8dbe785f00 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -418,12 +418,6 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 退出码为 `0`，没有顶层 `error`，并以 `valid: false` 携带 `error_string` / `diagnostics`。
 缺失文件等操作层问题仍然采用标准的 Error envelope。
 
-结果还会报告 `project_root`：脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
-（未解析到项目时为 `null`）。在处理 `valid: false` 之前请先读它——若诊断里满是缺失的 `res://`
-依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。位于所解析项目**之外**
-的脚本会被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串假错误；
-此时请用 `--project` 指定真正拥有该文件的项目。
-
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 
 | 命令 | 作用 |
@@ -546,6 +540,7 @@ Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策
 | `--schema`  | 输出该命令的输入/输出 JSON Schema 契约（不会启动 Godot）。 |
 | `--godot`   | Godot 二进制文件的路径（覆盖 `$GDA_GODOT` 和默认值）。 |
 | `--project` | 用于 `res://` 解析的 Godot 项目目录（覆盖 `$GDA_PROJECT`；若当前目录本身是个项目则默认用它）。仅限领域命令。解析一个项目会运行该项目的代码——参见[项目代码执行](#configuration)。 |
+| `--version` | 打印已安装的 `gda` 版本。加上 `--json` 时，改为输出结构化的安装溯源信息——版本、可执行文件与解释器路径、安装类型（`wheel` 还是 `editable`），以及 editable 安装所对应的源码检出目录、Git 版本号和是否有未提交改动（不会启动 Godot）。适合在长时间运行前作为预检：editable 安装的代码可能在运行过程中变更版本。 |
 | `--help`    | 显示 `gda` 或任意命令的用法。                                |
 
 ---

@@ -27,6 +27,14 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   that project's autoloads at engine startup.
 - **Projectless** — meta commands and file-path-only operations run with no
   project; they resolve filesystem paths but not `res://`.
+- **Provenance** — `gda --version --json` reports which `gda` is running: its
+  version, the executable and interpreter paths, `install_kind` (`wheel` or
+  `editable`), and, for an editable install, the `source` checkout with its Git
+  `revision` and `dirty` flag. No Godot is spawned, so it also works where an
+  engine spawn fails. Run it first in a long session and keep the output: an
+  editable install can change revision under you mid-run, so this is what ties
+  your results to the code that produced them. Bare `gda --version` stays one
+  human-readable line.
 
 ## Structured output & errors
 
