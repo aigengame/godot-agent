@@ -129,6 +129,20 @@ func _ready() -> void:
 	# protocol is now active. Set before the connect attempt — the log file is
 	# daemon-owned regardless of whether the live-op IPC connection then succeeds.
 	_daemon_launched = true
+	# Keep serving live operations while the game's SceneTree is paused (#656).
+	# A real pause menu sets SceneTree.paused = true; the harness's default
+	# process mode (PROCESS_MODE_INHERIT, effectively pausable at the top of the
+	# tree) would then stop THIS node's own _process from ticking too — freezing
+	# the one loop that serves the socket at exactly the state an agent needs to
+	# inspect, and with no way back in: resuming the game needs an input op, and
+	# input injection is itself served from this same loop. PROCESS_MODE_ALWAYS
+	# keeps the harness ticking through a pause, independent of the game's own
+	# process-mode tree — mirroring how a real pause-menu script must set its own
+	# process mode to keep handling "resume" input while paused. Scoped inside
+	# this daemon-launched gate (the same condition gda_log() checks), so a human
+	# editor run, a plain run, and a shipped build never have their process mode
+	# touched — the ADR-0018 inertness guarantee is unaffected.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	var socket_path: String = user_args[idx + 1]
 	var token: String = user_args[idx + 2]
 	# The requested scene selector (#278) follows the token; "" (or absent) = none.

@@ -10,6 +10,11 @@ fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
 #225 adds the harness-lifecycle e2e: start re-syncs the harness after a version
 bump (the installed copy declares an older version), and the paired
 ``gda daemon uninstall`` (install→uninstall idempotent; refused while running).
+
+#654 adds the FULL round trip on a tracked project — start → live op → stop →
+uninstall must leave ``project.godot`` byte-identical and no ``addons/`` residue.
+Only a real engine proves it: the ``.uid`` sidecar that used to survive uninstall is
+written by Godot's import pass, so a fast test can only plant a stand-in.
 """
 
 import json
@@ -689,8 +694,14 @@ def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_rea
         run("daemon", "stop")
 
 
-def _gda(tmp_path, env):
-    """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper."""
+def _gda(tmp_path, env, timeout=90):
+    """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper.
+
+    ``timeout`` defaults to 90s (the value every existing call site relied on
+    implicitly); a windowed session is heavier to launch, so callers that start
+    one pass a larger value (e.g. ``timeout=120``, matching the windowed e2e
+    tests elsewhere) instead of hand-rolling a near-duplicate of this helper.
+    """
 
     def run(*args):
         return subprocess.run(
@@ -706,7 +717,7 @@ def _gda(tmp_path, env):
             capture_output=True,
             text=True,
             env=env,
-            timeout=90,
+            timeout=timeout,
         )
 
     return run
@@ -783,6 +794,125 @@ def test_daemon_install_then_uninstall_is_paired_and_idempotent(
         again = run("daemon", "uninstall")
         assert again.returncode == 0, again.stdout + again.stderr
         assert json.loads(again.stdout)["removed"] is False
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_round_trip_restores_the_project_it_started_from(
+    tmp_path, daemon_runtime_dir
+):
+    # #654, the acceptance criterion of GDA-DF-009 / GDA-DF-020 / GDA-DF-039: after a
+    # REAL start -> live session -> stop -> uninstall, a tracked project must show no
+    # diff at all. Only a real engine proves it: the `.uid` sidecar that used to keep
+    # `addons/gda_harness/` alive is written by Godot's import pass, not by gda, so a
+    # fast test can only plant a stand-in. Here the engine writes it for real, and the
+    # assertions below are on the project's BYTES, not on the absence of a substring.
+    #
+    # The import is an explicit step because a plain game run does NOT write the
+    # sidecar — verified on Godot 4.6: `--headless --path <p> --quit` leaves
+    # `addons/gda_harness/` with the script alone. It appears once the project is
+    # SCANNED (`--import`, or a human opening the editor on it — ADR-0018's concurrent
+    # external editor, which is precisely how the dogfooding project grew one). Without
+    # this step the sidecar assertions below would pass vacuously.
+    #
+    # The project is a real GIT WORKING TREE (PR #680 review, claim 7): the acceptance
+    # criterion is about a TRACKED project, and byte comparisons on the files this test
+    # happens to name cannot see a stray file it forgot to name. `git status
+    # --porcelain` can — it is the same check the dogfooding sessions failed. Only
+    # `.godot/` is ignored (the engine's import cache, which no one commits); the
+    # harness, its sidecar and `addons/` are deliberately NOT ignored, so any residue
+    # shows up.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".godot/\n", encoding="utf-8")
+    before = project_godot.read_bytes()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    assert git("init", "-q").returncode == 0
+    assert git("config", "user.email", "e2e@example.invalid").returncode == 0
+    assert git("config", "user.name", "gda e2e").returncode == 0
+    assert git("add", "-A").returncode == 0
+    committed = git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert committed.returncode == 0, committed.stdout + committed.stderr
+    assert git("status", "--porcelain").stdout == ""  # a clean baseline to diff against
+
+    run = _gda(tmp_path, {**os.environ})
+    harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        started_doc = json.loads(started.stdout)
+        # The start's mutation receipt names exactly what it wrote into the project.
+        assert started_doc["created_paths"] == [
+            "res://addons",
+            f"res://{HARNESS_RES_DIR}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+        ]
+        assert started_doc["created_sections"] == ["[autoload]"]
+        assert harness.exists()
+        started_installed_bytes = project_godot.read_bytes()
+
+        # Drive one live op, so the harness is exercised the way a live-QA session
+        # exercises it, then tear the daemon down.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        assert run("daemon", "stop").returncode == 0
+
+        # Now let the ENGINE scan the project, the way a human opening the editor on
+        # it does. This is what writes the .uid sidecar next to the installed harness.
+        imported = subprocess.run(
+            [str(GODOT), "--headless", "--path", str(tmp_path), "--import"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        sidecar = harness.with_name(f"{HARNESS_FILE}.uid")
+        assert sidecar.exists(), (
+            "the engine did not write the .uid sidecar, so the removal assertions "
+            f"below would be vacuous\n{imported.stdout}{imported.stderr}"
+        )
+        # The scan itself must not have rewritten project.godot, or the byte
+        # comparison at the end would be measuring the engine, not the uninstall.
+        assert project_godot.read_bytes() == started_installed_bytes, (
+            "the engine's import rewrote project.godot"
+        )
+
+        uninstalled = run("daemon", "uninstall")
+        assert uninstalled.returncode == 0, uninstalled.stdout + uninstalled.stderr
+        removed = json.loads(uninstalled.stdout)
+        assert removed["removed"] is True
+        assert removed["removed_paths"] == [
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}",
+            f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}.uid",
+            f"res://{HARNESS_RES_DIR}",
+        ]
+        assert removed["removed_sections"] == ["[autoload]"]
+
+        # Nothing of the harness survives: no script, no sidecar, no addon directory.
+        assert not harness.exists()
+        assert not sidecar.exists()
+        assert not (tmp_path / HARNESS_RES_DIR).exists()
+        # And project.godot is back to the bytes the project started with.
+        assert project_godot.read_bytes() == before
+
+        # The criterion itself: git sees NOTHING. This catches residue the byte
+        # assertions above cannot, because it does not depend on naming the file.
+        # The now-empty `addons/` survives on disk and is correctly invisible here —
+        # git does not track empty directories, which is why uninstall leaves it.
+        status = git("status", "--porcelain")
+        assert status.stdout == "", (
+            "the round trip left the tracked project dirty:\n" + status.stdout
+        )
     finally:
         run("daemon", "stop")
 
@@ -990,5 +1120,214 @@ def test_scene_verified_once_at_launch_survives_deleting_the_file(
         again = run("game", "tree")
         assert again.returncode == 0, again.stdout + again.stderr
         assert json.loads(again.stdout)["root"]["name"] == "B"
+    finally:
+        run("daemon", "stop")
+
+
+# #656 (GDA-DF-013): a real pause menu sets SceneTree.paused; a "Resumer" node
+# forwards SceneTree.paused through a script-variable property so a live `game
+# set`/`game get` can drive and observe it (no Node exposes `paused` directly), and
+# reacts to an injected resume key ONLY because it opts into PROCESS_MODE_ALWAYS —
+# the same pattern a real pause-menu script needs to keep handling input while
+# paused. A sibling "Ticker" node keeps the DEFAULT process mode, so its tick count
+# is the control that proves the pause (and later the resume) is real, not just a
+# flag read back.
+PAUSE_PLAYER_GD = (
+    "extends Node2D\n"
+    "@export var is_resumer: bool = false\n"
+    "@export var ticks: int = 0\n"
+    "func _ready() -> void:\n"
+    "\tif is_resumer:\n"
+    "\t\tprocess_mode = Node.PROCESS_MODE_ALWAYS\n"
+    "func _process(_delta: float) -> void:\n"
+    "\tticks += 1\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif not is_resumer:\n"
+    "\t\treturn\n"
+    "\tif event is InputEventKey and event.pressed and event.keycode == KEY_R:\n"
+    "\t\tget_tree().paused = false\n"
+    "var tree_paused: bool:\n"
+    "\tget:\n"
+    "\t\treturn get_tree().paused\n"
+    "\tset(value):\n"
+    "\t\tget_tree().paused = value\n"
+)
+PAUSE_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Resumer" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+    "is_resumer = true\n\n"
+    '[node name="Ticker" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n\n'
+    '[node name="Rect" type="ColorRect" parent="."]\n'
+    "offset_right = 64.0\n"
+    "offset_bottom = 64.0\n"
+    "color = Color(0.8, 0.2, 0.2, 1)\n"
+)
+
+
+@pytest.mark.e2e
+def test_daemon_serves_live_ops_while_scenetree_paused(tmp_path, daemon_runtime_dir):
+    # The #656 DoD's headless core: opening a real pause menu sets SceneTree.paused,
+    # and the harness must keep serving `game get` / `input sequence` through it —
+    # and an injected "resume" input must be able to unpause the session, proving
+    # this is not the dead-end the dogfooding note (GDA-DF-013) reported (input
+    # injection is itself a harness op, so if the harness stopped ticking on pause
+    # there would be no way back in). A default (headless) session, so this runs
+    # everywhere a daemon e2e runs — including CI's display-less godot-e2e job; the
+    # `screen capture` leg needs a real DisplayServer and lives in the windowed-gated
+    # test below instead.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+        assert tree_is_paused() is False
+
+        # Pause the game the way a real pause menu does: a live `game set` flips
+        # SceneTree.paused through the Resumer's forwarding property.
+        paused_set = run(
+            "game",
+            "set",
+            "/root/Main/Resumer",
+            "--property",
+            "tree_paused",
+            "--value",
+            "true",
+        )
+        assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
+        assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
+
+        # Control: the DEFAULT-process-mode Ticker genuinely stops advancing while
+        # paused — proving the pause took effect, not just that the flag reads back.
+        stalled_before = ticker_ticks()
+        stalled_after = ticker_ticks()
+        assert stalled_after == stalled_before
+
+        # The harness-served ops the #656 acceptance criteria name must still serve
+        # while paused: a live read and an input injection.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_screen_capture_while_scenetree_paused(
+    tmp_path, daemon_runtime_dir
+):
+    # The #656 DoD's windowed leg, split from the headless core above because
+    # `screen capture` needs a real DisplayServer (`daemon start --windowed`) —
+    # gated like the other windowed e2e tests, so it runs on a developer's local
+    # GUI macOS session (or under xvfb on Linux) but skips on CI's display-less
+    # godot-e2e job, unlike the headless core test.
+    #
+    # This restores the issue's INTEGRATED paused-session sequence on the one path
+    # that can exercise every op it names in a single session: capture alone could
+    # pass even with a capture-specific regression elsewhere in the harness, so
+    # after the paused capture this continues in the SAME session with a live read,
+    # a resume `input sequence` injection, and a responsiveness proof — the same
+    # read/resume/responsiveness shape the headless test proves without a display,
+    # here proven end-to-end alongside the capture that needs one.
+    from gda.display import windowed_unavailable_reason
+
+    reason = windowed_unavailable_reason()
+    if reason is not None:
+        pytest.skip(reason)
+
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PAUSE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ}, timeout=120)
+
+    def ticker_ticks() -> int:
+        got = run("game", "get", "/root/Main/Ticker", "--property", "ticks")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def tree_is_paused() -> bool:
+        got = run("game", "get", "/root/Main/Resumer", "--property", "tree_paused")
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    try:
+        started = run("daemon", "start", "--windowed")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        # Pause the game the way a real pause menu does: a live `game set` flips
+        # SceneTree.paused through the Resumer's forwarding property.
+        paused_set = run(
+            "game",
+            "set",
+            "/root/Main/Resumer",
+            "--property",
+            "tree_paused",
+            "--value",
+            "true",
+        )
+        assert paused_set.returncode == 0, paused_set.stdout + paused_set.stderr
+        assert json.loads(paused_set.stdout)["verified"] is True
+        assert tree_is_paused() is True
+
+        capture_path = tmp_path / "paused.png"
+        captured = run("screen", "capture", "--output", str(capture_path))
+        assert captured.returncode == 0, captured.stdout + captured.stderr
+        assert capture_path.exists()
+        assert capture_path.stat().st_size > 0
+
+        # The SAME paused session still serves a live read right after the
+        # capture — the capture's time-windowed harness state did not wedge it.
+        read_while_paused = run("game", "get", "/root/Main/Resumer")
+        assert read_while_paused.returncode == 0, (
+            read_while_paused.stdout + read_while_paused.stderr
+        )
+
+        # Resume input: inject KEY_R via `input sequence`. It reaches ONLY the
+        # Resumer (PROCESS_MODE_ALWAYS) — mirroring a real pause menu's resume
+        # handler — which flips SceneTree.paused back off.
+        events = json.dumps([{"type": "key", "key": "R", "frame": 0}])
+        resumed = run("input", "sequence", "--events", events)
+        assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+        assert json.loads(resumed.stdout)["kind"] == "sequence"
+
+        # The session is genuinely responsive again: the paused flag cleared, and
+        # the default-process-mode Ticker resumes advancing.
+        assert tree_is_paused() is False
+        resumed_before = ticker_ticks()
+        resumed_after = ticker_ticks()
+        assert resumed_after > resumed_before
     finally:
         run("daemon", "stop")

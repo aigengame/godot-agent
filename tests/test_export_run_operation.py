@@ -18,6 +18,8 @@ surface, complementary to the command tests in
 
 from pathlib import Path
 
+import pytest
+
 from gda.commands.export import (  # EXPORT_RUN_COMMAND: the single fully-bound descriptor (ADR-0023)
     EXPORT_GET_COMMAND,
     EXPORT_RUN_COMMAND,
@@ -455,6 +457,65 @@ def test_export_strips_harness_during_run_then_restores_byte_identical(tmp_path)
     # Byte-identical restore of BOTH files — the dev project is untouched.
     assert project_godot.read_bytes() == godot_before
     assert harness.read_bytes() == harness_before
+
+
+def test_export_strips_and_restores_the_harness_uid_sidecar(tmp_path):
+    # #654 pairs the strip with a WIDER uninstall (the engine-generated `.uid`
+    # sidecar goes too). The snapshot reads its file list from the installer, so the
+    # sidecar is captured and restored — otherwise every `gda export run` on a
+    # dogfooded project would silently delete a tracked file and break ADR-0028's
+    # "the dev project is left byte-identical".
+    harness = _project_with_harness(tmp_path)
+    sidecar = harness.with_name(f"{harness.name}.uid")
+    sidecar.write_bytes(b"uid://bxxxxxxxxxxxxx\n")
+    seen = {}
+
+    class _AssertingRunner:
+        def run(self, preset, mode, output_path):
+            seen["sidecar_present_during_export"] = sidecar.exists()
+            return RunResult(stdout="", stderr="", exit_code=0)
+
+    outcome = _run_export_in(tmp_path, _AssertingRunner())
+
+    assert isinstance(outcome, ExportRunResult)
+    assert seen["sidecar_present_during_export"] is False  # stripped for the export
+    assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"  # and put back exactly
+
+
+def test_export_restores_the_project_when_the_STRIP_itself_fails(tmp_path):
+    # PR #680 review, claim 1. The strip is a MULTI-STEP mutation (autoload entry,
+    # script, sidecar, directory), so it can fail part way through — and it used to
+    # run BEFORE the try/finally, so a mid-strip failure skipped the restore and left
+    # the dev project with a stripped project.godot and a deleted harness. Injecting
+    # the reviewer's fault (the sidecar unlink raises) must now leave the project
+    # byte-identical, with the error still surfaced to the caller.
+    harness = _project_with_harness(tmp_path)
+    sidecar = harness.with_name(f"{harness.name}.uid")
+    sidecar.write_bytes(b"uid://bxxxxxxxxxxxxx\n")
+    project_godot = tmp_path / "project.godot"
+    godot_before = project_godot.read_bytes()
+    harness_before = harness.read_bytes()
+
+    real_unlink = Path.unlink
+
+    def failing_unlink(self, *args, **kwargs):
+        if self.name.endswith(".uid"):
+            raise OSError("injected: cannot unlink the sidecar")
+        return real_unlink(self, *args, **kwargs)
+
+    class _NeverRuns:
+        def run(self, preset, mode, output_path):  # pragma: no cover - unreachable
+            raise AssertionError("the export must not run after a failed strip")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "unlink", failing_unlink)
+        with pytest.raises(OSError, match="cannot unlink the sidecar"):
+            _run_export_in(tmp_path, _NeverRuns())
+
+    # The finally covered the partial strip: both files are back as they were.
+    assert project_godot.read_bytes() == godot_before
+    assert harness.read_bytes() == harness_before
+    assert sidecar.read_bytes() == b"uid://bxxxxxxxxxxxxx\n"
 
 
 def test_export_restores_harness_even_when_native_run_raises(tmp_path):

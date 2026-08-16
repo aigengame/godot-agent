@@ -62,13 +62,21 @@ envelope as a pass for this command.
   (no Godot spawned).
 - `gda schema` — the **whole** surface as one JSON manifest.
 
+**`--json` placement.** `gda --json <group> <command>` and `gda <group> <command> --json` mean the
+same thing — a root `--json` applies to the command it invokes — so either spelling works, as does
+both at once. `gda schema --json` is accepted too, and idempotent: the manifest is already JSON.
+Two limits: help output is always TEXT (`gda --json --help` returns the same help, never JSON), and
+two spellings are still usage errors (exit `2`) — `gda <group> --json` (a group's parser takes only
+`--help`; pass the flag to the command) and a bare `gda --json` with no command
+(`Missing command.`).
+
 ## Headless commands (Godot 4.4+, all platforms)
 
 | Group | Commands |
 | ----- | -------- |
 | `scene` | `create`, `get`, `list`, `get-exports`, `delete` (`.tscn` files) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
-| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a `res://` script one-shot and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success) |
+| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a `res://` script one-shot and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
@@ -114,6 +122,11 @@ For `gda input mouse-click`, `gda input mouse-move`, and mouse events inside
 Godot may leave `Viewport.get_mouse_position()` and
 `Node2D.get_global_mouse_position()` stale in daemon sessions, so game code that
 needs the injected coordinate should read it from the input event.
+
+Live operations keep serving even while `SceneTree.paused` is true, but injected
+input still only reaches nodes whose process mode is `PROCESS_MODE_ALWAYS` or
+`PROCESS_MODE_WHEN_PAUSED` — a paused game's ordinary handlers will not see it, so
+drive resume through a pause-menu-style always-processing handler.
 
 ### Structured logging from game code
 
@@ -168,6 +181,17 @@ free-positioned Controls: gda writes the underlying `offset_left`, `offset_top`,
 children of a `Container` are layout-managed; use those offset properties
 explicitly instead. Live `game set --property position` mirrors this policy, while
 `game rect` remains a read-only rendered-geometry query.
+
+`scene create` with a `Control-derived` `--root-type` writes a root with zero
+anchors and zero offsets, so it does not fill the viewport. A root class with
+no intrinsic minimum size (plain `Control`, `Panel`, an empty container)
+renders as a zero-size rect at the origin; a class with an intrinsic minimum
+(e.g. `Button`, `Label`) renders at that minimum instead — still not the
+viewport. Container minimum sizes can keep descendants visible and mask a
+zero-size root until `game rect` reports the root, and its child layers, at
+their true (possibly zero) size. Fix it by setting the root's `anchor_right`
+and `anchor_bottom` to `1` with `node set` (offsets stay `0`); confirm with
+`game rect`.
 
 **Attach a script — `script attach`, never `node set --property script`.**
 `script attach` is the one authoritative way to bind a `.gd` script to a node: it

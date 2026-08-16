@@ -357,8 +357,8 @@ vocabulary, so the same verb means the same thing in every group:
 | `set`               | Mutate a property.                                                |
 | domain verbs        | `play`, `run`, `export`, `import`, … kept with their natural meaning. |
 
-Every command supports `--json` and `--schema` — except `gda schema` itself, which emits
-the aggregate manifest as JSON directly. Commands that read or mutate a `res://` path
+Every command supports `--json` and `--schema` — `gda schema` accepts `--json` too, where
+it changes nothing because the aggregate manifest is already JSON. Commands that read or mutate a `res://` path
 resolve a [project context](#configuration). Run `gda <group> <command> --help` for full
 flags — `gda --help` is the authoritative list of what is installed.
 
@@ -479,7 +479,7 @@ a missing file still use the normal Error envelope.
 | `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon uninstall` | Remove the in-game `gda` harness (autoload entry + files) from the project — an explicit dev-tooling teardown; `gda export run` already strips it from exported artifacts automatically. |
+| `daemon uninstall` | Remove the in-game `gda` harness from the project — the autoload entry, the harness files and its `.uid` sidecar, plus an `[autoload]` section left with no keys, so `project.godot` returns to its pre-install bytes (for files Godot's own writer produces); the result enumerates every path and section removed. An explicit dev-tooling teardown; `gda export run` already strips the harness from exported artifacts automatically. |
 
 **`game`** — the running game's runtime scene graph
 
@@ -542,7 +542,7 @@ input event.
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
+| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. Also accepted at the root: `gda --json <group> <command>` means the same as passing it after the command. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |

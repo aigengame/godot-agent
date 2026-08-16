@@ -51,7 +51,14 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    assert data == {"exit_status": 0, "stdout": "hi\n", "stderr": ""}
+    assert data == {
+        "exit_status": 0,
+        "stdout": "hi\n",
+        "stderr": "",
+        # A clean run recognizes no script errors, so the #651 diagnostics channel
+        # is present but empty — never absent, so an agent can read it unguarded.
+        "diagnostics": [],
+    }
     # The recipe launched `--path <project> --script <res path>` with cwd=None.
     (_binary, args, cwd, _timeout, _label) = calls[0]
     assert args == ["--path", str(project), "--script", "res://logic.gd"]
@@ -75,6 +82,58 @@ def test_non_zero_script_exit_is_success_process_exits_zero(monkeypatch, tmp_pat
     assert "error" not in data
     assert data["exit_status"] == 1
     assert data["stdout"] == "fail\n"
+
+
+def test_strict_makes_the_process_exit_the_registered_operation_code(
+    monkeypatch, tmp_path
+):
+    # #651 at the CLI boundary: with --strict a quit(1) is observable WITHOUT parsing
+    # the JSON — the process exits 4, the registered operation code. Not 1: the
+    # child's own status is never propagated verbatim, or a script's quit(3) would
+    # alias EXIT_VERSION and a quit(124) the runner's timeout.
+    project = _project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout="fail\n", stderr="", exit_code=1))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "run",
+            "res://logic.gd",
+            "--strict",
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "script_failed"
+    assert err["category"] == "operation"
+
+
+def test_strict_is_reachable_through_params_json(monkeypatch, tmp_path):
+    # --strict is a params field, not an argv-only flag (ADR-0015), so gda-mcp and
+    # any JSON caller can opt in exactly as argv does.
+    project = _project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=2))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd", "strict": true}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "script_failed"
 
 
 def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):

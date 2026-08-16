@@ -14,6 +14,22 @@ uninstall.** Inert-but-present is not enough (build hygiene, store/AV review, an
 orphaned dev tooling" are real requirements); and `gda export run` had no harness awareness,
 so a forgotten harness shipped verbatim.
 
+> **Outcome (2026-08-15, #654) — decision 1's snapshot file list now comes from the
+> installer.** #654 widened `gda daemon uninstall` to also delete the engine-generated
+> `gda_harness.gd.uid` sidecar, so the strip below removes it too. The snapshot therefore
+> reads its file list from `harness_artifacts()` (script + `.uid`) rather than naming the
+> files itself — otherwise the strip would delete a file the restore never puts back and
+> the "dev project is left byte-identical" guarantee would break. Decision 1's text, which
+> names "`project.godot` + the harness file", is preserved as the point-in-time record.
+>
+> Two follow-ups from the same issue's review. The strip now runs **inside** the guarded
+> region rather than before it: the strip is itself a multi-step mutation, so a failure
+> part way through it skipped the restore entirely and left the dev project stripped. And
+> the snapshot type moved to `gda.harness.install` as the public `HarnessSnapshot`, because
+> `gda daemon start` needs the identical mechanism to undo a failed start's install
+> (ADR-0018); it lives next to `harness_artifacts()`, which supplies its file list, and
+> `commands/export.py` imports it from there — the direction this module already imports.
+
 The engine forecloses the obvious fixes (verified against the Godot source):
 
 - **An export cannot remove a `project.godot` autoload after the fact.** `project.binary` is

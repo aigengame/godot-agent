@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=ed98a1240587c099da7c2ab4a397b9c9e035a41a5a8bf52a76753547fb6a35f4 -->
+<!-- gda-readme-i18n: source=README.md sha256=7e7ef59df7e407b072ba03aa8dd6fb0325c4043a1e064f1ffb98cafa3230dc6a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -373,8 +373,8 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `set`               | プロパティを変更します。 |
 | ドメイン固有の動詞  | `play`、`run`、`export`、`import` など、本来の意味のまま使います。 |
 
-すべてのコマンドは `--json` と `--schema` をサポートします — ただし `gda schema` 自体は例外で、集約
-マニフェストを直接 JSON として出力します。`res://` パスを読み取りまたは変更するコマンドは
+すべてのコマンドは `--json` と `--schema` をサポートします — `gda schema` も `--json` を受け付けますが、
+集約マニフェストはすでに JSON なので出力は変わりません。`res://` パスを読み取りまたは変更するコマンドは
 [プロジェクトコンテキスト](#configuration) を解決します。完全なフラグについては `gda <group> <command> --help`
 を実行してください — `gda --help` がインストール済みのものを示す信頼できる一覧です。
 
@@ -556,7 +556,7 @@ Godot は daemon セッション内で `get_mouse_position()` /
 
 | フラグ       | 説明                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`    | 結果を stdout に単一の JSON オブジェクトとして出力します。指定しない場合、コマンドは簡潔な人間可読のレンダリングを出力します。 |
+| `--json`    | 結果を stdout に単一の JSON オブジェクトとして出力します。指定しない場合、コマンドは簡潔な人間可読のレンダリングを出力します。ルートでも受け付けます: `gda --json <group> <command>` はコマンドの後ろに付けた場合と同じ意味です。 |
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
 | `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
 | `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |

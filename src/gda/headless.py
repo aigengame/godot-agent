@@ -78,9 +78,52 @@ def command_constraints(
     )
 
 
+# The context-meta key a root ``--json`` is recorded under (#671). ``ctx.meta`` is
+# ONE dict shared by every context in the tree (click nests it from the parent), so
+# what the root callback records is readable from the invoked command's context.
+# Dotted and package-scoped, per click's documented convention for the namespace.
+ROOT_JSON_META_KEY = "gda.root_json"
+
+
+def set_root_json(ctx: typer.Context, value: bool) -> None:
+    """Record a root ``--json`` for the command the root is about to invoke.
+
+    The write half of the root-flag contract, owned HERE next to the option that
+    reads it (:func:`_inherit_root_json`), so the knowledge runs downward: the CLI
+    composition root CALLS this to hand the flag over, instead of this module
+    reaching up into that module's private parameter names.
+    """
+    ctx.meta[ROOT_JSON_META_KEY] = bool(value)
+
+
+def _inherit_root_json(
+    ctx: typer.Context, param: typer.CallbackParam, value: bool
+) -> bool:
+    """Let a root ``--json`` stand for the command's own (#671).
+
+    The Skill teaches ONE rule — "always pass ``--json``" — and an agent may spell
+    it at the root (``gda --json node get …``) or after the command
+    (``gda node get … --json``). The two must MEAN the same thing, or accepting the
+    root flag would be worse than rejecting it: a silently inert flag returns human
+    text to a caller that asked for JSON, where the old ``No such option`` at least
+    failed loudly.
+
+    A command's own flag wins when given; otherwise the value the root recorded
+    through :func:`set_root_json` applies — click runs the group's callback before
+    it parses the subcommand, so the record is already in place. Living on the
+    shared :func:`json_option` means every call site inherits it with no per-command
+    wiring, including the ``--params-json`` dispatch path, which reads
+    ``ctx.params`` after this callback has run.
+    """
+    return bool(value) or bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
+
+
 def json_option() -> bool:
     return typer.Option(
-        False, "--json", help="Emit the result as a single JSON object."
+        False,
+        "--json",
+        callback=_inherit_root_json,
+        help="Emit the result as a single JSON object.",
     )
 
 

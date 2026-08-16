@@ -50,6 +50,7 @@ from gda.dispatch import dispatch_recipe
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
+    HarnessSnapshot,
     install_harness,
     uninstall_harness,
 )
@@ -118,6 +119,27 @@ class DaemonStartResult(BaseModel):
         default="",
         description="The gda harness version now installed in the project (#225).",
     )
+    created_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `res://` paths this start CREATED in the project (outermost "
+            "directory first), so the harness install is an auditable mutation "
+            "rather than a silent write into a tracked project (#654). Empty on an "
+            "idempotent repeat start and on a version resync — those rewrite the "
+            "harness (`harness_synced`) but create nothing new. Reversed by "
+            "`gda daemon uninstall`, except `res://addons` itself: an empty "
+            "directory is invisible to git, and the shared Godot addons directory "
+            "may be about to hold another addon."
+        ),
+    )
+    created_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `project.godot` sections this start CREATED — `[autoload]` when the "
+            "project had none. Empty when the harness entry joined a section that "
+            "already existed, which `gda daemon uninstall` then leaves in place (#654)."
+        ),
+    )
     windowed: bool | None = Field(
         default=None,
         description=(
@@ -181,13 +203,39 @@ class DaemonUninstallParams(BaseModel):
 
 
 class DaemonUninstallResult(BaseModel):
-    """The result of ``gda daemon uninstall``: the paired harness removal (ADR-0018, #225)."""
+    """The result of ``gda daemon uninstall``: the paired harness removal (ADR-0018, #225).
+
+    #654 makes the removal complete AND self-reporting: the engine-generated `.uid`
+    sidecar and a now-empty `[autoload]` section go too, so a project that only ever
+    ran a live session is left as it was, and ``removed_paths`` / ``removed_sections``
+    name every path and section that went.
+    """
 
     removed: bool = Field(
         description=(
             "Whether the harness autoload and files were removed; False is the "
             "idempotent no-op when no harness was installed (mirrors daemon stop)."
         )
+    )
+    removed_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `res://` paths removed: the harness script, its engine-generated "
+            "`.uid` sidecar, and `res://addons/gda_harness` once empty (#654). "
+            "`res://addons` is left in place: an empty directory is invisible to "
+            "git, so it causes none of the tracked-file churn this removal is for, "
+            "and the shared Godot addons directory may be about to hold another "
+            "addon."
+        ),
+    )
+    removed_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The `project.godot` sections removed — `[autoload]` when dropping the "
+            "harness entry left it with no keys, so a live session no longer leaves "
+            "an empty generated section behind in a tracked file (#654). A section "
+            "with any surviving user autoload is kept."
+        ),
     )
 
 
@@ -328,6 +376,56 @@ def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) ->
         pass
 
 
+_START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
+
+
+def _restore_start_install(
+    snapshot: HarnessSnapshot,
+) -> "tuple[str, ...] | OSError":
+    """Undo a failed start's harness install; the undone set, or the error that stopped it.
+
+    Takes ONLY the snapshot: the restore must work for a start that failed at any
+    point after the snapshot was taken, including PART WAY THROUGH the install itself
+    (a read-only ``project.godot`` makes ``install_harness`` raise after it has
+    already materialized the harness), where no receipt exists to consult (PR #680
+    recheck 2).
+
+    Never raises: a restore failure must not replace the start failure the caller is
+    already reporting — it is reported ALONGSIDE it, as the mutation the user now has
+    to clean up by hand.
+    """
+    try:
+        return snapshot.restore()
+    except OSError as exc:
+        return exc
+
+
+def _failed_start_failure(snapshot: HarnessSnapshot) -> Failure:
+    """The ``daemon_not_running`` failure for a start that never became ready.
+
+    Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
+    unchanged, no new error code): what was restored, or — when the restore itself
+    failed — the paths (files AND created directories) that still differ from their
+    pre-start state, measured off the snapshot rather than predicted from a receipt.
+    """
+    outcome = _restore_start_install(snapshot)
+    if isinstance(outcome, OSError):
+        pending = ", ".join(snapshot.pending())
+        return make_failure(
+            "daemon_not_running",
+            _START_FAILED,
+            f"the harness install could NOT be rolled back ({outcome}); these paths "
+            f"still differ from their pre-start state: {pending}",
+        )
+    if not outcome:
+        return make_failure("daemon_not_running", _START_FAILED, "")
+    return make_failure(
+        "daemon_not_running",
+        _START_FAILED,
+        f"rolled back this start's harness install: {', '.join(outcome)}",
+    )
+
+
 def run_daemon_start_operation(
     project: Optional[Path],
     godot: Optional[str],
@@ -389,6 +487,8 @@ def run_daemon_start_operation(
             installed_harness=installed.changed,
             harness_synced=installed.synced,
             harness_version=installed.version,
+            created_paths=list(installed.created_paths),
+            created_sections=list(installed.created_sections),
             # An idempotent start does not relaunch the session and cannot re-derive
             # the running daemon's display mode from the pidfile, so report `None`
             # ("not determined here") rather than a misleading `False` — a daemon
@@ -426,21 +526,46 @@ def run_daemon_start_operation(
         if reason is not None:
             return make_failure("live_windowed_unavailable", reason, "")
 
-    installed = install_harness(project)
-    (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
-    pid = _await_ready(paths)
+    # The harness install happens BEFORE the daemon exists, so everything from the
+    # install onward runs against a project gda has already mutated. The snapshot is
+    # therefore taken FIRST and the install itself sits INSIDE the guarded region
+    # (PR #680 recheck 2): `install_harness` materializes the harness file before it
+    # writes the autoload config, so a config write that fails — a read-only
+    # `project.godot` is enough — used to escape with the harness already on disk,
+    # before any restore could run and with no receipt ever produced.
+    #
+    # The restore is driven by the SNAPSHOT alone, never by the install's receipt: a
+    # receipt cannot describe how to undo an install that re-materialized a stale
+    # body or re-pointed an existing entry (both CREATE nothing), and a half-finished
+    # install has no receipt at all. The exception arm re-raises the ORIGINAL error
+    # as the primary failure; when the restore itself also fails, that outcome and
+    # the measured residual paths ride along as an exception note (PR #688 review) —
+    # silently dropping them would hide residue ADR-0018 requires reporting.
+    snapshot = HarnessSnapshot.capture(project)
+    try:
+        installed = install_harness(project)
+        (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
+        pid = _await_ready(paths)
+    except BaseException as exc:
+        outcome = _restore_start_install(snapshot)
+        if isinstance(outcome, OSError):
+            pending = ", ".join(snapshot.pending())
+            exc.add_note(
+                f"additionally, the harness install could NOT be rolled back "
+                f"({outcome}); these paths still differ from their pre-start "
+                f"state: {pending}"
+            )
+        raise
     if pid is None:
-        return make_failure(
-            "daemon_not_running",
-            "the gda-daemon did not start (it never began accepting on its socket)",
-            "",
-        )
+        return _failed_start_failure(snapshot)
     return DaemonStartResult(
         pid=pid,
         socket_path=str(paths.cli_socket),
         installed_harness=installed.changed,
         harness_synced=installed.synced,
         harness_version=installed.version,
+        created_paths=list(installed.created_paths),
+        created_sections=list(installed.created_sections),
         windowed=windowed,
         already_running=False,
     )
@@ -511,7 +636,11 @@ def run_daemon_uninstall_operation(
             "",
         )
     result = uninstall_harness(project)
-    return DaemonUninstallResult(removed=result.removed)
+    return DaemonUninstallResult(
+        removed=result.removed,
+        removed_paths=list(result.removed_paths),
+        removed_sections=list(result.removed_sections),
+    )
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -547,10 +676,24 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
 
 
 def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
-    """Render a `gda daemon uninstall` outcome for humans."""
-    if uninstalled.removed:
-        return "harness uninstalled"
-    return "no harness was installed"
+    """Render a `gda daemon uninstall` outcome for humans.
+
+    Naming what went is the point of this command (#654) — it is the step that
+    hands a tracked project back — so the human line carries the same removal set
+    the JSON result enumerates, not just the fact that something was removed.
+    """
+    if not uninstalled.removed:
+        return "no harness was installed"
+    removed = [
+        *uninstalled.removed_paths,
+        *(f"{section} in project.godot" for section in uninstalled.removed_sections),
+    ]
+    if not removed:
+        # The entry was the only thing left to remove: the harness files were already
+        # gone AND a sibling autoload keeps the section alive, so neither list has
+        # anything in it. Name the entry rather than render a bare "uninstalled".
+        return "harness uninstalled: the GdaHarness [autoload] entry in project.godot"
+    return "harness uninstalled: " + ", ".join(removed)
 
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
@@ -733,14 +876,23 @@ def daemon_uninstall(
 ) -> None:
     """Remove the gda harness autoload and files from the project (ADR-0018).
 
-    A release-hygiene step: removal is paired and crash-safe — the [autoload] entry
-    is stripped first, then the files — so a mid-failure never leaves a dangling
-    autoload (which an exported game logs `ERR_CONTINUE` and skips at startup —
-    error spam, not a hard crash; ADR-0028). Idempotent (a no-op if not
-    installed). Refused while a daemon is running (`daemon_running`); stop it first
-    with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
+    A release-hygiene step: removal is paired and crash-safe — the harness autoload
+    entry is stripped first, then the files — so a mid-failure never leaves a
+    dangling autoload (which an exported game logs `ERR_CONTINUE` and skips at
+    startup — error spam, not a hard crash; ADR-0028). It restores the project: the
+    harness script, its engine-generated `.uid` sidecar and the emptied addon
+    directory all go, and an autoload section left with no keys loses its header
+    too, so `project.godot` returns to its pre-install bytes. The result enumerates
+    every path and section removed. Idempotent (a no-op if not installed). Refused
+    while a daemon is running (`daemon_running`); stop it first with
+    `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.
     """
+    # The docstring above spells section names WITHOUT their square brackets on
+    # purpose: Typer renders it through Rich, which reads `[autoload]` as a markup
+    # tag and silently drops it (the pre-#654 text read "the  entry is stripped
+    # first"). The bracketed spelling survives in the result-model field
+    # descriptions, which reach agents as JSON and are never Rich-rendered.
     dispatch_recipe(
         DAEMON_UNINSTALL_COMMAND,
         DaemonUninstallParams(),
