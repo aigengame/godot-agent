@@ -36,6 +36,12 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   fails. Run it first in a long session and keep the output: an editable install
   can change revision under you mid-run, so this is what ties your results to the
   code that produced them. Bare `gda --version` stays one human-readable line.
+- **User data** — each headless run's engine log goes to a private temporary file,
+  so a read-only Godot application-data directory is not fatal and concurrent runs
+  never contend. If a script needs a writable `user://`, pass
+  `gda --user-data-root DIR <group> <command>` (or set `$GDA_USER_DATA_ROOT`) to
+  place the log and `user://` under `DIR`; a target `gda` cannot create is refused
+  as `user_data_unwritable` before the engine starts.
 
 ## Structured output & errors
 
@@ -50,7 +56,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `127` | Godot binary not found |
+| `127` | environment unusable: Godot binary not found, or its user data is unwritable |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
