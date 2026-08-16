@@ -1,71 +1,158 @@
+class_name RewardRunController
 extends Node
 
 signal view_state_changed(state: Dictionary)
 signal feedback_saved(payload: Dictionary, path: String)
 
-const PlaytestSession = preload("res://systems/playtest_session.gd")
+const RewardRunDocuments = preload(
+	"res://content/reward_run/reward_run_documents.gd"
+)
+const RewardRunArtifactProjector = preload(
+	"res://content/reward_run/reward_run_artifact_projector.gd"
+)
 const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
 const RewardRun = preload("res://systems/reward_run.gd")
 const FEEDBACK_PATH := "user://reward_run_feedback.json"
-const TRIAL_REQUESTS := [
-	{"trial_id": "trial-one"},
-	{"trial_id": "trial-two"},
-]
+const TRIAL_IDS: Array[String] = ["trial-one", "trial-two"]
 
-var phase: String = "loading"
-var current_trial: String = ""
-var playtest_complete: bool = false
-var last_feedback_path: String = ""
+var phase := "loading"
+var current_trial := ""
+var playtest_complete := false
+var last_feedback_path := ""
 
-var _session := PlaytestSession.new()
+var _client: Node
+var _executable_path := ""
+var _model_source_path := ""
+var _experiment_path := ""
+var _documents := RewardRunDocuments.new()
+var _projector := RewardRunArtifactProjector.new()
 var _feedback := PlaytestFeedback.new(FEEDBACK_PATH)
 var _run := RewardRun.new()
-var _source: RefCounted
+var _model_source: Dictionary = {}
+var _baseline_experiment: Dictionary = {}
+var _rare_weight: Dictionary = {}
+var _selected_rare_weight := 0
+var _session := ""
+var _trials: Array[Dictionary] = []
 var _last_state: Dictionary = {}
-var _session_state: Dictionary = {}
+var _busy := false
 
 
 func _init() -> void:
 	_run.state_changed.connect(_on_run_state_changed)
 
 
-func configure(source: RefCounted) -> bool:
-	_source = source
-	var trials: Array[Dictionary] = []
-	for request in TRIAL_REQUESTS:
-		var outcome: Dictionary = _source.outcome_for(request)
-		if outcome.is_empty():
-			return false
-		trials.append(outcome)
-	return _session.configure(trials)
+func configure(
+	client: Node,
+	executable_path: String,
+	model_source_path: String,
+	experiment_path: String,
+) -> void:
+	_client = client
+	_executable_path = executable_path
+	_model_source_path = model_source_path
+	_experiment_path = experiment_path
 
 
-func start() -> void:
+func start() -> Dictionary:
+	_trials.clear()
 	playtest_complete = false
-	_session_state = _session.start()
-	_start_trial()
-	_log_event("playtest_started", {"trial_count": _session_state["trial_count"]})
+	return await _prepare_live_session()
+
+
+func start_trial(rare_weight: int) -> Dictionary:
+	if _busy:
+		return _failure("trial_in_flight", "a live trial is already in flight")
+	if phase != "choose_frequency" or _trials.size() >= TRIAL_IDS.size():
+		return _failure("trial_not_ready", phase)
+	_busy = true
+	_selected_rare_weight = rare_weight
+	_emit_state(
+		{
+			"phase": "running_experiment",
+			"rare_weight": _control_state(rare_weight),
+			"trial_count": TRIAL_IDS.size(),
+			"trial_index": _trials.size(),
+		}
+	)
+
+	var revised: Dictionary = _documents.experiment_with_rare_weight(rare_weight)
+	if not revised.get("ok", false):
+		return _fail_trial(revised)
+	var admitted: Dictionary = await _client.admit_revision(
+		_session,
+		revised["value"],
+	)
+	if not admitted.get("ok", false):
+		return _fail_trial(admitted)
+	var executed: Dictionary = await _client.run_revision(
+		_session,
+		admitted["revision"],
+	)
+	if not executed.get("ok", false):
+		return _fail_trial(executed)
+	var projected: Dictionary = _projector.project(executed["value"], rare_weight)
+	if not projected.get("ok", false):
+		return _fail_trial(projected)
+
+	var trial: Dictionary = projected["value"].duplicate(true)
+	trial["id"] = TRIAL_IDS[_trials.size()]
+	trial["revision"] = admitted["revision"]
+	_trials.append(trial)
+	current_trial = trial["id"]
+	_busy = false
+	_run.start(trial)
+	_log_event(
+		"trial_started",
+		{
+			"rare_weight": rare_weight,
+			"trial": current_trial,
+			"trial_index": _trials.size() - 1,
+		},
+	)
+	return {"ok": true, "trial": trial.duplicate(true)}
 
 
 func primary_action() -> void:
-	if playtest_complete:
+	if playtest_complete or _busy:
 		return
 	if phase == "run_complete":
-		_session_state = _session.finish_current_trial()
-		if _session_state["complete"]:
+		if _trials.size() == TRIAL_IDS.size():
 			playtest_complete = true
 			phase = "feedback"
-			_last_state = {
-				"phase": phase,
-				"trial_count": _session_state["trial_count"],
-				"trial_index": _session_state["trial_index"],
-			}
-			view_state_changed.emit(_last_state.duplicate(true))
+			_emit_state(
+				{
+					"phase": phase,
+					"trial_count": TRIAL_IDS.size(),
+					"trial_index": _trials.size(),
+				}
+			)
 			_log_event("playtest_ready_for_feedback", {})
 			return
-		_start_trial()
+		_emit_frequency_choice()
 		return
 	_run.primary_action()
+
+
+func retry() -> Dictionary:
+	if _busy:
+		return _failure("trial_in_flight", "a live trial is already in flight")
+	_busy = true
+	if not _session.is_empty():
+		await _client.delete_session(_session)
+	await _client.shutdown()
+	_session = ""
+	_busy = false
+	return await _prepare_live_session()
+
+
+func shutdown() -> Dictionary:
+	if _client == null:
+		return {"ok": true}
+	if not _session.is_empty():
+		await _client.delete_session(_session)
+		_session = ""
+	return await _client.shutdown()
 
 
 func submit_feedback(
@@ -76,6 +163,17 @@ func submit_feedback(
 ) -> Dictionary:
 	if not playtest_complete:
 		return {}
+	var trial_records: Array[Dictionary] = []
+	for trial in _trials:
+		trial_records.append(
+			{
+				"id": trial["id"],
+				"rare_weight": trial["rare_weight"],
+				"reward": trial["reward"].duplicate(true),
+				"build": trial["build"].duplicate(true),
+				"provenance": trial["provenance"].duplicate(true),
+			}
+		)
 	var result := _feedback.save(
 		{
 			"change_clarity": change_clarity,
@@ -85,7 +183,7 @@ func submit_feedback(
 			"stronger_reward": stronger_reward,
 			"tracking_issue": 585,
 		},
-		_session.trial_references(),
+		trial_records,
 	)
 	if result.is_empty():
 		return {}
@@ -100,27 +198,122 @@ func current_state() -> Dictionary:
 	return _last_state.duplicate(true)
 
 
-func _start_trial() -> void:
-	var trial: Dictionary = _session_state["trial"]
-	current_trial = str(trial["id"])
-	_run.start(trial)
-	_log_event(
-		"trial_started",
-		{"trial": current_trial, "trial_index": _session_state["trial_index"]},
+func _prepare_live_session() -> Dictionary:
+	phase = "preparing"
+	_emit_state(
+		{
+			"phase": phase,
+			"trial_count": TRIAL_IDS.size(),
+			"trial_index": _trials.size(),
+		}
 	)
+	var loaded: Dictionary = _documents.load(
+		_model_source_path,
+		_experiment_path,
+	)
+	if not loaded.get("ok", false):
+		return _fail_preparation(loaded)
+	_model_source = loaded["model_source"]
+	_baseline_experiment = loaded["experiment"]
+	_rare_weight = loaded["rare_weight"]
+	if _trials.is_empty():
+		_selected_rare_weight = int(_rare_weight["value"])
+	elif (
+		_selected_rare_weight < int(_rare_weight["minimum"])
+		or _selected_rare_weight > int(_rare_weight["maximum"])
+	):
+		_selected_rare_weight = int(_rare_weight["value"])
+
+	var started: Dictionary = await _client.start(_executable_path)
+	if not started.get("ok", false):
+		return _fail_preparation(started)
+	var created: Dictionary = await _client.create_session(
+		_model_source,
+		_baseline_experiment,
+	)
+	if not created.get("ok", false):
+		await _client.shutdown()
+		return _fail_preparation(created)
+	_session = created["session"]
+	_emit_frequency_choice()
+	_log_event(
+		"playtest_ready",
+		{"completed_trials": _trials.size(), "trial_count": TRIAL_IDS.size()},
+	)
+	return {"ok": true}
+
+
+func _emit_frequency_choice() -> void:
+	phase = "choose_frequency"
+	_emit_state(
+		{
+			"phase": phase,
+			"rare_weight": _control_state(_selected_rare_weight),
+			"trial_count": TRIAL_IDS.size(),
+			"trial_index": _trials.size(),
+		}
+	)
+
+
+func _control_state(value: int) -> Dictionary:
+	return {
+		"minimum": int(_rare_weight.get("minimum", 0)),
+		"maximum": int(_rare_weight.get("maximum", 0)),
+		"value": value,
+	}
+
+
+func _fail_trial(error: Dictionary) -> Dictionary:
+	_busy = false
+	phase = "retry"
+	_emit_state(
+		{
+			"error_kind": str(error.get("kind", "live_trial_failed")),
+			"phase": phase,
+			"rare_weight": _control_state(_selected_rare_weight),
+			"trial_count": TRIAL_IDS.size(),
+			"trial_index": _trials.size(),
+		}
+	)
+	_log_event("live_trial_failed", error)
+	return error
+
+
+func _fail_preparation(error: Dictionary) -> Dictionary:
+	phase = "retry"
+	_emit_state(
+		{
+			"error_kind": str(error.get("kind", "preparation_failed")),
+			"phase": phase,
+			"trial_count": TRIAL_IDS.size(),
+			"trial_index": _trials.size(),
+		}
+	)
+	_log_event("playtest_preparation_failed", error)
+	return error
 
 
 func _on_run_state_changed(state: Dictionary) -> void:
 	phase = state["phase"]
-	state["trial_index"] = _session_state["trial_index"]
-	state["trial_count"] = _session_state["trial_count"]
-	_last_state = state.duplicate(true)
-	view_state_changed.emit(_last_state.duplicate(true))
+	var view_state := state.duplicate(true)
+	view_state["rare_weight_value"] = _selected_rare_weight
+	view_state["trial_index"] = _trials.size() - 1
+	view_state["trial_count"] = TRIAL_IDS.size()
+	_emit_state(view_state)
 	if phase == "run_complete":
 		_log_event(
 			"trial_completed",
 			{"hits": state["hits"], "trial": current_trial},
 		)
+
+
+func _emit_state(state: Dictionary) -> void:
+	_last_state = state.duplicate(true)
+	view_state_changed.emit(_last_state.duplicate(true))
+
+
+func _failure(kind: String, detail: String) -> Dictionary:
+	return {"ok": false, "kind": kind, "detail": detail}
 
 
 func _log_event(event_name: String, fields: Dictionary) -> void:

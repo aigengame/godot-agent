@@ -76,7 +76,12 @@ func feature_content() -> VBoxContainer:
 	return _feature_content
 
 
-func show_play(progress: String, instruction: String, action: String) -> void:
+func show_play(
+	progress: String,
+	instruction: String,
+	action: String,
+	action_enabled: bool = true,
+) -> void:
 	_mode = "play"
 	_title_label.visible = true
 	_subtitle_label.visible = true
@@ -85,8 +90,8 @@ func show_play(progress: String, instruction: String, action: String) -> void:
 	_feature_content.visible = true
 	_instruction.text = instruction
 	_instruction.modulate = Color("c6d2e5")
-	_primary_button.visible = true
-	_primary_button.disabled = false
+	_primary_button.visible = not action.is_empty()
+	_primary_button.disabled = not action_enabled
 	_primary_button.text = action
 	_feedback_panel.visible = false
 	_feedback_status.text = ""

@@ -5,8 +5,13 @@ const RewardRunController = preload("res://content/reward_run/reward_run_control
 
 var _controller: RewardRunController
 var _last_phase := ""
+var _current_phase := ""
 var _last_state: Dictionary = {}
 var _shell: PlaytestShell
+var _frequency_panel: PanelContainer
+var _frequency_label: Label
+var _frequency: HSlider
+var _frequency_value: Label
 var _arena: HBoxContainer
 var _player_label: Label
 var _power_label: Label
@@ -47,6 +52,8 @@ func show_error(message: String) -> void:
 
 
 func _build_reward_presentation(content: VBoxContainer) -> void:
+	_build_frequency_control(content)
+
 	_arena = HBoxContainer.new()
 	_arena.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_arena.add_theme_constant_override("separation", 18)
@@ -100,14 +107,87 @@ func _build_reward_presentation(content: VBoxContainer) -> void:
 	reward_column.add_child(_reward_detail)
 
 
+func _build_frequency_control(content: VBoxContainer) -> void:
+	_frequency_panel = _make_panel(Color("16243a"))
+	_frequency_panel.name = "FrequencyPanel"
+	content.add_child(_frequency_panel)
+	var column := _panel_column(_frequency_panel)
+	_frequency_label = _make_label("", 17, Color("91a6c7"))
+	_frequency_label.text = tr("FREQUENCY_LABEL")
+	column.add_child(_frequency_label)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	column.add_child(row)
+	_frequency = HSlider.new()
+	_frequency.name = "RareWeight"
+	_frequency.step = 1.0
+	_frequency.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_frequency.custom_minimum_size = Vector2(560, 36)
+	_frequency.value_changed.connect(_on_frequency_changed)
+	row.add_child(_frequency)
+	_frequency_value = _make_label("", 22, Color("59d7c6"))
+	_frequency_value.text = "0"
+	_frequency_value.custom_minimum_size = Vector2(72, 36)
+	_frequency_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(_frequency_value)
+
+
 func _render(state: Dictionary) -> void:
 	_last_state = state.duplicate(true)
 	var next_phase := str(state["phase"])
+	_current_phase = next_phase
+	if next_phase == "preparing":
+		_frequency_panel.visible = false
+		_arena.visible = false
+		_reward_panel.visible = false
+		_shell.show_play("", tr("PREPARING_PLAYTEST"), "")
+		_last_phase = next_phase
+		return
+	if next_phase in ["choose_frequency", "running_experiment", "retry"]:
+		var control: Dictionary = state.get("rare_weight", {})
+		if control.has("minimum"):
+			_frequency.min_value = float(control["minimum"])
+			_frequency.max_value = float(control["maximum"])
+			_frequency.value = float(control["value"])
+		_frequency.editable = next_phase == "choose_frequency"
+		_frequency_panel.visible = true
+		_arena.visible = false
+		_reward_panel.visible = false
+		var progress := tr("TRIAL_PROGRESS") % [
+			int(state.get("trial_index", 0)) + 1,
+			int(state.get("trial_count", 2)),
+		]
+		if next_phase == "choose_frequency":
+			_shell.show_play(
+				progress,
+				tr("FREQUENCY_INSTRUCTION"),
+				tr("ACTION_START_TRIAL"),
+			)
+		elif next_phase == "running_experiment":
+			_shell.show_play(
+				progress,
+				tr("RUNNING_EXPERIMENT"),
+				tr("ACTION_PREPARING"),
+				false,
+			)
+		else:
+			_shell.show_play(
+				progress,
+				tr("RETRY_INSTRUCTION"),
+				tr("ACTION_RETRY"),
+			)
+		_last_phase = next_phase
+		return
 	if next_phase == "feedback":
 		_shell.show_feedback()
 		_last_phase = next_phase
 		return
 
+	_frequency_panel.visible = true
+	_frequency.editable = false
+	_arena.visible = true
+	if state.has("rare_weight_value"):
+		_frequency.value = float(state["rare_weight_value"])
 	_power_label.text = tr("POWER_VALUE") % int(state["power"])
 	_target_health.max_value = float(state["target_max_health"])
 	_target_health.value = float(state["target_health"])
@@ -168,8 +248,15 @@ func _render(state: Dictionary) -> void:
 
 
 func _on_primary_action() -> void:
-	if _controller != null:
-		_controller.primary_action()
+	if _controller == null:
+		return
+	match _current_phase:
+		"choose_frequency":
+			_controller.start_trial(int(_frequency.value))
+		"retry":
+			_controller.retry()
+		_:
+			_controller.primary_action()
 
 
 func _on_feedback_submitted(
@@ -193,8 +280,14 @@ func _on_feedback_saved(payload: Dictionary, path: String) -> void:
 
 func _on_locale_changed(_locale_id: String) -> void:
 	_player_label.text = tr("PLAYER_LABEL")
+	_frequency_label.text = tr("FREQUENCY_LABEL")
 	if not _last_state.is_empty():
 		_render(_last_state)
+
+
+func _on_frequency_changed(value: float) -> void:
+	if _frequency_value != null:
+		_frequency_value.text = str(int(value))
 
 
 func _translated_reward_name(reward: Dictionary) -> String:
