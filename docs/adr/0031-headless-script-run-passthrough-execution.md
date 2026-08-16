@@ -68,7 +68,8 @@ status: accepted
 > free-form `str`, so everything a failure reports — the labelled streams of point 2, the engine
 > stderr behind a point-1 verdict — is **prose**. The child's numeric exit status likewise survives
 > only as message prose, not as a structured field. Giving the failure channel structured
-> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; **#655 owns it**.
+> diagnostics means changing the ADR-0004 envelope, which is a decision of its own; **#687 owns it**
+> (#655's timeout envelope names the same constraint and adopts #687's outcome).
 > This amendment deliberately does **not** make that change.
 >
 > This bounds how far #651's "preserve the raw process status and stderr as secondary evidence"
