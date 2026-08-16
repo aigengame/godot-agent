@@ -29,7 +29,7 @@ messages = {
 [&"", &"FREQUENCY_LABEL"]: [&"Rare reward frequency"],
 [&"", &"FREQUENCY_INSTRUCTION"]: [&"Choose how often rare rewards should appear, then start the trial."],
 [&"", &"PREPARING_PLAYTEST"]: [&"Preparing your Reward Run…"],
-[&"", &"RUNNING_EXPERIMENT"]: [&"Finding this trial's reward…"],
+[&"", &"PREPARING_TRIAL_REWARD"]: [&"Finding this trial's reward…"],
 [&"", &"RETRY_INSTRUCTION"]: [&"Reward Run could not prepare this trial. Your completed trial is safe."],
 [&"", &"ACTION_START_TRIAL"]: [&"START TRIAL"],
 [&"", &"ACTION_PREPARING"]: [&"PREPARING…"],

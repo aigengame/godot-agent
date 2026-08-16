@@ -1,10 +1,9 @@
-import json
+import os
 import re
 from pathlib import Path
 
 
 _PLAYTEST = Path(__file__).parents[1] / "examples" / "schema2" / "playtest"
-_GENERATED = _PLAYTEST / "generated"
 
 
 def test_playtest_runtime_dependencies_point_downward():
@@ -47,6 +46,8 @@ def test_playtest_player_settings_have_explicit_defaults_and_translations():
     assert '[&"", &"SETTINGS_RESOLUTION"]: [&"分辨率"]' in chinese
     assert '[&"", &"SETTINGS_LANGUAGE"]: [&"Language"]' in english
     assert '[&"", &"SETTINGS_LANGUAGE"]: [&"语言"]' in chinese
+    assert '[&"", &"FREQUENCY_LABEL"]: [&"Rare reward frequency"]' in english
+    assert '[&"", &"FREQUENCY_LABEL"]: [&"稀有奖励出现频率"]' in chinese
 
     key_pattern = re.compile(r'\[&"", &"([A-Z0-9_]+)"\]')
     english_keys = set(key_pattern.findall(english))
@@ -59,59 +60,49 @@ def test_playtest_player_settings_have_explicit_defaults_and_translations():
     assert used_keys <= english_keys
 
 
-def test_playtest_player_cases_hide_balancing_artifacts():
-    player_cases = (_GENERATED / "reward_cases.json").read_text(encoding="utf-8")
-    for internal_term in (
-        "artifact",
-        "experiment",
-        "formula",
-        "metric",
-        "model",
-        "package release",
-        "rir",
-        "trace",
-        "typed value",
-    ):
-        assert internal_term not in player_cases.lower()
+def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
+    assert not (_PLAYTEST / "generated").exists()
+    assert not (_PLAYTEST / "tools" / "generate_reward_cases.py").exists()
+    assert not (
+        _PLAYTEST / "content" / "reward_run" / "reward_outcome_source.gd"
+    ).exists()
+    assert not (_PLAYTEST / "systems" / "playtest_session.gd").exists()
 
-    parsed = json.loads(player_cases)
-    assert parsed["schema_version"] == 1
-    assert [trial["id"] for trial in parsed["trials"]] == [
-        "trial-one",
-        "trial-two",
-    ]
+    main = (_PLAYTEST / "main.gd").read_text(encoding="utf-8")
+    documents = (
+        _PLAYTEST / "content" / "reward_run" / "reward_run_documents.gd"
+    ).read_text(encoding="utf-8")
+    assert "GdaExecutionClient" in main
+    assert "../roguelike-reward-build" in main
+    assert "model-source.json" in main
+    assert "experiment.json" in main
+    assert "reward_cases" not in main
+    assert 'const PARAMETER_NAME := "rare_weight"' in documents
 
 
-def test_playtest_provenance_references_resolve_to_checked_in_evidence():
-    provenance = json.loads(
-        (_GENERATED / "evidence" / "playtest-provenance.json").read_text(
-            encoding="utf-8"
-        )
-    )
-
-    def assert_artifact_reference(reference):
-        assert reference["identity"].startswith("sha256:")
-        artifact_path = (_GENERATED / reference["locator"]).resolve()
-        assert artifact_path.is_file()
-        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-        if "content_identity" in artifact:
-            assert reference["identity"] == artifact["content_identity"]
-
-    for entry in provenance["entries"].values():
-        assert_artifact_reference(entry["experiment"])
-        assert_artifact_reference(entry["metrics"])
-        assert_artifact_reference(entry["rng_observation"])
-        for reference in entry["model"].values():
-            assert_artifact_reference(reference)
-        for reference in entry["runtime"].values():
-            assert_artifact_reference(reference)
+def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
+    launch = _PLAYTEST / "scripts" / "run_reward_run.sh"
+    assert launch.is_file()
+    assert launch.stat().st_mode & os.X_OK
+    source = launch.read_text(encoding="utf-8")
+    assert "GDA_BALANCING_EXECUTABLE" in source
+    assert "--gda-balancing-executable=" in source
+    assert "exec \"$godot_executable\"" in source
+    assert "PyInstaller" not in source
+    assert not (_PLAYTEST / "scripts" / "export_macos.sh").exists()
+    assert not (_PLAYTEST / "scripts" / "smoke_export_macos.sh").exists()
+    assert not (_PLAYTEST / "export_presets.cfg").exists()
 
 
-def test_playtest_export_excludes_maintainer_and_development_files():
-    preset = (_PLAYTEST / "export_presets.cfg").read_text(encoding="utf-8")
-    assert 'export_filter="all_resources"' in preset
-    assert 'include_filter="generated/reward_cases.json"' in preset
-    assert 'exclude_filter="build/*"' in preset
-    assert (_PLAYTEST / "docs" / ".gdignore").is_file()
-    assert (_PLAYTEST / "generated" / "evidence" / ".gdignore").is_file()
-    assert (_PLAYTEST / "tests" / ".gdignore").is_file()
+def test_playtest_keeps_focused_godot_behavior_proofs():
+    expected = {
+        "test_gda_execution_client.gd",
+        "test_gda_execution_client_discovery.gd",
+        "test_playtest.gd",
+        "test_reward_run_controller_failure.gd",
+        "test_reward_run_controller_live.gd",
+        "test_reward_run_documents.gd",
+        "test_reward_run_live_trials.gd",
+        "test_reward_run_view.gd",
+    }
+    assert {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")} == expected

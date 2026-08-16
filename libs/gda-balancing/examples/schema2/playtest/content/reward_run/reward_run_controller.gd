@@ -10,7 +10,9 @@ const RewardRunDocuments = preload(
 const RewardRunArtifactProjector = preload(
 	"res://content/reward_run/reward_run_artifact_projector.gd"
 )
-const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
+const RewardFeedbackRecorder = preload(
+	"res://content/reward_run/reward_feedback_recorder.gd"
+)
 const RewardRun = preload("res://systems/reward_run.gd")
 const FEEDBACK_PATH := "user://reward_run_feedback.json"
 const TRIAL_IDS: Array[String] = ["trial-one", "trial-two"]
@@ -26,12 +28,12 @@ var _model_source_path := ""
 var _experiment_path := ""
 var _documents := RewardRunDocuments.new()
 var _projector := RewardRunArtifactProjector.new()
-var _feedback := PlaytestFeedback.new(FEEDBACK_PATH)
+var _feedback := RewardFeedbackRecorder.new(FEEDBACK_PATH)
 var _run := RewardRun.new()
 var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
-var _rare_weight: Dictionary = {}
-var _selected_rare_weight := 0
+var _reward_frequency: Dictionary = {}
+var _selected_reward_frequency := 0
 var _session := ""
 var _trials: Array[Dictionary] = []
 var _last_state: Dictionary = {}
@@ -60,23 +62,25 @@ func start() -> Dictionary:
 	return await _prepare_live_session()
 
 
-func start_trial(rare_weight: int) -> Dictionary:
+func start_trial(reward_frequency: int) -> Dictionary:
 	if _busy:
 		return _failure("trial_in_flight", "a live trial is already in flight")
 	if phase != "choose_frequency" or _trials.size() >= TRIAL_IDS.size():
 		return _failure("trial_not_ready", phase)
 	_busy = true
-	_selected_rare_weight = rare_weight
+	_selected_reward_frequency = reward_frequency
 	_emit_state(
 		{
-			"phase": "running_experiment",
-			"rare_weight": _control_state(rare_weight),
+			"phase": "preparing_trial",
+			"reward_frequency": _control_state(reward_frequency),
 			"trial_count": TRIAL_IDS.size(),
 			"trial_index": _trials.size(),
 		}
 	)
 
-	var revised: Dictionary = _documents.experiment_with_rare_weight(rare_weight)
+	var revised: Dictionary = _documents.experiment_with_reward_frequency(
+		reward_frequency
+	)
 	if not revised.get("ok", false):
 		return _fail_trial(revised)
 	var admitted: Dictionary = await _client.admit_revision(
@@ -91,7 +95,9 @@ func start_trial(rare_weight: int) -> Dictionary:
 	)
 	if not executed.get("ok", false):
 		return _fail_trial(executed)
-	var projected: Dictionary = _projector.project(executed["value"], rare_weight)
+	var projected: Dictionary = _projector.project(
+		executed["value"], reward_frequency
+	)
 	if not projected.get("ok", false):
 		return _fail_trial(projected)
 
@@ -105,7 +111,7 @@ func start_trial(rare_weight: int) -> Dictionary:
 	_log_event(
 		"trial_started",
 		{
-			"rare_weight": rare_weight,
+			"reward_frequency": reward_frequency,
 			"trial": current_trial,
 			"trial_index": _trials.size() - 1,
 		},
@@ -168,7 +174,7 @@ func submit_feedback(
 		trial_records.append(
 			{
 				"id": trial["id"],
-				"rare_weight": trial["rare_weight"],
+				"reward_frequency": trial["reward_frequency"],
 				"reward": trial["reward"].duplicate(true),
 				"build": trial["build"].duplicate(true),
 				"provenance": trial["provenance"].duplicate(true),
@@ -215,14 +221,14 @@ func _prepare_live_session() -> Dictionary:
 		return _fail_preparation(loaded)
 	_model_source = loaded["model_source"]
 	_baseline_experiment = loaded["experiment"]
-	_rare_weight = loaded["rare_weight"]
+	_reward_frequency = loaded["reward_frequency"]
 	if _trials.is_empty():
-		_selected_rare_weight = int(_rare_weight["value"])
+		_selected_reward_frequency = int(_reward_frequency["value"])
 	elif (
-		_selected_rare_weight < int(_rare_weight["minimum"])
-		or _selected_rare_weight > int(_rare_weight["maximum"])
+		_selected_reward_frequency < int(_reward_frequency["minimum"])
+		or _selected_reward_frequency > int(_reward_frequency["maximum"])
 	):
-		_selected_rare_weight = int(_rare_weight["value"])
+		_selected_reward_frequency = int(_reward_frequency["value"])
 
 	var started: Dictionary = await _client.start(_executable_path)
 	if not started.get("ok", false):
@@ -248,7 +254,7 @@ func _emit_frequency_choice() -> void:
 	_emit_state(
 		{
 			"phase": phase,
-			"rare_weight": _control_state(_selected_rare_weight),
+			"reward_frequency": _control_state(_selected_reward_frequency),
 			"trial_count": TRIAL_IDS.size(),
 			"trial_index": _trials.size(),
 		}
@@ -257,8 +263,8 @@ func _emit_frequency_choice() -> void:
 
 func _control_state(value: int) -> Dictionary:
 	return {
-		"minimum": int(_rare_weight.get("minimum", 0)),
-		"maximum": int(_rare_weight.get("maximum", 0)),
+		"minimum": int(_reward_frequency.get("minimum", 0)),
+		"maximum": int(_reward_frequency.get("maximum", 0)),
 		"value": value,
 	}
 
@@ -268,9 +274,8 @@ func _fail_trial(error: Dictionary) -> Dictionary:
 	phase = "retry"
 	_emit_state(
 		{
-			"error_kind": str(error.get("kind", "live_trial_failed")),
 			"phase": phase,
-			"rare_weight": _control_state(_selected_rare_weight),
+			"reward_frequency": _control_state(_selected_reward_frequency),
 			"trial_count": TRIAL_IDS.size(),
 			"trial_index": _trials.size(),
 		}
@@ -283,7 +288,6 @@ func _fail_preparation(error: Dictionary) -> Dictionary:
 	phase = "retry"
 	_emit_state(
 		{
-			"error_kind": str(error.get("kind", "preparation_failed")),
 			"phase": phase,
 			"trial_count": TRIAL_IDS.size(),
 			"trial_index": _trials.size(),
@@ -296,7 +300,7 @@ func _fail_preparation(error: Dictionary) -> Dictionary:
 func _on_run_state_changed(state: Dictionary) -> void:
 	phase = state["phase"]
 	var view_state := state.duplicate(true)
-	view_state["rare_weight_value"] = _selected_rare_weight
+	view_state["reward_frequency_value"] = _selected_reward_frequency
 	view_state["trial_index"] = _trials.size() - 1
 	view_state["trial_count"] = TRIAL_IDS.size()
 	_emit_state(view_state)

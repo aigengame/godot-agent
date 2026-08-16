@@ -29,7 +29,7 @@ messages = {
 [&"", &"FREQUENCY_LABEL"]: [&"稀有奖励出现频率"],
 [&"", &"FREQUENCY_INSTRUCTION"]: [&"选择稀有奖励出现的频率，然后开始试玩。"],
 [&"", &"PREPARING_PLAYTEST"]: [&"正在准备奖励试炼……"],
-[&"", &"RUNNING_EXPERIMENT"]: [&"正在确定本次试玩的奖励……"],
+[&"", &"PREPARING_TRIAL_REWARD"]: [&"正在确定本次试玩的奖励……"],
 [&"", &"RETRY_INSTRUCTION"]: [&"本次试玩未能准备完成。已完成的试玩不会丢失。"],
 [&"", &"ACTION_START_TRIAL"]: [&"开始试玩"],
 [&"", &"ACTION_PREPARING"]: [&"准备中……"],

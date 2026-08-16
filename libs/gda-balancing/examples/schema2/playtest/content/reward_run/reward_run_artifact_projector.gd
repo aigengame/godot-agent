@@ -20,7 +20,7 @@ const BUILD_STATE_TYPE := {
 }
 
 
-func project(run_result: Dictionary, expected_rare_weight: int) -> Dictionary:
+func project(run_result: Dictionary, expected_reward_frequency: int) -> Dictionary:
 	var artifacts: Dictionary = run_result.get("artifacts", {})
 	var trace: Dictionary = artifacts.get("event-trace", {})
 	if trace.get("artifact_kind") != "event-trace":
@@ -46,7 +46,7 @@ func project(run_result: Dictionary, expected_rare_weight: int) -> Dictionary:
 		return _failure("missing_reward_build_values")
 	var rare_weight = _integer_fact(reward_event, "rare_weight")
 	var build_score = _integer_fact(build_event, "build_score")
-	if rare_weight == null or int(rare_weight) != expected_rare_weight:
+	if rare_weight == null or int(rare_weight) != expected_reward_frequency:
 		return _failure("rare_weight_mismatch")
 	if build_score == null or int(build_score) != int(build.get("power_after", -1)):
 		return _failure("build_score_mismatch")
@@ -69,7 +69,7 @@ func project(run_result: Dictionary, expected_rare_weight: int) -> Dictionary:
 	return {
 		"ok": true,
 		"value": {
-			"rare_weight": expected_rare_weight,
+			"reward_frequency": expected_reward_frequency,
 			"reward": {
 				"key": reward_key,
 				"rarity": str(reward.get("rarity", "")),

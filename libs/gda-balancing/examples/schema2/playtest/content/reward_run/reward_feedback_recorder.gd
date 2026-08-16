@@ -1,3 +1,4 @@
+class_name RewardFeedbackRecorder
 extends RefCounted
 
 var _path: String
@@ -7,11 +8,11 @@ func _init(path: String) -> void:
 	_path = path
 
 
-func save(answers: Dictionary, trial_references: Array[Dictionary]) -> Dictionary:
+func save(answers: Dictionary, trials: Array[Dictionary]) -> Dictionary:
 	var payload := answers.duplicate(true)
 	payload["created_at"] = Time.get_datetime_string_from_system(true)
 	payload["schema_version"] = 1
-	payload["trials"] = trial_references.duplicate(true)
+	payload["trials"] = trials.duplicate(true)
 	var file := FileAccess.open(_path, FileAccess.WRITE)
 	if file == null:
 		return {}

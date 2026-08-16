@@ -90,6 +90,14 @@ func _run() -> void:
 			},
 			"later revision projects the complete build replacement",
 		)
+		var contradictory: Dictionary = baseline["run_result"].duplicate(true)
+		_mutate_selected_reward(contradictory, "contradictory_reward")
+		var rejected: Dictionary = projector.project(contradictory, 5)
+		_expect(
+			not rejected.get("ok", false)
+			and rejected.get("detail") == "selected_reward_mismatch",
+			"projector rejects contradictory reward and build artifacts",
+		)
 
 	await client.delete_session(created["session"])
 	await client.shutdown()
@@ -102,9 +110,11 @@ func _live_trial(
 	documents,
 	projector,
 	session: String,
-	rare_weight: int,
+	reward_frequency: int,
 ) -> Dictionary:
-	var revised: Dictionary = documents.experiment_with_rare_weight(rare_weight)
+	var revised: Dictionary = documents.experiment_with_reward_frequency(
+		reward_frequency
+	)
 	if not revised.get("ok", false):
 		return revised
 	var admitted: Dictionary = await client.admit_revision(session, revised["value"])
@@ -113,14 +123,26 @@ func _live_trial(
 	var run: Dictionary = await client.run_revision(session, admitted["revision"])
 	if not run.get("ok", false):
 		return run
-	var projected: Dictionary = projector.project(run["value"], rare_weight)
+	var projected: Dictionary = projector.project(run["value"], reward_frequency)
 	if not projected.get("ok", false):
 		return projected
 	return {
 		"ok": true,
 		"revision": admitted["revision"],
 		"trial": projected["value"],
+		"run_result": run["value"],
 	}
+
+
+func _mutate_selected_reward(run_result: Dictionary, replacement: String) -> void:
+	var trace: Dictionary = run_result["artifacts"]["event-trace"]
+	for event in trace["events"]:
+		if event.get("operation") != "game.generation.select-reward-v1":
+			continue
+		for fact in event["facts"]:
+			if fact.get("name") == "reward_result":
+				fact["value"]["value"]["selected"]["key"] = replacement
+				return
 
 
 func _expect(condition: bool, message: String) -> void:
@@ -130,7 +152,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 9, "status": "passed"}))
+		print(JSON.stringify({"passed": 10, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

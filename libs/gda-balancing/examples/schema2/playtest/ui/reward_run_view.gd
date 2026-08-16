@@ -119,7 +119,7 @@ func _build_frequency_control(content: VBoxContainer) -> void:
 	row.add_theme_constant_override("separation", 16)
 	column.add_child(row)
 	_frequency = HSlider.new()
-	_frequency.name = "RareWeight"
+	_frequency.name = "RewardFrequency"
 	_frequency.step = 1.0
 	_frequency.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_frequency.custom_minimum_size = Vector2(560, 36)
@@ -143,8 +143,8 @@ func _render(state: Dictionary) -> void:
 		_shell.show_play("", tr("PREPARING_PLAYTEST"), "")
 		_last_phase = next_phase
 		return
-	if next_phase in ["choose_frequency", "running_experiment", "retry"]:
-		var control: Dictionary = state.get("rare_weight", {})
+	if next_phase in ["choose_frequency", "preparing_trial", "retry"]:
+		var control: Dictionary = state.get("reward_frequency", {})
 		if control.has("minimum"):
 			_frequency.min_value = float(control["minimum"])
 			_frequency.max_value = float(control["maximum"])
@@ -163,10 +163,10 @@ func _render(state: Dictionary) -> void:
 				tr("FREQUENCY_INSTRUCTION"),
 				tr("ACTION_START_TRIAL"),
 			)
-		elif next_phase == "running_experiment":
+		elif next_phase == "preparing_trial":
 			_shell.show_play(
 				progress,
-				tr("RUNNING_EXPERIMENT"),
+				tr("PREPARING_TRIAL_REWARD"),
 				tr("ACTION_PREPARING"),
 				false,
 			)
@@ -183,11 +183,11 @@ func _render(state: Dictionary) -> void:
 		_last_phase = next_phase
 		return
 
-	_frequency_panel.visible = true
+	_frequency_panel.visible = false
 	_frequency.editable = false
 	_arena.visible = true
-	if state.has("rare_weight_value"):
-		_frequency.value = float(state["rare_weight_value"])
+	if state.has("reward_frequency_value"):
+		_frequency.value = float(state["reward_frequency_value"])
 	_power_label.text = tr("POWER_VALUE") % int(state["power"])
 	_target_health.max_value = float(state["target_max_health"])
 	_target_health.value = float(state["target_health"])

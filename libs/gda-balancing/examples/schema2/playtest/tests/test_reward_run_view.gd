@@ -11,8 +11,8 @@ var _failures: Array[String] = []
 class RecordingController extends RewardRunController:
 	var requested_weights: Array[int] = []
 
-	func start_trial(rare_weight: int) -> Dictionary:
-		requested_weights.append(rare_weight)
+	func start_trial(reward_frequency: int) -> Dictionary:
+		requested_weights.append(reward_frequency)
 		return {"ok": true}
 
 
@@ -30,14 +30,14 @@ func _run() -> void:
 	controller.view_state_changed.emit(
 		{
 			"phase": "choose_frequency",
-			"rare_weight": {"minimum": 0, "maximum": 90, "value": 5},
+			"reward_frequency": {"minimum": 0, "maximum": 90, "value": 5},
 			"trial_count": 2,
 			"trial_index": 0,
 		}
 	)
 	await process_frame
 
-	var frequency := view.find_child("RareWeight", true, false) as Range
+	var frequency := view.find_child("RewardFrequency", true, false) as Range
 	_expect(frequency != null, "Rare reward frequency is visible")
 	if frequency != null:
 		_expect(frequency.min_value == 0.0, "control uses the Model minimum")
@@ -48,6 +48,26 @@ func _run() -> void:
 	if action != null:
 		action.pressed.emit()
 	_expect(controller.requested_weights == [5], "UI submits the player value")
+
+	controller.view_state_changed.emit(
+		{
+			"phase": "before_fight",
+			"reward_frequency_value": 5,
+			"power": 10,
+			"target_health": 30,
+			"target_max_health": 30,
+			"reward": {"key": "volatile_crown", "rarity": "rare"},
+			"build": {"power_before": 10, "power_after": 90},
+			"trial_count": 2,
+			"trial_index": 0,
+		}
+	)
+	await process_frame
+	var frequency_panel := view.find_child("FrequencyPanel", true, false) as Control
+	_expect(
+		frequency_panel != null and not frequency_panel.visible,
+		"locked setup control is hidden during play",
+	)
 
 	view.queue_free()
 	controller.queue_free()
@@ -61,7 +81,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 6, "status": "passed"}))
+		print(JSON.stringify({"passed": 7, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:

@@ -36,7 +36,7 @@ func _run() -> void:
 		"player first chooses the reward frequency",
 	)
 	_expect(
-		controller.current_state().get("rare_weight")
+		controller.current_state().get("reward_frequency")
 		== {"minimum": 0, "maximum": 90, "value": 5},
 		"the player control uses maintained bounds and default",
 	)

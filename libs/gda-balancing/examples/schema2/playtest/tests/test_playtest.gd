@@ -1,38 +1,53 @@
 extends SceneTree
 
-const PlaytestSession = preload("res://systems/playtest_session.gd")
-const PlaytestFeedback = preload("res://systems/playtest_feedback.gd")
+const RewardFeedbackRecorder = preload(
+	"res://content/reward_run/reward_feedback_recorder.gd"
+)
 const RewardRun = preload("res://systems/reward_run.gd")
 const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
-const RewardOutcomeSource = preload(
-	"res://content/reward_run/reward_outcome_source.gd"
-)
 
 var _failures: Array[String] = []
 
 
 func _init() -> void:
-	var source := RewardOutcomeSource.new("res://generated/reward_cases.json")
-	var trials: Array = [
-		source.outcome_for({"trial_id": "trial-one"}),
-		source.outcome_for({"trial_id": "trial-two"}),
-	]
-	_expect(source.last_error.is_empty(), "prepared cases load")
-	_expect(not trials.any(func(trial): return trial.is_empty()), "two outcomes load")
-	if not trials.any(func(trial): return trial.is_empty()):
-		_test_session(trials)
-		_test_feedback(trials)
-		_test_reward_run(trials[0], 1)
-		_test_reward_run(trials[1], 3)
+	var rare_trial := _trial("trial-one", "volatile_crown", "rare", 90, 5)
+	var common_trial := _trial("trial-two", "steady_guard", "common", 30, 2)
+	_test_feedback([rare_trial, common_trial])
+	_test_reward_run(rare_trial, 1)
+	_test_reward_run(common_trial, 3)
 	_test_player_preferences()
 
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 5, "status": "passed"}))
+		print(JSON.stringify({"passed": 4, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:
 		push_error(failure)
 	quit(1)
+
+
+func _trial(
+	id: String,
+	reward_key: String,
+	rarity: String,
+	power_after: int,
+	reward_frequency: int,
+) -> Dictionary:
+	return {
+		"id": id,
+		"reward_frequency": reward_frequency,
+		"reward": {"key": reward_key, "rarity": rarity},
+		"build": {
+			"previous_item": "starter_blade",
+			"equipped_item": reward_key,
+			"power_before": 10,
+			"power_after": power_after,
+		},
+		"provenance": {
+			"experiment_identity": "sha256:experiment-%s" % id,
+			"event_trace_identity": "sha256:trace-%s" % id,
+		},
+	}
 
 
 func _test_player_preferences() -> void:
@@ -74,21 +89,10 @@ func _test_player_preferences() -> void:
 	TranslationServer.set_locale("en")
 
 
-func _test_session(trials: Array) -> void:
-	var session := PlaytestSession.new()
-	_expect(session.configure(trials), "session accepts prepared trials")
-	var state := session.start()
-	_expect(state["trial"]["id"] == "trial-one", "session starts Trial 1")
-	state = session.finish_current_trial()
-	_expect(state["trial"]["id"] == "trial-two", "session advances to Trial 2")
-	state = session.finish_current_trial()
-	_expect(state["complete"], "session ends after Trial 2")
-
-
-func _test_feedback(trials: Array) -> void:
-	var session := PlaytestSession.new()
-	session.configure(trials)
-	var feedback := PlaytestFeedback.new("user://reward_run_feedback_test.json")
+func _test_feedback(trials: Array[Dictionary]) -> void:
+	var feedback := RewardFeedbackRecorder.new(
+		"user://reward_run_feedback_test.json"
+	)
 	var result := feedback.save(
 		{
 			"change_clarity": "Very clear",
@@ -98,7 +102,7 @@ func _test_feedback(trials: Array) -> void:
 			"stronger_reward": "Trial 1",
 			"tracking_issue": 585,
 		},
-		session.trial_references(),
+		trials,
 	)
 	_expect(not result.is_empty(), "feedback is persisted")
 	_expect(result.get("payload", {}).get("schema_version") == 1, "feedback is framed")
@@ -107,6 +111,10 @@ func _test_feedback(trials: Array) -> void:
 		"feedback kind is explicit",
 	)
 	_expect(result.get("payload", {}).get("tracking_issue") == 585, "issue is explicit")
+	_expect(
+		result.get("payload", {}).get("trials", [])[1].get("reward_frequency") == 2,
+		"feedback retains the player's live frequency",
+	)
 
 
 func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:

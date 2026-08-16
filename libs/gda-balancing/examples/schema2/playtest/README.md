@@ -1,119 +1,121 @@
 # Reward Run playable
 
 Reward Run is the player-facing HITL product for the maintained
-`roguelike-reward-build` slice. It presents two short, comparable trials and hides the Model,
-Experiment, Formula, trace, Metric, and artifact workflow from the player.
+`roguelike-reward-build` slice. The player changes how often rare rewards appear, completes two
+short trials, feels the resulting build change, and records feedback.
 
-The player defeats a training target, equips a reward, and tests the changed build against a
-tougher target. Trial 1 grants Storm Crown with power 90. Trial 2 grants Iron Guard with power 30.
-Both trials begin with the same Training Blade and target conditions. The contrast makes the
-reward and equipment change directly perceptible.
+The playable hides Model, Experiment, Formula, Runtime, trace, Metric, typed-value, artifact,
+identity, and HTTP details. It uses blockout shapes, short Tween animations, and direct
+mouse/keyboard controls. A playthrough takes about five minutes.
 
-The player can use the action button or press Space/Enter. After both trials, the in-game form
-records preference, perceived reward strength, equipment-change clarity, and optional notes.
-**Save & Copy Feedback** writes `user://reward_run_feedback.json` and copies the same player-facing
-payload to the clipboard.
+## Player flow
+
+1. Choose **Rare reward frequency** and start Trial 1.
+2. Break the first target with the Training Blade.
+3. Equip the selected reward.
+4. Test the changed build on a stronger target.
+5. Change the frequency and complete Trial 2.
+6. Compare both trials and save feedback.
+
+The maintained seed makes `5` and `2` a useful comparison. Frequency `5` selects the rare Storm
+Crown and produces power 90. Frequency `2` selects the common Iron Guard and produces power 30.
+The control still accepts the complete maintained range.
 
 The main screen offers 1080p, 2K (2560×1440), and 4K resolution options. It starts at 2K and uses
-a 1920×1080 logical canvas so the interface scales consistently. The language option switches all
-player-facing text between English and Simplified Chinese. English is the default. Feedback choices
-keep stable English values in the saved payload in both display languages.
+a 1920×1080 logical canvas. The language option switches all player-facing text between English
+and Simplified Chinese. English is the default.
+
+After both trials, **Save & Copy Feedback** writes `user://reward_run_feedback.json` and copies the
+same payload to the clipboard. The payload contains the chosen frequency, observed reward/build
+result, perception answers, notes, and opaque maintainer provenance.
 
 ## Visual checkpoints
 
-| Trial | Reward | Feedback |
+| Frequency | Reward | Feedback |
 | --- | --- | --- |
-| ![Initial trial](docs/screenshots/initial-trial.png) | ![Reward reveal](docs/screenshots/reward-reveal.png) | ![Feedback form](docs/screenshots/feedback.png) |
+| ![Frequency control](docs/screenshots/initial-trial.png) | ![Reward reveal](docs/screenshots/reward-reveal.png) | ![Feedback form](docs/screenshots/feedback.png) |
 
 ## Architecture
 
-The project uses one-way Godot modules:
+Dependencies point down. Calls go down and signals report state up.
 
 ```text
-UI -> Content -> Systems -> Godot
+UI -> Reward Content -> RewardRun System
+                    \-> GdaExecutionClient Add-on -> Godot / local HTTP service
 ```
 
-- `systems/playtest_session.gd` owns the reusable multi-trial lifecycle.
-- `systems/playtest_feedback.gd` owns the reusable feedback envelope and persistence.
-- `systems/reward_run.gd` owns Reward Run combat, reward, equipment, and completion state.
-- `content/reward_run/reward_outcome_source.gd` is the current generated-case Adapter.
-- `content/reward_run/reward_run_controller.gd` coordinates the feature and feedback submission.
-- `ui/playtest_shell.gd` owns common progress, controls, feedback, and copy behavior.
-- `ui/playtest_preferences.gd` owns the shared resolution and language choices and applies them
-  through Godot's window and translation APIs.
-- `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
-- `main.gd` is the thin bootstrap that injects the Adapter and connects the UI.
+- `addons/gda_balancing_client/gda_execution_client.gd` owns executable discovery, the child
+  process, readiness, credentials, generic `/v1` requests, session/revision handles, and shutdown.
+  It contains no Reward, Combat, or Effect concepts.
+- `content/reward_run/reward_run_documents.gd` reads the maintained Model Source and Experiment.
+  It maps `rare_weight` to the player-facing Reward frequency control and creates complete later
+  Experiment values.
+- `content/reward_run/reward_run_artifact_projector.gd` validates the returned reward/build
+  relationships and projects only gameplay values.
+- `content/reward_run/reward_run_controller.gd` coordinates service preparation, two live trials,
+  atomic failure, explicit retry, and feedback.
+- `systems/reward_run.gd` owns combat, equipment, and completion state. It receives gameplay-only
+  values and has no gda-balancing dependency.
+- `ui/playtest_shell.gd` owns the common player shell, display/language preferences, and feedback
+  interaction. `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
+- `main.gd` creates one client and injects it into Reward Content. The project has no Autoload,
+  service locator, event bus, `EditorPlugin`, or plugin registry.
 
-The project has no Add-on, Autoload, event bus, service container, or plugin registry. A later live
-Runtime Adapter can replace the generated-case Adapter at the Content composition seam without
-changing UI or Systems. The generated-case Adapter owns its file locator; Reward Content sees only
-feature outcomes. No live protocol is designed here.
+The Add-on can later serve another Content module through a separate Execution session. This
+playable does not implement Combat/Effect adapters or a universal gameplay payload.
 
-## Generated product data
+## Authoritative data path
 
-- `generated/reward_cases.json` contains player-facing reward and build values plus opaque
-  playtest provenance references. The exported product loads this file but does not resolve the
-  references.
-- `generated/evidence/playtest-provenance.json` maps each opaque reference to exact formal
-  artifacts for maintainers. The Godot product does not load or export this file.
-- `generated/evidence/` contains the referenced public artifacts and is excluded from export.
+Reward Content reads these maintained files directly:
 
-Regenerate the cases from `libs/gda-balancing` through the installed public command:
+- `examples/schema2/roguelike-reward-build/model-source.json`;
+- `examples/schema2/roguelike-reward-build/experiment.json`.
+
+It sends both complete JSON values to the generic local service. Each player change produces a
+complete immutable Experiment revision. A run always names the returned exact revision.
+
+The playable has no generated case file, generator, deployment copy, or fallback data path. The
+Model Source Package and Experiment Specification remain the only authored authorities.
+
+## Launch
+
+Install this package environment and provide Godot 4.6 or later. From `libs/gda-balancing`, run:
 
 ```bash
-uv run python examples/schema2/playtest/tools/generate_reward_cases.py
+GDA_GODOT=/absolute/path/to/godot \
+  examples/schema2/playtest/scripts/run_reward_run.sh
 ```
 
-Check that the committed projection is current without rewriting it:
+This one command starts Godot. The injected Add-on starts and owns `gda-balancing serve`. The
+launch script supplies an absolute executable from `GDA_BALANCING_EXECUTABLE`, the current `PATH`,
+or this package's `.venv`. When no path is supplied, the Add-on performs its own `PATH` lookup. An
+invalid explicit path does not silently select another installation.
+
+This is a repository-local product. It does not package Python, embed a companion executable, or
+claim standalone export support.
+
+## Verify
+
+Run the package-level structure and source-authority checks:
 
 ```bash
-uv run python examples/schema2/playtest/tools/generate_reward_cases.py --check
+uv run pytest tests/test_schema2_playtest.py
 ```
 
-Runtime, Metric, and reproduction identities bind the exact evaluator and platform. The
-byte-for-byte check therefore applies to the recorded generation environment. Cross-platform CI
-checks the player values and the stable Model and Experiment relationships, while a separate test
-checks every committed provenance reference against its located artifact.
-
-The generator imports no gda-balancing Python module. It runs `model check`, `model build`,
-`experiment check`, and `experiment run` as subprocesses.
-
-## Verify the Godot product
-
-Set `GDA_GODOT` to Godot 4.6 or later. From `libs/gda-balancing`, run the focused Systems test:
+Run the live Controller path through a real local service:
 
 ```bash
-uv run --directory ../.. --frozen gda script run \
-  res://tests/test_playtest.gd \
+GDA_BALANCING_EXECUTABLE="$PWD/.venv/bin/gda-balancing" \
+  uv run --directory ../.. --frozen gda script run \
+  res://tests/test_reward_run_controller_live.gd \
   --project "$PWD/examples/schema2/playtest" \
   --json
 ```
 
-For a real player-path check, start a windowed session:
+The focused Godot scripts also cover executable discovery, direct maintained-document loading,
+same-session revisions, artifact projection, refusal atomicity, retry, UI control binding,
+Gameplay, display preferences, localization, and feedback persistence.
 
-```bash
-uv run --directory ../.. --frozen gda daemon start \
-  --windowed \
-  --project "$PWD/examples/schema2/playtest" \
-  --json
-```
-
-Use `gda input`, `gda screen capture`, `gda logger tail`, and `gda diag errors` to verify mouse and
-keyboard play, the reward reveal, the build change, feedback save, structured completion logs, and
-the absence of runtime errors. A headless DisplayServer skip is not visual evidence. Stop the
-daemon and run `gda daemon uninstall` after live verification so the development harness does not
-become project architecture.
-
-## Export the player product
-
-The first supported delivery is an unsigned macOS debug `.app`. The preset excludes documentation,
-maintainer evidence, provenance, tests, tools, and the transient gda harness. With `gda` on `PATH`
-and matching Godot export templates installed, run:
-
-```bash
-examples/schema2/playtest/scripts/export_macos.sh
-```
-
-The script creates `build/RewardRun.app` and launches its bundled binary headlessly. The smoke test
-passes only when the exported product reaches the player-facing path without Python, `gda`, or a
-development harness.
+For a visual check, use the launch command and complete both trials with mouse and keyboard. `gda`
+may be used to inspect the scene, inject input, capture screenshots, and read errors during
+development. It is not part of the playable's runtime architecture.

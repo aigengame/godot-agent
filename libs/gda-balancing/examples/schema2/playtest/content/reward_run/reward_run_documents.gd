@@ -47,7 +47,7 @@ func load(model_source_path: String, experiment_path: String) -> Dictionary:
 		"ok": true,
 		"model_source": model_source.duplicate(true),
 		"experiment": _experiment.duplicate(true),
-		"rare_weight": {
+		"reward_frequency": {
 			"minimum": _minimum,
 			"maximum": _maximum,
 			"value": value,
@@ -55,7 +55,7 @@ func load(model_source_path: String, experiment_path: String) -> Dictionary:
 	}
 
 
-func experiment_with_rare_weight(value: int) -> Dictionary:
+func experiment_with_reward_frequency(value: int) -> Dictionary:
 	if _experiment.is_empty():
 		return _failure("documents_not_loaded", "load documents first")
 	if value < _minimum or value > _maximum:

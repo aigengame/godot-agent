@@ -36,9 +36,6 @@ _RPG_PERIODIC_EFFECT_EXAMPLE = (
 _ROGUELIKE_REWARD_BUILD_EXAMPLE = (
     Path(__file__).parents[1] / "examples" / "schema2" / "roguelike-reward-build"
 )
-_PLAYTEST_GENERATED = (
-    Path(__file__).parents[1] / "examples" / "schema2" / "playtest" / "generated"
-)
 _PLAYER_ATTACK_ASSIGNMENT_NAMES = frozenset(
     {
         "enemy_defense",
@@ -472,56 +469,6 @@ class TestKeyUserPath:
         assert (
             baseline_trace["experiment_identity"] != tuned_trace["experiment_identity"]
         )
-
-        prepared = json.loads(
-            (_PLAYTEST_GENERATED / "reward_cases.json").read_text(encoding="utf-8")
-        )
-        provenance = json.loads(
-            (_PLAYTEST_GENERATED / "evidence" / "playtest-provenance.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        build_receipt = json.loads(
-            _receipt_members(json.loads(built.stdout))["build-receipt"].read_text(
-                encoding="utf-8"
-            )
-        )
-
-        for player_case, trace in zip(
-            prepared["trials"],
-            (baseline_trace, tuned_trace),
-            strict=True,
-        ):
-            events = [event for event in trace["events"] if event["operation"]]
-            reward = reward_result(events)
-            build = next(
-                row for row in events[1]["facts"] if row["name"] == "build_result"
-            )["value"]["value"]
-            assert player_case["reward"]["key"] == reward["selected"]["key"]
-            assert player_case["reward"]["rarity"] == reward["rarity"]
-            assert player_case["build"]["power_before"] == build["power_before"]
-            assert player_case["build"]["power_after"] == build["power_after"]
-
-            reference = provenance["entries"][
-                player_case["playtest_provenance_reference"]
-            ]
-            assert reference["experiment"]["identity"] == trace["experiment_identity"]
-            assert (
-                reference["model"]["build_receipt"]["identity"]
-                == (build_receipt["content_identity"])
-            )
-            assert (
-                reference["model"]["source"]["identity"]
-                == build_receipt["source_identity"]
-            )
-            assert (
-                reference["model"]["resolved_model"]["identity"]
-                == build_receipt["resolved_model_identity"]
-            )
-
-            # Runtime, Metric, and reproduction identities bind the evaluator and
-            # platform. The playtest projection test checks their exact checked-in
-            # references; this cross-platform path checks their observable values.
 
     def test_rpg_combat_model_exposes_two_directional_cast_entrypoints(self, tmp_path):
         _example, receipt = _build_reciprocal_example(
