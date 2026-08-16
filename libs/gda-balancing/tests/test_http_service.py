@@ -2,16 +2,13 @@
 
 import json
 import os
-import selectors
-import shutil
 import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
-from collections.abc import Iterator
-from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
@@ -34,110 +31,24 @@ from gda_balancing.interfaces.http.local_host import (
     LocalHostReadiness,
     run_local_host,
 )
+from http_service_support import (
+    console_script,
+    request_error,
+    request_json,
+    running_execution_http_service,
+)
 
 
 _PACKAGE_ROOT = Path(__file__).parents[1]
 _ROGUELIKE_EXAMPLE = _PACKAGE_ROOT / "examples" / "schema2" / "roguelike-reward-build"
 
 
-def _console_script() -> str:
-    script = shutil.which("gda-balancing")
-    assert script is not None, "gda-balancing console script is not installed"
-    return script
-
-
 def _run_console(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [_console_script(), *arguments],
+        [console_script(), *arguments],
         capture_output=True,
         text=True,
     )
-
-
-def _read_ready_line(process: subprocess.Popen[str]) -> dict[str, Any]:
-    assert process.stdout is not None
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
-    try:
-        assert selector.select(timeout=20), "serve did not emit readiness"
-        line = process.stdout.readline()
-    finally:
-        selector.close()
-    assert line, "serve exited before readiness"
-    return json.loads(line)
-
-
-@contextmanager
-def _running_service(
-    *,
-    command_prefix: list[str] | None = None,
-    cwd: Path | None = None,
-    env: dict[str, str] | None = None,
-) -> Iterator[tuple[subprocess.Popen[str], dict[str, Any]]]:
-    process = subprocess.Popen(
-        [
-            *(command_prefix or [_console_script()]),
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "0",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-        cwd=cwd,
-        env=env,
-    )
-    try:
-        yield process, _read_ready_line(process)
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-
-
-def _request_json(
-    url: str,
-    token: str,
-    *,
-    method: str = "GET",
-    body: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    if method == "POST" and data is None:
-        data = b""
-    request = Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            **({"Content-Type": "application/json"} if body is not None else {}),
-        },
-    )
-    with urlopen(request, timeout=10) as response:
-        assert response.status == 200
-        return json.load(response)
-
-
-def _request_error(
-    url: str,
-    token: str,
-    *,
-    method: str = "GET",
-    body: dict[str, Any] | None = None,
-) -> tuple[int, dict[str, Any]]:
-    try:
-        _request_json(url, token, method=method, body=body)
-    except HTTPError as error:
-        return error.code, json.load(error)
-    raise AssertionError("request unexpectedly succeeded")
 
 
 def _roguelike_documents() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -151,24 +62,9 @@ def _roguelike_documents() -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
 
-def _create_session(
-    readiness: dict[str, Any],
-    model_source: dict[str, Any],
-    experiment: dict[str, Any],
-) -> dict[str, Any]:
-    return _request_json(
-        f"{readiness['base_url']}/v1/execution-sessions",
-        readiness["capability_token"],
-        method="POST",
-        body={
-            "model_source": model_source,
-            "experiment_specification": experiment,
-        },
-    )
-
-
 def test_serve_reports_status_and_shuts_down() -> None:
-    with _running_service() as (process, readiness):
+    with running_execution_http_service() as service:
+        readiness = service.readiness
         assert set(readiness) == {
             "base_url",
             "capability_token",
@@ -187,32 +83,25 @@ def test_serve_reports_status_and_shuts_down() -> None:
         )
         assert len(readiness["capability_token"]) >= 43
 
-        status = _request_json(
-            f"{readiness['base_url']}/v1/status",
-            readiness["capability_token"],
-        )
+        status = service.status()
         assert status == {
             "protocol": readiness["protocol"],
             "status": "ready",
             "toolkit_version": readiness["toolkit_version"],
         }
 
-        shutdown = _request_json(
-            f"{readiness['base_url']}/v1/shutdown",
-            readiness["capability_token"],
-            method="POST",
-        )
+        shutdown = service.shutdown()
         assert shutdown == {"status": "shutting-down"}
-        assert process.wait(timeout=10) == 0
-        assert process.stdout is not None
-        assert process.stdout.read() == ""
+        assert service.process.wait(timeout=10) == 0
+        assert service.process.stdout is not None
+        assert service.process.stdout.read() == ""
 
 
 def test_session_creation_admits_complete_model_and_experiment_values() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
 
         assert created["outcome"] == "success"
         assert created["session_id"]
@@ -226,16 +115,11 @@ def test_session_creation_admits_complete_model_and_experiment_values() -> None:
 def test_identical_experiment_revision_admission_is_idempotent() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        admitted = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/experiment-revisions"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"experiment_specification": experiment},
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        admitted = service.admit_revision(
+            created["session_id"],
+            experiment,
         )
 
         assert admitted == {
@@ -248,17 +132,9 @@ def test_identical_experiment_revision_admission_is_idempotent() -> None:
 def test_run_returns_the_complete_existing_artifact_set_inline() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        run = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        run = service.run(created["session_id"], created["revision_id"])
 
         assert run["outcome"] == "success"
         assert set(run["artifacts"]) == {
@@ -279,20 +155,12 @@ def test_run_returns_the_complete_existing_artifact_set_inline() -> None:
 def test_deleting_a_session_makes_it_an_unknown_service_resource() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
 
-        deleted = _request_json(
-            session_url,
-            readiness["capability_token"],
-            method="DELETE",
-        )
-        status, error = _request_error(
-            f"{session_url}/runs",
-            readiness["capability_token"],
+        deleted = service.delete_session(created["session_id"])
+        status, error = service.request_error(
+            f"/v1/execution-sessions/{created['session_id']}/runs",
             method="POST",
             body={"revision_id": created["revision_id"]},
         )
@@ -316,23 +184,13 @@ def test_revision_refusal_leaves_existing_revisions_runnable() -> None:
     invalid_revision = deepcopy(experiment)
     invalid_revision["kernel_identity"] = "sha256:not-the-admitted-kernel"
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
 
-        refused = _request_json(
-            f"{session_url}/experiment-revisions",
-            readiness["capability_token"],
-            method="POST",
-            body={"experiment_specification": invalid_revision},
-        )
-        rerun = _request_json(
-            f"{session_url}/runs",
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
+        refused = service.admit_revision(created["session_id"], invalid_revision)
+        rerun = service.run(
+            created["session_id"],
+            created["revision_id"],
         )
 
         assert refused["outcome"] == "refusal"
@@ -347,29 +205,17 @@ def test_each_run_explicitly_selects_one_immutable_revision() -> None:
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
-        )
-        later_revision = _request_json(
-            f"{session_url}/experiment-revisions",
-            readiness["capability_token"],
-            method="POST",
-            body={"experiment_specification": later_experiment},
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        later_revision = service.admit_revision(
+            created["session_id"],
+            later_experiment,
         )
 
-        first_run = _request_json(
-            f"{session_url}/runs",
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
-        later_run = _request_json(
-            f"{session_url}/runs",
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": later_revision["revision_id"]},
+        first_run = service.run(created["session_id"], created["revision_id"])
+        later_run = service.run(
+            created["session_id"],
+            later_revision["revision_id"],
         )
 
         assert later_revision["created"] is True
@@ -411,10 +257,9 @@ def test_admitted_revisions_detach_from_caller_owned_values() -> None:
 def test_closed_request_schema_rejects_unknown_members_before_application() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (_process, readiness):
-        status, error = _request_error(
-            f"{readiness['base_url']}/v1/execution-sessions",
-            readiness["capability_token"],
+    with running_execution_http_service() as service:
+        status, error = service.request_error(
+            "/v1/execution-sessions",
             method="POST",
             body={
                 "model_source": model_source,
@@ -436,31 +281,24 @@ def test_closed_request_schema_rejects_unknown_members_before_application() -> N
 def test_routes_without_request_models_reject_bodies_before_side_effects() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (process, readiness):
-        status_code, status_error = _request_error(
-            f"{readiness['base_url']}/v1/status",
-            readiness["capability_token"],
+    with running_execution_http_service() as service:
+        status_code, status_error = service.request_error(
+            "/v1/status",
             body={"unexpected": True},
         )
-        created = _create_session(readiness, model_source, experiment)
-        session_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{created['session_id']}"
-        )
-        delete_code, delete_error = _request_error(
-            session_url,
-            readiness["capability_token"],
+        created = service.create_session(model_source, experiment)
+        session_path = f"/v1/execution-sessions/{created['session_id']}"
+        delete_code, delete_error = service.request_error(
+            session_path,
             method="DELETE",
             body={"unexpected": True},
         )
-        rerun = _request_json(
-            f"{session_url}/runs",
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
+        rerun = service.run(
+            created["session_id"],
+            created["revision_id"],
         )
-        shutdown_code, shutdown_error = _request_error(
-            f"{readiness['base_url']}/v1/shutdown",
-            readiness["capability_token"],
+        shutdown_code, shutdown_error = service.request_error(
+            "/v1/shutdown",
             method="POST",
             body={"unexpected": True},
         )
@@ -479,27 +317,21 @@ def test_routes_without_request_models_reject_bodies_before_side_effects() -> No
             }
         )
         assert rerun["outcome"] == "success"
-        assert process.poll() is None
+        assert service.process.poll() is None
 
 
 def test_declared_routes_reject_undeclared_query_input() -> None:
-    with _running_service() as (process, readiness):
-        status_code, status_error = _request_error(
-            f"{readiness['base_url']}/v1/status?unknown=true",
-            readiness["capability_token"],
+    with running_execution_http_service() as service:
+        status_code, status_error = service.request_error(
+            "/v1/status?unknown=true",
         )
-        run_code, run_error = _request_error(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/unknown/runs"
-                "?unknown=true"
-            ),
-            readiness["capability_token"],
+        run_code, run_error = service.request_error(
+            "/v1/execution-sessions/unknown/runs?unknown=true",
             method="POST",
             body={"revision_id": "unknown"},
         )
-        shutdown_code, shutdown_error = _request_error(
-            f"{readiness['base_url']}/v1/shutdown?unknown=true",
-            readiness["capability_token"],
+        shutdown_code, shutdown_error = service.request_error(
+            "/v1/shutdown?unknown=true",
             method="POST",
         )
 
@@ -516,35 +348,33 @@ def test_declared_routes_reject_undeclared_query_input() -> None:
                 }
             }
         )
-        assert process.poll() is None
+        assert service.process.poll() is None
 
 
 def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None:
-    with _running_service() as (_process, readiness):
-        unknown_status, unknown_error = _request_error(
-            f"{readiness['base_url']}/v1/unknown",
-            readiness["capability_token"],
+    with running_execution_http_service() as service:
+        unknown_status, unknown_error = service.request_error(
+            "/v1/unknown",
         )
-        trailing_status, trailing_error = _request_error(
-            f"{readiness['base_url']}/v1/status/",
-            readiness["capability_token"],
+        trailing_status, trailing_error = service.request_error(
+            "/v1/status/",
         )
         request = Request(
-            f"{readiness['base_url']}/v1/status",
+            service.url("/v1/status"),
             data=b"",
             method="POST",
             headers={
-                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Authorization": f"Bearer {service.capability_token}",
             },
         )
         with pytest.raises(HTTPError) as response:
             urlopen(request, timeout=10)
         method_error = json.load(response.value)
         shutdown_request = Request(
-            f"{readiness['base_url']}/v1/shutdown",
+            service.url("/v1/shutdown"),
             method="GET",
             headers={
-                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Authorization": f"Bearer {service.capability_token}",
             },
         )
         with pytest.raises(HTTPError) as shutdown_response:
@@ -578,10 +408,10 @@ def test_unknown_routes_methods_and_trailing_slashes_use_closed_errors() -> None
 
 
 def test_shutdown_closes_request_admission_before_acknowledgement() -> None:
-    with _running_service() as (process, readiness):
-        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+    with running_execution_http_service() as service:
+        connection = HTTPConnection(service.host, service.port, timeout=10)
         headers = {
-            "Authorization": f"Bearer {readiness['capability_token']}",
+            "Authorization": f"Bearer {service.capability_token}",
         }
         try:
             connection.request("POST", "/v1/shutdown", body=b"", headers=headers)
@@ -603,14 +433,13 @@ def test_shutdown_closes_request_admission_before_acknowledgement() -> None:
                 "message": "the local service is shutting down",
             }
         }
-        assert process.wait(timeout=10) == 0
+        assert service.process.wait(timeout=10) == 0
 
 
 def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
-    with _running_service() as (_process, readiness):
-        status, error = _request_error(
-            f"{readiness['base_url']}/v1/execution-sessions/unknown/runs",
-            readiness["capability_token"],
+    with running_execution_http_service() as service:
+        status, error = service.request_error(
+            "/v1/execution-sessions/unknown/runs",
             method="POST",
             body={"revision_id": "x" * 65_536},
         )
@@ -626,13 +455,11 @@ def test_request_body_limit_rejects_input_before_schema_parsing() -> None:
 
 
 def test_session_body_limit_rejects_declared_size_before_reading() -> None:
-    with _running_service() as (_process, readiness):
-        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+    with running_execution_http_service() as service:
+        connection = HTTPConnection(service.host, service.port, timeout=10)
         try:
             connection.putrequest("POST", "/v1/execution-sessions")
-            connection.putheader(
-                "Authorization", f"Bearer {readiness['capability_token']}"
-            )
+            connection.putheader("Authorization", f"Bearer {service.capability_token}")
             connection.putheader("Content-Type", "application/json")
             connection.putheader("Content-Length", str(2**40))
             connection.endheaders()
@@ -646,13 +473,13 @@ def test_session_body_limit_rejects_declared_size_before_reading() -> None:
 
 
 def test_process_capability_protects_execution_and_shutdown_routes() -> None:
-    with _running_service() as (process, readiness):
-        status_code, status_error = _request_error(
-            f"{readiness['base_url']}/v1/status",
+    with running_execution_http_service() as service:
+        status_code, status_error = request_error(
+            service.url("/v1/status"),
             "wrong-capability",
         )
-        shutdown_code, shutdown_error = _request_error(
-            f"{readiness['base_url']}/v1/shutdown",
+        shutdown_code, shutdown_error = request_error(
+            service.url("/v1/shutdown"),
             "wrong-capability",
             method="POST",
         )
@@ -661,24 +488,18 @@ def test_process_capability_protects_execution_and_shutdown_routes() -> None:
         assert shutdown_code == 401
         assert status_error["error"]["code"] == "authentication_required"
         assert shutdown_error == status_error
-        assert process.poll() is None
-        assert (
-            _request_json(
-                f"{readiness['base_url']}/v1/status",
-                readiness["capability_token"],
-            )["status"]
-            == "ready"
-        )
+        assert service.process.poll() is None
+        assert service.status()["status"] == "ready"
 
 
 def test_execution_routes_require_json_media_type() -> None:
-    with _running_service() as (_process, readiness):
+    with running_execution_http_service() as service:
         request = Request(
-            f"{readiness['base_url']}/v1/execution-sessions",
+            service.url("/v1/execution-sessions"),
             data=b"{}",
             method="POST",
             headers={
-                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Authorization": f"Bearer {service.capability_token}",
                 "Content-Type": "text/plain",
             },
         )
@@ -732,17 +553,9 @@ def test_cli_publication_and_http_inline_execution_are_semantically_identical(
         for row in cli_receipt["member_locators"]
     }
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        http_run = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        http_run = service.run(created["session_id"], created["revision_id"])
 
     assert http_run["outcome"] == "success"
     assert http_run["artifacts"] == cli_artifacts
@@ -758,8 +571,8 @@ def test_aggregate_http_limit_preserves_the_model_source_ingress_refusal() -> No
     ]
     model_source["oversized_padding"] = "x" * max_source_bytes
 
-    with _running_service() as (_process, readiness):
-        refused = _create_session(readiness, model_source, experiment)
+    with running_execution_http_service() as service:
+        refused = service.create_session(model_source, experiment)
 
         assert refused["outcome"] == "refusal"
         assert refused["refusal"]["stage"] == "ingress"
@@ -773,24 +586,15 @@ def test_sessions_do_not_share_revision_state() -> None:
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
 
-    with _running_service() as (_process, readiness):
-        first = _create_session(readiness, model_source, experiment)
-        second = _create_session(readiness, model_source, experiment)
-        first_revision = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{first['session_id']}/experiment-revisions"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"experiment_specification": later_experiment},
+    with running_execution_http_service() as service:
+        first = service.create_session(model_source, experiment)
+        second = service.create_session(model_source, experiment)
+        first_revision = service.admit_revision(
+            first["session_id"],
+            later_experiment,
         )
-        status, error = _request_error(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{second['session_id']}/runs"
-            ),
-            readiness["capability_token"],
+        status, error = service.request_error(
+            f"/v1/execution-sessions/{second['session_id']}/runs",
             method="POST",
             body={"revision_id": first_revision["revision_id"]},
         )
@@ -804,22 +608,14 @@ def test_sessions_do_not_share_revision_state() -> None:
 def test_restart_does_not_recover_process_local_sessions() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (first_process, first_readiness):
-        created = _create_session(first_readiness, model_source, experiment)
-        _request_json(
-            f"{first_readiness['base_url']}/v1/shutdown",
-            first_readiness["capability_token"],
-            method="POST",
-        )
-        assert first_process.wait(timeout=10) == 0
+    with running_execution_http_service() as first_service:
+        created = first_service.create_session(model_source, experiment)
+        first_service.shutdown()
+        assert first_service.process.wait(timeout=10) == 0
 
-    with _running_service() as (_second_process, second_readiness):
-        status, error = _request_error(
-            (
-                f"{second_readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            second_readiness["capability_token"],
+    with running_execution_http_service() as second_service:
+        status, error = second_service.request_error(
+            f"/v1/execution-sessions/{created['session_id']}/runs",
             method="POST",
             body={"revision_id": created["revision_id"]},
         )
@@ -831,31 +627,23 @@ def test_restart_does_not_recover_process_local_sessions() -> None:
 def test_disconnected_run_has_no_durable_result_and_can_be_rerun() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        connection = HTTPConnection(readiness["host"], readiness["port"], timeout=10)
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        connection = HTTPConnection(service.host, service.port, timeout=10)
         connection.request(
             "POST",
             f"/v1/execution-sessions/{created['session_id']}/runs",
             body=json.dumps({"revision_id": created["revision_id"]}),
             headers={
-                "Authorization": f"Bearer {readiness['capability_token']}",
+                "Authorization": f"Bearer {service.capability_token}",
                 "Content-Type": "application/json",
             },
         )
         connection.close()
 
-        rerun = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
+        rerun = service.run(created["session_id"], created["revision_id"])
 
-        assert process.poll() is None
+        assert service.process.poll() is None
         assert rerun["outcome"] == "success"
         assert (
             rerun["artifacts"]["reproduction-receipt"]["experiment_identity"]
@@ -864,16 +652,16 @@ def test_disconnected_run_has_no_durable_result_and_can_be_rerun() -> None:
 
 
 def test_disconnect_during_request_body_does_not_stop_the_service() -> None:
-    with _running_service() as (process, readiness):
+    with running_execution_http_service() as service:
         connection = socket.create_connection(
-            (readiness["host"], readiness["port"]),
+            (service.host, service.port),
             timeout=10,
         )
         try:
             request_head = (
                 "POST /v1/execution-sessions HTTP/1.1\r\n"
-                f"Host: {readiness['host']}:{readiness['port']}\r\n"
-                f"Authorization: Bearer {readiness['capability_token']}\r\n"
+                f"Host: {service.host}:{service.port}\r\n"
+                f"Authorization: Bearer {service.capability_token}\r\n"
                 "Content-Type: application/json\r\n"
                 "Content-Length: 1024\r\n"
                 "Connection: close\r\n"
@@ -884,38 +672,25 @@ def test_disconnect_during_request_body_does_not_stop_the_service() -> None:
             connection.close()
         time.sleep(0.5)
 
-        status = _request_json(
-            f"{readiness['base_url']}/v1/status",
-            readiness["capability_token"],
-        )
+        status = service.status()
 
-        assert process.poll() is None
+        assert service.process.poll() is None
         assert status["status"] == "ready"
 
 
 def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        run_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/"
-            f"{created['session_id']}/runs"
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
         with ThreadPoolExecutor(max_workers=1) as executor:
             run_future = executor.submit(
-                _request_json,
-                run_url,
-                readiness["capability_token"],
-                method="POST",
-                body={"revision_id": created["revision_id"]},
+                service.run,
+                created["session_id"],
+                created["revision_id"],
             )
             time.sleep(0.2)
-            shutdown = _request_json(
-                f"{readiness['base_url']}/v1/shutdown",
-                readiness["capability_token"],
-                method="POST",
-            )
+            shutdown = service.shutdown()
             run = run_future.result(timeout=20)
 
         assert shutdown == {"status": "shutting-down"}
@@ -926,28 +701,24 @@ def test_graceful_shutdown_waits_for_an_admitted_run() -> None:
             ]
             == evaluator_build_identity()
         )
-        assert process.wait(timeout=10) == 0
-        assert process.stdout is not None
-        assert process.stdout.read() == ""
+        assert service.process.wait(timeout=10) == 0
+        assert service.process.stdout is not None
+        assert service.process.stdout.read() == ""
 
 
 def test_forced_process_termination_discards_all_session_state() -> None:
     model_source, experiment = _roguelike_documents()
 
-    with _running_service() as (first_process, first_readiness):
-        created = _create_session(first_readiness, model_source, experiment)
-        first_process.kill()
-        assert first_process.wait(timeout=10) != 0
-        assert first_process.stdout is not None
-        assert first_process.stdout.read() == ""
+    with running_execution_http_service() as first_service:
+        created = first_service.create_session(model_source, experiment)
+        first_service.process.kill()
+        assert first_service.process.wait(timeout=10) != 0
+        assert first_service.process.stdout is not None
+        assert first_service.process.stdout.read() == ""
 
-    with _running_service() as (_second_process, second_readiness):
-        status, error = _request_error(
-            (
-                f"{second_readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            second_readiness["capability_token"],
+    with running_execution_http_service() as second_service:
+        status, error = second_service.request_error(
+            f"/v1/execution-sessions/{created['session_id']}/runs",
             method="POST",
             body={"revision_id": created["revision_id"]},
         )
@@ -1040,7 +811,7 @@ def test_post_readiness_application_fault_stops_the_local_host() -> None:
                 serving.result(timeout=10)
         finally:
             if not serving.done():
-                _request_json(
+                request_json(
                     f"http://{readiness.host}:{readiness.port}/v1/shutdown",
                     readiness.capability_token,
                     method="POST",
@@ -1103,7 +874,7 @@ def test_post_readiness_production_route_fault_stops_the_local_host(
                 serving.result(timeout=10)
         finally:
             if not serving.done():
-                _request_json(
+                request_json(
                     f"http://{readiness.host}:{readiness.port}/v1/shutdown",
                     readiness.capability_token,
                     method="POST",
@@ -1133,29 +904,17 @@ def test_built_wheel_starts_the_service_and_executes_packaged_authority(
     wheel_environment["PYTHONPATH"] = str(wheels[0])
     model_source, experiment = _roguelike_documents()
 
-    with _running_service(
+    with running_execution_http_service(
         command_prefix=[sys.executable, "-m", "gda_balancing"],
         cwd=tmp_path,
         env=wheel_environment,
-    ) as (process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        run = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
-        _request_json(
-            f"{readiness['base_url']}/v1/shutdown",
-            readiness["capability_token"],
-            method="POST",
-        )
+    ) as service:
+        created = service.create_session(model_source, experiment)
+        run = service.run(created["session_id"], created["revision_id"])
+        service.shutdown()
 
         assert run["outcome"] == "success"
-        assert process.wait(timeout=10) == 0
+        assert service.process.wait(timeout=10) == 0
 
 
 def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
@@ -1163,48 +922,35 @@ def test_admitted_run_finishes_before_later_session_work_and_deletion() -> None:
     later_experiment = deepcopy(experiment)
     later_experiment["seed"]["value"] += 1
 
-    with _running_service() as (_process, readiness):
-        first = _create_session(readiness, model_source, experiment)
-        second = _create_session(readiness, model_source, experiment)
-        first_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{first['session_id']}"
-        )
-        second_url = (
-            f"{readiness['base_url']}/v1/execution-sessions/{second['session_id']}"
-        )
+    with running_execution_http_service() as service:
+        first = service.create_session(model_source, experiment)
+        second = service.create_session(model_source, experiment)
 
         def timed_request(
-            url: str,
-            *,
-            method: str,
-            body: dict[str, Any] | None = None,
+            action: Callable[..., dict[str, Any]],
+            *arguments: Any,
         ) -> tuple[dict[str, Any], float]:
-            result = _request_json(
-                url,
-                readiness["capability_token"],
-                method=method,
-                body=body,
-            )
+            result = action(*arguments)
             return result, time.monotonic()
 
         with ThreadPoolExecutor(max_workers=3) as executor:
             run_future = executor.submit(
                 timed_request,
-                f"{first_url}/runs",
-                method="POST",
-                body={"revision_id": first["revision_id"]},
+                service.run,
+                first["session_id"],
+                first["revision_id"],
             )
             time.sleep(0.2)
             revision_future = executor.submit(
                 timed_request,
-                f"{second_url}/experiment-revisions",
-                method="POST",
-                body={"experiment_specification": later_experiment},
+                service.admit_revision,
+                second["session_id"],
+                later_experiment,
             )
             delete_future = executor.submit(
                 timed_request,
-                first_url,
-                method="DELETE",
+                service.delete_session,
+                first["session_id"],
             )
             run, run_finished = run_future.result(timeout=20)
             revision, revision_finished = revision_future.result(timeout=20)
@@ -1222,17 +968,9 @@ def test_metric_rejection_returns_a_complete_verdict_artifact_set() -> None:
     for metric in experiment["metrics"]:
         metric["target"] = {"minimum": 1000, "maximum": 1000}
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        run = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        run = service.run(created["session_id"], created["revision_id"])
 
         assert run["outcome"] == "verdict"
         assert run["failed_metrics"] == ["reward_score", "build_score"]
@@ -1257,17 +995,9 @@ def test_runtime_refusal_returns_existing_terminal_audit_artifacts() -> None:
     reward_pool["options"] = []
     reward_pool["no_reward_on_empty"] = []
 
-    with _running_service() as (_process, readiness):
-        created = _create_session(readiness, model_source, experiment)
-        run = _request_json(
-            (
-                f"{readiness['base_url']}/v1/execution-sessions/"
-                f"{created['session_id']}/runs"
-            ),
-            readiness["capability_token"],
-            method="POST",
-            body={"revision_id": created["revision_id"]},
-        )
+    with running_execution_http_service() as service:
+        created = service.create_session(model_source, experiment)
+        run = service.run(created["session_id"], created["revision_id"])
 
         assert run["outcome"] == "refusal"
         assert run["refusal"]["stage"] == "runtime"
