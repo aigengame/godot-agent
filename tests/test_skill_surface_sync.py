@@ -108,3 +108,34 @@ def test_gate_catches_a_dropped_command():
     assert "delete" in parse_skill_groups(BUNDLED).get("scene", set())
     doctored = BUNDLED.replace("`get-exports`, `delete`", "`get-exports`")
     assert parse_skill_groups(doctored).get("scene") != surface_groups().get("scene")
+
+
+def test_scene_create_control_root_note_agrees_with_skill():
+    # `gda scene create --help` (the command docstring, projected verbatim into
+    # `gda schema`'s "scene create" description) and this Scene-authoring section
+    # independently document the same Control-derived zero-size root pitfall
+    # (GDA-DF-006, #672) in two hand-maintained prose surfaces. They already diverged
+    # once — a scope fix (Control -> Control-derived) landed in SKILL.md without the
+    # matching help-text edit (PR #676 review) — so this is a minimal token-level guard,
+    # not a full prose-equality pin: the two surfaces deliberately differ in voice, but
+    # must name the same fix properties, the same check command, and agree on the same
+    # root-class scope.
+    by_name = {
+        c["name"]: c["description"]
+        for c in build_surface_manifest(app).model_dump()["commands"]
+    }
+    scene_create_description = by_name["scene create"]
+
+    load_bearing_tokens = ["anchor_right", "anchor_bottom", "game rect"]
+    for token in load_bearing_tokens:
+        assert token in scene_create_description, (
+            f"'scene create' help text missing {token!r}: {scene_create_description!r}"
+        )
+        assert token in BUNDLED, f"SKILL.md missing {token!r}"
+
+    assert "Control-derived" in scene_create_description, (
+        "'scene create' help text dropped the Control-derived scope token"
+    )
+    assert "Control-derived" in BUNDLED, (
+        "SKILL.md dropped the Control-derived scope token"
+    )
