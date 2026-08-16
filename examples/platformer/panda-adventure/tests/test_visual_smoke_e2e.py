@@ -333,11 +333,11 @@ def _error_code(stdout: str) -> str | None:
 def test_player_visible_surface_renders_in_the_windowed_viewport(
     tmp_path, daemon_runtime_dir
 ):
-    from gda.display import windowed_unavailable_reason
+    from gda.display import windowed_unavailable
 
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
+    unavailable = windowed_unavailable()
+    if unavailable is not None:
+        pytest.skip(unavailable.reason)
 
     project = _make_project_copy(tmp_path / "game")
 

@@ -27,7 +27,7 @@ import sys
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable_reason
+from gda.display import windowed_unavailable
 
 import build_config
 
@@ -75,9 +75,9 @@ def test_windowed_daemon_captures_the_running_viewport(tmp_path, daemon_runtime_
     # can't launch there. Uses gda's shared display helper (the same one gda's
     # `daemon start --windowed` precondition keys on, #345), so the pre-check and the
     # tool agree. Runs for real on a genuine desktop (macOS Aqua / Linux+DISPLAY).
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
+    unavailable = windowed_unavailable()
+    if unavailable is not None:
+        pytest.skip(unavailable.reason)
     project = _make_project_copy(tmp_path / "game")
     env = {**os.environ}
     out = tmp_path / "shot.png"

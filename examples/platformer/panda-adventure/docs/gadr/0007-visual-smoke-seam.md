@@ -33,9 +33,10 @@ The model:
   when a future slice adds a player-visible feature, it adds a checkpoint (a
   capture and/or a check) to this scenario — never a new windowed session.
 - **Display-gated: a desktop tier, not a CI gate.** Gated exactly like
-  `test_e2e_screenshot.py`: `gda.display.windowed_unavailable_reason()`
+  `test_e2e_screenshot.py`: `gda.display.windowed_unavailable()`
   pre-checks the window server, and the daemon's typed no-display refusals
-  (`live_windowed_unavailable` / `live_display_unavailable`, #345) are
+  (`live_windowed_unavailable` / `live_windowed_permission_denied` /
+  `live_display_unavailable`, #345, #667) are
   honored as skips — visible under `-rs`, never silent. CI keeps the headless
   seams; the visual-smoke seam runs pre-merge on a real desktop.
 - **Engine-side pixel decode.** Captures are analyzed by the engine's own

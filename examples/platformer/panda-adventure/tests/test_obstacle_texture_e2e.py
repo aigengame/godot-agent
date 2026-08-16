@@ -38,7 +38,7 @@ import time
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable_reason
+from gda.display import windowed_unavailable
 
 import build_config
 
@@ -106,9 +106,9 @@ def _make_project_copy(dst):
 
 @pytest.mark.e2e
 def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
+    unavailable = windowed_unavailable()
+    if unavailable is not None:
+        pytest.skip(unavailable.reason)
     project = _make_project_copy(tmp_path / "game")
     env = {**os.environ}
     out = tmp_path / "shot.png"
