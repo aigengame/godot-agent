@@ -111,6 +111,14 @@ class HarnessInstall:
     the ``project.godot`` sections it added. Both are empty on an idempotent repeat
     install and on a version resync — nothing new appears there; the rewrite is what
     ``synced`` reports.
+
+    ``wrote_autoload_entry`` completes the receipt for :func:`rollback_install`: True
+    when this call wrote the harness ``[autoload]`` entry, whether it ADDED one or
+    re-pointed an existing one. It is deliberately not part of the public
+    ``daemon start`` result — it exists so a failed start can undo precisely the
+    config edit it made (PR #680 review), which the created-path/section lists alone
+    cannot express (an entry added to a section that already existed shows up in
+    neither).
     """
 
     changed: bool
@@ -118,6 +126,7 @@ class HarnessInstall:
     version: str
     created_paths: tuple[str, ...] = ()
     created_sections: tuple[str, ...] = ()
+    wrote_autoload_entry: bool = False
 
 
 @dataclass(frozen=True)
@@ -214,13 +223,21 @@ def _harness_uid(project: Path) -> Path:
 def harness_artifacts(project: Path) -> tuple[Path, ...]:
     """Every file in ``project`` that the harness install owns: script + ``.uid``.
 
-    The one place that enumerates them, so a caller which must SNAPSHOT the install
-    before stripping it — ``gda export run``'s transactional strip (ADR-0028) — stays
-    in step with what :func:`uninstall_harness` deletes. Missing the ``.uid`` there
-    would mean the strip removes a file the restore never puts back, breaking the
-    "dev project left byte-identical" guarantee (#654).
+    The ONLY enumeration of them, in deletion order (the script first, then the
+    sidecar). Both consumers read it rather than restating it: :func:`_remove_files`
+    deletes exactly these, and ``gda export run``'s transactional strip (ADR-0028)
+    snapshots exactly these before stripping. A second hand-maintained list here
+    would let the two drift — a file uninstall removes but the snapshot never
+    captured would simply never come back, breaking ADR-0028's "dev project left
+    byte-identical" guarantee (#654; the drift risk was called out in PR #680 review,
+    which is why removal now iterates this instead of its own tuple).
     """
     return (_harness_dest(project), _harness_uid(project))
+
+
+def _res_path(project: Path, path: Path) -> str:
+    """A project-internal filesystem path as the ``res://`` string results report."""
+    return f"res://{path.relative_to(project).as_posix()}"
 
 
 def installed_harness_version(project: Path) -> Optional[str]:
@@ -298,7 +315,7 @@ def _ensure_autoload(text: str) -> _ConfigEdit:
         return _ConfigEdit(eol.join(lines) + trailing, True)
 
     # No [autoload] section — append one at EOF (sections may appear in any order).
-    # The leading blank line is the section separator ``_drop_empty_autoload_sections``
+    # The leading blank line is the section separator ``_drop_emptied_autoload_sections``
     # takes back when uninstall empties the section again (#654).
     base = text if text.endswith(("\n", "\r")) else text + eol
     return _ConfigEdit(
@@ -353,6 +370,7 @@ def install_harness(project: Path) -> HarnessInstall:
         version=HARNESS_VERSION,
         created_paths=created_paths if materialized else (),
         created_sections=edit.sections,
+        wrote_autoload_entry=edit.changed,
     )
 
 
@@ -368,52 +386,56 @@ def _section_of(stripped: str, current: Optional[str]) -> Optional[str]:
     return current
 
 
-def _drop_empty_autoload_sections(
-    lines: list[str],
+def _drop_emptied_autoload_sections(
+    lines: list[str], headers: set[int]
 ) -> tuple[list[str], tuple[str, ...]]:
-    """Drop every ``[autoload]`` section left with no keys; (lines, dropped sections).
+    """Drop the named ``[autoload]`` sections if now key-less; (lines, dropped).
 
-    Run right after the harness entry is stripped: an ``[autoload]`` section gda
-    itself appended would otherwise survive as an empty header, keeping a tracked
-    ``project.godot`` modified after every live session (GDA-DF-020, #654). The
-    decision is read off the file as it stands — a section with any remaining key is
-    a USER section and stays, so no pre-install state has to be recorded.
+    ``headers`` holds the ``lines`` indices of the ``[autoload]`` headers a harness
+    entry was actually removed from — the ONLY sections this may drop. A section gda
+    emptied would otherwise survive as a bare header, keeping a tracked
+    ``project.godot`` modified after every live session (GDA-DF-020, #654), but an
+    unrelated ``[autoload]`` section that was ALREADY empty before this call is none
+    of gda's business and stays (PR #680 review). Scoping the removal to the touched
+    section is what makes "a pre-existing empty section is not gda's to remove" true
+    of the code and not just of the docs.
 
-    Removes one span at a time, re-scanning the shortened list each round (a
-    degenerate file with two ``[autoload]`` headers is thus handled without index
-    bookkeeping); each round deletes at least the header line, so it terminates.
+    Deletes in DESCENDING index order so removing a later span cannot shift the
+    index of one not yet visited.
     """
     kept = list(lines)
     dropped: list[str] = []
-    while (span := _empty_autoload_span(kept)) is not None:
+    for index in sorted(headers, reverse=True):
+        span = _emptied_autoload_span(kept, index)
+        if span is None:
+            continue  # a sibling autoload survives -> the section stays
         del kept[span[0] : span[1]]
         dropped.append(_AUTOLOAD_HEADER)
     return kept, tuple(dropped)
 
 
-def _empty_autoload_span(lines: list[str]) -> Optional[tuple[int, int]]:
-    """The ``[start, end)`` slice of the first key-less ``[autoload]``, else None.
+def _emptied_autoload_span(lines: list[str], index: int) -> Optional[tuple[int, int]]:
+    """The ``[start, end)`` slice to delete for a key-less ``[autoload]``, else None.
 
-    The section spans its header up to the next section header (or EOF), so removing
-    it takes the blank lines inside it. When it ran to EOF the span also takes the
-    ONE blank separator line in front of it, because nothing follows to be separated
-    from — together that is the exact inverse of the ``\\n[autoload]\\n\\n<entry>\\n``
-    ``_ensure_autoload`` appends, so the file returns to its pre-install bytes. A
-    mid-file section keeps that separator: it still divides the two neighbours.
+    The section spans its header at ``index`` up to the next section header (or EOF),
+    so removing it takes the blank lines inside it. When it ran to EOF the span also
+    takes the ONE blank separator line in front of it, because nothing follows to be
+    separated from — together that is the exact inverse of the
+    ``\\n[autoload]\\n\\n<entry>\\n`` ``_ensure_autoload`` appends, so the file returns
+    to its pre-install bytes. A mid-file section keeps that separator: it still
+    divides the two neighbours.
     """
-    for index, raw in enumerate(lines):
-        if raw.strip() != _AUTOLOAD_HEADER:
-            continue
-        end = index + 1
-        while end < len(lines) and not _is_section_header(lines[end].strip()):
-            end += 1
-        if any(line.strip() for line in lines[index + 1 : end]):
-            continue  # a sibling autoload survives -> the section stays
-        start = index
-        if end == len(lines) and start > 0 and not lines[start - 1].strip():
-            start -= 1
-        return start, end
-    return None
+    if index >= len(lines) or lines[index].strip() != _AUTOLOAD_HEADER:
+        return None
+    end = index + 1
+    while end < len(lines) and not _is_section_header(lines[end].strip()):
+        end += 1
+    if any(line.strip() for line in lines[index + 1 : end]):
+        return None
+    start = index
+    if end == len(lines) and start > 0 and not lines[start - 1].strip():
+        start -= 1
+    return start, end
 
 
 def _remove_autoload(text: str) -> _ConfigEdit:
@@ -422,33 +444,45 @@ def _remove_autoload(text: str) -> _ConfigEdit:
     Removes only the ``GdaHarness=...`` line **inside the ``[autoload]`` section**,
     leaving any sibling autoloads intact (the inverse of ``_ensure_autoload``). A
     same-named key in another section is left untouched. When that empties the
-    section, the header goes too (:func:`_drop_empty_autoload_sections`, #654) and
-    the returned :class:`_ConfigEdit` names it in ``sections``.
+    section the harness entry sat in, the header goes too
+    (:func:`_drop_emptied_autoload_sections`, #654) and the returned
+    :class:`_ConfigEdit` names it in ``sections``.
     """
     lines, eol, trailing = _split_config(text)
     section: Optional[str] = None
     kept: list[str] = []
+    # The `kept` index of the [autoload] header now in scope, and the headers a
+    # harness entry was actually dropped from — only those may lose their section.
+    header_index: Optional[int] = None
+    emptied: set[int] = set()
     for raw in lines:
         stripped = raw.strip()
         section = _section_of(stripped, section)
-        if section == _AUTOLOAD_HEADER and stripped.startswith(
-            f"{HARNESS_AUTOLOAD_NAME}="
-        ):
-            continue  # drop the autoload entry only
+        if section == _AUTOLOAD_HEADER:
+            if stripped == _AUTOLOAD_HEADER:
+                header_index = len(kept)
+            elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
+                if header_index is not None:
+                    emptied.add(header_index)
+                continue  # drop the autoload entry only
         kept.append(raw)
     if len(kept) == len(lines):
         return _ConfigEdit(text, False)
-    kept, dropped = _drop_empty_autoload_sections(kept)
+    kept, dropped = _drop_emptied_autoload_sections(kept, emptied)
     return _ConfigEdit(eol.join(kept) + trailing, True, dropped)
 
 
 def _remove_files(project: Path) -> tuple[str, ...]:
     """Delete the harness file, its ``.uid`` sidecar and the emptied addon dir.
 
-    Returns the ``res://`` paths actually removed (the filesystem half of the #654
-    receipt). The engine writes the ``.uid`` sidecar itself, but it names gda's
-    script, so it is gda's footprint — and until it goes the addon directory is
-    never empty, so the directory removal below never fires (GDA-DF-009).
+    Iterates :func:`harness_artifacts` — the single authority for what the install
+    owns — and derives the receipt from the same entries, so adding an artifact
+    there extends deletion, the receipt and ADR-0028's export snapshot at once
+    (PR #680 review). Returns the ``res://`` paths actually removed (the filesystem
+    half of the #654 receipt). The engine writes the ``.uid`` sidecar itself, but it
+    names gda's script, so it is gda's footprint — and until it goes the addon
+    directory is never empty, so the directory removal below never fires
+    (GDA-DF-009).
 
     ``res://addons`` is deliberately left alone even when this empties it, for two
     reasons that do NOT apply to the ``[autoload]`` section this module does remove.
@@ -460,13 +494,10 @@ def _remove_files(project: Path) -> tuple[str, ...]:
     the receipt.
     """
     removed: list[str] = []
-    for path, res_path in (
-        (_harness_dest(project), HARNESS_RES_PATH),
-        (_harness_uid(project), HARNESS_UID_RES_PATH),
-    ):
+    for path in harness_artifacts(project):
         if path.exists():
             path.unlink()
-            removed.append(res_path)
+            removed.append(_res_path(project, path))
     addon_dir = project / HARNESS_RES_DIR
     if addon_dir.is_dir() and not any(addon_dir.iterdir()):
         addon_dir.rmdir()
@@ -494,10 +525,13 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
 
     Two states are outside the guarantee by design:
 
-    - an ``[autoload]`` section that was ALREADY empty before the install is not
-      restored. Closing this one WOULD need recorded pre-install state, which this
-      module refuses to write into the project — and Godot's own ``ConfigFile``
-      writer never emits an empty section, so the input is degenerate.
+    - the ``[autoload]`` section the harness entry sat in is dropped even if it was
+      ALREADY empty before the install. Closing this one WOULD need recorded
+      pre-install state, which this module refuses to write into the project — and
+      Godot's own ``ConfigFile`` writer never emits an empty section, so the input
+      is degenerate. (An empty ``[autoload]`` section the harness never joined is a
+      different matter and IS left alone — see
+      :func:`_drop_emptied_autoload_sections`.)
     - an ``addons/`` directory gda created is left in place. Here the reason is not
       missing state (uninstall could infer it just as well as it infers the empty
       section) but that removal would buy nothing: see :func:`_remove_files`.
@@ -514,3 +548,71 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
         removed_paths=removed_paths,
         removed_sections=edit.sections,
     )
+
+
+def install_footprint(install: HarnessInstall) -> tuple[str, ...]:
+    """Everything ``install`` reports having written, as human-readable names.
+
+    What :func:`rollback_install` undoes — and therefore what a caller must tell the
+    user to clean up by hand if that rollback itself fails (PR #680 review).
+    """
+    if not install.changed:
+        return ()
+    footprint = list(install.created_paths)
+    if install.wrote_autoload_entry:
+        footprint.append(f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot")
+    footprint.extend(
+        f"the {section} section in project.godot"
+        for section in install.created_sections
+    )
+    return tuple(footprint)
+
+
+def rollback_install(project: Path, install: HarnessInstall) -> tuple[str, ...]:
+    """Undo exactly what ``install`` reports it wrote; returns what was undone.
+
+    The paired failure path for a caller that installs the harness and then cannot
+    finish — ``gda daemon start``, whose spawn or readiness wait may fail AFTER the
+    install. Without this the project keeps an install the user never got any use
+    of, and the failure envelope says nothing about it (PR #680 review, claim 2).
+
+    Driven entirely by the in-hand receipt, so it can only remove what THIS install
+    added: a ``changed=False`` install (the harness was already there) rolls back
+    nothing at all. Crash-safe ordering matches :func:`uninstall_harness` — the
+    ``[autoload]`` entry first, then the files innermost-out — so a mid-rollback
+    failure never leaves an autoload pointing at a script that is already gone.
+
+    Two deliberate differences from ``uninstall_harness``:
+
+    - ``res://addons`` IS removed when the receipt says this install created it.
+      Uninstall cannot tell whose directory it is; a rollback can, because the
+      receipt records it, and it is undoing one specific call rather than a whole
+      installation history.
+    - a pre-existing entry this install RE-POINTED is removed, not restored to its
+      old value (which is not recorded). Removal is the safe direction, matching
+      ADR-0028's stance for a mid-export crash: harness-ABSENT is recoverable by the
+      next ``daemon start``, a dangling autoload is startup error spam.
+    """
+    if not install.changed:
+        return ()
+    undone: list[str] = []
+    project_godot = project / "project.godot"
+    if install.wrote_autoload_entry and project_godot.exists():
+        edit = _remove_autoload(_read_config(project_godot))
+        if edit.changed:
+            _write_config(project_godot, edit.text)
+            undone.append(f"the {HARNESS_AUTOLOAD_NAME} entry in project.godot")
+            undone.extend(
+                f"the {section} section in project.godot" for section in edit.sections
+            )
+    # Innermost first: the file, then the directories that held it.
+    for res_path in reversed(install.created_paths):
+        path = project / res_path.removeprefix("res://")
+        if path.is_dir():
+            if not any(path.iterdir()):
+                path.rmdir()
+                undone.append(res_path)
+        elif path.exists():
+            path.unlink()
+            undone.append(res_path)
+    return tuple(undone)

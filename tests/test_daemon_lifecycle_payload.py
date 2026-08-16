@@ -679,6 +679,109 @@ def test_uninstall_is_idempotent_no_op_when_not_installed(
     assert outcome.removed_sections == []
 
 
+# --- a failed start rolls its own install back (#680 review, claim 2) ----------
+# The harness install happens BEFORE the daemon exists, so a start that never comes
+# ready used to return `daemon_not_running` over a project it had silently mutated,
+# with nothing in the envelope saying so. The failure path now undoes exactly what
+# the in-hand install receipt reports.
+
+
+def test_failed_start_rolls_the_harness_install_back(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_not_running"
+    # The project is back to its pre-start bytes, with no addons residue at all.
+    assert project_godot.read_bytes() == before
+    assert not (project / "addons").exists()
+    # And the envelope SAYS what was undone, so the mutation is never silent.
+    assert "rolled back" in failure.error.diagnostics
+    assert HARNESS_RES_DIR in failure.error.diagnostics
+
+
+def test_failed_start_leaves_a_pre_existing_install_alone(
+    tmp_path, short_runtime, monkeypatch
+):
+    # `changed=False` means this start created nothing, so there is nothing to roll
+    # back — a failed start must not uninstall a harness that was already there.
+    project = _project(tmp_path)
+    install_harness(project)
+    installed_bytes = (project / "project.godot").read_bytes()
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_not_running"
+    assert (project / HARNESS_RES_DIR / HARNESS_FILE).exists()  # untouched
+    assert (project / "project.godot").read_bytes() == installed_bytes
+    assert failure.error.diagnostics == ""  # nothing rolled back -> nothing to say
+
+
+def test_start_rolls_back_when_the_spawn_itself_raises(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The exception arm: a crash between install and readiness must not leave residue
+    # either. The original exception propagates unchanged (no new error semantics).
+    project = _project(tmp_path)
+    project_godot = project / "project.godot"
+    before = project_godot.read_bytes()
+
+    def boom(*args, **kwargs):
+        raise OSError("injected: cannot spawn")
+
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", boom)
+
+    with pytest.raises(OSError, match="cannot spawn"):
+        daemon_ops.run_daemon_start_operation(
+            project, "godot", version_check=_OK_VERSION
+        )
+
+    assert project_godot.read_bytes() == before
+    assert not (project / "addons").exists()
+
+
+def test_failed_start_reports_the_footprint_when_rollback_also_fails(
+    tmp_path, short_runtime, monkeypatch
+):
+    # A rollback failure must not replace the start failure; it is reported ALONGSIDE
+    # it, naming what the user now has to remove by hand (ADR-0004 shape unchanged —
+    # same code, prose in `diagnostics`).
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "_spawn_daemon", lambda *a, **k: None)
+    monkeypatch.setattr(daemon_ops, "_await_ready", lambda paths, *a, **k: None)
+
+    def boom(project, installed):
+        raise OSError("injected: rollback cannot write")
+
+    monkeypatch.setattr(daemon_ops, "rollback_install", boom)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, "godot", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_not_running"  # still the start's failure
+    assert "could NOT be rolled back" in failure.error.diagnostics
+    assert "injected: rollback cannot write" in failure.error.diagnostics
+    # The footprint the user must clean up is spelled out.
+    assert f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}" in failure.error.diagnostics
+    assert "the [autoload] section in project.godot" in failure.error.diagnostics
+
+
 # --- the mutation receipt on both halves (#654) -------------------------------
 
 

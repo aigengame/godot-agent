@@ -95,18 +95,33 @@ so two instances can touch the project at once.
 > the `.uid` sidecar and, when dropping the harness entry leaves `[autoload]` with no
 > keys, the section header and the blank separator the install appended — so
 > `project.godot` returns to its pre-install bytes. Line terminators are preserved, so a
-> CRLF project file is no longer silently rewritten to LF; a MIXED-terminator file is the
-> one documented exception to byte-identity.
+> CRLF project file is no longer silently rewritten to LF.
+>
+> The byte-identity guarantee is **scoped**, and `src/gda/harness/install.py`'s module
+> docstring is its authority — not this note, so the two cannot drift. In summary it
+> excludes three malformed inputs Godot's own `ConfigFile` writer cannot produce (a file
+> with mixed line terminators, one with no final terminator, and a CR-only file), each
+> left documented rather than coded around.
 >
 > Both decisions are read off the file **at uninstall time**: no pre-install state is
 > recorded and no marker file is ever written into the project — the same reason point 1
 > keeps the write install-time. Two states therefore stay outside the guarantee, for two
-> DIFFERENT reasons. An `[autoload]` section that was ALREADY empty before the install is
-> not restored: that one genuinely would need recorded pre-install state, and Godot's own
-> `ConfigFile` writer never emits an empty section, so the input is degenerate. An
+> DIFFERENT reasons. The `[autoload]` section the harness entry sat in is dropped even if
+> it was ALREADY empty before the install: restoring that one genuinely would need
+> recorded pre-install state, and Godot's own `ConfigFile` writer never emits an empty
+> section, so the input is degenerate. (An empty `[autoload]` section the harness never
+> joined is left alone — removal is scoped to the section the entry came out of.) An
 > `addons/` directory gda created is left in place for an unrelated reason — an empty
 > directory is invisible to git, so it causes none of GDA-DF-020's churn, and `addons/` is
 > the shared Godot-convention directory another addon may be about to populate.
+>
+> **Point 1's install is now transactional at the `daemon start` boundary.** The install
+> precedes the daemon, so a start that fails afterwards (the spawn raises, or the daemon
+> never begins accepting) used to leave the project mutated and say nothing about it. Such
+> a start now rolls back exactly what the install receipt reports, and reports the outcome
+> in the failure's `diagnostics` — what was undone, or, if the rollback itself fails, the
+> footprint the user must remove by hand. A start that installed nothing
+> (`changed=false`) rolls back nothing, so a pre-existing installation is never disturbed.
 >
 > Point 1's "reports the effect" grows from a boolean to an enumeration: `daemon start`
 > reports `created_paths` / `created_sections` and `daemon uninstall` reports

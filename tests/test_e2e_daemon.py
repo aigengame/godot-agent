@@ -809,10 +809,36 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
     # SCANNED (`--import`, or a human opening the editor on it — ADR-0018's concurrent
     # external editor, which is precisely how the dogfooding project grew one). Without
     # this step the sidecar assertions below would pass vacuously.
+    #
+    # The project is a real GIT WORKING TREE (PR #680 review, claim 7): the acceptance
+    # criterion is about a TRACKED project, and byte comparisons on the files this test
+    # happens to name cannot see a stray file it forgot to name. `git status
+    # --porcelain` can — it is the same check the dogfooding sessions failed. Only
+    # `.godot/` is ignored (the engine's import cache, which no one commits); the
+    # harness, its sidecar and `addons/` are deliberately NOT ignored, so any residue
+    # shows up.
     project_godot = tmp_path / "project.godot"
     project_godot.write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".godot/\n", encoding="utf-8")
     before = project_godot.read_bytes()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    assert git("init", "-q").returncode == 0
+    assert git("config", "user.email", "e2e@example.invalid").returncode == 0
+    assert git("config", "user.name", "gda e2e").returncode == 0
+    assert git("add", "-A").returncode == 0
+    committed = git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "baseline")
+    assert committed.returncode == 0, committed.stdout + committed.stderr
+    assert git("status", "--porcelain").stdout == ""  # a clean baseline to diff against
+
     run = _gda(tmp_path, {**os.environ})
     harness = tmp_path / HARNESS_RES_DIR / HARNESS_FILE
 
@@ -872,6 +898,15 @@ def test_daemon_round_trip_restores_the_project_it_started_from(
         assert not (tmp_path / HARNESS_RES_DIR).exists()
         # And project.godot is back to the bytes the project started with.
         assert project_godot.read_bytes() == before
+
+        # The criterion itself: git sees NOTHING. This catches residue the byte
+        # assertions above cannot, because it does not depend on naming the file.
+        # The now-empty `addons/` survives on disk and is correctly invisible here —
+        # git does not track empty directories, which is why uninstall leaves it.
+        status = git("status", "--porcelain")
+        assert status.stdout == "", (
+            "the round trip left the tracked project dirty:\n" + status.stdout
+        )
     finally:
         run("daemon", "stop")
 

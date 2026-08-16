@@ -50,7 +50,10 @@ from gda.dispatch import dispatch_recipe
 from gda.errors import Failure, make_failure, unresolvable_binary_failure
 from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
+    HarnessInstall,
+    install_footprint,
     install_harness,
+    rollback_install,
     uninstall_harness,
 )
 from gda.headless import (
@@ -375,6 +378,49 @@ def _await_gone(paths: DaemonPaths, pid: int, timeout: float = _STOP_TIMEOUT) ->
         pass
 
 
+_START_FAILED = "the gda-daemon did not start (it never began accepting on its socket)"
+
+
+def _rollback_start_install(
+    project: Path, installed: HarnessInstall
+) -> "tuple[str, ...] | OSError":
+    """Undo a failed start's harness install; the undone set, or the error that stopped it.
+
+    Never raises: a rollback failure must not replace the start failure the caller is
+    already reporting — it is reported ALONGSIDE it, as the mutation the user now has
+    to clean up by hand.
+    """
+    try:
+        return rollback_install(project, installed)
+    except OSError as exc:
+        return exc
+
+
+def _failed_start_failure(project: Path, installed: HarnessInstall) -> Failure:
+    """The ``daemon_not_running`` failure for a start that never became ready.
+
+    Carries the harness install's fate in the ``diagnostics`` prose (ADR-0004 shape
+    unchanged, no new error code): what was rolled back, or — when the rollback
+    itself failed — exactly what is left in the project for the user to remove.
+    """
+    outcome = _rollback_start_install(project, installed)
+    if isinstance(outcome, OSError):
+        footprint = ", ".join(install_footprint(installed))
+        return make_failure(
+            "daemon_not_running",
+            _START_FAILED,
+            f"the harness install could NOT be rolled back ({outcome}); the project "
+            f"still holds: {footprint}",
+        )
+    if not outcome:
+        return make_failure("daemon_not_running", _START_FAILED, "")
+    return make_failure(
+        "daemon_not_running",
+        _START_FAILED,
+        f"rolled back this start's harness install: {', '.join(outcome)}",
+    )
+
+
 def run_daemon_start_operation(
     project: Optional[Path],
     godot: Optional[str],
@@ -475,15 +521,21 @@ def run_daemon_start_operation(
         if reason is not None:
             return make_failure("live_windowed_unavailable", reason, "")
 
+    # The harness install happens BEFORE the daemon exists, so everything after it
+    # runs with the project already mutated. Any failure from here on therefore
+    # undoes the install from its receipt (PR #680 review, claim 2) — otherwise a
+    # start that never came up leaves an install the user got no use of, and the
+    # failure envelope says nothing about it. The exception arm re-raises unchanged;
+    # it is there so a crash cannot leave residue either.
     installed = install_harness(project)
-    (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
-    pid = _await_ready(paths)
+    try:
+        (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
+        pid = _await_ready(paths)
+    except BaseException:
+        _rollback_start_install(project, installed)
+        raise
     if pid is None:
-        return make_failure(
-            "daemon_not_running",
-            "the gda-daemon did not start (it never began accepting on its socket)",
-            "",
-        )
+        return _failed_start_failure(project, installed)
     return DaemonStartResult(
         pid=pid,
         socket_path=str(paths.cli_socket),

@@ -605,10 +605,16 @@ def run_export_operation(
     # forget-proof (no `gda daemon uninstall` needed). A no-op when no harness is
     # present; if gda dies mid-export the project is left harness-ABSENT (the safe
     # direction — no dangling autoload), and the next `daemon start` reinstalls it.
+    #
+    # The strip runs INSIDE the guarded region, not before it (PR #680 review): the
+    # strip is itself a multi-step mutation — entry, script, sidecar, directory — so
+    # a failure PART WAY THROUGH it (an unlink that hits a permission error, say) is
+    # exactly the case the restore exists for. Capturing outside and stripping inside
+    # means the `finally` covers a partial strip too, not just a failed export.
     snapshot = _HarnessSnapshot.capture(project) if project is not None else None
-    if project is not None:
-        uninstall_harness(project)
     try:
+        if project is not None:
+            uninstall_harness(project)
         print(
             f'gda: exporting preset "{got.name}" ({mode.value}) ...',
             file=sys.stderr,
