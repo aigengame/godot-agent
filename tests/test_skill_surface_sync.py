@@ -15,6 +15,8 @@ meta commands (`info` / `schema` / `skill`) live in prose, not the tables, and a
 
 import re
 
+import pytest
+
 from gda.cli import app
 from gda.commands.meta import read_skill_text
 from gda.surface import build_surface_manifest
@@ -139,11 +141,48 @@ def _extract_scene_create_root_note(text: str) -> str:
     return text[start:end]
 
 
-def _normalize_whitespace(text: str) -> str:
+def _normalize_prose(text: str) -> str:
     # Both surfaces hand-wrap their prose at ~88 columns, so a load-bearing phrase
     # can straddle a line break (e.g. "...no intrinsic\nminimum size..."). Collapsing
-    # whitespace runs to a single space keeps token matching robust to rewrapping.
-    return re.sub(r"\s+", " ", text)
+    # whitespace runs to a single space keeps matching robust to rewrapping; stripping
+    # backticks lets one clause pattern cover both voices (SKILL.md backticks class
+    # names and commands, the help text does not).
+    return re.sub(r"\s+", " ", text.replace("`", ""))
+
+
+# The conditional this guard exists for, as ORDERED clauses rather than vocabulary:
+# review round 2's recheck showed a one-word mutation ("no intrinsic minimum" ->
+# "an intrinsic minimum") reverses the meaning while keeping every token present.
+# `[^;]*` confines each pattern to one semicolon-delimited clause, so pairing the
+# wrong condition with the wrong consequence cannot match across the clause break.
+_SEMANTIC_CLAUSES = [
+    (
+        "a root with NO intrinsic minimum renders zero-size",
+        r"no intrinsic minimum[^;]*zero-size rect",
+    ),
+    (
+        "a root WITH an intrinsic minimum renders at that minimum",
+        r"an intrinsic minimum[^;]*renders at that minimum instead",
+    ),
+]
+
+
+def _assert_control_root_semantics(normalized: str, surface: str) -> None:
+    """Assert one surface carries the Control-root facts, conditional included."""
+    for label, pattern in _SEMANTIC_CLAUSES:
+        assert re.search(pattern, normalized), (
+            f"{surface} lost the clause [{label}] (pattern {pattern!r}): {normalized!r}"
+        )
+    for token in [
+        "zero anchors",
+        "zero offsets",
+        "anchor_right",
+        "anchor_bottom",
+        "node set",
+        "game rect",
+        "Control-derived",
+    ]:
+        assert token in normalized, f"{surface} missing {token!r}: {normalized!r}"
 
 
 def test_scene_create_control_root_note_agrees_with_skill():
@@ -158,31 +197,35 @@ def test_scene_create_control_root_note_agrees_with_skill():
     # since `game rect` / `node set` also occur elsewhere in SKILL.md for unrelated
     # reasons (PR #676 review round 2 recheck). This guards the SPECIFIC paragraph
     # for the SPECIFIC semantic facts the round corrected — the zero anchors/offsets
-    # behavior, the intrinsic-minimum-size conditional, the fix properties, and the
-    # check command — as tokens, not full prose equality (the two surfaces
-    # deliberately differ in voice).
+    # behavior, the intrinsic-minimum-size conditional AS A RELATIONSHIP (ordered
+    # clause patterns, not vocabulary: the second recheck showed a one-word mutation
+    # keeps every token while reversing the conditional), the fix properties, and
+    # the check command — never full prose equality (the two surfaces deliberately
+    # differ in voice).
     by_name = {
         c["name"]: c["description"]
         for c in build_surface_manifest(app).model_dump()["commands"]
     }
-    scene_create_description = _normalize_whitespace(by_name["scene create"])
-    skill_paragraph = _normalize_whitespace(_extract_scene_create_root_note(BUNDLED))
+    _assert_control_root_semantics(
+        _normalize_prose(by_name["scene create"]), "'scene create' help text"
+    )
+    _assert_control_root_semantics(
+        _normalize_prose(_extract_scene_create_root_note(BUNDLED)),
+        "SKILL.md's Control-root paragraph",
+    )
 
-    load_bearing_tokens = [
-        "zero anchors",
-        "zero offsets",
-        "intrinsic minimum",
-        "zero-size",
-        "anchor_right",
-        "anchor_bottom",
-        "node set",
-        "game rect",
-        "Control-derived",
-    ]
-    for token in load_bearing_tokens:
-        assert token in scene_create_description, (
-            f"'scene create' help text missing {token!r}: {scene_create_description!r}"
-        )
-        assert token in skill_paragraph, (
-            f"SKILL.md's Control-root paragraph missing {token!r}: {skill_paragraph!r}"
+
+def test_control_root_guard_catches_a_reversed_conditional():
+    # The negative sentinel from PR #676's second recheck: flipping "no intrinsic
+    # minimum" to "an intrinsic minimum" preserves every vocabulary token while
+    # claiming a root WITH a minimum renders zero-size. The clause guard must go
+    # red on exactly that mutation — vocabulary checks alone stayed green on it.
+    paragraph = _extract_scene_create_root_note(BUNDLED)
+    mutated = paragraph.replace(
+        "no intrinsic minimum size", "an intrinsic minimum size"
+    )
+    assert mutated != paragraph, "mutation site missing — paragraph reworded?"
+    with pytest.raises(AssertionError, match="NO intrinsic minimum"):
+        _assert_control_root_semantics(
+            _normalize_prose(mutated), "mutated SKILL.md paragraph"
         )
