@@ -52,8 +52,10 @@ func start(executable_path: String = "") -> Dictionary:
 
 func _is_compatible_readiness(readiness: Dictionary) -> bool:
 	return (
-		readiness.get("status") == "ready"
-		and readiness.get("protocol") == PROTOCOL
+		readiness.get("status") is String
+		and readiness["status"] == "ready"
+		and readiness.get("protocol") is String
+		and readiness["protocol"] == PROTOCOL
 		and readiness.get("base_url") is String
 		and not readiness["base_url"].is_empty()
 		and readiness.get("capability_token") is String
@@ -68,8 +70,10 @@ func _is_compatible_status(readiness: Dictionary, response: Dictionary) -> bool:
 		return false
 	var status: Dictionary = response["value"]
 	return (
-		status.get("status") == "ready"
-		and status.get("protocol") == PROTOCOL
+		status.get("status") is String
+		and status["status"] == "ready"
+		and status.get("protocol") is String
+		and status["protocol"] == PROTOCOL
 		and status.get("toolkit_version") is String
 		and not status["toolkit_version"].is_empty()
 		and status["toolkit_version"] == readiness.get("toolkit_version")

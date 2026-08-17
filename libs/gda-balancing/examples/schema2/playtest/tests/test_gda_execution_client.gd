@@ -4,6 +4,35 @@ const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
 )
 
+
+class CompatibilityErrorCapture extends Logger:
+	var _errors: Array[String] = []
+	var _mutex := Mutex.new()
+
+	func _log_message(_message: String, _error: bool) -> void:
+		pass
+
+	func _log_error(
+		_function: String,
+		_file: String,
+		_line: int,
+		code: String,
+		rationale: String,
+		_editor_notify: bool,
+		_error_type: int,
+		_script_backtraces: Array[ScriptBacktrace],
+	) -> void:
+		_mutex.lock()
+		_errors.append(rationale if not rationale.is_empty() else code)
+		_mutex.unlock()
+
+	func errors() -> Array[String]:
+		_mutex.lock()
+		var snapshot := _errors.duplicate()
+		_mutex.unlock()
+		return snapshot
+
+
 var _failures: Array[String] = []
 
 
@@ -71,6 +100,8 @@ func _run() -> void:
 
 
 func _expect_compatibility_gate(client: Node) -> void:
+	var error_capture := CompatibilityErrorCapture.new()
+	OS.add_logger(error_capture)
 	var readiness := {
 		"base_url": "http://127.0.0.1:1",
 		"capability_token": "token",
@@ -101,6 +132,26 @@ func _expect_compatibility_gate(client: Node) -> void:
 		status.merged({"value": status["value"].merged({"toolkit_version": 1}, true)}, true),
 	]:
 		_expect(not client._is_compatible_status(readiness, invalid), "invalid status is rejected")
+	var malformed_values: Array = [1, [], {}, null]
+	for field in ["status", "protocol"]:
+		for malformed in malformed_values:
+			var invalid_readiness := readiness.merged({field: malformed}, true)
+			_expect(
+				not client._is_compatible_readiness(invalid_readiness),
+				"malformed readiness %s is rejected" % field,
+			)
+			var invalid_status_value: Dictionary = status["value"].merged({field: malformed}, true)
+			var invalid_status := status.merged({"value": invalid_status_value}, true)
+			_expect(
+				not client._is_compatible_status(readiness, invalid_status),
+				"malformed status %s is rejected" % field,
+			)
+	OS.remove_logger(error_capture)
+	_expect(
+		error_capture.errors().is_empty(),
+		"malformed compatibility facts produce no script errors: %s"
+		% JSON.stringify(error_capture.errors()),
+	)
 
 
 func _read_json(path: String) -> Dictionary:
@@ -122,7 +173,7 @@ func _expect(condition: bool, message: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print(JSON.stringify({"passed": 18, "status": "passed"}))
+		print(JSON.stringify({"passed": 35, "status": "passed"}))
 		quit(0)
 		return
 	for failure in _failures:
