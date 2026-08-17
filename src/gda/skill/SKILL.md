@@ -27,6 +27,25 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   that project's autoloads at engine startup.
 - **Projectless** — meta commands and file-path-only operations run with no
   project; they resolve filesystem paths but not `res://`.
+- **Provenance** — `gda --version --json` reports which `gda` is running: its
+  version, the executable and interpreter paths, `package_path` (the directory the
+  running code was imported from), `install_kind` (`wheel`, `editable`, or
+  `unknown` when the install metadata cannot be read — gda will not guess), and,
+  for an editable install, the `source` checkout with its Git `revision` and
+  `dirty` flag. No Godot is spawned, so it also works where an engine spawn
+  fails. Run it first in a long session and keep the output: an editable install
+  can change revision under you mid-run, so this is what ties your results to the
+  code that produced them. Bare `gda --version` stays one human-readable line.
+- **User data (headless runs)** — each headless run's engine log goes to a private
+  temporary file, so a read-only Godot application-data directory is not fatal and
+  concurrent runs never contend. If a script needs a writable `user://`, pass
+  `gda --user-data-root DIR <group> <command>` (or set `$GDA_USER_DATA_ROOT`) to
+  place the log and `user://` under `DIR`; a target `gda` cannot create is refused
+  as `user_data_unwritable` before the engine starts. Two limits: Godot reads the
+  **export templates** from that same directory, so a `release`/`debug`
+  `export run` under it reports none installed unless you put templates there —
+  `--mode pack` needs no templates and works normally; and Engine sessions are
+  unaffected either way — the daemon owns their log.
 
 ## Structured output & errors
 
@@ -41,7 +60,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | Exit | Meaning |
 | ---- | ------- |
 | `0`   | success |
-| `127` | Godot binary not found |
+| `127` | environment unusable: `binary_not_found`, `user_data_unwritable`, `live_unsupported_platform`, `live_windowed_unavailable`, `live_windowed_permission_denied` |
 | `124` | engine timed out |
 | `3`   | engine version too old |
 | `4`   | operation-reported failure |
@@ -52,7 +71,12 @@ Some commands carry a verdict inside a successful result. For
 `gda script validate --json`, read the result's `valid` field: a script that does
 not compile exits `0` with no top-level `error`, and reports `valid=false` plus
 `error_string` / `diagnostics`. Do not treat exit `0` or the absence of an Error
-envelope as a pass for this command.
+envelope as a pass for this command. Check the result's `project_root` before you
+act on a `valid=false`: it names the project the script was compiled against, and
+a verdict full of missing-`res://` errors (plus the type errors derived from them)
+usually means the wrong project, not a broken script — `null` means no project was
+resolved at all. Pass `--project` for the project that owns the file and re-read
+the verdict.
 
 ## Discovery
 
@@ -76,7 +100,7 @@ two spellings are still usage errors (exit `2`) — `gda <group> --json` (a grou
 | ----- | -------- |
 | `scene` | `create`, `get`, `list`, `get-exports`, `delete` (`.tscn` files) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
-| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a `res://` script one-shot and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails) |
+| `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate`, `run` (`.gd` files; `run` executes a project script one-shot (address it project-relative or as `res://` — the two portable forms, which `script validate` takes too; `run` alone refuses absolute paths) and passes its `exit_status`/`stdout`/`stderr` through — a non-zero `quit()` is still success, so read `exit_status`, or pass `--strict` to get a `script_failed` failure (exit 4) whose `diagnostics` carries the script's own stdout and stderr; a script that never ran — missing, or a failed parse/compile — always fails) |
 | `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `add-input-action`, `remove-input-action`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
@@ -89,6 +113,25 @@ Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to
 specific scene instead of the project's main scene); the engine session launches lazily on
 the first live op. `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
+
+A windowed session needs the host's real desktop session — an on-console GUI login on
+macOS, `$DISPLAY` / `$WAYLAND_DISPLAY` on Linux. Over SSH, on a headless CI box, or from
+a sandbox that blocks the window server, `daemon start --windowed` refuses before
+spawning Godot. Branch on the code, not the sentence:
+
+- `live_windowed_unavailable` — nothing refused the probe and no session is reachable, so
+  this host cannot show a window. Skip the rendered check; headless live ops (`game`,
+  `perf`, `input`, `diag`, `logger`) still work.
+- `live_windowed_permission_denied` — this process is not allowed to even look up the
+  window server (e.g. a sandbox). It does NOT mean the host has one: macOS refuses the
+  lookup before resolving it, so a broadly-confined process is refused either way. Re-run
+  outside the restriction to find out; do not record the machine as display-less on this
+  code alone.
+
+A refusal from `gda daemon start --windowed` carries `error.probe` `{name, platform}`
+naming the OS call that decided — including when the refusal is relayed from an
+already-running daemon's lazy Engine-session launch; only the outer
+`{stdout, stderr, exit_code}` transport shape is probe-less.
 
 | Group | Commands |
 | ----- | -------- |

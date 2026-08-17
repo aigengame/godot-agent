@@ -64,6 +64,17 @@ The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
 
+> **Scope note (2026-08-17, #667) — the shape above is the GDScript-emitted
+> *headless* payload, and stays exactly that.** The Phase-2 **live** channel reuses
+> this envelope but is emitted by Python (the daemon and the daemon IPC client), and
+> it carries one OPTIONAL extra key: `probe`, the host-probe context behind a windowed
+> refusal (ADR-0004 amendment). The two channels validate against **different models**
+> — `OperationErrorEnvelope` (headless) stays `extra="forbid"` and probe-less, because
+> a GDScript operation has no host probe to report; `LiveErrorEnvelope` accepts the
+> optional key. The key is omitted when absent, so every payload either language
+> emitted before is byte-identical. This widens no cross-language contract: GDScript
+> neither emits nor reads `probe`.
+
 ### stderr as advisory diagnostics
 
 stderr is still **never** parsed for the success/failure *outcome* or for stable
@@ -143,6 +154,7 @@ operation, and parse codes the CLI assigns).
 | --- | --- | --- | --- | --- |
 | `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
 | `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
+| `user_data_unwritable` | `environment` | `runner` | `127` | The log or user-data placement for the launch could not be made usable, so the launch was refused. |
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
@@ -156,7 +168,7 @@ operation, and parse codes the CLI assigns).
 | `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
 | `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
 | `file_changed_externally` | `operation` | `operation` | `4` | A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit. |
-| `project_not_found` | `operation` | `operation` | `4` | gda ran without a usable resolved Godot project: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`). |
+| `project_not_found` | `operation` | `operation` | `4` | gda has no resolved Godot project usable for the requested target: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`), or the target lies outside the resolved project (whose `res://` dependencies would then resolve against the wrong root). |
 | `path_not_found` | `operation` | `operation` | `4` | A requested file does not exist. |
 | `not_a_scene` | `operation` | `operation` | `4` | A requested file cannot be loaded as a `PackedScene`. |
 | `parent_not_found` | `operation` | `operation` | `4` | A requested parent node path does not resolve to a node in the scene. |
@@ -221,7 +233,8 @@ operation, and parse codes the CLI assigns).
 | `live_invalid_event_spec` | `live` | `classifier` | `6` | A live input sequence event has a type the harness does not recognize (Phase 2, #221). |
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
-| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
+| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed Engine session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
+| `live_windowed_permission_denied` | `environment` | `classifier` | `127` | A windowed Engine session (`gda daemon start --windowed`) was requested but this process is denied the window-server lookup (e.g. a sandbox), so gda cannot tell whether the host has one; re-run outside the restriction to find out rather than recording the host as display-less (Phase 2, #667). |
 
 ## Considered options
 

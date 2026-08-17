@@ -1,7 +1,7 @@
-"""Direct tests for the ScriptRun operation (issue #343, ADR-0031).
+"""Direct tests for the ScriptRun operation (issue #343, ADR-0031, #675).
 
 ``script run`` is the third execution shape: a user-script passthrough run whose
-recipe — validate the res:// path + require a resolved project, then launch
+recipe — accept either script-path form + require a resolved project, then launch
 ``godot --headless --path <project> --script <res://…>`` and BIFURCATE by whose
 failure it is — lives in :func:`gda.commands.script.run_script_run_operation`, a PURE
 function that RETURNS the outcome (never emits/exits).
@@ -14,14 +14,19 @@ bifurcation is asserted without a real engine and without CliRunner:
   is a SUCCESS ``ScriptRunResult`` with the script's output passed through;
 - a launch failure / signal death is a gda-level Error envelope, classified by
   the SAME shared ``classify_launch_or_crash`` the export channel uses;
-- the two pre-run ABI edges (non-res:// path, no resolved project) are structured
-  failures decided BEFORE any launch.
+- the two pre-run ABI edges (an ABSOLUTE path, no resolved project) are structured
+  failures decided BEFORE any launch;
+- both accepted path forms — project-relative and ``res://`` (#675) — reach the
+  SAME canonical address, so the argv, the entry-load verdict and the reported
+  ``path`` cannot diverge by input spelling.
 
 They are the recipe's own test surface, complementary to the e2e round-trip in
 ``tests/test_e2e_script_run.py`` (real Godot).
 """
 
 from pathlib import Path
+
+import pytest
 
 from gda.commands.script import (  # the single fully-bound descriptor (ADR-0023)
     SCRIPT_RUN_COMMAND,
@@ -162,27 +167,87 @@ def test_signal_death_is_engine_crashed():
     assert "11" in outcome.error.message
 
 
-def test_non_res_path_is_invalid_path_before_any_launch():
-    # A non-res:// path is a structured invalid_path decided BEFORE any launch
-    # (an explicit ABI edge, ADR-0031) — never a crash.
+@pytest.mark.parametrize(
+    "script",
+    [
+        "res://tests/logic.gd",
+        "tests/logic.gd",
+        # The project-relative form is lifted onto res:// and then canonicalized by
+        # the SAME shared helper, so its `./` and `..` noise collapses too.
+        "./tests/logic.gd",
+        "tests/sub/../logic.gd",
+        "tests//logic.gd",
+    ],
+)
+def test_both_path_forms_reach_one_canonical_address(script):
+    # #675: `script run` accepts the project-relative form the rest of the script
+    # group accepts, beside res://. Every accepted spelling must converge on ONE
+    # address — the argv handed to the engine AND the path the result reports — or
+    # the entry-load verdict (which matches on it) would depend on how the caller
+    # happened to type the path.
     outcome, launch = _run(
-        RunResult(stdout="", stderr="", exit_code=0), script="tests/logic.gd"
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
     )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    assert args == ["--path", str(PROJECT), "--script", "res://tests/logic.gd"]
+    assert outcome.path == "res://tests/logic.gd"
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        # Absolute: outside the --project context (#675 keeps this refusal).
+        "/abs/logic.gd",
+        # Another engine scheme: lifting one would splice a second scheme into a
+        # res:// address (`res://user:/x.gd`) and hunt a path nobody typed.
+        "user://x.gd",
+        "uid://cabc123",
+        # Collapses to the project ROOT — a directory, not a script. The empty string
+        # is the real-world shape: an unset `gda script run "$SCRIPT"`.
+        "",
+        ".",
+        "./",
+        "sub/..",
+        "res://",
+        "res://.",
+        # Escapes ABOVE the root, in both spellings. `..` phantom-succeeded (the
+        # engine's `Can't load script: res://..` parses back as `res://.`), and
+        # `../outside.gd` actually EXECUTED a script outside the project.
+        "..",
+        "sub/../..",
+        "../outside.gd",
+        "res://..",
+        "res://../outside.gd",
+        "../../etc/passwd",
+        # A leading `~` is a HOME reference — a filesystem address form. It reaches
+        # the operation unexpanded only when the shared normalizer could not resolve
+        # the user (#699); a resolvable `~/x.gd` arrives already expanded to an
+        # absolute path, refused above. Both tilde outcomes end on ONE refusal.
+        "~nosuchuser/x.gd",
+        "~/x.gd",
+    ],
+)
+def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):
+    # The path ABI edge (ADR-0031, narrowed by #675): accepting the project-relative
+    # form must not accept everything ELSE that is merely non-absolute. The root and
+    # escape cases are load-bearing — the engine answers `Can't load script: res://.`
+    # / `res://..`, whose address the parser reads back with the sentence period
+    # stripped, so it never matches the entry and the run reported a PHANTOM SUCCESS
+    # (exit 0). A resolvable escape is worse: `../outside.gd` RAN a script outside the
+    # project, which is exactly the ADR-0009 widening the amendment cites as its
+    # reason for refusing absolute paths.
+    outcome, launch = _run(RunResult(stdout="", stderr="", exit_code=0), script=script)
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "invalid_path"
     assert not launch.calls, "no engine launch on an invalid path"
-
-
-def test_absolute_path_is_invalid_path():
-    # An absolute filesystem path is likewise res://-only-rejected.
-    outcome, launch = _run(
-        RunResult(stdout="", stderr="", exit_code=0), script="/abs/logic.gd"
-    )
-
-    assert isinstance(outcome, Failure)
-    assert outcome.error.code == "invalid_path"
-    assert not launch.calls
+    # The message quotes what the user typed and names the ACCEPTED forms, so one
+    # wording serves every refused shape and tells the caller what to pass instead.
+    assert repr(script) in outcome.error.message
+    assert "project-relative" in outcome.error.message
+    assert "res://" in outcome.error.message
 
 
 def test_no_resolved_project_is_project_not_found_before_any_launch():
@@ -213,6 +278,9 @@ def test_result_is_the_thin_promotion_dropping_launch_failure():
 
     assert isinstance(outcome, ScriptRunResult)
     assert outcome.model_dump() == {
+        # gda's own field, not the run's: the canonical address both input forms
+        # converge on (#675).
+        "path": "res://tests/logic.gd",
         "exit_status": 7,
         "stdout": "out",
         "stderr": "err",
@@ -344,6 +412,67 @@ def test_a_non_canonical_missing_entry_keeps_the_specific_code():
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "script_not_found"
+
+
+@pytest.mark.parametrize(
+    ("script", "stderr", "code"),
+    [
+        ("tests/logic.gd", MISSING_STDERR, "script_not_found"),
+        ("tests/logic.gd", PARSE_ERROR_STDERR, "script_compile_failed"),
+        ("tests/logic.gd", NOT_A_MAIN_LOOP_STDERR, "incompatible_script_type"),
+        # The non-canonical project-relative spellings must land on the verdict too:
+        # the lift happens BEFORE canonicalization, so `..`/`.` inside a relative
+        # path still collapses onto the address the engine reports back.
+        ("tests/sub/../logic.gd", MISSING_STDERR, "script_not_found"),
+        ("./tests/logic.gd", PARSE_ERROR_STDERR, "script_compile_failed"),
+    ],
+)
+def test_a_project_relative_entry_still_reaches_the_verdict(script, stderr, code):
+    # The #675 × #651 interaction, and the reason the new form MUST flow through the
+    # same normalization chain: the entry-load verdict matches the engine's reported
+    # (canonical, res://) address against the caller's. A project-relative path that
+    # skipped the lift would never match, and every never-ran shape would silently
+    # regress to the phantom success #651 removed.
+    outcome, launch = _run(
+        RunResult(stdout="", stderr=stderr, exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == code
+    assert outcome.exit_code == EXIT_OPERATION
+    # One spelling on every side: the argv, and the message the agent reads.
+    (_binary, args, _cwd, _timeout, _label) = launch.calls[0]
+    assert args[-1] == "res://tests/logic.gd"
+    assert "res://tests/logic.gd" in outcome.error.message
+
+
+@pytest.mark.parametrize("script", ["..foo.gd", "res://..foo.gd", "sub/..foo.gd"])
+def test_a_leading_dot_dot_FILENAME_is_still_accepted(script):
+    # The escape refusal keys on the canonical remainder's first SEGMENT, not on a
+    # string prefix. A file whose NAME merely starts with two dots is legal and must
+    # still run — a naive `startswith("..")` would refuse it.
+    outcome, launch = _run(
+        RunResult(stdout="ok\n", stderr="", exit_code=0), script=script
+    )
+
+    assert isinstance(outcome, ScriptRunResult), getattr(outcome, "error", None)
+    assert outcome.path.endswith("..foo.gd")
+    assert launch.calls, "an accepted path must reach the engine"
+
+
+def test_a_project_relative_load_error_for_another_script_stays_a_success():
+    # The false-positive guard survives the new form: lifting a project-relative path
+    # must not widen what counts as the ENTRY. A script addressed `tests/other.gd`
+    # that itself failed to load `res://tests/logic.gd` is still a passthrough
+    # success — the lift changes the spelling, never the identity being matched.
+    outcome, _ = _run(
+        RunResult(stdout="done\n", stderr=MISSING_STDERR, exit_code=0),
+        script="tests/other.gd",
+    )
+
+    assert isinstance(outcome, ScriptRunResult)
+    assert outcome.exit_status == 0
+    assert outcome.path == "res://tests/other.gd"
 
 
 def test_a_runtime_resource_load_failure_stays_a_success():

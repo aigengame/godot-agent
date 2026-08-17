@@ -636,6 +636,13 @@ def test_script_validate_schema_emits_model_derived_contract_without_other_args(
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert "valid" in doc["output"]["properties"]
     assert "diagnostics" in doc["output"]["properties"]
+    # project_root is REQUIRED and nullable (#658): every emitted verdict carries
+    # the key, so an agent reads it unconditionally rather than probing for it.
+    assert "project_root" in doc["output"]["required"]
+    assert doc["output"]["properties"]["project_root"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
+    ]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -687,12 +694,28 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
         },
         schema=attach_doc["output"],
     )
+    # The validate sample carries project_root: it is REQUIRED on the public
+    # result (#658), because the CLI stamps the ADR-0006-resolved project onto
+    # every emitted verdict. A payload without it is the engine's internal
+    # sentinel half, not something gda ever emits.
     jsonschema.validate(
         instance={
             "path": "res://broken.gd",
             "valid": False,
             "error_string": "Parse error.",
             "diagnostics": [{"line": 3, "column": None, "message": "Parse Error: ..."}],
+            "project_root": "/work/game",
+        },
+        schema=validate_doc["output"],
+    )
+    # ...and projectless still satisfies it, since the field is nullable.
+    jsonschema.validate(
+        instance={
+            "path": "/work/standalone.gd",
+            "valid": True,
+            "error_string": None,
+            "diagnostics": [],
+            "project_root": None,
         },
         schema=validate_doc["output"],
     )
@@ -1170,7 +1193,8 @@ def test_script_run_command_schema_is_model_derived():
     # `script run` self-describes like any command (ADR-0004): input/output from its
     # typed models, the uniform error envelope. Its output carries the passthrough
     # {exit_status, stdout, stderr} — the public promotion of the Raw run — plus the
-    # classified `diagnostics` gda reads out of the engine's stderr (#651).
+    # classified `diagnostics` gda reads out of the engine's stderr (#651) and the
+    # canonical res:// `path` both accepted input forms converge on (#675).
     from gda.commands.script import ScriptRunParams, ScriptRunResult
 
     doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
@@ -1178,8 +1202,10 @@ def test_script_run_command_schema_is_model_derived():
     assert doc["input"] == ScriptRunParams.model_json_schema()
     assert doc["output"] == ScriptRunResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
-    # The success output exposes exit_status (can be non-zero on success, ADR-0031).
+    # The success output exposes exit_status (can be non-zero on success, ADR-0031)
+    # and `path`, the declared schema addition of the ADR-0031 path-form amendment.
     assert set(doc["output"]["properties"]) == {
+        "path",
         "exit_status",
         "stdout",
         "stderr",

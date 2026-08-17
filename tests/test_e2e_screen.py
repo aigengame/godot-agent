@@ -26,8 +26,7 @@ import subprocess
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable_reason
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, assert_windowed_ok
 
 from .conftest import project_godot
 
@@ -56,16 +55,17 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 # "macOS always has one" assumption: headless macOS (SSH / CI / sandbox) has no
 # on-console window-server session even though `launchctl managername` reports
 # "Aqua", and a windowed Godot aborts in AppKit registration there — so the gate is
-# the shared `gda.display.windowed_unavailable_reason()` helper (#345), which probes
+# the shared `gda.display.windowed_unavailable()` helper (#345), which probes
 # CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
 # skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
 # screen tests below still run. Forward-compatible: wire Xvfb into CI (DISPLAY set)
 # and these run rather than skip.
-_NO_DISPLAY_REASON = windowed_unavailable_reason()
-_needs_display = pytest.mark.skipif(
-    _NO_DISPLAY_REASON is not None,
-    reason=_NO_DISPLAY_REASON or "the host has a usable DisplayServer",
-)
+# A fixture, not a skipif: the reaction differs by verdict (#667). A host that
+# CANNOT show a window skips; a run that is merely CONFINED fails loudly, because
+# skipping there greens the suite with the rendered acceptance unexecuted. The
+# policy has one owner — `tests.support.require_windowed_host` — shared with the
+# post-start race path and the daemon suite.
+_needs_display = pytest.mark.usefixtures("windowed_host")
 
 
 def _scaffold(tmp_path):
@@ -98,12 +98,13 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
     out = tmp_path / "shot.png"
 
     try:
-        started = run("daemon", "start", "--windowed")
-        assert started.returncode == 0, started.stdout + started.stderr
+        # A refusal on the start / first-live-op / capture branches is routed through
+        # the shared display policy before the ordinary assertion: a capability
+        # verdict skips (as the game's tiers do), a permission verdict fails loudly.
+        started = assert_windowed_ok(run("daemon", "start", "--windowed"))
         assert json.loads(started.stdout)["windowed"] is True
 
-        cap = run("screen", "capture", "--output", str(out))
-        assert cap.returncode == 0, cap.stdout + cap.stderr
+        cap = assert_windowed_ok(run("screen", "capture", "--output", str(out)))
         doc = json.loads(cap.stdout)
         assert doc["path"] == str(out)
         assert doc["width"] > 0 and doc["height"] > 0
@@ -128,9 +129,10 @@ def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
     out = tmp_path / "shot.png"
 
     try:
-        assert run("daemon", "start", "--windowed").returncode == 0
-        cap = run("screen", "capture", "--inline", "--output", str(out))
-        assert cap.returncode == 0, cap.stdout + cap.stderr
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        cap = assert_windowed_ok(
+            run("screen", "capture", "--inline", "--output", str(out))
+        )
         doc = json.loads(cap.stdout)
         import base64
 
@@ -150,9 +152,10 @@ def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
     out_dir = tmp_path / "frames"
 
     try:
-        assert run("daemon", "start", "--windowed").returncode == 0
-        frames = run("screen", "frames", "--frames", "3", "--output-dir", str(out_dir))
-        assert frames.returncode == 0, frames.stdout + frames.stderr
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
+        frames = assert_windowed_ok(
+            run("screen", "frames", "--frames", "3", "--output-dir", str(out_dir))
+        )
         doc = json.loads(frames.stdout)
         assert doc["count"] == 3
         assert len(doc["frames"]) == 3

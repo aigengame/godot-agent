@@ -88,12 +88,23 @@ ROOT_JSON_META_KEY = "gda.root_json"
 def set_root_json(ctx: typer.Context, value: bool) -> None:
     """Record a root ``--json`` for the command the root is about to invoke.
 
-    The write half of the root-flag contract, owned HERE next to the option that
-    reads it (:func:`_inherit_root_json`), so the knowledge runs downward: the CLI
-    composition root CALLS this to hand the flag over, instead of this module
-    reaching up into that module's private parameter names.
+    The write half of the root-flag contract, owned HERE next to the options that
+    read it (:func:`_inherit_root_json`, :func:`root_json`), so the knowledge runs
+    downward: the CLI composition root CALLS this to hand the flag over, instead of
+    this module reaching up into that module's private parameter names.
     """
     ctx.meta[ROOT_JSON_META_KEY] = bool(value)
+
+
+def root_json(ctx: typer.Context) -> bool:
+    """Whether a root ``--json`` was recorded for this invocation (#659).
+
+    The read half of the same contract, for the ONE reader that is not a command:
+    the root's own ``--version``, which renders either a human line or the
+    structured provenance payload and so must ask the same question a command's
+    inherited flag asks — without re-deriving where the answer is kept.
+    """
+    return bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
 
 
 def _inherit_root_json(
@@ -115,7 +126,7 @@ def _inherit_root_json(
     wiring, including the ``--params-json`` dispatch path, which reads
     ``ctx.params`` after this callback has run.
     """
-    return bool(value) or bool(ctx.meta.get(ROOT_JSON_META_KEY, False))
+    return bool(value) or root_json(ctx)
 
 
 def json_option() -> bool:
@@ -318,8 +329,16 @@ def emit_failure(failure: Failure) -> NoReturn:
     exit code. Shared by the sentinel-pipeline commands (via :meth:`HeadlessCommand.run`)
     and the native-export command (``export run``), which classifies its own
     subprocess outcome but emits failures through this same channel.
+
+    ``exclude_none`` keeps the envelope's OPTIONAL context keys (``probe``, the
+    ADR-0004 amendment of #667) out of the JSON entirely when a failure has none,
+    rather than emitting them as ``null``. So adding such a key leaves every
+    failure that does not set it byte-identical — the property that makes the
+    optional-context axis additive for existing consumers. The required keys
+    (``category`` / ``code`` / ``message`` / ``diagnostics``) are never ``None``,
+    so none of them can be dropped by this.
     """
-    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json())
+    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json(exclude_none=True))
     raise typer.Exit(code=failure.exit_code)
 
 

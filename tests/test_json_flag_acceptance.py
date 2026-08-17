@@ -16,6 +16,10 @@ loud `No such option` it replaced. So the root flag is INHERITED by the invoked
 command (`gda.headless._inherit_root_json`), and the tests below pin that
 equivalence, not just the exit code.
 
+The root itself later grew one payload of its own — `--version` (#659) — so the
+final section here pins that both argv orders reach it; its shape is pinned in
+`tests/test_version_provenance.py`.
+
 These are fast tests: nothing here spawns Godot.
 """
 
@@ -177,19 +181,32 @@ def test_skill_documents_the_json_placement_contract():
     assert "exit `2`" in text
 
 
-# --- what the root flag does NOT do (the honest contract for #659) ------------
+# --- the root flag now carries a payload of its own (#659) --------------------
 
 
-def test_root_version_stays_text_in_both_json_orders():
-    # #671 delivers flag ACCEPTANCE at the root; a JSON `--version` PAYLOAD is
-    # #659's slice. Until then both orders print the same plain text. #659 flips
-    # these expectations — that is the intended hand-off, so update this test
-    # together with the payload.
+def test_root_version_is_structured_in_both_json_orders():
+    # #671 delivered flag ACCEPTANCE at the root and recorded, as a test, that the
+    # root itself still had no JSON payload. #659 delivers that payload, so this
+    # is the flipped expectation: BOTH argv orders return it — which only holds
+    # because `--version` stopped being an eager option (click processes eager
+    # parameters in argv order). The payload's own contract is pinned in
+    # tests/test_version_provenance.py; here only the equivalence matters.
+    payloads = []
     for args in (["--json", "--version"], ["--version", "--json"]):
         result = CliRunner().invoke(app, args)
 
         assert result.exit_code == 0, result.stdout
-        assert result.stdout == f"gda {version('gda')}\n", args
+        payloads.append(json.loads(result.stdout))
+
+    assert payloads[0] == payloads[1]
+    assert payloads[0]["gda_version"] == version("gda")
+
+
+def test_root_version_without_the_flag_stays_text():
+    result = CliRunner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout == f"gda {version('gda')}\n"
 
 
 # --- the real out-of-process CLI ---------------------------------------------

@@ -491,6 +491,72 @@ _PARITY_TABLE = [
 ]
 
 
+# An unresolvable `~user` prefix: `Path.expanduser()` raises RuntimeError for it, and
+# that raise used to escape as a bare traceback from EVERY NormalizedPath consumer
+# (#699, and a changed-path regression for `script run` once its path became a
+# NormalizedPath). The normalizer is total now, so these pin both halves: the
+# conversion at the normalizer itself, and one command proving the surface inherits it.
+_UNEXPANDABLE = "~nosuchuser_gda_test/x.gd"
+
+
+def test_normalize_path_is_total_for_an_unexpandable_tilde():
+    # The unit regression at the single home. `Path.expanduser()` raises RuntimeError
+    # when it cannot resolve `~user`; normalization is a CONVENIENCE, not a validity
+    # check, so the path passes through unchanged instead of raising. Whether it is
+    # usable is decided by the consumer that opens it.
+    from gda.models import normalize_path
+
+    assert normalize_path(_UNEXPANDABLE) == _UNEXPANDABLE
+
+
+def test_normalize_path_still_expands_a_resolvable_tilde():
+    # The guard on the guard: making the normalizer total must not disable the
+    # expansion it exists for.
+    from gda.models import normalize_path
+
+    assert normalize_path("~/proj/main.tscn") == str(
+        Path("~/proj/main.tscn").expanduser()
+    )
+
+
+@pytest.mark.parametrize("channel", ["argv", "params-json"])
+def test_an_unexpandable_tilde_is_structured_on_a_sibling_command(
+    channel, monkeypatch, tmp_path
+):
+    # Surface-wide inheritance, proved on a command that is NOT `script run`: the fix
+    # lives in the shared normalizer, so every NormalizedPath consumer gets a
+    # structured envelope instead of the RuntimeError traceback (#699). `script
+    # validate` reaches the engine, which reports the path it cannot find — a
+    # different CODE from `script run`'s own pre-launch gate (`path_not_found` vs
+    # `invalid_path`), but structured either way, which is what the contract requires.
+    # Both channels, because the argv body builds the params model DIRECTLY: a
+    # normalizer that raised would still crash here even though --params-json caught it.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {"path": _UNEXPANDABLE, "valid": True, "error_string": None}
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    argv = ["script", "validate"]
+    argv += (
+        [_UNEXPANDABLE]
+        if channel == "argv"
+        else ["--params-json", json.dumps({"path": _UNEXPANDABLE})]
+    )
+
+    result = CliRunner().invoke(app, [*argv, "--project", str(tmp_path), "--json"])
+
+    assert "Traceback" not in (result.stderr or ""), result.stderr
+    assert result.exception is None or result.exit_code != 1, result.exception
+    # It reached the operation with the tilde intact, rather than dying in validation.
+    assert json.loads(result.stdout)["path"] == _UNEXPANDABLE
+
+
 @pytest.mark.parametrize(
     "case_id, argv, params_object, canned",
     _PARITY_TABLE,

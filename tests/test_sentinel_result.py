@@ -45,6 +45,45 @@ def test_error_envelope_is_the_operation_error_payload_shape():
     }
 
 
+def test_the_envelope_carries_probe_only_when_one_is_supplied():
+    # #667 review: the live channel may carry structured host-probe context, so the
+    # builder grew ONE optional key. It must be OMITTED (never null) when absent —
+    # that is what keeps every GDScript-emitted headless envelope and every other
+    # live reply byte-identical, and what lets the strict headless
+    # OperationErrorEnvelope keep rejecting extras.
+    probe = {"name": "CGSessionCopyCurrentDictionary", "platform": "darwin"}
+
+    assert error_envelope("live_windowed_permission_denied", "denied", probe) == {
+        "error": {
+            "code": "live_windowed_permission_denied",
+            "message": "denied",
+            "probe": probe,
+        }
+    }
+    assert "probe" not in error_envelope("node_not_found", "no such node")["error"]
+
+
+def test_the_headless_sentinel_model_still_rejects_the_live_probe_key():
+    # The two channels keep DIFFERENT models on purpose: a GDScript operation has no
+    # host probe to report, so the headless sentinel stays strict and probe-less. Only
+    # the live envelope accepts the key.
+    import pytest
+    from pydantic import ValidationError
+
+    from gda.models import LiveErrorEnvelope, OperationErrorEnvelope
+
+    payload = error_envelope(
+        "live_windowed_permission_denied",
+        "denied",
+        {"name": "CGSessionCopyCurrentDictionary", "platform": "darwin"},
+    )
+
+    with pytest.raises(ValidationError):
+        OperationErrorEnvelope.model_validate(payload)
+
+    assert LiveErrorEnvelope.model_validate(payload).error.probe is not None
+
+
 def test_result_reply_carries_the_sentinel_payload_at_exit_zero():
     payload = {"lines": ["a", "b"]}
     assert result_reply(payload) == {

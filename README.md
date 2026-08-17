@@ -421,6 +421,14 @@ does not compile is still a successful operation: exit `0`, no top-level `error`
 and `valid: false` with `error_string` / `diagnostics`. Operation problems such as
 a missing file still use the normal Error envelope.
 
+The result also reports `project_root`: the project the script was compiled against,
+which is the root its `res://` dependencies resolved to (`null` when no project was
+resolved). Read it before acting on a `valid: false` — a verdict full of missing
+`res://` dependencies, plus the type errors derived from them, usually means the wrong
+project rather than a broken script. A script *outside* the resolved project is refused
+up front with `project_not_found`, naming both the file and the project, instead of
+reporting those false errors; pass `--project` for the project that owns the file.
+
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
 | Command | What it does |
@@ -546,6 +554,7 @@ input event.
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
 | `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#configuration). |
+| `--version` | Print the installed `gda` version. With `--json`, emit structured install provenance instead — version, executable, interpreter and imported-package paths, install kind (`wheel`, `editable`, or `unknown` when the install metadata cannot be read), and an editable install's source checkout with its Git revision and dirty state (no Godot spawned). Useful as a preflight before a long run: an editable install can change revision while the run is in progress. |
 | `--help`    | Show usage for `gda` or any command.                                |
 
 ---

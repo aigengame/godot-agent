@@ -17,6 +17,7 @@ SAME recipe (ADR-0015), not the wrong runner.
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -52,6 +53,9 @@ def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
     assert data == {
+        # The canonical res:// address of what ran (#675) — present on every success
+        # result, whichever of the two accepted forms the caller used.
+        "path": "res://logic.gd",
         "exit_status": 0,
         "stdout": "hi\n",
         "stderr": "",
@@ -160,19 +164,104 @@ def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
     assert calls, "the launch seam was never reached via --params-json"
 
 
-def test_non_res_path_emits_invalid_path_envelope(monkeypatch, tmp_path):
+@pytest.mark.parametrize("form", ["logic.gd", "res://logic.gd"])
+def test_both_path_forms_are_accepted_at_the_cli(monkeypatch, tmp_path, form):
+    # AC of #675 at the CLI boundary: ONE script-path representation now serves both
+    # `script validate` and `script run`. Whichever form the caller types, the launch
+    # gets the canonical res:// address and the result reports it back.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", form, "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["path"] == "res://logic.gd"
+    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    assert args == ["--path", str(project), "--script", "res://logic.gd"]
+
+
+def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path):
+    # ADR-0015: the argv and --params-json paths must agree on the new form as well,
+    # since the acceptance rides on the model's shared NormalizedPath plus the one
+    # operation-side lift — not on argv-only handling.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "logic.gd"}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["path"] == "res://logic.gd"
+    (_binary, args, _cwd, _timeout, _label) = calls[0]
+    assert args[-1] == "res://logic.gd"
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "/abs/logic.gd",
+        "user://x.gd",
+        "uid://cabc123",
+        "",
+        ".",
+        "sub/..",
+        "..",
+        "../outside.gd",
+        "res://../outside.gd",
+        "~nosuchuser_gda_test/x.gd",
+    ],
+)
+def test_a_non_project_scoped_path_emits_invalid_path_envelope(
+    monkeypatch, tmp_path, script
+):
+    # The refusals that survive #675's widening, at the CLI boundary: absolute,
+    # another engine scheme, and a path naming the project root. `""` is the shape a
+    # caller actually hits — an unset variable in `gda script run "$SCRIPT"` — which
+    # reached the engine and came back a phantom exit-0 success before this guard.
     project = _project(tmp_path)
     calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
 
     result = CliRunner().invoke(
         app,
-        ["script", "run", "logic.gd", "--project", str(project), "--json"],
+        ["script", "run", script, "--project", str(project), "--json"],
     )
 
     assert result.exit_code != 0
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "invalid_path"
     assert not calls, "no engine launch on an invalid path"
+
+
+def test_a_tilde_path_is_refused_as_the_absolute_path_it_means(monkeypatch, tmp_path):
+    # The shared NormalizedPath is what makes this honest (#675): `~/logic.gd` expands
+    # to an absolute path and is refused as one, instead of being lifted into a
+    # nonsense `res://~/logic.gd` naming a directory called `~` inside the project.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "~/logic.gd", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert "res://~" not in err["message"]
+    assert not calls
 
 
 def test_no_resolved_project_emits_project_not_found(monkeypatch, tmp_path):
@@ -227,3 +316,36 @@ def test_bad_gda_project_env_is_structured_not_a_traceback(monkeypatch, tmp_path
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "project_not_found"
     assert not calls
+
+
+@pytest.mark.parametrize("channel", ["argv", "params-json"])
+def test_an_unexpandable_tilde_keeps_the_structured_refusal(
+    monkeypatch, tmp_path, channel
+):
+    # Base parity, on BOTH input channels (#699 / external review). Giving
+    # `ScriptRunParams.path` the shared NormalizedPath sent `~nosuchuser/x.gd` into
+    # `Path.expanduser()`, which raises RuntimeError — a bare traceback and exit 1,
+    # where the base branch returned this structured invalid_path envelope. The
+    # normalizer is total now, so the path arrives unexpanded and the command's own
+    # gate refuses it exactly as before.
+    #
+    # Both channels because they FAIL DIFFERENTLY: --params-json wraps model
+    # construction (it would have reported invalid_params), while the argv body builds
+    # the model directly and had nothing to catch the raise at all.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+    tilde = "~nosuchuser_gda_test/x.gd"
+    argv = ["script", "run"]
+    argv += (
+        [tilde] if channel == "argv" else ["--params-json", json.dumps({"path": tilde})]
+    )
+
+    result = CliRunner().invoke(app, [*argv, "--project", str(project), "--json"])
+
+    assert result.exit_code == 4, result.stdout + (result.stderr or "")
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert err["category"] == "operation"
+    # The message names the path the caller gave, tilde intact.
+    assert tilde in err["message"]
+    assert not calls, "no engine launch on an invalid path"

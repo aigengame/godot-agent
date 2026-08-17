@@ -19,7 +19,9 @@ from typer.testing import CliRunner
 
 import gda.commands.daemon as daemon_ops
 from gda.cli import app
+from gda.display import WindowedUnavailable
 from gda.errors import Failure
+from gda.models import EnvironmentProbe
 from gda.harness.install import (
     HARNESS_FILE,
     HARNESS_RES_DIR,
@@ -37,6 +39,24 @@ from gda.commands.daemon import (
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
+
+
+def _unavailable(
+    code: str = "live_windowed_unavailable",
+    name: str = "CGSessionCopyCurrentDictionary",
+    platform: str = "darwin",
+) -> WindowedUnavailable:
+    """A fake host-probe verdict (#345, #667).
+
+    The refusal mapping is a pure function of this verdict, so injecting one covers
+    BOTH windowed outcomes on ANY host — no display, no sandbox, and no capability
+    gate needed. The real probe is proven separately against a real sandbox.
+    """
+    return WindowedUnavailable(
+        code=code,
+        reason=f"no windowed session here (test: {code})",
+        probe=EnvironmentProbe(name=name, platform=platform),
+    )
 
 
 def _project(tmp_path):
@@ -231,7 +251,7 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
         windowed=True,
         spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
         version_check=_OK_VERSION,
-        display_check=lambda: "no usable DisplayServer (test)",
+        display_check=lambda: _unavailable(),
     )
 
     assert isinstance(outcome, Failure), outcome
@@ -241,6 +261,87 @@ def test_windowed_start_without_a_display_is_live_windowed_unavailable(
     assert spawned == []  # never spawned Godot
     # Pre-harness-install too: a doomed windowed start must not mutate the project.
     assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    # #667: the deciding host call rides the envelope as DATA, not only as prose.
+    assert outcome.error.probe is not None
+    assert outcome.error.probe.name == "CGSessionCopyCurrentDictionary"
+    assert outcome.error.probe.platform == "darwin"
+
+
+def test_windowed_start_denied_by_a_sandbox_is_a_distinct_permission_code(
+    tmp_path, short_runtime, monkeypatch
+):
+    # #667 (dogfooding GDA-DF-029): a windowed start refused because THIS PROCESS may
+    # denied the window-server lookup is NOT the same failure as a host where none was
+    # detected. It
+    # reports the distinct live_windowed_permission_denied so automation retries
+    # outside the sandbox instead of recording the machine as display-less — while
+    # keeping the ENVIRONMENT/127 bucket of its sibling (the refusal is the same
+    # pre-launch refusal). Ungated: the verdict is injected, so this runs on every
+    # host including a display-less CI runner.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        windowed=True,
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+        display_check=lambda: _unavailable(
+            code="live_windowed_permission_denied",
+            name="bootstrap_look_up(com.apple.windowserver.active)",
+        ),
+    )
+
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.code == "live_windowed_permission_denied"
+    # Deliberately NOT live_display_unavailable (the harness's capture-time code) and
+    # NOT live_windowed_unavailable (the machine-capability verdict).
+    assert outcome.error.category.value == "environment"
+    assert outcome.exit_code == 127  # the same bucket as live_windowed_unavailable
+    assert spawned == []  # still refused pre-launch, still no project mutation
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+    assert outcome.error.probe is not None
+    assert (
+        outcome.error.probe.name == "bootstrap_look_up(com.apple.windowserver.active)"
+    )
+    assert outcome.error.probe.platform == "darwin"
+
+
+def test_windowed_refusal_json_carries_the_probe_and_others_are_unchanged(tmp_path):
+    # #667 / the ADR-0004 amendment: `probe` is emitted for a failure that HAS one and
+    # OMITTED entirely — not `null` — for every failure that does not, so each other
+    # code's envelope JSON stays byte-identical to before the field existed.
+    from gda.errors import make_failure
+    from gda.models import GdaErrorEnvelope
+
+    with_probe = make_failure(
+        "live_windowed_permission_denied",
+        "denied",
+        "",
+        probe=EnvironmentProbe(name="bootstrap_look_up(x)", platform="darwin"),
+    )
+    without = make_failure("binary_not_found", "nope", "")
+
+    with_json = json.loads(
+        GdaErrorEnvelope(error=with_probe.error).model_dump_json(exclude_none=True)
+    )
+    without_json = json.loads(
+        GdaErrorEnvelope(error=without.error).model_dump_json(exclude_none=True)
+    )
+
+    assert with_json["error"]["probe"] == {
+        "name": "bootstrap_look_up(x)",
+        "platform": "darwin",
+    }
+    assert "probe" not in without_json["error"]
+    assert set(without_json["error"]) == {
+        "category",
+        "code",
+        "message",
+        "diagnostics",
+    }
 
 
 def test_headless_start_never_consults_the_display_check(

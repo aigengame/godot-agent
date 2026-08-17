@@ -134,7 +134,59 @@ def test_error_envelope_round_trips_a_failure():
 
     assert isinstance(envelope.error, GdaError)
     assert envelope.error.code == "path_not_found"
-    assert json.loads(envelope.model_dump_json()) == payload
+    # `exclude_none` is the public emit convention (ADR-0004 amendment, #667): the
+    # envelope's optional context keys are OMITTED, never emitted as `null`, so a
+    # failure that sets none is byte-identical to the pre-amendment contract.
+    assert json.loads(envelope.model_dump_json(exclude_none=True)) == payload
+    # And the ONLY thing that convention drops is the optional context. Pinning the
+    # difference — rather than just asserting the filtered form — keeps this a real
+    # guard: a future optional key that a consumer would see as `null` fails here.
+    raw = json.loads(envelope.model_dump_json())
+    assert set(raw["error"]) - set(payload["error"]) == {"probe"}
+    assert raw["error"]["probe"] is None
+
+
+def test_the_emitted_failure_envelope_omits_probe_entirely():
+    # The ABI guard for the ADR-0004 amendment, through the REAL emit path rather
+    # than a hand-rolled dump (#667 review): dropping `exclude_none` from
+    # emit_failure would add `"probe": null` to EVERY failure gda emits, which is
+    # exactly the break the amendment's additive argument rests on not happening.
+    # `--godot ""` fails binary resolution before anything is spawned, so this is a
+    # fast, engine-free, ungated check that runs in every CI tier.
+    from typer.testing import CliRunner
+
+    from gda.cli import app
+
+    result = CliRunner().invoke(app, ["info", "--godot", "", "--json"])
+
+    assert result.exit_code == 127
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "binary_not_found"
+    assert "probe" not in error
+    assert set(error) == {"category", "code", "message", "diagnostics"}
+
+
+def test_error_envelope_round_trips_a_failure_carrying_probe_context():
+    # The other half of the amendment: a host-probe ENVIRONMENT failure DOES carry
+    # the deciding call as data, and that shape round-trips through the same model.
+    payload = {
+        "error": {
+            "category": "environment",
+            "code": "live_windowed_permission_denied",
+            "message": "denied the macOS window-server lookup",
+            "diagnostics": "",
+            "probe": {
+                "name": "bootstrap_look_up(com.apple.windowserver.active)",
+                "platform": "darwin",
+            },
+        }
+    }
+
+    envelope = GdaErrorEnvelope.model_validate(payload)
+
+    assert envelope.error.probe is not None
+    assert envelope.error.probe.platform == "darwin"
+    assert json.loads(envelope.model_dump_json(exclude_none=True)) == payload
 
 
 def test_scene_create_result_round_trips():
@@ -544,7 +596,15 @@ def test_script_validate_result_round_trips_a_valid_script():
     assert validated.valid is True
     assert validated.error_string is None
     assert validated.diagnostics == []
-    assert json.loads(validated.model_dump_json()) == payload
+    # `project_root` is NOT in the sentinel payload: the engine is told the
+    # project through --path and never reports it back, so the CLI stamps the
+    # ADR-0006-resolved root onto the result after classification (#658). The
+    # model therefore defaults it to null and the emitted object always carries
+    # the key.
+    assert json.loads(validated.model_dump_json()) == {
+        **payload,
+        "project_root": None,
+    }
 
 
 def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics():
@@ -566,7 +626,11 @@ def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics()
     assert validated.diagnostics[0].line == 3
     assert validated.diagnostics[0].column is None
     assert validated.diagnostics[0].message == "Parse Error: bad token."
-    assert json.loads(validated.model_dump_json()) == payload
+    # Sentinel-absent, CLI-stamped — see the valid-script round-trip above.
+    assert json.loads(validated.model_dump_json()) == {
+        **payload,
+        "project_root": None,
+    }
 
 
 def test_export_list_result_round_trips_enumerated_presets():

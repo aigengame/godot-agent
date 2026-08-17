@@ -20,6 +20,8 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - launch NOT_FOUND → environment / binary_not_found  (runner could not launch it)
 - launch TIMEOUT   → environment / launch_timeout     (runner launched it but it
   hung past the timeout)
+- launch USER_DATA_UNWRITABLE → environment / user_data_unwritable (the engine log
+  target gda owns could not be created, so the launch was refused, #653)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
 - exit ≠ 0  → operation   / <operation code>        (operation reported a structured
   failure via the ADR-0002 error envelope — e.g. path_not_found)
@@ -48,7 +50,12 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.models import GdaError, OperationErrorEnvelope
+from gda.models import (
+    EnvironmentProbe,
+    GdaError,
+    LiveErrorEnvelope,
+    OperationErrorEnvelope,
+)
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
@@ -66,7 +73,12 @@ class Failure:
     exit_code: int
 
 
-def make_failure(code: str, message: str, stderr: str) -> Failure:
+def make_failure(
+    code: str,
+    message: str,
+    stderr: str,
+    probe: EnvironmentProbe | None = None,
+) -> Failure:
     """Build a ``Failure`` from the parts that actually vary per failure.
 
     Only ``code``, the per-occurrence ``message`` (it embeds the binary path,
@@ -76,6 +88,11 @@ def make_failure(code: str, message: str, stderr: str) -> Failure:
     (ADR-0002, #141) rather than re-stated — and re-checked — at each site. The
     ``GdaError`` wrapping lives here once, so the call sites read as the taxonomy
     itself: a ``(code, message)`` row per failure mode.
+
+    ``probe`` is the optional :class:`EnvironmentProbe` context (ADR-0004
+    amendment, #667): the host call that decided an ENVIRONMENT failure gda
+    resolved by probing the machine rather than by running the engine. It stays
+    ``None`` — and so out of the emitted JSON entirely — for every other failure.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
@@ -86,6 +103,7 @@ def make_failure(code: str, message: str, stderr: str) -> Failure:
             code=code,
             message=message,
             diagnostics=stderr,
+            probe=probe,
         ),
         exit_code=spec.exit_code,
     )
@@ -198,6 +216,18 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
             "Godot launched but did not return before the timeout",
             raw.stderr,
         )
+    if raw.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE:
+        # Refused before the spawn (issue #653): the engine builds its file logger
+        # ahead of any project code and dies with signal 11 when it cannot open the
+        # log, so this environment problem would otherwise arrive as an
+        # `engine_crashed` backtrace. The runner's diagnostics name the binary, the
+        # user-data directory, and the log path.
+        return make_failure(
+            "user_data_unwritable",
+            "the log or user data placement for this launch is not usable; "
+            "the launch was refused",
+            raw.stderr,
+        )
     if raw.exit_code < 0:
         # subprocess reports a signal death as a negative return code; the
         # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
@@ -282,16 +312,18 @@ def classify_run(
 
 # Codes the daemon IPC client / the daemon surface through the live sentinel that
 # classify_run would otherwise misroute. The LIVE codes are live-runtime failures;
-# ``live_unsupported_platform`` and ``live_windowed_unavailable`` are
-# ENVIRONMENT-category pre-launch preconditions but still arrive via the live path
-# (``live_windowed_unavailable`` is raised at the daemon's session-launch boundary and
-# relayed as a live reply, #345), so classify_live must surface them too — else
-# classify_run falls back to operation_failed for a non-operation code.
+# ``live_unsupported_platform``, ``live_windowed_unavailable`` and
+# ``live_windowed_permission_denied`` are ENVIRONMENT-category pre-launch
+# preconditions but still arrive via the live path (both windowed codes are raised at
+# the daemon's session-launch boundary and relayed as a live reply, #345/#667), so
+# classify_live must surface them too — else classify_run falls back to
+# operation_failed for a non-operation code.
 # ``project_not_found`` is deliberately NOT here — it is an operation-source code
 # classify_run already maps, so it falls through to the shared decision tree.
 _LIVE_CLIENT_CODES = LIVE_ERROR_CODES | {
     "live_unsupported_platform",
     "live_windowed_unavailable",
+    "live_windowed_permission_denied",
 }
 
 
@@ -303,13 +335,25 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
     the daemon-channel codes to their registered ``Failure`` directly; any other
     envelope returns ``None`` so the shared ``classify_run`` decision tree handles
     it (e.g. ``project_not_found``).
+
+    Parsed with :class:`LiveErrorEnvelope` rather than the headless
+    ``OperationErrorEnvelope`` because the live channel may carry the optional
+    ``probe`` context (#667) — the strict headless model would reject that envelope
+    outright and drop the whole failure to ``operation_failed``. The probe rides
+    through to the public envelope, so a windowed refusal from the daemon's
+    authoritative launch boundary reports exactly what the CLI fail-fast reports.
     """
-    pair = _operation_error_from_payload(result)
-    if pair is None:
+    try:
+        payload = parse_result(result.stdout)
+    except ValueError:
         return None
-    code, message = pair
-    if code in _LIVE_CLIENT_CODES:
-        return make_failure(code, message, result.stderr)
+    try:
+        envelope = LiveErrorEnvelope.model_validate(payload)
+    except ValidationError:
+        return None
+    error = envelope.error
+    if error.code in _LIVE_CLIENT_CODES:
+        return make_failure(error.code, error.message, result.stderr, probe=error.probe)
     return None
 
 
@@ -382,18 +426,34 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
 
 
 def script_path_invalid_failure(path: str) -> Failure:
-    """The ``invalid_path`` failure for a ``script run`` path that is not ``res://`` (ADR-0031).
+    """The ``invalid_path`` failure for a non-project-scoped ``script run`` path (ADR-0031, #675).
 
-    ``script run`` is res://-only: a res:// path resolves against the ``--project``
-    context (ADR-0006), and the motivating need is project-scoped. An absolute or
-    otherwise non-``res://`` path is a structured ``invalid_path`` failure decided
-    at the CLI, *before* any engine launch — never a crash or a raw engine failure
-    (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
-    the whole taxonomy reads from one place.
+    ``script run`` is project-scoped: it takes the two PORTABLE forms — a
+    project-relative path and a ``res://`` address — which both resolve against the
+    ``--project`` context (ADR-0006). It refuses four shapes, all decided at the
+    CLI *before* any engine launch, never as a crash or a raw engine failure (an
+    explicit ABI edge of ADR-0031): an **absolute** path, **another engine scheme**
+    (``user://``, ``uid://``), a path naming the project **root** (``""``, ``"."``),
+    and a path **escaping above the root** (``".."``, ``"../outside.gd"``). The
+    message names the accepted forms rather than the rejected shape, so it reads the
+    same for all four.
+
+    Absolute stays refused for two verified reasons, not merely as deferred scope.
+    The engine reports a failed run under the ``res://`` spelling even when launched
+    with an absolute in-project path, so accepting one without also mapping it back
+    to ``res://`` would break the canonical-identity match the never-ran verdict
+    depends on (#651) and reopen the phantom success it closed. And ``--script``
+    with an absolute path OUTSIDE the project really does execute, so accepting
+    absolute would widen the Project-code execution surface past ADR-0009's Trusted
+    project — a trust decision that needs its own ADR. Note ``script validate`` does
+    accept an absolute path today; the asymmetry is deliberate, and bounded to the
+    two portable forms.
+
+    Kept beside the other pre-run failures so the whole taxonomy reads from one place.
     """
     return make_failure(
         "invalid_path",
-        f"script run requires a res:// script path, got: {path!r}",
+        f"script run requires a project-relative or res:// script path, got: {path!r}",
         "",
     )
 
@@ -411,6 +471,34 @@ def script_run_project_not_found_failure() -> Failure:
         "project_not_found",
         "script run requires a resolved Godot project: pass --project, set "
         "$GDA_PROJECT, or run from a project directory",
+        "",
+    )
+
+
+def script_outside_project_failure(location: Path, project: Path) -> Failure:
+    """The ``project_not_found`` refusal for a target outside the resolved project (#658).
+
+    ADR-0006 resolves ONE project per call (``--project`` > ``$GDA_PROJECT`` >
+    cwd) and deliberately does not derive it from the target path. A target that
+    lies outside that project would still be compiled against it, so every
+    ``res://`` dependency it names resolves against the wrong root: the engine
+    reports a cascade of missing-file and derived type errors for a file that is
+    perfectly valid in its own project, and the single project-context mistake is
+    buried under them. gda therefore refuses *before* the target is parsed and
+    reports the mismatch itself, naming both sides so the reader can see which
+    one is wrong.
+
+    It reuses ``project_not_found`` rather than minting a code: the failure is
+    that no project usable for this target was resolved, and the remedy is the
+    project context (``--project``) — the same class of mistake, and the same
+    branch an agent takes, as ``script run``'s projectless edge (ADR-0031).
+    """
+    return make_failure(
+        "project_not_found",
+        f"{location} is outside the resolved Godot project {project}: its res:// "
+        "dependencies would resolve against the wrong root, so nothing was "
+        "parsed. Pass --project for the project that owns this file, or name a "
+        "file inside the resolved one.",
         "",
     )
 

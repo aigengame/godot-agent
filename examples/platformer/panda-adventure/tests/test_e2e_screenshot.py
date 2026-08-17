@@ -27,9 +27,8 @@ import sys
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable_reason
-
 import build_config
+from display_gate import handle_no_display_code, require_windowed_host
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -45,13 +44,6 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _COPY_IGNORE = shutil.ignore_patterns(
     "tests", ".godot", "build", "generated", "__pycache__"
 )
-
-# Daemon error codes that mean "this environment cannot show a window" (the windowed
-# start was refused pre-launch, or the live session has no display) — a skip signal,
-# not a test failure. `live_windowed_unavailable` is the typed pre-launch refusal gda
-# now returns for `daemon start --windowed` on a display-less host (#345), replacing
-# the generic `engine_session_not_running` this used to key on.
-_NO_DISPLAY_CODES = {"live_windowed_unavailable", "live_display_unavailable"}
 
 
 def _error_code(stdout: str) -> str | None:
@@ -75,9 +67,7 @@ def test_windowed_daemon_captures_the_running_viewport(tmp_path, daemon_runtime_
     # can't launch there. Uses gda's shared display helper (the same one gda's
     # `daemon start --windowed` precondition keys on, #345), so the pre-check and the
     # tool agree. Runs for real on a genuine desktop (macOS Aqua / Linux+DISPLAY).
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
+    require_windowed_host()
     project = _make_project_copy(tmp_path / "game")
     env = {**os.environ}
     out = tmp_path / "shot.png"
@@ -102,29 +92,26 @@ def test_windowed_daemon_captures_the_running_viewport(tmp_path, daemon_runtime_
     try:
         started = run("daemon", "start", "--windowed")
         if started.returncode != 0:
-            # gda refuses `daemon start --windowed` pre-launch with the typed
-            # live_windowed_unavailable where no DisplayServer is usable (#345); the
-            # pre-check above should have caught it, but honor it as a skip if it slips
-            # through (env race), not a failure.
+            # gda refuses `daemon start --windowed` pre-launch with a typed display
+            # code (#345). The pre-check above should have caught it, but honor it if
+            # it slips through — via the shared policy, because the reaction SPLITS
+            # (#667): a CAPABILITY verdict is an env race and skips, a
+            # live_windowed_permission_denied says this whole run is confined and
+            # FAILS loudly. Anything else is a real failure.
             code = _error_code(started.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(
-                    f"windowed session unavailable in this environment ({code})"
-                )
+            handle_no_display_code(code)
             raise AssertionError(started.stdout + started.stderr)
         assert json.loads(started.stdout)["windowed"] is True
 
         # `screen capture` writes a real PNG of the running game's viewport. The
-        # windowed session launches lazily here; if this environment can't bring up
-        # a window server after all (despite the pre-check), the daemon reports a
-        # display/session code — skip rather than fail (env limitation, not a bug).
+        # windowed session launches lazily here; if this environment can't bring up a
+        # window server after all (despite the pre-check), the daemon reports a
+        # display/session code — routed through the shared policy: a capability code
+        # skips (env limitation, not a bug), a permission code fails loudly (#667).
         cap = run("screen", "capture", "--output", str(out))
         if cap.returncode != 0:
             code = _error_code(cap.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(
-                    f"windowed session unavailable in this environment ({code})"
-                )
+            handle_no_display_code(code)
             raise AssertionError(cap.stdout + cap.stderr)  # a real capture failure
         doc = json.loads(cap.stdout)
         assert doc["format"] == "png"

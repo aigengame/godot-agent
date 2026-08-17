@@ -19,6 +19,8 @@ from gda.runner import OPERATIONS_GD
 
 from tests.support import GDA_CMD
 
+from .conftest import project_godot
+
 GODOT = resolve_godot_binary()
 
 
@@ -762,6 +764,25 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("form", ["ok.gd", "res://ok.gd"])
+def test_script_validate_accepts_both_path_forms(godot_project, form):
+    # The `script validate` half of #675's AC: the group has always taken both the
+    # project-relative and the res:// form, and `script run` now takes the same two
+    # (see tests/test_e2e_script_run.py). Pinned here so the shared representation is
+    # a guarded contract on BOTH commands rather than an accident of this build —
+    # the property that lets an agent address a script once and use it for either.
+    gda = _gda_project(godot_project)
+    (godot_project / "ok.gd").write_text("extends Node\n", encoding="utf-8")
+
+    validated = gda("script", "validate", form, "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True
+    assert data["diagnostics"] == []
+
+
+@pytest.mark.e2e
 def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_project):
     # The mechanism gate's hard half: a deliberately BROKEN script is a SUCCESSFUL
     # op (exit 0) reporting valid=false, and at least one diagnostic with a real
@@ -894,6 +915,289 @@ def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(validated, "invalid_path")
     assert ".gd" in err["message"]
+
+
+# --- script validate: project context (#658, GDA-DF-035) ---
+
+
+def _nested_project_script(root):
+    """A project NESTED in a plain workspace dir, holding a res://-dependent script.
+
+    The GDA-DF-035 shape: a game project that lives inside a larger repository,
+    with a script whose ``res://`` preload only resolves against the project's own
+    root. Returns ``(workspace, project, script)``.
+    """
+    workspace = root / "workspace"
+    project = workspace / "game"
+    (project / "scripts").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-nested"), encoding="utf-8"
+    )
+    (project / "scripts" / "card.gd").write_text(
+        "extends Node\n\nclass_name Card\n\nfunc rank() -> int:\n\treturn 3\n",
+        encoding="utf-8",
+    )
+    script = project / "deck.gd"
+    script.write_text(
+        "extends Node\n\n"
+        'const Card = preload("res://scripts/card.gd")\n\n'
+        "func top() -> int:\n"
+        "\tvar c := Card.new()\n"
+        "\treturn c.rank()\n",
+        encoding="utf-8",
+    )
+    return workspace, project, script
+
+
+@pytest.mark.e2e
+def test_script_validate_verdict_is_root_dependent_and_names_the_root(tmp_path):
+    # The #658 regression, against the real engine: the SAME script under a nested
+    # project, validated from an ancestor directory, gets opposite verdicts
+    # depending on which project it was compiled against — and `project_root` says
+    # which one produced each. That is the reading GDA-DF-035 lacked: from the
+    # ancestor, `res://scripts/card.gd` is missing and a type-inference error is
+    # DERIVED from that miss, on a script that is perfectly valid in its own
+    # project. gda resolves no project from the target path (ADR-0006), so the
+    # ancestor run stays projectless — `project_root: null` is the signal that the
+    # dependency errors are about the missing project context, not the source.
+    workspace, project, script = _nested_project_script(tmp_path)
+
+    from_ancestor = subprocess.run(
+        [
+            *GDA_CMD,
+            "script",
+            "validate",
+            "game/deck.gd",
+            "--godot",
+            str(GODOT),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=workspace,
+    )
+
+    assert from_ancestor.returncode == 0, from_ancestor.stdout + from_ancestor.stderr
+    wrong_root = json.loads(from_ancestor.stdout)
+    assert wrong_root["project_root"] is None
+    assert wrong_root["valid"] is False
+    # The false cascade the issue reports: the preload miss plus at least one
+    # error derived from it.
+    assert any(
+        "res://scripts/card.gd" in diag["message"] for diag in wrong_root["diagnostics"]
+    )
+
+    with_owning_project = _gda(
+        "script", "validate", str(script), "--project", str(project), "--json"
+    )
+
+    assert with_owning_project.returncode == 0, (
+        with_owning_project.stdout + with_owning_project.stderr
+    )
+    right_root = json.loads(with_owning_project.stdout)
+    assert right_root["valid"] is True
+    assert right_root["diagnostics"] == []
+    assert right_root["project_root"] == str(project)
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_a_script_outside_the_resolved_project(tmp_path):
+    # The refusal at the real-engine tier: pointed at a project that does not own
+    # the script, gda reports the mismatch itself rather than the engine's false
+    # dependency errors — and names both sides. The refusal is structured
+    # (project_not_found, exit 4), so an agent branches on it instead of reading a
+    # cascade of parse errors that describe nothing wrong with the file.
+    _, project, script = _nested_project_script(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "project.godot").write_text(
+        project_godot("gda-e2e-other"), encoding="utf-8"
+    )
+
+    validated = _gda(
+        "script", "validate", str(script), "--project", str(other), "--json"
+    )
+
+    err = _assert_operation_error(validated, "project_not_found")
+    assert str(script) in err["message"]
+    assert str(other) in err["message"]
+    # Refused BEFORE parsing: no engine ran, so no diagnostic about the file.
+    assert "res://scripts/card.gd" not in validated.stdout
+    assert err["diagnostics"] == ""
+
+
+@pytest.mark.e2e
+def test_script_validate_accepts_a_file_symlinked_into_the_project(tmp_path):
+    # The containment check judges a symlinked file by BOTH readings, and this is
+    # the real-engine proof of the lexical one: the monorepo shared-addon layout
+    # (game/addons/cardlib -> ../../libs/cardlib), where the file physically lives
+    # outside the project but is addressed through the project's own tree.
+    #
+    # The engine agrees with that reading — the script's `res://addons/cardlib/
+    # card.gd` preload resolves THROUGH the link — so `valid` is true. Judging the
+    # target by its resolve()d location alone would refuse a call that demonstrably
+    # works, and name a path the caller never typed.
+    #
+    # The second half is the guard that this is not a blanket escape hatch: the
+    # SAME physical file, addressed by its outside spelling, is still refused.
+    project = tmp_path / "game"
+    (project / "addons").mkdir(parents=True)
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-symlinked"), encoding="utf-8"
+    )
+    library = tmp_path / "libs" / "cardlib"
+    library.mkdir(parents=True)
+    (library / "card.gd").write_text(
+        "extends Node\n\nclass_name SymlinkedCard\n\nfunc rank() -> int:\n\treturn 3\n",
+        encoding="utf-8",
+    )
+    (library / "deck.gd").write_text(
+        "extends Node\n\n"
+        'const Card = preload("res://addons/cardlib/card.gd")\n\n'
+        "func top() -> int:\n"
+        "\tvar c := Card.new()\n"
+        "\treturn c.rank()\n",
+        encoding="utf-8",
+    )
+    (project / "addons" / "cardlib").symlink_to(library, target_is_directory=True)
+    through_the_link = project / "addons" / "cardlib" / "deck.gd"
+
+    validated = _gda(
+        "script", "validate", str(through_the_link), "--project", str(project), "--json"
+    )
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True, data
+    assert data["diagnostics"] == []
+    assert data["project_root"] == str(project)
+
+    # Same file, outside spelling: outside under both readings, so still refused.
+    from_outside = _gda(
+        "script",
+        "validate",
+        str(library / "deck.gd"),
+        "--project",
+        str(project),
+        "--json",
+    )
+
+    _assert_operation_error(from_outside, "project_not_found")
+
+
+@pytest.mark.e2e
+def test_script_validate_relative_target_from_an_ancestor_cwd_agrees_with_the_engine(
+    tmp_path,
+):
+    # The full chain, against the real engine: run from the workspace ABOVE the
+    # project and name both the project and the script relatively. gda hands the
+    # path to the engine unchanged and the engine anchors it at `--path game`, so
+    # the containment check has to anchor it there too — judging it against gda's
+    # own cwd refused an invocation the engine validates fine, and that the README
+    # documents. Both channels are covered because the argv and --params-json
+    # paths share the recipe.
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-ancestor"), encoding="utf-8"
+    )
+    (project / "deck.gd").write_text(
+        "extends Node\n\nfunc top() -> int:\n\treturn 3\n", encoding="utf-8"
+    )
+
+    def from_workspace(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [*GDA_CMD, *args, "--godot", str(GODOT)],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+        )
+
+    argv = from_workspace(
+        "script", "validate", "deck.gd", "--project", "game", "--json"
+    )
+
+    assert argv.returncode == 0, argv.stdout + argv.stderr
+    data = json.loads(argv.stdout)
+    assert data["valid"] is True, data
+    # The engine found game/deck.gd, and the reported root is absolute — not the
+    # bare relative "game" that was typed.
+    assert data["project_root"] == str(project)
+
+    params_json = from_workspace(
+        "script",
+        "validate",
+        "--params-json",
+        json.dumps({"path": "deck.gd"}),
+        "--project",
+        "game",
+        "--json",
+    )
+
+    assert params_json.returncode == 0, params_json.stdout + params_json.stderr
+    assert json.loads(params_json.stdout) == data
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_a_symlink_dot_dot_pivot_out_of_the_project(tmp_path):
+    # The containment bypass, at the real-engine tier: with
+    # `game/pivot -> ../outside/deep`, the input `game/pivot/../deck.gd` collapses
+    # textually to `game/deck.gd` while really naming `outside/deck.gd`. Trusting
+    # the lexical reading there let the engine COMPILE the outside script and
+    # report a verdict on it. It must now be refused, and no verdict may appear.
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-pivot"), encoding="utf-8"
+    )
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (outside / "deck.gd").write_text(
+        "extends Node\n\nfunc outside_secret() -> int:\n\treturn 99\n", encoding="utf-8"
+    )
+    (project / "pivot").symlink_to(outside / "deep", target_is_directory=True)
+
+    validated = _gda(
+        "script",
+        "validate",
+        str(project / "pivot" / ".." / "deck.gd"),
+        "--project",
+        str(project),
+        "--json",
+    )
+
+    err = _assert_operation_error(validated, "project_not_found")
+    # The refusal names where the target REALLY is, not the collapsed spelling.
+    assert str((outside / "deck.gd").resolve()) in err["message"]
+    # Nothing was compiled: no verdict, and no engine diagnostic about the file.
+    assert '"valid"' not in validated.stdout
+    assert err["diagnostics"] == ""
+
+
+@pytest.mark.e2e
+def test_script_validate_refuses_an_outside_path_that_merely_contains_a_scheme(
+    tmp_path,
+):
+    # A colon is a legal POSIX filename character, so `<dir>://deck.gd` is an
+    # ordinary filesystem path. Classifying it as engine-virtual skipped
+    # containment and the engine opened the outside file; it is now refused.
+    project = tmp_path / "game"
+    project.mkdir()
+    (project / "project.godot").write_text(
+        project_godot("gda-e2e-scheme"), encoding="utf-8"
+    )
+    odd = tmp_path / "outside:"
+    odd.mkdir()
+    (odd / "deck.gd").write_text(
+        "extends Node\n\nfunc scheme_secret() -> int:\n\treturn 7\n", encoding="utf-8"
+    )
+
+    validated = _gda(
+        "script", "validate", f"{odd}//deck.gd", "--project", str(project), "--json"
+    )
+
+    _assert_operation_error(validated, "project_not_found")
+    assert '"valid"' not in validated.stdout
 
 
 # --- script attach (issue #118) ---

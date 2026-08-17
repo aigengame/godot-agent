@@ -47,9 +47,13 @@ def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
 
     runner.run("info", {"a": 1})
 
-    assert rec.cmd == [
-        "/x/Godot",
-        "--headless",
+    # gda owns the engine log target on every launch (#653), so `--log-file <path>`
+    # sits with the other ENGINE options, ahead of this channel's tail — and so
+    # ahead of the `--` separator, which must stay the last engine-side argument.
+    assert rec.cmd is not None
+    assert rec.cmd[:2] == ["/x/Godot", "--headless"]
+    assert rec.cmd[2] == "--log-file"
+    assert rec.cmd[4:] == [
         "--script",
         str(OPERATIONS_GD),
         "--",
@@ -71,7 +75,9 @@ def test_run_against_a_project_passes_path(monkeypatch):
     runner.run("scene-get", {})
 
     assert rec.cmd is not None
-    assert rec.cmd[:5] == ["/x/Godot", "--headless", "--path", str(project), "--script"]
+    # gda's `--log-file <path>` (#653) precedes this channel's tail; --path leads it.
+    assert rec.cmd[:3] == ["/x/Godot", "--headless", "--log-file"]
+    assert rec.cmd[4:7] == ["--path", str(project), "--script"]
     # A sentinel op runs against --path, never with a working directory.
     assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
 

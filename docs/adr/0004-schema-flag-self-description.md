@@ -24,6 +24,56 @@ status: accepted
 > the surrounding prose cannot drift. Like `kind`, gda-mcp ignores it (ADR-0012),
 > so it stays a strict superset — backward compatible.
 
+> **Amendment (2026-08-16, #667):** the uniform failure envelope (`GdaError`, the
+> `error` half of every command's `--schema`) gains ONE optional key — `probe`, an
+> `EnvironmentProbe` `{name, platform}` naming the host call that decided an
+> ENVIRONMENT failure `gda` resolved by probing the machine rather than by running
+> the engine (`CGSessionCopyCurrentDictionary`,
+> `bootstrap_look_up(com.apple.windowserver.active)`, `$DISPLAY / $WAYLAND_DISPLAY`).
+> Motivation: `--windowed` refusals had two causes — no window server was detected
+> (`live_windowed_unavailable`), versus the window-server lookup was REFUSED
+> (`live_windowed_permission_denied`, which proves confinement, not that one exists) —
+> distinguishable only by reading English prose, so automation recorded a sandbox
+> boundary as a machine-capability gap and silently skipped rendered QA (dogfooding
+> GDA-DF-029).
+>
+> Three properties keep it additive:
+>
+> - **Optional and OMITTED, never `null`.** `emit_failure` serializes with
+>   `exclude_none`, so every failure that sets no probe emits byte-identically to
+>   before. Only the two windowed-refusal codes — `live_windowed_unavailable` and
+>   `live_windowed_permission_denied` — set one today.
+> - **The stable trio is untouched.** `category` / `code` / `message` (and
+>   `diagnostics`) keep their contract; `probe` is context ABOUT the classification,
+>   never a substitute for branching on `code`. `gda-mcp` passes the envelope through
+>   to its `is_error` channel unchanged and needs no adapter work (ADR-0012).
+> - **Schema-derived, zero per-command cost.** `error` is still the one shared
+>   `GdaErrorEnvelope` schema, identical for every command — it changed once, for all.
+>
+> **Scope boundary with #687.** #687 owns the separate, larger decision on whether the
+> failure ABI carries operation-scoped typed EVIDENCE — a script's numeric exit status,
+> parsed `ScriptError[]`, a timeout's elapsed seconds (#651, #655). This amendment
+> deliberately does NOT decide that and does not pre-empt its shape: `probe` answers
+> only "which host call decided this environment verdict", a fixed two-string context
+> with no per-operation variation. The two axes compose — an evidence key adopted by
+> #687 would sit alongside `probe` under the same "optional keys are omitted when
+> absent" rule established here — and #687 stays free to adopt, reshape, or decline
+> typed evidence on its own merits.
+>
+> **Carried on the daemon relay too** (revised on review, 2026-08-17). The refusal
+> that actually gates every live op is the daemon's lazy-launch guard, not the CLI's
+> optional fail-fast, so leaving `probe` off the relay made the AUTHORITATIVE path the
+> poorer one — and #667's acceptance criterion is unqualified. The live channel's
+> envelope therefore takes the same optional key: `LiveError` is `{code, message,
+> probe?}` and `classify_live` carries it into the public `GdaError`.
+>
+> The two channels keep **separate models**, which is what keeps this narrow: the
+> headless sentinel (`OperationError`, GDScript-emitted) stays strict, `extra="forbid"`
+> and probe-less, because a GDScript operation has no host probe to report and widening
+> it would invite a key the other language can never fill. On the wire the key is
+> omitted when absent, so every other live reply and every headless envelope is
+> byte-identical to before.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

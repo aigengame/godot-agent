@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
+from gda.project import is_engine_virtual_path
 
 
 class ErrorCategory(str, Enum):
@@ -46,19 +47,61 @@ class ErrorCategory(str, Enum):
     LIVE = "live"
 
 
+# WHY this exists (kept as a comment, not a docstring): a model docstring becomes
+# the schema `description`, and the error envelope's schema is repeated for EVERY
+# command in `gda schema` — so rationale here would be paid ~67 times by every agent
+# reading the manifest. The decision and its reasoning live in the ADR-0004
+# amendment (#667); the docstring below stays the one-line contract.
+#
+# The short version: gda decides some ENVIRONMENT failures by asking the host a
+# question directly ("can a window open here?") rather than by observing an engine
+# run. WHICH OS call answered separates "this machine cannot do it" from "this
+# PROCESS was not allowed to" — skip the capability, versus retry outside the
+# restriction. #667: automation read a sandbox denial as a machine-capability gap
+# and silently skipped rendered QA, because that fact lived only in prose.
+class EnvironmentProbe(BaseModel):
+    """The host call that decided an environment failure: its ``name`` and ``platform``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Descriptions are deliberately terse: each one is repeated per command in the
+    # manifest, so prose here is paid ~67 times over (#667 review measured the cost).
+    name: str = Field(
+        description="The OS call that decided this failure, e.g. CGSessionCopyCurrentDictionary."
+    )
+    platform: str = Field(
+        description="The sys.platform the probe ran on, e.g. darwin or linux."
+    )
+
+
 class GdaError(BaseModel):
     """A structured, stable failure of a ``gda`` operation (issue #3).
 
     Emitted as ``{"error": <this>}`` on stdout so an agent reacts to failure
     modes programmatically without parsing prose. ``category`` is the coarse,
     process-exit-code-aligned bucket; ``code`` is the finer, stable identifier;
-    ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002.
+    ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002;
+    ``probe`` is optional context on the few environment failures gda decides by
+    probing the host (ADR-0004 amendment, #667).
     """
 
     category: ErrorCategory
     code: str
     message: str
     diagnostics: str = ""
+    # OMITTED — not ``null`` — from every failure that sets none: the emit path
+    # (:func:`gda.headless.emit_failure`) serializes with ``exclude_none``, so each
+    # other code's envelope JSON stays byte-identical to the pre-amendment contract.
+    # Deliberately the minimal axis — WHICH host call decided — never the
+    # operation-scoped typed EVIDENCE of a failure (parsed script errors, exit
+    # statuses), which is #687's separate decision (ADR-0004 amendment, #667).
+    probe: EnvironmentProbe | None = Field(
+        default=None,
+        description=(
+            "Which host probe decided this environment failure; the key is omitted "
+            "(never null) on failures that have none."
+        ),
+    )
 
 
 class GdaErrorEnvelope(BaseModel):
@@ -91,6 +134,38 @@ class OperationErrorEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     error: OperationError
+
+
+class LiveError(BaseModel):
+    """A live-channel failure payload: the operation shape plus optional probe context.
+
+    The daemon and the daemon IPC client report a live failure with the same ADR-0002
+    envelope a headless operation uses, so this is :class:`OperationError` — with one
+    addition. A windowed refusal at the daemon's authoritative launch boundary is
+    decided by a HOST PROBE, and that context has to survive the relay, or the
+    authoritative path would report a strictly poorer failure than the CLI's own
+    fail-fast (#667). ``probe`` is therefore optional here and ABSENT from every other
+    live envelope.
+
+    The headless sentinel stays strict and probe-less: a GDScript operation has no host
+    probe to report, so widening :class:`OperationError` would invite a key the other
+    language can never fill. Two models, one per channel, is what keeps the
+    cross-language contract narrow while the live channel carries what it actually knows.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    probe: EnvironmentProbe | None = None
+
+
+class LiveErrorEnvelope(BaseModel):
+    """The sentinel payload shape for a live-channel failure (``{"error": {...}}``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    error: LiveError
 
 
 class LiveStackConstraints(BaseModel):
@@ -256,10 +331,33 @@ def normalize_path(path: str) -> str:
     Lives here, not at the CLI layer, so the argv path and the ``--params-json``
     path normalize identically (ADR-0015): the model is the single home of
     normalization, applied wherever the model is constructed.
+
+    Which paths are engine-virtual is ADR-0006's rule, owned by
+    :func:`gda.project.is_engine_virtual_path` — the same test the project
+    containment check reads, so the two cannot disagree about what ``res://``
+    means.
+
+    **Total: it never raises** (#699). ``Path.expanduser()`` raises ``RuntimeError``
+    for a ``~unknownuser/…`` prefix it cannot resolve, which crashed every
+    ``NormalizedPath`` consumer with a bare traceback. Such a path is passed through
+    UNCHANGED instead. Two reasons it is swallowed rather than re-raised:
+
+    - Normalization is a **convenience**, not a validity check — it saves the caller
+      a shell. Whether a path is usable is decided by whoever consumes it (the
+      operation that opens it, or a command's own path gate), and an unresolvable
+      ``~user`` is simply a path that does not exist there.
+    - Raising would not even fix the crash. The argv path constructs its params model
+      DIRECTLY in the command body, so a ``ValueError`` becomes a pydantic
+      ``ValidationError`` that escapes as a bare traceback anyway; only
+      ``--params-json`` catches it. Staying total is what repairs BOTH input paths,
+      for every consumer, without a per-command guard.
     """
-    if "://" in path:
+    if is_engine_virtual_path(path):
         return path
-    return str(Path(path).expanduser())
+    try:
+        return str(Path(path).expanduser())
+    except RuntimeError:
+        return path
 
 
 # The one reusable path-field type: a ``str`` whose value is run through

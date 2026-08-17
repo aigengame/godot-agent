@@ -18,6 +18,7 @@ import struct
 from typing import Any
 
 from gda.exit_codes import EXIT_LIVE
+from gda.models import EnvironmentProbe
 from gda.parser import build_result, error_envelope
 
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
@@ -74,7 +75,12 @@ def result_reply(payload: Any) -> dict:
     return _reply(payload, 0)
 
 
-def error_reply(code: str, message: str, diagnostics: str = "") -> dict:
+def error_reply(
+    code: str,
+    message: str,
+    diagnostics: str = "",
+    probe: EnvironmentProbe | None = None,
+) -> dict:
     """A daemon→CLI reply carrying a LIVE error envelope (exit ``EXIT_LIVE``).
 
     The single builder for a daemon- or client-synthesized live failure (no session,
@@ -86,8 +92,21 @@ def error_reply(code: str, message: str, diagnostics: str = "") -> dict:
     — the wire envelope shape ``{stdout, stderr, exit_code}`` is unchanged — so it
     flows the established ``stderr`` → ``RunResult.stderr`` → ``GdaError.diagnostics``
     path, staying within ADR-0002's advisory-stderr carve-out.
+
+    ``probe`` is the optional structured host-probe context (#667). Unlike
+    ``diagnostics`` it cannot ride ``stderr`` — it is DATA an agent branches on, not
+    advisory prose — so it is carried as an optional key inside the error envelope,
+    omitted when absent. That keeps every other reply byte-identical while letting
+    the daemon's authoritative windowed refusal deliver the same envelope the CLI's
+    own fail-fast does.
     """
-    return _reply(error_envelope(code, message), EXIT_LIVE, stderr=diagnostics)
+    return _reply(
+        error_envelope(
+            code, message, probe.model_dump() if probe is not None else None
+        ),
+        EXIT_LIVE,
+        stderr=diagnostics,
+    )
 
 
 def _reply(payload: Any, exit_code: int, stderr: str = "") -> dict:
