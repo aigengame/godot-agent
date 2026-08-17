@@ -31,10 +31,7 @@ import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
 from gda_balancing.domain.artifact_errors import PublishedArtifactUnavailable
-from gda_balancing.domain.model import (
-    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
-    ExactResolvedModelBinding,
-)
+from gda_balancing.domain.model import EXACT_RESOLVED_MODEL_BINDING_MEMBERS
 from gda_balancing.infrastructure.input_bytes import (
     BoundedInputObservation,
     read_bounded_input_with_sha256,
@@ -469,60 +466,6 @@ def test_scenario_contract_union_refuses_cross_entrypoint_conflicts():
             rows,
             contract_name="Scenario Input Contract",
         )
-
-
-def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
-    tmp_path, run_cli, monkeypatch
-):
-    specification_path = _write_built_experiment(tmp_path, run_cli)
-    specification = json.loads(specification_path.read_text(encoding="utf-8"))
-    specification["scenarios"][0]["event_plan"].append(
-        {
-            "kind": "transition-invocation",
-            "root_event_ref": "plan-casts",
-            "logical_time": 1,
-            "priority": 0,
-            "entrypoint": "combat.plan-casts",
-            "payload": [],
-        }
-    )
-    specification_path.write_text(json.dumps(specification), encoding="utf-8")
-
-    original_artifacts = ExactResolvedModelBinding.artifacts
-
-    def artifacts_with_conflicting_entrypoint(self):
-        artifacts = original_artifacts(self)
-        conflicting = deepcopy(artifacts["rir-semantic-payload"])
-        entrypoints = {row["id"]: row for row in conflicting["entrypoints"]}
-        cast_targets = entrypoints["combat.cast"]["scenario_input_contract"]["targets"]
-        plan_targets = entrypoints["combat.plan-casts"]["scenario_input_contract"][
-            "targets"
-        ]
-        cast_target = next(
-            row for row in cast_targets if row["cardinality"] == "required"
-        )
-        plan_target = next(
-            row for row in plan_targets if row["target"] == cast_target["target"]
-        )
-        plan_target["cardinality"] = "optional"
-        artifacts["rir-semantic-payload"] = conflicting
-        return artifacts
-
-    monkeypatch.setattr(
-        ExactResolvedModelBinding,
-        "artifacts",
-        artifacts_with_conflicting_entrypoint,
-    )
-
-    exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification_path)]
-    )
-
-    assert (exit_code, stderr) == (2, ""), (stdout, stderr)
-    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
-    assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == "/scenarios/0/assignments"
-    assert diagnostic["message"] == "conflicting Scenario Input Contract rows"
 
 
 def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:

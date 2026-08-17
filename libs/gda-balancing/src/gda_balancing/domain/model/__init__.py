@@ -5,7 +5,6 @@ from ._binding import (
     EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
     ExactResolvedModelBinding,
     ExactResolvedModelBindingError,
-    admit_exact_resolved_model_binding,
     project_compiled_model_binding,
     resolve_published_model_binding,
 )
@@ -36,7 +35,6 @@ __all__ = (
     "ExactResolvedModelBindingError",
     "ModelInspectAdmissionError",
     "admit_resolved_model",
-    "admit_exact_resolved_model_binding",
     "authority_context_for_checked",
     "check_model_source",
     "check_model_source_value",

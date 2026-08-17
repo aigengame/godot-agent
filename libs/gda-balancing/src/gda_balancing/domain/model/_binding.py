@@ -81,7 +81,7 @@ def project_compiled_model_binding(
                 f"exact Model binding has no {name} member",
             )
         selected[name] = cast(dict[str, Any], artifact)
-    return admit_exact_resolved_model_binding(selected, authority_context)
+    return _admit_exact_resolved_model_binding(selected, authority_context)
 
 
 def resolve_published_model_binding(
@@ -106,10 +106,10 @@ def resolve_published_model_binding(
         ),
         authority_context.language_bundle,
     )
-    return admit_exact_resolved_model_binding(artifacts, authority_context)
+    return _admit_exact_resolved_model_binding(artifacts, authority_context)
 
 
-def admit_exact_resolved_model_binding(
+def _admit_exact_resolved_model_binding(
     artifacts: dict[str, dict[str, Any]],
     authority_context: AdmittedAuthorityContext,
 ) -> ExactResolvedModelBinding:
