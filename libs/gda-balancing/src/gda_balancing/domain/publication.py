@@ -10,9 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from gda_balancing.domain.artifact_errors import PublishedArtifactIntegrityError
-from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
+from gda_balancing.domain.artifact_errors import (
+    PublishedArtifactIntegrityError,
+    PublishedArtifactUnavailable,
+)
 from gda_balancing.domain.artifacts import _identified_artifact, _verify_artifact
+from gda_balancing.domain.artifact_set import ArtifactSetMemberSpec
 from gda_balancing.domain.authority.admission import BootstrapAdmission
 from gda_balancing.domain.authority.context import (
     AdmittedAuthorityContext,
@@ -74,20 +77,28 @@ class AuthenticatedArtifactSet:
     artifacts: dict[str, dict[str, Any]]
 
 
-def find_published_artifact(
-    content_identity_value: str,
-    artifact_kind: str,
+def find_published_artifacts(
+    requested: tuple[tuple[str, str, str], ...],
     language_bundle: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Resolve one exact artifact through authenticated committed publications.
+) -> dict[str, dict[str, Any]]:
+    """Resolve one exact named subset through one authenticated store traversal."""
+    names = [logical_name for logical_name, _kind, _identity in requested]
+    if not requested or len(names) != len(set(names)):
+        raise ValueError("published artifact requests require unique logical names")
+    matches = _resolve_published_artifacts(requested, language_bundle)
+    return {name: artifact for name, artifact in zip(names, matches, strict=True)}
 
-    Locators remain transport facts: callers bind semantic identities, while
-    this local-store adapter discovers a locator and then revalidates the
-    authenticated publication frame, artifact schema, and content hash.
-    """
+
+def _resolve_published_artifacts(
+    requested: tuple[tuple[str, str, str], ...],
+    language_bundle: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
     anchors = _store_root() / "anchors"
     authentication_key = publication_authentication_key()
-    matches: list[dict[str, Any]] = []
+    matches: list[list[dict[str, Any]]] = [[] for _request in requested]
+    integrity_errors: list[PublishedArtifactIntegrityError | None] = [
+        None for _request in requested
+    ]
     for anchor_path in regular_files(anchors, "*/*.json"):
         try:
             index = _verified_anchor(anchor_path, authentication_key)
@@ -146,44 +157,123 @@ def find_published_artifact(
                 or len(member_locators) != len(members)
             ):
                 continue
-            for member in members:
-                if (
-                    not isinstance(member, dict)
-                    or member.get("artifact_kind") != artifact_kind
-                    or member.get("content_identity") != content_identity_value
-                    or not isinstance(member.get("logical_name"), str)
-                ):
-                    continue
-                try:
-                    artifact = _read_canonical_artifact(
-                        invocation_path / f"{member['logical_name']}.json"
-                    )
-                except (OSError, RuntimeError, PublicationError, ValueError) as err:
-                    raise PublishedArtifactIntegrityError(
-                        "authenticated publication member is unreadable or non-canonical"
-                    ) from err
-                if not (
-                    _verify_artifact(artifact, language_bundle)
-                    and artifact.get("artifact_kind") == artifact_kind
-                    and artifact.get("content_identity") == content_identity_value
-                ):
-                    raise PublishedArtifactIntegrityError(
-                        "authenticated publication member failed schema or identity "
-                        "verification"
-                    )
-                matches.append(artifact)
-        except PublishedArtifactIntegrityError:
-            raise
+            requested_members: list[tuple[int, dict[str, Any]]] = []
+            ambiguous = False
+            for request_index, request in enumerate(requested):
+                logical_name, artifact_kind, content_identity_value = request
+                candidates = [
+                    member
+                    for member in members
+                    if isinstance(member, dict)
+                    and member.get("artifact_kind") == artifact_kind
+                    and member.get("content_identity") == content_identity_value
+                    and isinstance(member.get("logical_name"), str)
+                    and member.get("logical_name") == logical_name
+                ]
+                if len(candidates) > 1:
+                    if integrity_errors[request_index] is None:
+                        integrity_errors[request_index] = (
+                            PublishedArtifactIntegrityError(
+                                "authenticated publication contains ambiguous exact "
+                                "member descriptors",
+                                logical_name=logical_name,
+                            )
+                        )
+                    ambiguous = True
+                elif len(candidates) == 1:
+                    requested_members.append((request_index, candidates[0]))
+            if ambiguous:
+                continue
+            if not requested_members:
+                continue
+            try:
+                artifacts = _read_complete_publication_members(
+                    invocation_path,
+                    members,
+                    language_bundle,
+                )
+            except (OSError, RuntimeError, PublicationError, ValueError):
+                for request_index, _member in requested_members:
+                    if integrity_errors[request_index] is None:
+                        logical_name = requested[request_index][0]
+                        integrity_errors[request_index] = (
+                            PublishedArtifactIntegrityError(
+                                "authenticated publication contains a missing, damaged, "
+                                "or identity-inconsistent member",
+                                logical_name=logical_name,
+                            )
+                        )
+                continue
+            for request_index, member in requested_members:
+                member_name = cast(str, member["logical_name"])
+                artifact = artifacts[member_name]
+                matches[request_index].append(artifact)
         except (OSError, RuntimeError, PublicationError, ValueError):
             continue
-    if not matches:
-        return None
-    canonical = canonical_bytes(cast(JsonValue, matches[0]))
-    if any(canonical_bytes(cast(JsonValue, item)) != canonical for item in matches[1:]):
-        raise PublishedArtifactIntegrityError(
-            "one content identity resolved to different authenticated artifacts"
-        )
-    return matches[0]
+    resolved: list[dict[str, Any]] = []
+    for request, candidates, integrity_error in zip(
+        requested, matches, integrity_errors, strict=True
+    ):
+        logical_name, artifact_kind, _content_identity_value = request
+        if integrity_error is not None:
+            raise integrity_error
+        if not candidates:
+            raise PublishedArtifactUnavailable(
+                logical_name,
+                artifact_kind,
+            )
+        canonical = canonical_bytes(cast(JsonValue, candidates[0]))
+        if any(
+            canonical_bytes(cast(JsonValue, candidate)) != canonical
+            for candidate in candidates[1:]
+        ):
+            raise PublishedArtifactIntegrityError(
+                "one exact artifact request resolved to different authenticated "
+                "artifacts",
+                logical_name=logical_name,
+            )
+        resolved.append(candidates[0])
+    return tuple(resolved)
+
+
+def _read_complete_publication_members(
+    invocation_path: Path,
+    members: list[Any],
+    language_bundle: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Re-admit every member declared by one selected publication manifest."""
+    artifacts: dict[str, dict[str, Any]] = {}
+    for member in members:
+        if not isinstance(member, dict):
+            raise RuntimeError(
+                "authenticated publication member descriptor is malformed"
+            )
+        logical_name = member.get("logical_name")
+        artifact_kind = member.get("artifact_kind")
+        wire_schema_identity = member.get("wire_schema_identity")
+        content_identity_value = member.get("content_identity")
+        if (
+            not isinstance(logical_name, str)
+            or not isinstance(artifact_kind, str)
+            or not isinstance(wire_schema_identity, str)
+            or not isinstance(content_identity_value, str)
+            or logical_name in artifacts
+        ):
+            raise RuntimeError(
+                "authenticated publication member descriptor is not unique and closed"
+            )
+        artifact = _read_canonical_artifact(invocation_path / f"{logical_name}.json")
+        if (
+            not _verify_artifact(artifact, language_bundle)
+            or artifact.get("artifact_kind") != artifact_kind
+            or artifact.get("wire_schema_identity") != wire_schema_identity
+            or artifact.get("content_identity") != content_identity_value
+        ):
+            raise RuntimeError(
+                "authenticated publication member failed schema or identity verification"
+            )
+        artifacts[logical_name] = artifact
+    return artifacts
 
 
 def _write_json(path: Path, value: dict[str, JsonValue]) -> None:
