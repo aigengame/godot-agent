@@ -8,7 +8,7 @@ func _init() -> void:
 
 
 func _run() -> void:
-	var main_scene: PackedScene = load("res://main.tscn")
+	var main_scene: PackedScene = load("res://apps/reward_run/main.tscn")
 	var main := main_scene.instantiate()
 	get_root().add_child(main)
 	var view: Control = main.get_node("RewardRunView")

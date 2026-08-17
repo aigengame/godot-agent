@@ -1,6 +1,6 @@
-# Reward Run playable
+# RPG playtest suite
 
-Reward Run is the player-facing HITL product for the maintained
+Reward Run is the first player-facing product in this repository-local Godot project. It covers the maintained
 `roguelike-reward-build` slice. The player changes how often rare rewards appear, completes two
 short trials, feels the resulting build change, and records feedback.
 
@@ -59,7 +59,7 @@ UI -> Reward Content -> RewardRun System
   values and has no gda-balancing dependency.
 - `ui/playtest_shell.gd` owns the common player shell, display/language preferences, and feedback
   interaction. `ui/reward_run_view.gd` owns Reward presentation and Tween animations.
-- `main.gd` creates one client and injects it into Reward Content. The product architecture has no
+- `apps/reward_run/main.gd` creates one client and injects it into Reward Content. The product architecture has no
   Autoload, service locator, event bus, `EditorPlugin`, or plugin registry. When `gda` injects the
   optional `GdaHarness`, Reward Content uses it only for development logs; product behavior and
   dependency resolution do not depend on it.
@@ -89,7 +89,7 @@ GDA_GODOT=/absolute/path/to/godot \
   examples/schema2/playtest/scripts/run_reward_run.sh
 ```
 
-This one command starts Godot. The injected Add-on starts and owns `gda-balancing serve`. The
+This one command starts the explicit Reward Run application scene. The injected Add-on starts and owns `gda-balancing serve`. The
 launch script supplies an absolute executable from `GDA_BALANCING_EXECUTABLE` or the current
 `PATH`. When no path is supplied, the Add-on performs its own `PATH` lookup. An invalid explicit
 path reaches the Add-on and produces the same visible retry instead of silently selecting another

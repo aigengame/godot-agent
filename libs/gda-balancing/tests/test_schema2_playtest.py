@@ -68,7 +68,9 @@ def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
     ).exists()
     assert not (_PLAYTEST / "systems" / "playtest_session.gd").exists()
 
-    main = (_PLAYTEST / "main.gd").read_text(encoding="utf-8")
+    main = (_PLAYTEST / "apps" / "reward_run" / "main.gd").read_text(
+        encoding="utf-8"
+    )
     documents = (
         _PLAYTEST / "content" / "reward_run" / "reward_run_documents.gd"
     ).read_text(encoding="utf-8")
@@ -93,6 +95,7 @@ def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
     source = launch.read_text(encoding="utf-8")
     assert "GDA_BALANCING_EXECUTABLE" in source
     assert "--gda-balancing-executable=" in source
+    assert "res://apps/reward_run/main.tscn" in source
     assert ".venv" not in source
     assert 'exec "$' in source
     assert '"${arguments[@]}"' in source
@@ -100,6 +103,22 @@ def test_playtest_has_one_local_launch_action_and_no_standalone_export_claim():
     assert not (_PLAYTEST / "scripts" / "export_macos.sh").exists()
     assert not (_PLAYTEST / "scripts" / "smoke_export_macos.sh").exists()
     assert not (_PLAYTEST / "export_presets.cfg").exists()
+
+
+def test_reward_run_has_an_explicit_thin_application_entry():
+    app = _PLAYTEST / "apps" / "reward_run"
+    assert (app / "main.gd").is_file()
+    assert (app / "main.tscn").is_file()
+    assert not (_PLAYTEST / "main.gd").exists()
+    assert not (_PLAYTEST / "main.tscn").exists()
+
+    source = (app / "main.gd").read_text(encoding="utf-8")
+    assert "GdaExecutionClient" in source
+    assert "RewardRunController" in source
+    assert 'preload("res://ui/' not in source
+    assert "roguelike-reward-build" not in source
+    assert "model-source.json" not in source
+    assert "experiment.json" not in source
 
 
 def test_playtest_keeps_focused_runtime_behavior_proofs():

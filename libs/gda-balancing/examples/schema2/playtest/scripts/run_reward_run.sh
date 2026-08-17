@@ -17,7 +17,7 @@ gda_balancing_executable="${GDA_BALANCING_EXECUTABLE:-}"
 if [[ -z "$gda_balancing_executable" ]]; then
   gda_balancing_executable="$(command -v gda-balancing || true)"
 fi
-arguments=(--path "$playtest_dir")
+arguments=(--path "$playtest_dir" res://apps/reward_run/main.tscn)
 if [[ -n "$gda_balancing_executable" ]]; then
   if [[ "$gda_balancing_executable" != /* ]]; then
     gda_balancing_executable="$PWD/$gda_balancing_executable"
