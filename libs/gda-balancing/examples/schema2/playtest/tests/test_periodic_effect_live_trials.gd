@@ -110,7 +110,7 @@ func _run_trial(
 	if not run.get("ok", false):
 		return run
 	if policy == "reactive":
-		_test_contradictory_pulses(run["value"], revision)
+		_test_reactive_projection_failures(run["value"], revision)
 	var trial := PeriodicEffectTrial.new()
 	var projected: Dictionary = trial.admit_run_result(
 		run["value"], policy, trial_id, revision
@@ -124,7 +124,7 @@ func _run_trial(
 	}
 
 
-func _test_contradictory_pulses(
+func _test_reactive_projection_failures(
 	run_result: Dictionary,
 	revision: String,
 ) -> void:
