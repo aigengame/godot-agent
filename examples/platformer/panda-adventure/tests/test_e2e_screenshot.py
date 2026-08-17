@@ -92,19 +92,22 @@ def test_windowed_daemon_captures_the_running_viewport(tmp_path, daemon_runtime_
     try:
         started = run("daemon", "start", "--windowed")
         if started.returncode != 0:
-            # gda refuses `daemon start --windowed` pre-launch with the typed
-            # live_windowed_unavailable where no DisplayServer is usable (#345); the
-            # pre-check above should have caught it, but honor it as a skip if it slips
-            # through (env race), not a failure.
+            # gda refuses `daemon start --windowed` pre-launch with a typed display
+            # code (#345). The pre-check above should have caught it, but honor it if
+            # it slips through — via the shared policy, because the reaction SPLITS
+            # (#667): a CAPABILITY verdict is an env race and skips, a
+            # live_windowed_permission_denied says this whole run is confined and
+            # FAILS loudly. Anything else is a real failure.
             code = _error_code(started.stdout)
             handle_no_display_code(code)
             raise AssertionError(started.stdout + started.stderr)
         assert json.loads(started.stdout)["windowed"] is True
 
         # `screen capture` writes a real PNG of the running game's viewport. The
-        # windowed session launches lazily here; if this environment can't bring up
-        # a window server after all (despite the pre-check), the daemon reports a
-        # display/session code — skip rather than fail (env limitation, not a bug).
+        # windowed session launches lazily here; if this environment can't bring up a
+        # window server after all (despite the pre-check), the daemon reports a
+        # display/session code — routed through the shared policy: a capability code
+        # skips (env limitation, not a bug), a permission code fails loudly (#667).
         cap = run("screen", "capture", "--output", str(out))
         if cap.returncode != 0:
             code = _error_code(cap.stdout)

@@ -417,3 +417,54 @@ def test_the_preflight_gate_runs_the_test_when_a_window_can_open(monkeypatch):
     monkeypatch.setattr("gda.display.windowed_unavailable", lambda: None)
 
     require_windowed_host()  # must not raise
+
+
+@pytest.mark.parametrize(
+    ("returncode", "code", "reaction"),
+    [
+        (0, None, "passed"),
+        (6, "live_display_unavailable", "Skipped"),
+        (127, "live_windowed_unavailable", "Skipped"),
+        (127, "live_windowed_permission_denied", "Failed"),
+        (4, "operation_failed", "Failed"),  # a real regression still fails
+        (1, None, "Failed"),  # unparseable output still fails
+    ],
+)
+def test_the_post_start_assertion_applies_the_policy_before_asserting(
+    returncode, code, reaction
+):
+    # The repo's own e2e windowed tiers assert success through this helper, so a
+    # refusal arriving AFTER the pre-flight probe passed gets the same reaction the
+    # pre-flight would have applied. Before the #667 recheck those branches asserted
+    # returncode == 0 directly, so a capability verdict was a false RED here while the
+    # game's tiers skipped on it — one verdict, two meanings.
+    import json as _json
+
+    from tests.support import assert_windowed_ok
+
+    class _Result:
+        def __init__(self):
+            self.returncode = returncode
+            self.stdout = (
+                _json.dumps({"error": {"code": code, "message": "x"}})
+                if code is not None
+                else ("{}" if returncode == 0 else "not json")
+            )
+            self.stderr = ""
+
+    if reaction == "passed":
+        assert assert_windowed_ok(_Result()).returncode == 0
+        return
+
+    with pytest.raises(BaseException) as caught:
+        assert_windowed_ok(_Result())
+
+    outcome = type(caught.value).__name__
+    if reaction == "Skipped":
+        assert outcome == "Skipped"
+    elif code == "live_windowed_permission_denied":
+        assert outcome == "Failed"
+        assert "Re-run outside the sandbox/restriction" in str(caught.value)
+    else:
+        # Not a display refusal: the ordinary assertion, carrying the command output.
+        assert outcome == "AssertionError"

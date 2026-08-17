@@ -247,8 +247,11 @@ def _macos_window_server_denial() -> str | None:
       lookups do resolve here, and this one name is gated. The sandbox signature.
     - control refused as well → **blanket** confinement; the probe learned only that
       this process is confined.
+    - control answered anything else (it resolved, or failed with an unrelated
+      status) → **unknown breadth**: the target refusal stands, but nothing may be
+      said about how wide the confinement is.
 
-    Neither branch licenses a claim about the host's display: both report the same
+    None of the three licenses a claim about the host's display: all report the same
     permission verdict, and the caller's wording says so. Returns ``None`` when there
     is no denial evidence at all, including any failure to run the probe (symbol gone
     on a future macOS, unexpected ``ctypes`` state) — so the refusal then behaves

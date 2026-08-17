@@ -481,7 +481,9 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
 
         # The Engine session launches lazily on the first live op; if this
         # environment can't bring up a window after all (env race past the
-        # pre-check), the daemon reports a display code — skip, not fail.
+        # pre-check), the daemon reports a display code — the shared policy decides
+        # the reaction: a capability code skips, live_windowed_permission_denied
+        # fails loudly because a confined run must not pass silently (#667).
         tree = run("game", "tree")
         if tree.returncode != 0:
             code = _error_code(tree.stdout)

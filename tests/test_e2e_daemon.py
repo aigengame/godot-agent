@@ -31,7 +31,7 @@ from gda.harness.install import (
     installed_harness_version,
 )
 
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, assert_windowed_ok
 
 from .conftest import project_godot
 
@@ -1280,8 +1280,10 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         return json.loads(got.stdout)["properties"][0]["value"]
 
     try:
-        started = run("daemon", "start", "--windowed")
-        assert started.returncode == 0, started.stdout + started.stderr
+        # Display refusals on the windowed start / capture branches go through the
+        # shared policy first (capability -> skip, permission -> loud fail); anything
+        # else still falls through to the ordinary assertion.
+        assert_windowed_ok(run("daemon", "start", "--windowed"))
 
         # Pause the game the way a real pause menu does: a live `game set` flips
         # SceneTree.paused through the Resumer's forwarding property.
@@ -1299,8 +1301,7 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
         assert tree_is_paused() is True
 
         capture_path = tmp_path / "paused.png"
-        captured = run("screen", "capture", "--output", str(capture_path))
-        assert captured.returncode == 0, captured.stdout + captured.stderr
+        assert_windowed_ok(run("screen", "capture", "--output", str(capture_path)))
         assert capture_path.exists()
         assert capture_path.stat().st_size > 0
 

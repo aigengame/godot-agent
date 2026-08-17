@@ -770,3 +770,32 @@ def require_windowed_host():
     if verdict.code == WINDOWED_PERMISSION_DENIED_CODE:
         pytest.fail(_CONFINED_REMEDIATION.format(detail=verdict.reason))
     pytest.skip(verdict.reason)
+
+
+def gda_error_code(stdout):
+    """The ``error.code`` of a gda ``--json`` failure envelope, or ``None``."""
+    try:
+        return json.loads(stdout).get("error", {}).get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
+def assert_windowed_ok(result):
+    """Assert a windowed-tier command succeeded, applying the display policy FIRST.
+
+    The post-start race path for the repo's own e2e tiers. A windowed session can be
+    refused *after* the pre-flight probe passed — the daemon re-checks at its
+    authoritative launch boundary, and a live op can hit that on the lazy launch — and
+    when it is, the reaction has to be the SAME one the pre-flight would have applied:
+    a capability refusal skips, a permission refusal fails loudly with the
+    remediation. Asserting ``returncode == 0`` straight away instead turned a
+    capability verdict into a false RED here while the game's tiers skipped on it —
+    one verdict, two meanings (#667 recheck).
+
+    Anything that is not a display refusal falls through to the ordinary assertion,
+    so a real regression still fails with the command's own output.
+    """
+    if result.returncode != 0:
+        handle_no_display_code(gda_error_code(result.stdout))
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result
