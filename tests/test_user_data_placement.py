@@ -24,6 +24,7 @@ from gda.cli import app
 from gda.errors import Failure, classify_launch_or_crash
 from gda.exit_codes import EXIT_NOT_FOUND
 from gda.models import ErrorCategory
+import gda.runner as runner_module
 from gda.runner import (
     USER_DATA_ROOT_ENV,
     LaunchFailure,
@@ -387,15 +388,17 @@ def test_explicit_root_probes_the_platform_derived_data_path(monkeypatch, tmp_pa
 
     monkeypatch.setattr(subprocess, "run", _must_not_spawn)
     root = tmp_path / "udr"
-    derived = engine_data_path(data_path_env(root))
-    assert derived is not None
+    # The probe logic is shape-agnostic; pin a NESTED derivation so this runs
+    # identically on every platform (the real macOS shape nests under
+    # Library/Application Support; Linux's XDG shape is flat — derived == root —
+    # where "derived blocked while root writable" cannot be constructed, which
+    # made the real-helper version of this test walk to "/" on Linux CI).
+    derived = root / "nested" / "data"
+    monkeypatch.setattr(runner_module, "engine_data_path", lambda *a, **k: derived)
     # Block the derived path with a FILE, so it can never be created, while leaving
     # `root` and `<root>/logs` writable.
-    blocker = derived
-    while blocker.parent != root and blocker.parent != blocker:
-        blocker = blocker.parent
-    blocker.parent.mkdir(parents=True, exist_ok=True)
-    blocker.write_text("not a directory")
+    derived.parent.parent.mkdir(parents=True, exist_ok=True)
+    derived.parent.write_text("not a directory")
     set_user_data_root(str(root))
 
     result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)

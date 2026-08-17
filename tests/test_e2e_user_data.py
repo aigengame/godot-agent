@@ -288,6 +288,12 @@ def test_a_root_whose_derived_data_path_is_blocked_is_refused(
     root = tmp_path / "udr"
     derived = engine_data_path(data_path_env(root), platform=sys.platform)
     assert derived is not None
+    if derived == root:
+        pytest.skip(
+            "flat user-data shape (XDG): the derived path IS the root, so it "
+            "cannot be blocked while the root stays writable — the nested-shape "
+            "refusal is exercised ungated by the unit tier"
+        )
     # Block the derived path with a regular FILE at its first component under root.
     blocker = derived
     while blocker.parent != root and blocker.parent != blocker:
