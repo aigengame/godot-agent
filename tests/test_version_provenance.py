@@ -13,8 +13,9 @@ So these tests pin three things:
   NOT eager and therefore sorts after the eager `--json` in both orders.
 - **both install kinds, and the refusal to pick one.** Editable and wheel installs
   are covered by faking the PEP 610 `direct_url.json` record — a real wheel install
-  cannot be produced from inside the editable checkout the suite runs in. A record
-  that exists but cannot be read is `unknown`, never a confident `wheel`.
+  cannot be produced from inside the editable checkout the suite runs in. Only a
+  genuinely ABSENT record earns a confident `wheel`; a record gda cannot read as a
+  PEP 610 document — malformed, whitespace-only, or unretrievable — is `unknown`.
 - **no engine launch.** The motivating environment is one where spawning Godot
   crashes, so a provenance preflight that spawned Godot would be useless there.
 
@@ -25,6 +26,7 @@ import json
 import os
 import shutil
 import subprocess
+from importlib.metadata import version as installed_version
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -32,10 +34,12 @@ from typer.testing import CliRunner
 import gda.provenance as provenance
 from gda.cli import app
 from gda.provenance import (
+    DirectUrlRecord,
     InstallKind,
+    RecordState,
     build_version_provenance,
     classify_install,
-    read_direct_url_text,
+    read_direct_url_record,
 )
 from tests.support import GDA_CMD, plain_text
 
@@ -81,13 +85,39 @@ def make_git_checkout(repo: Path) -> str:
 
 
 def fake_direct_url(monkeypatch, raw: str | None) -> None:
-    """Serve ``raw`` as the running gda's PEP 610 record.
+    """Serve ``raw`` as the running gda's PEP 610 record; ``None`` means no record.
 
-    The seam takes RAW text, so a fake can hand over a malformed document as easily
-    as a well-formed one — which is the point: "no record" and "a record I cannot
-    read" must reach opposite conclusions.
+    The seam hands over RAW text, so a fake can supply a malformed document as
+    easily as a well-formed one — which is the point: the three read arms must reach
+    different conclusions. This helper covers the ABSENT and PRESENT arms; the
+    UNREADABLE arm is driven through the real reader by :func:`fake_metadata_reader`,
+    because a faked verdict would not prove the reader produces it.
     """
-    monkeypatch.setattr(provenance, "read_direct_url_text", lambda *a, **k: raw)
+    record = (
+        DirectUrlRecord(RecordState.ABSENT)
+        if raw is None
+        else DirectUrlRecord(RecordState.PRESENT, raw)
+    )
+    monkeypatch.setattr(provenance, "read_direct_url_record", lambda *a, **k: record)
+
+
+def fake_metadata_reader(monkeypatch, read_text) -> None:
+    """Replace gda's distribution metadata with one whose reader is ``read_text``.
+
+    Drives the REAL :func:`read_direct_url_record`, so a test can exercise what the
+    reader does with a missing file, a whitespace-only file, or a raising one. The
+    fake keeps the true ``version`` so ``build_version_provenance`` still produces a
+    complete payload — the point of these arms is that the preflight degrades, not
+    that it dies.
+    """
+
+    class _Dist:
+        version = installed_version("gda")
+
+        def read_text(self, name: str):
+            return read_text(name)
+
+    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
 
 
 def fake_editable_install(monkeypatch, root: Path) -> None:
@@ -438,14 +468,24 @@ def test_malformed_metadata_reaches_the_cli_as_unknown(monkeypatch):
 
 
 def test_classify_install_is_pure_and_total():
-    # The classifier is the whole decision, so it is exercised directly too: the
-    # three verdicts, from raw text, with no installer and no filesystem.
-    assert classify_install(None).kind is InstallKind.WHEEL
-    assert (
-        classify_install('{"url":"file:///x","dir_info":{"editable":true}}').kind
-        is InstallKind.EDITABLE
+    # The classifier is the whole decision, so it is exercised directly too: every
+    # read arm to its verdict, with no installer and no filesystem. Only ABSENT
+    # reaches `wheel`; both non-answers reach `unknown`.
+    absent = DirectUrlRecord(RecordState.ABSENT)
+    unreadable = DirectUrlRecord(RecordState.UNREADABLE)
+    editable = DirectUrlRecord(
+        RecordState.PRESENT, '{"url":"file:///x","dir_info":{"editable":true}}'
     )
-    assert classify_install("").kind is InstallKind.UNKNOWN
+
+    assert classify_install(absent).kind is InstallKind.WHEEL
+    assert classify_install(unreadable).kind is InstallKind.UNKNOWN
+    assert classify_install(editable).kind is InstallKind.EDITABLE
+    assert classify_install(DirectUrlRecord(RecordState.PRESENT, "")).kind is (
+        InstallKind.UNKNOWN
+    )
+    assert classify_install(DirectUrlRecord(RecordState.PRESENT, "  \n")).kind is (
+        InstallKind.UNKNOWN
+    )
 
 
 # --- the imported package, not just the recorded install ----------------------
@@ -488,36 +528,93 @@ def test_package_path_exposes_a_sys_path_shadow(tmp_path):
     assert payload["package_path"] != str(installed)
 
 
-# --- the direct_url seam ------------------------------------------------------
+# --- the read seam has THREE arms, and flattens none of them -------------------
+#
+# The first round of this slice split "malformed" out of "absent" but left two arms
+# still collapsing back: a whitespace-only record and a reader that raised both
+# became "absent", hence a confident `wheel`. These pin all three arms at the
+# reader, and the two once-collapsed ones end to end as well.
 
 
-def test_read_direct_url_text_is_none_for_an_uninstalled_distribution():
-    # The seam degrades to "no record" rather than raising, so a preflight never
-    # fails on missing metadata.
-    assert read_direct_url_text("definitely-not-an-installed-distribution") is None
+def test_a_missing_record_is_absent(monkeypatch):
+    # The one arm that legitimately implies a wheel: the reader says "no such file".
+    fake_metadata_reader(monkeypatch, lambda name: None)
+
+    assert read_direct_url_record() == DirectUrlRecord(RecordState.ABSENT)
 
 
-def test_read_direct_url_text_hands_over_a_malformed_record_verbatim(monkeypatch):
-    # The seam must NOT flatten a damaged record into "absent": that is what made a
-    # broken editable install look like a wheel. It returns the bytes; the
-    # classifier decides.
-    class _Dist:
-        def read_text(self, name: str) -> str:
-            return "{not json"
+def test_a_malformed_record_is_present_and_handed_over_verbatim(monkeypatch):
+    # The seam does not judge: it returns the bytes and the classifier decides.
+    fake_metadata_reader(monkeypatch, lambda name: "{not json")
 
-    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
-
-    assert read_direct_url_text() == "{not json"
+    assert read_direct_url_record() == DirectUrlRecord(RecordState.PRESENT, "{not json")
 
 
-def test_read_direct_url_text_treats_a_blank_record_as_absent(monkeypatch):
-    class _Dist:
-        def read_text(self, name: str) -> str:
-            return "   \n"
+def test_a_whitespace_only_record_is_present_not_absent(monkeypatch):
+    # Was pinned the WRONG way: the seam blanked "   \n" to None, so a record that
+    # exists but says nothing became "absent" and the payload claimed `wheel`. A
+    # record that exists but says nothing is off-spec, not absent.
+    fake_metadata_reader(monkeypatch, lambda name: "   \n")
 
-    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
+    assert read_direct_url_record() == DirectUrlRecord(RecordState.PRESENT, "   \n")
 
-    assert read_direct_url_text() is None
+
+def test_an_unreadable_record_is_unreadable_not_absent(monkeypatch):
+    # The second collapsed arm: the reader raising was swallowed into "absent", so a
+    # metadata failure was reported as an immutable wheel.
+    def _boom(name: str):
+        raise OSError("injected: cannot read the metadata")
+
+    fake_metadata_reader(monkeypatch, _boom)
+
+    assert read_direct_url_record() == DirectUrlRecord(RecordState.UNREADABLE)
+
+
+def test_an_uninstalled_distribution_is_unreadable_not_absent():
+    # gda did not learn that no record exists; it failed to look. Degrades rather
+    # than raising, so a preflight never dies on missing metadata.
+    record = read_direct_url_record("definitely-not-an-installed-distribution")
+
+    assert record == DirectUrlRecord(RecordState.UNREADABLE)
+
+
+def test_a_whitespace_only_record_reaches_the_cli_as_unknown(monkeypatch):
+    fake_metadata_reader(monkeypatch, lambda name: "   \n")
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["install_kind"] == "unknown"
+    assert payload["source"] is None
+    # …and the payload is still emitted in full: degrade, never die.
+    assert payload["gda_version"] and payload["package_path"] and payload["godot"]
+
+
+def test_an_unreadable_record_reaches_the_cli_as_unknown(monkeypatch):
+    def _boom(name: str):
+        raise OSError("injected: cannot read the metadata")
+
+    fake_metadata_reader(monkeypatch, _boom)
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["install_kind"] == "unknown"
+    assert payload["source"] is None
+    assert payload["gda_version"] and payload["package_path"] and payload["godot"]
+
+
+def test_a_missing_record_reaches_the_cli_as_wheel(monkeypatch):
+    # The control for the two arms above: only a genuinely absent record earns the
+    # confident `wheel`, so the tests prove a distinction rather than a constant.
+    fake_metadata_reader(monkeypatch, lambda name: None)
+
+    payload = json.loads(CliRunner().invoke(app, ["--version", "--json"]).stdout)
+
+    assert payload["install_kind"] == "wheel"
+    assert payload["source"] is None
 
 
 # --- the engine side is resolved WITHOUT a launch -----------------------------

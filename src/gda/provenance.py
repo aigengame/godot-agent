@@ -22,12 +22,15 @@ model:
   whether the working tree is dirty — the three facts GDA-DF-043 needed;
 * the Godot binary ``gda`` would use, resolved without launching it.
 
-A note on ``unknown``: "no record at all" and "a record I cannot read" lead to
-OPPOSITE conclusions, so this module never collapses them. No record is how an
-ordinary index install looks, and safely implies a wheel; a record that is present
-but malformed means the install could be either, and a preflight built to prevent
-false provenance must not answer a question it cannot answer. So a damaged record
-yields ``unknown``, never a confident ``wheel``.
+A note on ``unknown``: "no record at all" and "a record I could not read" lead to
+OPPOSITE conclusions, so the read seam keeps them apart in three arms
+(:class:`RecordState`) instead of one nullable answer. Only "no record" — how an
+ordinary index install looks — implies a wheel. A record that is present but
+malformed, present but saying nothing, or that could not be retrieved at all means
+the install could be either, and a preflight built to prevent false provenance must
+not answer a question it cannot answer. All three yield ``unknown``, never a
+confident ``wheel``, and none of them fails the preflight: the payload is still
+emitted, reporting everything it does know.
 
 **It never launches Godot.** The motivating environment is a restricted profile
 where an engine spawn crashes, which is exactly when provenance matters most — so
@@ -90,17 +93,49 @@ class InstallKind(str, Enum):
     out of a working tree (``pip install -e`` / ``uv sync``), so the code that runs
     can change without the version changing — the case GDA-DF-043 hit.
 
-    ``UNKNOWN`` is the answer when the install metadata EXISTS but cannot be read
-    as the shape PEP 610 defines. It is not a third kind of install; it is the
-    refusal to guess between the other two. A malformed record reported as
-    ``WHEEL`` would tell a reader "immutable copy, nothing can change under you"
-    about an install that may well be editable — precisely the false provenance
-    this surface exists to prevent.
+    ``UNKNOWN`` is the answer whenever gda cannot READ the install metadata as the
+    shape PEP 610 defines — whether the record is off-spec, says nothing at all, or
+    could not be retrieved. It is not a third kind of install; it is the refusal to
+    guess between the other two. A record gda could not read, reported as ``WHEEL``,
+    would tell a reader "immutable copy, nothing can change under you" about an
+    install that may well be editable — precisely the false provenance this surface
+    exists to prevent. Only ONE observation earns ``WHEEL``: the installer recorded
+    no direct-URL origin at all, which is what an ordinary index install looks like.
     """
 
     WHEEL = "wheel"
     EDITABLE = "editable"
     UNKNOWN = "unknown"
+
+
+class RecordState(str, Enum):
+    """Whether the running ``gda``'s PEP 610 install record could be read at all.
+
+    Three arms, kept apart because collapsing any two of them is how the payload
+    starts lying. ``ABSENT`` is the reader saying "no such file" — the shape of an
+    ordinary index install, and the ONLY arm that safely implies a built wheel.
+    ``PRESENT`` carries the bytes, whatever they say, for the classifier to judge.
+    ``UNREADABLE`` is a record gda failed to retrieve: not evidence of a wheel, and
+    not a reason to fail a preflight either.
+    """
+
+    ABSENT = "absent"
+    PRESENT = "present"
+    UNREADABLE = "unreadable"
+
+
+@dataclass(frozen=True)
+class DirectUrlRecord:
+    """A PEP 610 ``direct_url.json`` as far as it could be read, unjudged.
+
+    ``text`` is the raw document and is set only on :attr:`RecordState.PRESENT` —
+    handed over verbatim, whitespace-only included. A record that exists but says
+    nothing is *off-spec*, not absent, and blanking it at the read seam is one of
+    the two ways a damaged editable install used to be reported as a wheel.
+    """
+
+    state: RecordState
+    text: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -205,52 +240,64 @@ class VersionProvenance(BaseModel):
     )
 
 
-def read_direct_url_text(distribution: str = DISTRIBUTION) -> Optional[str]:
-    """Return the RAW PEP 610 ``direct_url.json`` text for ``distribution``.
+def read_direct_url_record(distribution: str = DISTRIBUTION) -> DirectUrlRecord:
+    """Read ``distribution``'s PEP 610 ``direct_url.json`` WITHOUT judging it.
 
-    The one seam through which install provenance enters this module, and it hands
-    over the bytes unparsed on purpose: ``None`` here means the installer recorded
-    no direct-URL origin at all — the ordinary shape of an index install, and the
-    only case that safely implies a built wheel. A record that exists but cannot be
-    read is NOT this function's business to flatten; it is returned verbatim so
-    :func:`classify_install` can say ``unknown`` instead of asserting ``wheel``.
+    The one seam through which install provenance enters this module. It reports
+    which of :class:`RecordState`'s three arms happened and flattens none of them:
+    only a reader that says "no such file" is ``ABSENT``; any content — including
+    whitespace — is ``PRESENT`` and travels on to :func:`classify_install`; a reader
+    that raises is ``UNREADABLE``.
 
-    ``None`` also covers a distribution that is not installed, which cannot be
-    observed in practice — :func:`build_version_provenance` reads the version from
-    the same metadata and would fail first.
+    A distribution that is not installed is ``UNREADABLE``, not ``ABSENT``: gda did
+    not learn that no record exists, it failed to look. (It cannot be observed in
+    practice, because :func:`build_version_provenance` reads the version from the
+    same metadata and would fail first — but classifying a metadata failure onto the
+    one arm that implies a wheel would be wrong on principle.)
+
+    One hole this seam cannot see: ``importlib.metadata`` suppresses some of its own
+    read failures — notably ``PermissionError`` — and returns ``None``, which is
+    indistinguishable here from a missing file. That case still reports ``wheel``.
     """
     try:
         dist = Distribution.from_name(distribution)
         raw = dist.read_text("direct_url.json")
     except (PackageNotFoundError, OSError):
-        return None
-    return raw if raw and raw.strip() else None
+        return DirectUrlRecord(RecordState.UNREADABLE)
+    if raw is None:
+        return DirectUrlRecord(RecordState.ABSENT)
+    return DirectUrlRecord(RecordState.PRESENT, raw)
 
 
-def classify_install(raw: Optional[str]) -> InstallOrigin:
+def classify_install(record: DirectUrlRecord) -> InstallOrigin:
     """Decide the install kind (and the checkout, if any) from a PEP 610 record.
 
     Pure, so every branch is testable without an installer. The rule it enforces is
-    that only two shapes may produce a confident answer: no record at all (a built
-    ``WHEEL``), and a record that matches what PEP 610 defines. Anything else —
-    unparseable JSON, a non-object document, a non-object ``dir_info``, or an
-    ``editable`` that is not the boolean ``true``/``false`` the spec types it as —
-    is ``UNKNOWN``. PEP 610 also says an absent ``editable`` defaults to false, so
-    that stays a wheel.
+    that exactly one observation may produce a confident ``WHEEL`` — the installer
+    recorded no direct-URL origin (``ABSENT``) — and one may produce ``EDITABLE``: a
+    readable record whose ``dir_info.editable`` is the boolean ``true``. Everything
+    else is ``UNKNOWN``: a record gda could not retrieve, unparseable JSON (a
+    whitespace-only document included), a non-object document, a non-object
+    ``dir_info``, or an ``editable`` that is not the boolean the spec types it as.
+    PEP 610 says an absent ``editable`` defaults to false, so that stays a wheel.
     """
-    if raw is None:
+    if record.state is RecordState.UNREADABLE:
+        return InstallOrigin(InstallKind.UNKNOWN)
+    if record.state is RecordState.ABSENT:
         return InstallOrigin(InstallKind.WHEEL)
     try:
-        record = json.loads(raw)
+        # A `PRESENT` record always carries its text; an empty or whitespace-only
+        # document fails to parse here, which is the intended `UNKNOWN`.
+        parsed = json.loads(record.text or "")
     except json.JSONDecodeError:
         return InstallOrigin(InstallKind.UNKNOWN)
-    if not isinstance(record, dict):
+    if not isinstance(parsed, dict):
         return InstallOrigin(InstallKind.UNKNOWN)
-    if "dir_info" not in record:
+    if "dir_info" not in parsed:
         # A direct-URL install of an archive or a VCS clone: built, and what runs is
         # a copy, so there is no checkout to report.
         return InstallOrigin(InstallKind.WHEEL)
-    dir_info = record["dir_info"]
+    dir_info = parsed["dir_info"]
     if not isinstance(dir_info, dict):
         return InstallOrigin(InstallKind.UNKNOWN)
     editable = dir_info.get("editable", False)
@@ -261,7 +308,7 @@ def classify_install(raw: Optional[str]) -> InstallOrigin:
         # both outside the spec, and guessing which side they fall on is how a
         # mutable checkout gets reported as an immutable copy.
         return InstallOrigin(InstallKind.UNKNOWN)
-    return InstallOrigin(InstallKind.EDITABLE, _recorded_source_root(record))
+    return InstallOrigin(InstallKind.EDITABLE, _recorded_source_root(parsed))
 
 
 def _recorded_source_root(direct_url: Optional[dict[str, Any]]) -> Optional[Path]:
@@ -378,7 +425,7 @@ def _imported_package_path() -> str:
 
 def build_version_provenance() -> VersionProvenance:
     """Build the ``gda --version --json`` payload; never launches Godot."""
-    origin = classify_install(read_direct_url_text())
+    origin = classify_install(read_direct_url_record())
     return VersionProvenance(
         gda_version=package_version(DISTRIBUTION),
         executable=_running_executable(),
