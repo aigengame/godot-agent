@@ -84,7 +84,7 @@ func admit_run_result(
 		or player_cost == null
 		or enemy_cost == null
 	):
-		return _failure("missing_damage_facts")
+		return _failure("missing_exchange_facts")
 	if (
 		int(player_before["enemy_health"]) - int(player_after["enemy_health"])
 		!= int(player_damage)
@@ -99,7 +99,7 @@ func admit_run_result(
 		!= int(enemy_cost)
 		or int(enemy_before["player_mana"]) != int(enemy_after["player_mana"])
 	):
-		return _failure("damage_state_mismatch")
+		return _failure("exchange_state_mismatch")
 	if not _metrics_match(metrics, terminal, int(player_damage), int(enemy_damage)):
 		return _failure("metric_state_mismatch")
 
