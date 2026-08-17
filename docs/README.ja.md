@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=32762f3f360f152fa9389c505fbd72cba484d9056d54db63df99f10aabbecaa8 -->
+<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -436,6 +436,14 @@ offset プロパティを明示的に設定してください。
 コンパイルできないスクリプトも成功した操作として扱われます。終了コードは `0`、トップレベルの
 `error` はなく、`valid: false` と `error_string` / `diagnostics` が返ります。存在しない
 ファイルなどの操作上の問題は、通常どおり Error envelope を使います。
+
+結果には `project_root` も含まれます。これはスクリプトのコンパイル対象となったプロジェクト、
+つまり `res://` 依存の解決先となったルートです(プロジェクトが解決されなかった場合は `null`)。
+`valid: false` に対処する前にこれを確認してください。存在しない `res://` 依存とそこから派生した
+型エラーばかりの結果は、通常スクリプトの不具合ではなくプロジェクトの選択ミスを意味します。
+解決されたプロジェクトの**外**にあるスクリプトは、その偽のエラー群を報告する代わりに、
+ファイルとプロジェクトの両方を示した `project_not_found` で事前に拒否されます。その場合は
+そのファイルを所有するプロジェクトを `--project` で指定してください。
 
 **`project`** — プロジェクト全体(設定、オートロード、静的解析)
 

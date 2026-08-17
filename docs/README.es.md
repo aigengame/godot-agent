@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=32762f3f360f152fa9389c505fbd72cba484d9056d54db63df99f10aabbecaa8 -->
+<!-- gda-readme-i18n: source=README.md sha256=4690a415ebcff975162adcdeb87ea78a23afdcd40a7f80c578a11fad3570559a -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -432,6 +432,15 @@ script que no compila sigue siendo una operación exitosa: salida `0`, sin `erro
 de nivel superior, y `valid: false` con `error_string` / `diagnostics`. Los
 problemas de operación, como un archivo inexistente, siguen usando el Error envelope
 normal.
+
+El resultado también informa `project_root`: el proyecto contra el que se compiló el
+script, es decir, la raíz a la que se resolvieron sus dependencias `res://` (`null`
+cuando no se resolvió ningún proyecto). Léelo antes de actuar sobre un `valid: false`:
+un veredicto lleno de dependencias `res://` inexistentes, más los errores de tipo
+derivados de ellas, suele significar el proyecto equivocado y no un script roto. Un
+script *fuera* del proyecto resuelto se rechaza de entrada con `project_not_found`,
+nombrando tanto el archivo como el proyecto, en lugar de informar esos errores falsos;
+pasa `--project` con el proyecto al que pertenece el archivo.
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 
