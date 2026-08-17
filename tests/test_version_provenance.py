@@ -90,8 +90,9 @@ def fake_direct_url(monkeypatch, raw: str | None) -> None:
     The seam hands over RAW text, so a fake can supply a malformed document as
     easily as a well-formed one — which is the point: the three read arms must reach
     different conclusions. This helper covers the ABSENT and PRESENT arms; the
-    UNREADABLE arm is driven through the real reader by :func:`fake_metadata_reader`,
-    because a faked verdict would not prove the reader produces it.
+    UNREADABLE and ABSENT arms are driven through the real reader by
+    :func:`real_metadata_dist`, because a faked verdict would not prove the
+    reader produces them.
     """
     record = (
         DirectUrlRecord(RecordState.ABSENT)
@@ -101,23 +102,45 @@ def fake_direct_url(monkeypatch, raw: str | None) -> None:
     monkeypatch.setattr(provenance, "read_direct_url_record", lambda *a, **k: record)
 
 
-def fake_metadata_reader(monkeypatch, read_text) -> None:
-    """Replace gda's distribution metadata with one whose reader is ``read_text``.
+def real_metadata_dist(
+    monkeypatch,
+    tmp_path,
+    *,
+    record: str | None = None,
+    mode: int | None = None,
+    as_directory: bool = False,
+) -> Path:
+    """Point gda's metadata at a REAL dist-info directory built on disk.
 
-    Drives the REAL :func:`read_direct_url_record`, so a test can exercise what the
-    reader does with a missing file, a whitespace-only file, or a raising one. The
-    fake keeps the true ``version`` so ``build_version_provenance`` still produces a
-    complete payload — the point of these arms is that the preflight degrades, not
-    that it dies.
+    Drives the true :func:`read_direct_url_record` end to end — ``locate_file``
+    plus a genuine filesystem read — so every arm is produced by the real
+    reader's behavior (a missing entry, an unreadable mode, a directory sitting
+    where the record should be), never by a faked verdict. The stdlib
+    ``Distribution.read_text()`` would suppress those failures into the same
+    ``None`` as absence, which is exactly the collapse these tests guard
+    against. Carries the true installed version so ``build_version_provenance``
+    still emits a complete payload. Returns the record's path so a test can
+    restore permissions.
     """
+    from importlib.metadata import PathDistribution
 
-    class _Dist:
-        version = installed_version("gda")
-
-        def read_text(self, name: str):
-            return read_text(name)
-
-    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
+    info = tmp_path / "gda_fixture-0.0.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.3\nName: gda-fixture\n"
+        f"Version: {installed_version('gda')}\n",
+        encoding="utf-8",
+    )
+    target = info / "direct_url.json"
+    if as_directory:
+        target.mkdir()
+    elif record is not None:
+        target.write_text(record, encoding="utf-8")
+        if mode is not None:
+            target.chmod(mode)
+    dist = PathDistribution(info)
+    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: dist)
+    return target
 
 
 def fake_editable_install(monkeypatch, root: Path) -> None:
@@ -536,36 +559,47 @@ def test_package_path_exposes_a_sys_path_shadow(tmp_path):
 # reader, and the two once-collapsed ones end to end as well.
 
 
-def test_a_missing_record_is_absent(monkeypatch):
-    # The one arm that legitimately implies a wheel: the reader says "no such file".
-    fake_metadata_reader(monkeypatch, lambda name: None)
+def test_a_missing_record_is_absent(monkeypatch, tmp_path):
+    # The one arm that legitimately implies a wheel: the entry genuinely does not
+    # exist on disk — positive missing-file evidence, not an ambiguous None.
+    real_metadata_dist(monkeypatch, tmp_path)
 
     assert read_direct_url_record() == DirectUrlRecord(RecordState.ABSENT)
 
 
-def test_a_malformed_record_is_present_and_handed_over_verbatim(monkeypatch):
+def test_a_malformed_record_is_present_and_handed_over_verbatim(monkeypatch, tmp_path):
     # The seam does not judge: it returns the bytes and the classifier decides.
-    fake_metadata_reader(monkeypatch, lambda name: "{not json")
+    real_metadata_dist(monkeypatch, tmp_path, record="{not json")
 
     assert read_direct_url_record() == DirectUrlRecord(RecordState.PRESENT, "{not json")
 
 
-def test_a_whitespace_only_record_is_present_not_absent(monkeypatch):
+def test_a_whitespace_only_record_is_present_not_absent(monkeypatch, tmp_path):
     # Was pinned the WRONG way: the seam blanked "   \n" to None, so a record that
     # exists but says nothing became "absent" and the payload claimed `wheel`. A
     # record that exists but says nothing is off-spec, not absent.
-    fake_metadata_reader(monkeypatch, lambda name: "   \n")
+    real_metadata_dist(monkeypatch, tmp_path, record="   \n")
 
     assert read_direct_url_record() == DirectUrlRecord(RecordState.PRESENT, "   \n")
 
 
-def test_an_unreadable_record_is_unreadable_not_absent(monkeypatch):
-    # The second collapsed arm: the reader raising was swallowed into "absent", so a
-    # metadata failure was reported as an immutable wheel.
-    def _boom(name: str):
-        raise OSError("injected: cannot read the metadata")
+def test_an_unreadable_record_is_unreadable_not_absent(monkeypatch, tmp_path):
+    # The stdlib Distribution.read_text() SUPPRESSES PermissionError and returns
+    # None — indistinguishable from absence. The seam must read through the located
+    # entry so a real mode-000 record stays distinct from a missing one.
+    target = real_metadata_dist(monkeypatch, tmp_path, record="{}", mode=0o000)
+    try:
+        record = read_direct_url_record()
+    finally:
+        target.chmod(0o644)
 
-    fake_metadata_reader(monkeypatch, _boom)
+    assert record == DirectUrlRecord(RecordState.UNREADABLE)
+
+
+def test_a_directory_shaped_record_is_unreadable_not_absent(monkeypatch, tmp_path):
+    # IsADirectoryError is another failure the stdlib reader flattens to None: a
+    # directory sitting at direct_url.json is corrupt metadata, not a missing file.
+    real_metadata_dist(monkeypatch, tmp_path, as_directory=True)
 
     assert read_direct_url_record() == DirectUrlRecord(RecordState.UNREADABLE)
 
@@ -578,8 +612,8 @@ def test_an_uninstalled_distribution_is_unreadable_not_absent():
     assert record == DirectUrlRecord(RecordState.UNREADABLE)
 
 
-def test_a_whitespace_only_record_reaches_the_cli_as_unknown(monkeypatch):
-    fake_metadata_reader(monkeypatch, lambda name: "   \n")
+def test_a_whitespace_only_record_reaches_the_cli_as_unknown(monkeypatch, tmp_path):
+    real_metadata_dist(monkeypatch, tmp_path, record="   \n")
 
     result = CliRunner().invoke(app, ["--version", "--json"])
 
@@ -591,13 +625,16 @@ def test_a_whitespace_only_record_reaches_the_cli_as_unknown(monkeypatch):
     assert payload["gda_version"] and payload["package_path"] and payload["godot"]
 
 
-def test_an_unreadable_record_reaches_the_cli_as_unknown(monkeypatch):
-    def _boom(name: str):
-        raise OSError("injected: cannot read the metadata")
+def test_an_unreadable_record_reaches_the_cli_as_unknown(monkeypatch, tmp_path):
+    # A REAL mode-000 record through the real CLI: the stdlib reader would flatten
+    # this to None/absent; the located-entry read keeps it distinct, and the
+    # preflight degrades to `unknown` with a complete payload instead of dying.
+    target = real_metadata_dist(monkeypatch, tmp_path, record="{}", mode=0o000)
 
-    fake_metadata_reader(monkeypatch, _boom)
-
-    result = CliRunner().invoke(app, ["--version", "--json"])
+    try:
+        result = CliRunner().invoke(app, ["--version", "--json"])
+    finally:
+        target.chmod(0o644)
 
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
@@ -606,10 +643,10 @@ def test_an_unreadable_record_reaches_the_cli_as_unknown(monkeypatch):
     assert payload["gda_version"] and payload["package_path"] and payload["godot"]
 
 
-def test_a_missing_record_reaches_the_cli_as_wheel(monkeypatch):
+def test_a_missing_record_reaches_the_cli_as_wheel(monkeypatch, tmp_path):
     # The control for the two arms above: only a genuinely absent record earns the
     # confident `wheel`, so the tests prove a distinction rather than a constant.
-    fake_metadata_reader(monkeypatch, lambda name: None)
+    real_metadata_dist(monkeypatch, tmp_path)
 
     payload = json.loads(CliRunner().invoke(app, ["--version", "--json"]).stdout)
 

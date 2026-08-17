@@ -255,17 +255,39 @@ def read_direct_url_record(distribution: str = DISTRIBUTION) -> DirectUrlRecord:
     same metadata and would fail first — but classifying a metadata failure onto the
     one arm that implies a wheel would be wrong on principle.)
 
-    One hole this seam cannot see: ``importlib.metadata`` suppresses some of its own
-    read failures — notably ``PermissionError`` — and returns ``None``, which is
-    indistinguishable here from a missing file. That case still reports ``wheel``.
+    ``ABSENT`` requires POSITIVE missing-file evidence. The obvious reader —
+    ``Distribution.read_text()`` — cannot supply it: the stdlib implementation
+    suppresses ``PermissionError``, ``IsADirectoryError``, ``NotADirectoryError``
+    and friends, returning the same ``None`` it returns for a missing record, and
+    promoting that ambiguity to ``ABSENT`` is exactly the confident-wheel
+    misreport this seam exists to prevent. So the record is read from the
+    distribution's own metadata directory (``PathDistribution``'s ``_path`` — a
+    ``pathlib.Path`` for a directory-backed install, a zip path for an
+    archive-backed one; ``locate_file`` is NOT it, that resolves installed files
+    relative to site-packages), where the outcomes stay distinct: only a genuine
+    "no such file" is ``ABSENT``; every other read failure is ``UNREADABLE``. An
+    exotic ``Distribution`` subclass without ``_path`` can only offer the
+    ambiguous ``read_text`` ``None``, which degrades to ``UNREADABLE`` — never
+    promoted to the one arm that earns a confident wheel.
     """
     try:
         dist = Distribution.from_name(distribution)
-        raw = dist.read_text("direct_url.json")
-    except (PackageNotFoundError, OSError):
+    except PackageNotFoundError:
         return DirectUrlRecord(RecordState.UNREADABLE)
-    if raw is None:
+    metadata_dir = getattr(dist, "_path", None)
+    if metadata_dir is None:
+        raw = dist.read_text("direct_url.json")
+        if raw is None:
+            return DirectUrlRecord(RecordState.UNREADABLE)
+        return DirectUrlRecord(RecordState.PRESENT, raw)
+    try:
+        raw = (metadata_dir / "direct_url.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
         return DirectUrlRecord(RecordState.ABSENT)
+    except (OSError, KeyError, ValueError):
+        # PermissionError / IsADirectoryError / NotADirectoryError are OSErrors;
+        # KeyError is an archive member miss on older zip-path backends.
+        return DirectUrlRecord(RecordState.UNREADABLE)
     return DirectUrlRecord(RecordState.PRESENT, raw)
 
 
