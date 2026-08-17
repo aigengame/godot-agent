@@ -109,7 +109,9 @@ choose mode/permissions → decompose + dependency analysis → plan waves
    the orchestrator performs only the listed remote actions. (REFERENCE §6, §7)
 6. **Merge serially in dependency order when authorized.** Foundation slice first → rebase followers onto the new
    base → independent groups can merge in any order; a *clean* rebase still gets the
-   applicable integration gate. Re-poll mergeability after each merge. For stacked changes,
+   applicable integration gate — including re-running the consuming slice's tests on the
+   rebased tree, because two independently-green slices can collide only there (one changes
+   what a shared function guarantees, the other adds a caller relying on the old guarantee). Re-poll mergeability after each merge. For stacked changes,
    retarget followers after the base lands and update stale descriptions, completion
    semantics, or verification text before merging. Watch for the two marker-free conflict traps.
    (REFERENCE §4, §5)

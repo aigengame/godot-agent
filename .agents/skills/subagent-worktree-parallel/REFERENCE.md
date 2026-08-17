@@ -194,10 +194,28 @@ remote-write authority.
    asynchronously, so a previously mergeable change can become conflicting after a sibling merges.
 3. **A clean auto-merge still gets the integration gate** (§6) — the marker-free traps
    in §5 hide precisely in conflict-free rebases.
-4. **Regenerate, don't hand-merge, stamped markers.** When the conflicting hunk is a
-   generated checksum/stamp over content both sides changed, take either side's marker,
-   merge the content normally, then re-run the project's generator on the merged tree and
-   commit its output — the regenerated value is the only correct resolution (§1).
+4. **Regenerate, don't hand-merge, stamped markers — and resolve hunk-scoped, never by
+   whole-file side-picking.** When the conflicting hunk is a generated checksum/stamp over
+   content both sides changed, take either side's MARKER LINE only, merge the content
+   normally, then re-run the project's generator on the merged tree and commit its output —
+   the regenerated value is the only correct resolution (§1). A whole-file `checkout
+   --theirs/--ours` for a one-line marker conflict silently erases the other side's already-
+   merged content (a real run clobbered a merged sibling's translated rows this way). After
+   ANY regenerate-style resolution, verify BOTH sides' content survived — grep the merged
+   file for each slice's landmark content, don't trust a clean rebase.
+5. **A clean rebase of disjoint files is not integration: re-test invariant handoffs.** Two
+   slices can each be independently correct and collide only on the merged tree — one slice
+   changes what a shared function GUARANTEES (a normalizer made total, an error path
+   reshaped), the other adds a NEW CALLER relying on the old guarantee. Neither slice's own
+   gates can see it; only the integrated tree can. At each serial merge, re-run the fast
+   suite (at minimum the consuming slice's tests) on the REBASED tree before pushing, and
+   treat a failure there as an integration defect to fix at the shared seam's altitude — as
+   a commit on the branch being merged, not a band-aid in either slice.
+6. **Designate the sentinel test for a known silent-sever point ahead of time.** When the
+   planned rebase collision includes a hunk where one side DELETES the anchor line the other
+   side's call is appended after (the wired-to-nothing trap), name — before merging — the
+   single test that proves the wiring after resolution, and run it first. One test, named in
+   advance, converts a silent sever into a loud check.
 
 **Base remediation invalidates dependent-change evidence.** If change A is the base for
 change B, then every review fix, documentation fix, or history rewrite on A requires a
@@ -319,6 +337,13 @@ and a stubbed fast tier passes anyway. **Only the integration tier catches them.
    merge. Seen: two slices each defining a same-named helper, merged into a duplicate
    definition that broke every integration run.
 
+A third trap appears on MULTI-COMMIT rebases resolved keep-both: a later commit in the
+same branch may REWORD the hunk an earlier commit introduced, so the keep-both you applied
+at the earlier commit leaves the superseded version sitting beside the final one — stale
+prose/bullets or an outdated definition that no conflict marks. Audit the FINAL tree, not
+each resolution: grep for duplicated headings/bullets/definitions after the rebase
+completes.
+
 **After resolving, always audit:**
 
 ```bash
@@ -412,6 +437,11 @@ the documented environment can be reproduced safely. If it cannot, record the li
   per-change hosted validation running only the cheap tiers, and one full-tier run on the
   integrated base after the wave's last merge. The trade is deferred detection on the integrated base —
   make it deliberately, not by default.
+- **Fix a wording/model finding by the CLAIM, not the reviewer's site list.** When a review
+  says a statement or mental model is wrong and cites locations, the citations are examples,
+  not the boundary: sweep the whole repo (code comments, docs, tests, sibling packages) for
+  the claim and fix every instance. Two real rounds re-opened because the fix was scoped to
+  the enumerated sites while the same falsified sentence survived elsewhere.
 - **Close the review loop.** For actionable review comments, implement the fix,
   rerun the relevant gates, then push and reply or resolve only when those remote writes
   are authorized. Follow the host's convention. Review remediation can touch shared surfaces, so
@@ -454,6 +484,11 @@ the documented environment can be reproduced safely. If it cannot, record the li
   every acceptance criterion. A foundation slice, dependent follow-up slice, or stacked
   partial change must remain non-closing. Without remote-write authority, report the
   required record and do not create or update it.
+- **Worktree scripting: derive git state paths with `git rev-parse --git-path`.** In a
+  linked worktree `.git` is a FILE, so a hardcoded `.git/rebase-merge` (or MERGE_HEAD etc.)
+  existence check silently reports "no rebase in progress" mid-rebase — a real automation
+  loop exited early on exactly that. `git rev-parse --git-path rebase-merge` resolves
+  correctly in both layouts.
 - **Verify the shared checkout after every worktree agent.** Confirm the shared checkout is
   still on its branch and clean (`git -C <shared-checkout> branch --show-current`, `git status
   --short`, no stray branches) before relying on it — worktree agents have leaked git
