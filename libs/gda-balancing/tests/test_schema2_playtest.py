@@ -117,7 +117,7 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
     assert {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")} == expected
 
 
-def test_playtest_godot_tests_share_one_test_case_module():
+def test_playtest_scripts_share_one_test_case_module():
     support = _PLAYTEST / "tests" / "playtest_test_case.gd"
     assert support.is_file()
 
