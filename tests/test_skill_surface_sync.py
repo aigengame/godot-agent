@@ -296,3 +296,32 @@ def test_display_gate_policy_parity_across_the_two_pytest_roots():
         assert reaction(game.handle_no_display_code, code) == reaction(
             toolkit.handle_no_display_code, code
         ), f"the two display-gate copies disagree on {code!r}"
+
+    # The PREFLIGHT path too (PR #702 recheck): both require_windowed_host()
+    # functions must react identically to an injected verdict. Both copies read
+    # gda.display.windowed_unavailable at call time, so one monkeypatch drives
+    # both; None / capability / permission cover the whole verdict space.
+    import gda.display as display_module
+
+    class _Verdict:
+        def __init__(self, code):
+            self.code = code
+            self.reason = f"injected {code}"
+
+    def preflight_reaction(fn, verdict, monkeypatch_target=display_module):
+        original = monkeypatch_target.windowed_unavailable
+        setattr(monkeypatch_target, "windowed_unavailable", lambda: verdict)
+        try:
+            return reaction(lambda *_: fn(), None)
+        finally:
+            setattr(monkeypatch_target, "windowed_unavailable", original)
+
+    for verdict in [
+        None,
+        _Verdict("live_windowed_unavailable"),
+        _Verdict("live_display_unavailable"),
+        _Verdict("live_windowed_permission_denied"),
+    ]:
+        assert preflight_reaction(game.require_windowed_host, verdict) == (
+            preflight_reaction(toolkit.require_windowed_host, verdict)
+        ), f"the two preflights disagree on verdict {getattr(verdict, 'code', None)!r}"
