@@ -14,7 +14,9 @@ import pytest
 from gda.project import (
     GDA_PROJECT_ENV,
     PROJECT_MARKER,
+    is_engine_virtual_path,
     path_outside_project,
+    project_anchored,
     resolve_project_dir,
 )
 
@@ -101,6 +103,21 @@ def test_engine_virtual_paths_are_never_outside(tmp_path):
     assert path_outside_project("uid://abc123", proj) is None
 
 
+def test_a_colon_bearing_filesystem_path_is_not_treated_as_virtual(tmp_path):
+    # A colon is a legal POSIX filename character, so "contains ://" is not a
+    # scheme test: `/work/outside://deck.gd` is an ordinary filesystem path that
+    # happens to hold the sequence, and it is OUTSIDE. Waving it through as
+    # engine-virtual skipped containment entirely and the engine opened the
+    # outside file.
+    proj = _make_project(tmp_path / "game")
+    odd = tmp_path / "outside:" / "deck.gd"
+
+    assert is_engine_virtual_path(str(odd)) is False
+    assert path_outside_project(str(odd), proj) == odd.resolve()
+    # ...and the same sequence inside the project is still contained.
+    assert path_outside_project(str(proj / "weird:" / "deck.gd"), proj) is None
+
+
 def test_a_symlinked_project_spelling_still_contains_its_own_files(tmp_path):
     # The RESOLVED reading: the SAME directory reached by two spellings compares
     # equal. Without it the check would refuse every correct call made through a
@@ -158,13 +175,38 @@ def test_a_dot_dot_escape_is_still_outside(tmp_path):
     )
 
 
-def test_a_relative_path_is_resolved_against_the_cwd(tmp_path, monkeypatch):
-    # A caller's path may be relative; it means "relative to where gda was run",
-    # so containment is decided after resolving it there.
+def test_a_symlink_followed_by_dot_dot_does_not_pass_as_inside(tmp_path):
+    # The lexical reading is only sound while no `..` is in play. With
+    # `game/pivot -> ../outside/deep`, the input `game/pivot/../deck.gd` collapses
+    # TEXTUALLY to `game/deck.gd` (inside) while really naming
+    # `outside/deck.gd` — so trusting the lexical reading here accepted a target
+    # that is genuinely outside, and the engine compiled it.
     proj = _make_project(tmp_path / "game")
-    monkeypatch.chdir(proj)
+    outside = tmp_path / "outside"
+    (outside / "deep").mkdir(parents=True)
+    (outside / "deck.gd").write_text("extends Node\n", encoding="utf-8")
+    (proj / "pivot").symlink_to(outside / "deep", target_is_directory=True)
 
-    assert path_outside_project("hero.gd", proj) is None
+    bypass = str(proj / "pivot" / ".." / "deck.gd")
+
+    assert path_outside_project(bypass, proj) == (outside / "deck.gd").resolve()
+
+
+def test_a_relative_path_is_anchored_at_the_project_not_the_cwd(tmp_path, monkeypatch):
+    # A relative target is anchored where the ENGINE anchors it: at the resolved
+    # project. Launched with `--path <project>`, a one-shot op that opens
+    # `deck.gd` opens `<project>/deck.gd` no matter where gda was invoked, and the
+    # README promises the same. Anchoring at the invoker cwd instead refused an
+    # ordinary `gda script validate deck.gd --project game` run from an ancestor
+    # directory, which the engine validates fine.
+    proj = _make_project(tmp_path / "game")
+    monkeypatch.chdir(tmp_path)
+
+    assert path_outside_project("deck.gd", proj) is None
+    assert path_outside_project("scripts/deck.gd", proj) is None
+    # A relative project spelling anchors identically.
+    assert path_outside_project("deck.gd", Path("game")) is None
+    # `..` still climbs out of the project, and is refused from either spelling.
     assert (
         path_outside_project("../elsewhere/hero.gd", proj)
         == (tmp_path / "elsewhere" / "hero.gd").resolve()
@@ -190,3 +232,16 @@ def test_a_project_nested_inside_the_resolved_one_is_not_refused(tmp_path):
     _make_project(outer / "inner")
 
     assert path_outside_project(str(outer / "inner" / "deck.gd"), outer) is None
+
+
+def test_project_anchored_matches_how_the_engine_addresses_a_path(tmp_path):
+    # The one anchoring rule the containment check and the engine share: relative
+    # at the project, absolute untouched. Pinned separately from containment so a
+    # future caller (the op argv, a batch mode) reuses the same rule rather than
+    # re-deciding it.
+    proj = tmp_path / "game"
+    absolute = tmp_path / "elsewhere" / "hero.gd"
+
+    assert project_anchored("deck.gd", proj) == proj / "deck.gd"
+    assert project_anchored("scripts/deck.gd", proj) == proj / "scripts" / "deck.gd"
+    assert project_anchored(str(absolute), proj) == absolute

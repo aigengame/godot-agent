@@ -19,7 +19,7 @@ targets the standard build) and a dedicated decision.
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, runtime_checkable
 
 import typer
 from pydantic import BaseModel, Field, model_validator
@@ -510,7 +510,15 @@ class ScriptValidateResult(BaseModel):
 
     ``project_root`` names the project the script was compiled against, so a
     reader can tell a real compile error from one caused by the wrong project
-    context without re-deriving gda's resolution (#658).
+    context without re-deriving gda's resolution (#658). It is REQUIRED and
+    nullable, not optional: every public result carries the key (``null`` means
+    projectless), so an agent can read it unconditionally. The engine's sentinel
+    does not report it — ADR-0006 keeps the project CLI-side, and the engine is
+    told it through ``--path`` — so the ``before`` validator below supplies the
+    key for the internal sentinel parse and the CLI stamps the real value
+    immediately after (:func:`_script_validate_recipe`). The leniency is
+    therefore inward-facing only: it never reaches the published contract, which
+    lists ``project_root`` in ``required``.
     """
 
     path: str
@@ -532,17 +540,35 @@ class ScriptValidateResult(BaseModel):
         ),
     )
     project_root: str | None = Field(
-        default=None,
         description=(
             "The Godot project this script was compiled against — the root its "
-            "res:// dependencies resolved to (ADR-0006: --project, then "
-            "$GDA_PROJECT, then the current directory). Null when gda ran "
-            "projectless (no project resolved), where only filesystem paths "
-            "resolve; a script whose res:// dependencies were reported missing "
-            "with a null or unexpected root here has a project-context problem, "
-            "not a source problem."
+            "res:// dependencies resolved to, reported as an absolute path "
+            "(ADR-0006: --project, then $GDA_PROJECT, then the current "
+            "directory). Always present; null when gda ran projectless (no "
+            "project resolved), where only filesystem paths resolve. A script "
+            "whose res:// dependencies were reported missing with a null or "
+            "unexpected root here has a project-context problem, not a source "
+            "problem."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _supply_absent_project_root(cls, data: Any) -> Any:
+        """Fill the key the ENGINE never sends, so the field can stay required.
+
+        ``project_root`` is gda's own addition to the engine's answer: the
+        ADR-0002 sentinel this model is parsed from carries only the fields
+        ``operations.gd`` reports. Declaring the field required — so it appears
+        in the published ``required`` list every consumer reads — would make
+        that internal parse fail, so the absent key is supplied as ``null``
+        here and the recipe stamps the resolved project immediately after.
+        Anything that DOES carry the key (the recipe's own ``model_copy``, a
+        round-trip of an emitted result) passes through untouched.
+        """
+        if isinstance(data, dict) and "project_root" not in data:
+            return {**data, "project_root": None}
+        return data
 
 
 class ScriptRunParams(BaseModel):
@@ -1066,7 +1092,12 @@ SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
 )
 
 
-def _script_validate_recipe(params, *, project, godot):
+def _script_validate_recipe(
+    params: ScriptValidateParams,
+    *,
+    project: Optional[Path],
+    godot: Optional[str],
+) -> ScriptValidateResult | Failure:
     """Refuse → compile → report the root: ``script validate``'s recipe (#658).
 
     The sentinel op still does the compiling (``cmd.execute``, as the export
@@ -1087,6 +1118,10 @@ def _script_validate_recipe(params, *, project, godot):
     Then the report: the resolved project is stamped onto the result as
     ``project_root``, so a caller reading a ``valid=false`` verdict sees which
     root the ``res://`` dependencies resolved against instead of inferring it.
+    Both the report and the refusal name the project in its RESOLVED form: the
+    flag may be spelled relatively (``--project game``), and a bare ``game`` in a
+    machine-readable result or in a "this is outside that" message tells the
+    reader nothing about which directory was meant.
 
     ``project`` arrives ALREADY resolved from ``dispatch_recipe`` (an invalid
     ``--project``/``$GDA_PROJECT`` became a structured ``project_not_found``
@@ -1094,10 +1129,12 @@ def _script_validate_recipe(params, *, project, godot):
     built once by the caller, identical on the argv and ``--params-json`` paths
     (ADR-0015).
     """
+    root = None
     if project is not None:
+        root = project.expanduser().resolve()
         outside = path_outside_project(params.path, project)
         if outside is not None:
-            return script_outside_project_failure(outside, project)
+            return script_outside_project_failure(outside, root)
     # The runner seam is read off the module at call time — never imported by
     # name — so a test monkeypatch on ``gda.dispatch.make_runner`` still binds.
     # Naming the HEADLESS factory directly is correct only while this command is
@@ -1118,7 +1155,7 @@ def _script_validate_recipe(params, *, project, godot):
     # and ``project_root`` is gda's addition to it, so the union is built rather
     # than the parsed model mutated after validation.
     return outcome.model_copy(
-        update={"project_root": str(project) if project is not None else None}
+        update={"project_root": str(root) if root is not None else None}
     )
 
 

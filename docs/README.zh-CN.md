@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=7e7ef59df7e407b072ba03aa8dd6fb0325c4043a1e064f1ffb98cafa3230dc6a -->
+<!-- gda-readme-i18n: source=README.md sha256=bb3fb3e81210910899b8cfd05144fa9f969d9d214a0436f5e002a1f496c37f0e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -417,6 +417,12 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 对 `script validate --json`，要读取结果对象里的 `valid` 字段。脚本编译失败仍然算一次成功操作：
 退出码为 `0`，没有顶层 `error`，并以 `valid: false` 携带 `error_string` / `diagnostics`。
 缺失文件等操作层问题仍然采用标准的 Error envelope。
+
+结果还会报告 `project_root`：脚本编译时所针对的项目，也就是其 `res://` 依赖解析到的根目录
+（未解析到项目时为 `null`）。在处理 `valid: false` 之前请先读它——若诊断里满是缺失的 `res://`
+依赖以及由此派生的类型错误，通常说明项目选错了，而不是脚本本身有问题。位于所解析项目**之外**
+的脚本会被提前拒绝并返回 `project_not_found`，同时指明文件与项目，而不是报出那一连串假错误；
+此时请用 `--project` 指定真正拥有该文件的项目。
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 

@@ -646,6 +646,114 @@ def test_script_validate_does_not_refuse_a_res_path(monkeypatch, tmp_path):
     assert fake.calls == [("script-validate", {"path": "res://deck.gd"})]
 
 
+def test_script_validate_does_not_refuse_a_colon_bearing_path_as_virtual(
+    monkeypatch, tmp_path
+):
+    # A colon is legal in a POSIX filename, so a path merely CONTAINING "://" is
+    # an ordinary filesystem path — and this one is outside the project, so it is
+    # refused rather than waved through as engine-virtual (which skipped
+    # containment entirely and let the engine open the outside file).
+    proj = _project(tmp_path, "game")
+    odd = tmp_path / "outside:" / "deck.gd"
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", str(odd), "--project", str(proj), "--json"]
+    )
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert fake.calls == []
+
+
+def _ancestor_cwd_project(monkeypatch, tmp_path):
+    """A project one level below the cwd, with a script in it (the #658 A shape)."""
+    proj = _project(tmp_path, "game")
+    monkeypatch.chdir(tmp_path)
+    return proj
+
+
+def test_script_validate_accepts_a_relative_target_from_an_ancestor_cwd(
+    monkeypatch, tmp_path
+):
+    # An ordinary invocation that the containment check used to refuse: run from
+    # the workspace ABOVE the project, naming both the project and the script
+    # relatively. The engine anchors `deck.gd` at `--path game`, and the README
+    # promises exactly that, so gda must not judge it against its own cwd.
+    proj = _ancestor_cwd_project(monkeypatch, tmp_path)
+    payload = {"path": "deck.gd", "valid": True, "error_string": None}
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "deck.gd", "--project", "game", "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout
+    # The op receives the path unchanged — the engine does the anchoring — and the
+    # reported root is absolute, not the bare relative "game" the caller typed.
+    assert fake.calls == [("script-validate", {"path": "deck.gd"})]
+    assert json.loads(result.stdout)["project_root"] == str(proj)
+
+
+def test_script_validate_relative_target_parity_on_the_params_json_path(
+    monkeypatch, tmp_path
+):
+    # ADR-0015 parity for the same shape: --params-json must anchor identically.
+    proj = _ancestor_cwd_project(monkeypatch, tmp_path)
+    payload = {"path": "deck.gd", "valid": True, "error_string": None}
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "--params-json",
+            json.dumps({"path": "deck.gd"}),
+            "--project",
+            "game",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert fake.calls == [("script-validate", {"path": "deck.gd"})]
+    assert json.loads(result.stdout)["project_root"] == str(proj)
+
+
+def test_script_validate_still_refuses_a_relative_target_that_climbs_out(
+    monkeypatch, tmp_path
+):
+    # Anchoring at the project is not a blanket accept: a relative path that
+    # climbs out of the project with `..` is still outside, from either spelling.
+    _ancestor_cwd_project(monkeypatch, tmp_path)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel({}), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "validate",
+            "../elsewhere/deck.gd",
+            "--project",
+            "game",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+    assert fake.calls == []
+
+
 def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
     # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
     # valid=false, and the per-command classifier parses the line/message
