@@ -148,8 +148,9 @@ def main(
         "so a read-only application-data directory is not fatal and concurrent "
         "runs do not share one log; pass this when `user://` itself must be "
         "writable. Godot reads the export templates and editor settings from that "
-        "same directory, so an export run under it finds no installed templates. "
-        "A live session is unaffected: the daemon owns its log (ADR-0022).",
+        "same directory, so a release/debug 'export run' under it finds no "
+        "installed templates unless you place them there ('--mode pack' needs "
+        "none). A live session is unaffected: the daemon owns its log (ADR-0022).",
     ),
 ) -> None:
     """An agent-facing Godot CLI with structured output."""

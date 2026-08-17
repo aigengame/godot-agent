@@ -13,6 +13,7 @@ unwritable application-data directory — lives in ``test_e2e_user_data.py``.
 """
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,23 @@ class _RecordingRun:
 
 def _log_file_arg(cmd: list[str]) -> Path:
     return Path(cmd[cmd.index("--log-file") + 1])
+
+
+def _permission_denied(prefix: str):
+    """A ``mkdtemp`` double that denies only the call carrying ``prefix``.
+
+    The data-path probe and the temporary-log directory both go through
+    ``mkdtemp``, so a blanket double could not tell which one a test meant to break.
+    """
+
+    real = tempfile.mkdtemp
+
+    def fake(*args, **kwargs):
+        if kwargs.get("prefix") == prefix:
+            raise PermissionError(13, "Permission denied")
+        return real(*args, **kwargs)
+
+    return fake
 
 
 # --------------------------------------------------------------------------
@@ -205,10 +223,14 @@ def test_refusal_diagnostics_name_binary_user_data_and_log_path(monkeypatch, tmp
         locked.chmod(0o755)
 
     # An agent must be able to act without reading gda's source: the three paths
-    # it would have to fix are all named.
+    # it would have to fix are all named — and the user-data one is the
+    # PLATFORM-DERIVED path the engine would really use, not the bare root. A
+    # paraphrase ("under <root>") pointed at a directory that is not the one to fix.
     assert "/x/Godot" in result.stderr
-    assert str(root) in result.stderr
     assert str(root / "logs" / "godot.log") in result.stderr
+    derived = engine_data_path(data_path_env(root))
+    assert derived is not None
+    assert str(derived) in result.stderr
 
 
 def test_default_root_refusal_names_the_engine_resolved_user_data_dir(monkeypatch):
@@ -228,6 +250,43 @@ def test_default_root_refusal_names_the_engine_resolved_user_data_dir(monkeypatc
     assert data_path is not None and str(data_path) in result.stderr
     assert "--user-data-root" in result.stderr
     assert USER_DATA_ROOT_ENV in result.stderr
+    # This refusal is about gda's OWN temporary target, not Godot's directory, so it
+    # must name where that target was attempted — otherwise the shared code sends
+    # the reader off to fix a directory that may be perfectly writable.
+    assert tempfile.gettempdir() in result.stderr
+    assert "not redirecting user://" in result.stderr
+
+
+def test_the_two_refusal_shapes_point_at_different_directories(monkeypatch, tmp_path):
+    # The one code covers two distinct placements (registry wording), so the
+    # diagnostics — not the code — must disambiguate which one failed. Pinned as a
+    # PAIR: the default-branch refusal must not blame the explicit root's derived
+    # path, and vice versa.
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr("gda.runner.tempfile.mkdtemp", _permission_denied("gda-log-"))
+
+    default_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    monkeypatch.undo()
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    root = locked / "root"
+    try:
+        set_user_data_root(str(root))
+        root_refusal = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+    finally:
+        locked.chmod(0o755)
+
+    assert default_refusal.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert root_refusal.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    # The default refusal talks about the temporary target and does NOT blame the root.
+    assert tempfile.gettempdir() in default_refusal.stderr
+    assert str(root) not in default_refusal.stderr
+    # The explicit-root refusal talks about the root and not the temporary dir.
+    assert str(root) in root_refusal.stderr
+    assert "not redirecting user://" not in root_refusal.stderr
 
 
 def test_refusal_classifies_as_the_environment_error_code():
@@ -316,6 +375,80 @@ def test_a_relative_root_absolutizes_the_platform_override_too(monkeypatch, tmp_
     for value in data_path_env(tmp_path / "rel").values():
         assert Path(value).is_absolute()
     assert set(data_path_env(tmp_path / "rel").items()) <= set(env.items())
+
+
+def test_explicit_root_probes_the_platform_derived_data_path(monkeypatch, tmp_path):
+    # Creating `root` alone is not enough: the engine appends a platform layout to
+    # it, and that DERIVED path can be unusable while `root` is perfectly writable
+    # — here blocked by a regular file. gda used to preflight only the log, report
+    # success, and leave the script with an unopenable `user://`.
+    def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
+        raise AssertionError("the engine must not be spawned")
+
+    monkeypatch.setattr(subprocess, "run", _must_not_spawn)
+    root = tmp_path / "udr"
+    derived = engine_data_path(data_path_env(root))
+    assert derived is not None
+    # Block the derived path with a FILE, so it can never be created, while leaving
+    # `root` and `<root>/logs` writable.
+    blocker = derived
+    while blocker.parent != root and blocker.parent != blocker:
+        blocker = blocker.parent
+    blocker.parent.mkdir(parents=True, exist_ok=True)
+    blocker.write_text("not a directory")
+    set_user_data_root(str(root))
+
+    result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert result.exit_code == EXIT_NOT_FOUND
+    assert str(derived) in result.stderr
+
+
+def test_the_probe_creates_the_derived_path_and_leaves_no_litter(tmp_path):
+    # The probe takes the engine's own shape — make_dir_recursive under the data
+    # path — so it CREATES a throwaway directory rather than inspecting a
+    # permission bit, which would miss a read-only mount or a full filesystem. It
+    # must clean up after itself.
+    root = tmp_path / "udr"
+    with user_data_placement(root, env={"HOME": str(tmp_path / "h")}) as placement:
+        assert placement.data_path is not None
+        assert placement.data_path.is_dir()
+        assert not list(placement.data_path.glob(".gda-probe-*"))
+
+
+def test_an_empty_explicit_flag_is_refused_not_demoted_to_the_environment(monkeypatch):
+    # `--user-data-root ""` is an explicit, deliberate — if mistaken — choice, so it
+    # is surfaced, exactly as an empty `--godot` is. Collapsing it to "absent" let
+    # $GDA_USER_DATA_ROOT win instead, silently inverting flag > env.
+    def _must_not_spawn(*args, **kwargs):  # pragma: no cover - guard
+        raise AssertionError("the engine must not be spawned")
+
+    monkeypatch.setattr(subprocess, "run", _must_not_spawn)
+    monkeypatch.setenv(USER_DATA_ROOT_ENV, "/from/env")
+    set_user_data_root("")
+
+    result = launch(Path("/x/Godot"), ["--version"], cwd=None, timeout=60.0)
+
+    assert result.launch_failure is LaunchFailure.USER_DATA_UNWRITABLE
+    assert result.exit_code == EXIT_NOT_FOUND
+    # The environment value must NOT have been used.
+    assert "/from/env" not in result.stderr
+
+
+def test_an_empty_flag_beats_the_environment_in_the_resolver(monkeypatch):
+    monkeypatch.setenv(USER_DATA_ROOT_ENV, "/from/env")
+    set_user_data_root("")
+    with pytest.raises(ValueError, match="empty"):
+        resolve_user_data_root()
+
+
+def test_an_empty_environment_value_falls_through_to_the_default(monkeypatch):
+    # Unlike the flag: an unset and a blank variable are the same intent, so an
+    # empty env value is the engine default, not an error (matches --godot/$GDA_GODOT).
+    monkeypatch.setenv(USER_DATA_ROOT_ENV, "")
+    set_user_data_root(None)
+    assert resolve_user_data_root() is None
 
 
 def test_root_precedence_is_flag_then_env_then_engine_default(monkeypatch):

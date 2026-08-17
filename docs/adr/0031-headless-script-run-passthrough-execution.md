@@ -253,3 +253,17 @@ added incrementally under ADR-0025 if a concrete need appears.
   dispatch channels.
 - **Large output** streams through stdout like any headless result; if a future need surfaces, the
   ADR-0002 result-file escape hatch applies, but it is not committed here.
+
+> **Amendment 2026-08-17 (#653).** The shared `launch()` primitive this decision reuses has since
+> grown a third responsibility, so what `script run` inherits from it is wider than described
+> above. `launch()` now also owns each launch's **`User-data placement`**: it always passes a
+> gda-owned `--log-file` (Godot builds its file logger before any project code and dies with
+> signal 11 if it cannot open the log; the engine default is additionally one per-project rotated
+> file that concurrent invocations contend over), and it preflights that placement by creating it.
+> Two consequences for this ADR's own contract, neither of which changes the passthrough decision:
+> the argv is `[binary, --headless, --log-file <path>, *args]` rather than `[binary, --headless,
+> *args]`; and `Raw run.launch_failure` has a third value, `USER_DATA_UNWRITABLE`, which — like the
+> existing two — is lifted out of the promoted `script run` success result into an `Error envelope`
+> (`user_data_unwritable`). The per-invocation `--user-data-root` also makes `user://` writable for
+> a `script run` under a restricted profile. See CONTEXT.md's `User-data placement` entry for the
+> shared-language definition.

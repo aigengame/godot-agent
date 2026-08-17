@@ -45,8 +45,9 @@ debugging. `info` / `schema` / `skill` are top-level meta commands (no group).
   `gda --user-data-root DIR <group> <command>` (or set `$GDA_USER_DATA_ROOT`) to
   place the log and `user://` under `DIR`; a target `gda` cannot create is refused
   as `user_data_unwritable` before the engine starts. Two limits: Godot reads the
-  **export templates** from that same directory, so do not combine it with
-  `export run` (the export reports no installed templates); and live sessions are
+  **export templates** from that same directory, so a `release`/`debug`
+  `export run` under it reports none installed unless you put templates there —
+  `--mode pack` needs no templates and works normally; and live sessions are
   unaffected either way — the daemon owns their log.
 
 ## Structured output & errors

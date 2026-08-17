@@ -73,6 +73,10 @@ class RunResult:
 # parameter: it is set once from the root ``--user-data-root`` option (the same
 # hand-over shape as ``gda.headless.set_root_json``) and every later launch on any
 # channel inherits it, so no channel has to plumb it through the runner seam.
+#
+# ``None`` means the option was ABSENT. An empty string means it was given empty,
+# which is a different thing and must not collapse into absence — see
+# :func:`resolve_user_data_root`.
 _user_data_root_override: Optional[str] = None
 
 
@@ -82,9 +86,14 @@ def set_user_data_root(value: Optional[str]) -> None:
     The write half of the option's contract, owned here beside the resolver that
     reads it, so knowledge runs downward: the CLI composition root CALLS this to
     hand the flag over instead of this module reaching up into it.
+
+    The value is stored VERBATIM, including an empty string: collapsing ``""`` to
+    ``None`` here would silently demote an explicit (if mistaken) flag to "absent"
+    and let ``$GDA_USER_DATA_ROOT`` win, inverting the documented flag > env
+    precedence.
     """
     global _user_data_root_override
-    _user_data_root_override = value or None
+    _user_data_root_override = value
 
 
 def resolve_user_data_root(
@@ -96,7 +105,12 @@ def resolve_user_data_root(
     ``None`` — the common case — means gda redirects nothing but the engine log,
     which it always owns (see :func:`user_data_placement`). Mirrors
     :func:`gda.binary.resolve_godot_binary`'s precedence so the two environment
-    knobs read the same way.
+    knobs read the same way, including how each treats an empty value: an explicit
+    but EMPTY flag raises, because an explicit value is a deliberate choice and an
+    empty one is a mistake we surface rather than silently override — whereas an
+    empty ENVIRONMENT variable falls through to the default, since an unset and a
+    blank variable are the same intent. Getting this wrong let an empty flag
+    silently hand precedence to the environment.
 
     The root is ABSOLUTIZED, and it must be: gda and the engine do not share a
     working directory, so a relative root would name two different places. gda
@@ -114,8 +128,16 @@ def resolve_user_data_root(
     """
     if env is None:
         env = os.environ
-    raw = explicit or _user_data_root_override or env.get(USER_DATA_ROOT_ENV)
-    return Path(raw).expanduser().absolute() if raw else None
+    given = explicit if explicit is not None else _user_data_root_override
+    if given is not None:
+        if not given:
+            raise ValueError("explicit --user-data-root is empty")
+        raw = given
+    else:
+        raw = env.get(USER_DATA_ROOT_ENV)
+        if not raw:
+            return None
+    return Path(raw).expanduser().absolute()
 
 
 def engine_data_path(
@@ -176,7 +198,28 @@ def data_path_env(root: Path, platform: Optional[str] = None) -> dict[str, str]:
 
 
 class UserDataUnwritable(OSError):
-    """gda's own engine-log target could not be created (issue #653)."""
+    """gda could not make one launch's user-data placement usable (issue #653).
+
+    Carries the paths it actually RESOLVED and ATTEMPTED, so the refusal
+    diagnostics can name them instead of re-deriving or paraphrasing them. Either
+    may be ``None`` when the failure happened before that path was known — a
+    temporary directory that could not be created has no log path yet, so the
+    attempted *location* is reported instead.
+    """
+
+    def __init__(
+        self,
+        cause: str,
+        *,
+        data_path: Optional[Path] = None,
+        log_file: Optional[Path] = None,
+        log_location: Optional[str] = None,
+    ) -> None:
+        super().__init__(cause)
+        self.cause = cause
+        self.data_path = data_path
+        self.log_file = log_file
+        self.log_location = log_location
 
 
 @dataclass(frozen=True)
@@ -216,9 +259,18 @@ def user_data_placement(
     Without a ``root`` the log goes to a private temporary directory, removed on
     exit — an isolated, writable target that keeps a read-only application-data
     directory from being fatal at all, and gives concurrent invocations separate
-    files. With a ``root`` the log lands at ``<root>/logs/godot.log`` and the
-    child's platform data variable is overridden, so ``user://`` resolves under
-    ``root`` too.
+    files. Nothing else is preflighted in this mode, deliberately: the engine's own
+    ``user://`` location is none of gda's business when gda is not redirecting it,
+    and most commands never touch it.
+
+    With a ``root``, gda IS redirecting ``user://``, and so it owns that promise
+    too: the log lands at ``<root>/logs/godot.log``, the child's platform data
+    variable is overridden, and **the platform-derived data path is created and
+    probed as well**. Creating ``root`` alone is not enough — the engine appends a
+    platform layout to it (``<root>/Library/Application Support`` on macOS), and
+    that derived path can be unusable while ``root`` is perfectly writable, e.g.
+    blocked by a regular file. gda would then have preflighted only the log,
+    reported success, and left the script with an unopenable ``user://``.
     """
     if env is None:
         env = os.environ
@@ -228,8 +280,18 @@ def user_data_placement(
             if root is None:
                 # A fully locked-down temporary directory makes this itself fail;
                 # it is inside the guard so that too is a typed refusal, not a
-                # traceback escaping the primitive.
-                temp_root = tempfile.mkdtemp(prefix="gda-log-")
+                # traceback escaping the primitive. There is no log path to name
+                # yet, so the attempted LOCATION is carried instead.
+                try:
+                    temp_root = tempfile.mkdtemp(prefix="gda-log-")
+                except OSError as exc:
+                    raise UserDataUnwritable(
+                        str(exc),
+                        data_path=engine_data_path(env),
+                        log_location=(
+                            f"a private directory under {tempfile.gettempdir()}"
+                        ),
+                    ) from exc
                 log_file = Path(temp_root) / "godot.log"
                 child_env = None
                 data_path = engine_data_path(env)
@@ -237,51 +299,83 @@ def user_data_placement(
                 child_env = {**env, **data_path_env(root)}
                 log_file = root / "logs" / "godot.log"
                 data_path = engine_data_path(child_env)
-                # A redirected user:// root must exist before the engine tries to
-                # create <root>/…/app_userdata/<project> inside it.
-                root.mkdir(parents=True, exist_ok=True)
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-            # Truncate-or-create: the probe that proves the engine's own
-            # ``FileAccess::open(..., WRITE)`` will succeed, and the same
-            # per-launch truncation the daemon does for a Session log (ADR-0022).
-            log_file.write_bytes(b"")
-        except OSError as exc:
-            raise UserDataUnwritable(str(exc)) from exc
+            try:
+                if root is not None and data_path is not None:
+                    _probe_data_path(data_path)
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                # Truncate-or-create: the probe that proves the engine's own
+                # ``FileAccess::open(..., WRITE)`` will succeed, and the same
+                # per-launch truncation the daemon does for a Session log (ADR-0022).
+                log_file.write_bytes(b"")
+            except OSError as exc:
+                raise UserDataUnwritable(
+                    str(exc), data_path=data_path, log_file=log_file
+                ) from exc
+        except UserDataUnwritable:
+            raise
         yield UserDataPlacement(log_file=log_file, data_path=data_path, env=child_env)
     finally:
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
 
 
-def _user_data_unwritable_stderr(binary: Path, root: Optional[Path], cause: str) -> str:
+def _probe_data_path(data_path: Path) -> None:
+    """Create ``data_path`` and prove a subdirectory can be made inside it.
+
+    The ``user://`` half of the preflight, and it takes the same shape as the log
+    half — create the thing, do not merely inspect it — because that is what the
+    engine will do: ``OS::ensure_user_data_dir`` calls ``make_dir_recursive`` on
+    ``<data_path>/app_userdata/<project name>``. So the probe creates and removes a
+    throwaway directory rather than checking a permission bit, which would miss an
+    immutable flag, a full filesystem, or a read-only mount. Raises ``OSError`` for
+    the caller to map.
+    """
+    data_path.mkdir(parents=True, exist_ok=True)
+    probe = tempfile.mkdtemp(prefix=".gda-probe-", dir=data_path)
+    os.rmdir(probe)
+
+
+def _user_data_unwritable_stderr(
+    binary: Path, root: Optional[Path], failure: UserDataUnwritable
+) -> str:
     """The diagnostics prose for a refused launch (issue #653).
 
     Names the three paths an agent needs to act on — the resolved binary, the
-    directory Godot resolves ``user://`` under, and the log target gda could not
-    create — plus whether gda is redirecting ``user://`` at all. Prose only: this
-    text becomes ``GdaError.diagnostics``, whose ADR-0004 shape is unchanged.
+    directory Godot resolves ``user://`` under, and the log target gda tried to
+    create — plus whether gda is redirecting ``user://`` at all. The paths come
+    from the failure itself, which RESOLVED them: paraphrasing them here ("under
+    <root>", "a private temporary directory") named neither the platform-derived
+    data path the engine would use nor the file actually attempted, so a reader
+    could not act on either. Prose only: this text becomes
+    ``GdaError.diagnostics``, whose ADR-0004 shape is unchanged.
     """
     if root is None:
-        data_path = engine_data_path()
-        where = f"{data_path} (engine default)" if data_path else "unknown"
-        redirect = (
+        where_suffix = " (engine default; gda is not redirecting user://)"
+        remedy = (
             "gda redirects only the engine log by default, not user://; "
             f"pass --user-data-root <writable dir> (or set {USER_DATA_ROOT_ENV}) "
             "to place both the log and user:// under a writable directory"
         )
-        log_file = "a private temporary directory"
     else:
-        where = f"under {root} (--user-data-root)"
-        redirect = f"gda redirects user:// under {root} for this invocation"
-        log_file = str(root / "logs" / "godot.log")
+        where_suffix = " (--user-data-root)"
+        remedy = (
+            f"gda redirects user:// under {root} for this invocation, so that "
+            "directory and the platform path derived from it must both be writable"
+        )
+    where = f"{failure.data_path}{where_suffix}" if failure.data_path else "unknown"
+    log_target = (
+        str(failure.log_file)
+        if failure.log_file is not None
+        else (failure.log_location or "unknown")
+    )
     return (
-        "gda: Godot user data is not writable; the launch was refused before the "
+        "gda: Godot user data is not usable; the launch was refused before the "
         "engine started\n"
         f"gda:   binary:    {binary}\n"
         f"gda:   user data: {where}\n"
-        f"gda:   log file:  {log_file}\n"
-        f"gda:   cause:     {cause}\n"
-        f"gda: {redirect}.\n"
+        f"gda:   log file:  {log_target}\n"
+        f"gda:   cause:     {failure.cause}\n"
+        f"gda: {remedy}.\n"
     )
 
 
@@ -335,7 +429,21 @@ def launch(
     because it is an engine option and the sentinel channel's tail ends in the
     ``--`` user-args separator.
     """
-    root = resolve_user_data_root()
+    try:
+        root = resolve_user_data_root()
+    except ValueError as exc:
+        # An explicit but empty --user-data-root. There is no placement to prepare,
+        # so it is the same unusable-placement outcome, reported before any spawn
+        # (mirrors how an empty --godot becomes binary_not_found, #33).
+        return RunResult(
+            stdout="",
+            stderr=(
+                "gda: Godot user data placement could not be resolved; the launch "
+                f"was refused before the engine started\ngda:   cause:     {exc}\n"
+            ),
+            exit_code=EXIT_NOT_FOUND,
+            launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
+        )
     try:
         with user_data_placement(root) as placement:
             # Only the preparation above can raise UserDataUnwritable: the spawn
@@ -351,7 +459,7 @@ def launch(
     except UserDataUnwritable as exc:
         return RunResult(
             stdout="",
-            stderr=_user_data_unwritable_stderr(binary, root, str(exc)),
+            stderr=_user_data_unwritable_stderr(binary, root, exc),
             exit_code=EXIT_NOT_FOUND,
             launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
         )

@@ -208,7 +208,8 @@ def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | N
         # user-data directory, and the log path.
         return make_failure(
             "user_data_unwritable",
-            "Godot's user data location is not writable; the launch was refused",
+            "the log or user data placement for this launch is not usable; "
+            "the launch was refused",
             raw.stderr,
         )
     if raw.exit_code < 0:

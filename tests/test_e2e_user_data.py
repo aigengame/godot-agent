@@ -45,7 +45,7 @@ from pathlib import Path
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.runner import engine_data_path
+from gda.runner import data_path_env, engine_data_path
 from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
@@ -270,6 +270,53 @@ def test_unwritable_log_target_is_a_typed_environment_error(
     assert str(data_path / "denied") in diagnostics
     assert str(data_path / "denied" / "logs" / "godot.log") in diagnostics
     assert "handle_crash" not in diagnostics
+
+
+@pytest.mark.e2e
+def test_a_root_whose_derived_data_path_is_blocked_is_refused(
+    tmp_path, logging_project
+):
+    # Creating the root and the log target is not enough to keep the `user://`
+    # promise: the engine appends a platform layout to the root, and that DERIVED
+    # path can be unusable while the root and its `logs/` are perfectly writable.
+    #
+    # Before the derived-path probe this was the worst possible outcome — a
+    # SUCCESSFUL result. gda preflighted only the log, the engine printed "Could not
+    # create directory" to stderr and still exited 0, and the script ran with an
+    # unopenable `user://` while `script run` reported exit_status 0. So this arm
+    # asserts BOTH the typed refusal and that the project never executed.
+    root = tmp_path / "udr"
+    derived = engine_data_path(data_path_env(root), platform=sys.platform)
+    assert derived is not None
+    # Block the derived path with a regular FILE at its first component under root.
+    blocker = derived
+    while blocker.parent != root and blocker.parent != blocker:
+        blocker = blocker.parent
+    blocker.parent.mkdir(parents=True, exist_ok=True)
+    blocker.write_text("not a directory", encoding="utf-8")
+
+    run = _run_gda(
+        "--user-data-root",
+        str(root),
+        "script",
+        "run",
+        "res://persist.gd",
+        "--project",
+        str(logging_project),
+        "--json",
+        env={**os.environ, "GDA_GODOT": str(GODOT)},
+    )
+
+    assert run.returncode == 127, run.stdout + run.stderr
+    error = json.loads(run.stdout)["error"]
+    assert error["code"] == "user_data_unwritable"
+    assert error["category"] == "environment"
+    # The diagnostics name the DERIVED path — the one to fix — not just the root.
+    assert str(derived) in error["diagnostics"]
+    # The project never ran: no engine banner, no script output, no false success.
+    assert "USER_DIR=" not in run.stdout
+    assert "WRITE_FAILED" not in run.stdout
+    assert "exit_status" not in run.stdout
 
 
 @pytest.mark.e2e

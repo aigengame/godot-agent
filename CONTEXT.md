@@ -78,18 +78,37 @@ _Avoid_: consistency, coherence, sync
 The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
 the sentinel op-dispatch runner, the native-export runner, and the `gda script run`
 user-script runner (ADR-0031). Given the binary, an argv tail, an optional working
-directory, and a timeout, it builds `[binary, --headless, *args]`, captures bytes
-with the timeout, and normalizes the outcome into a `Raw run` (the single home of
-the spawn / timeout / launch-failure / UTF-8-decode handling). Each channel
-contributes only its argv tail and the export-only cwd.
+directory, and a timeout, it builds `[binary, --headless, --log-file <gda-owned
+path>, *args]`, captures bytes with the timeout, and normalizes the outcome into a
+`Raw run` (the single home of the spawn / timeout / launch-failure / UTF-8-decode
+handling). Each channel contributes only its argv tail and the export-only cwd. It
+also owns the launch's `User-data placement` — resolved and preflighted here, once,
+so no channel plumbs it (#653).
 _Avoid_: spawn helper, subprocess wrapper
+
+**User-data placement**:
+Where one `Headless launch` puts the engine's log and, when redirected, `user://`.
+gda always owns the **log** target and passes it as `--log-file`, because Godot
+builds its file logger before any project code runs and dies with signal 11 if it
+cannot open the log — and because the engine default is one per-project rotated
+file that concurrent invocations contend over. By default the target is a private
+temporary file, so a read-only application-data directory is not fatal; the
+per-invocation `--user-data-root` (env `GDA_USER_DATA_ROOT`) instead places the log
+*and* `user://` under a caller-chosen directory, since Godot has no
+`--user-data-dir` flag and the platform data variable is the only lever. The
+placement is **created, not inspected**, before the spawn — that creation IS the
+preflight — and a placement gda cannot make usable is a typed refusal
+(`user_data_unwritable`) rather than an engine crash. Headless only: a live
+`Engine session`'s log is daemon-owned (ADR-0022).
+_Avoid_: log redirect, user dir, sandbox
 
 **Raw run**:
 The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
 launch_failure}`, unparsed — before any classification. `launch_failure` is set
-only when the primitive synthesized the result (binary missing, timed out) rather
-than the engine returning one, so the classifier keys environment failures on
-that typed reason, not on the overloaded exit code. Those launch-backed channels
+only when the primitive synthesized the result (binary missing, timed out, or the
+`User-data placement` was refused) rather than the engine returning one, so the
+classifier keys environment failures on that typed reason, not on the overloaded
+exit code. Those launch-backed channels
 all return the one `RunResult` shape. Normally internal, it is **promoted to a
 public result by `gda script run`** — the one operation whose success result *is*
 a Raw run (minus `launch_failure`, which is lifted out into an `Error envelope`),
