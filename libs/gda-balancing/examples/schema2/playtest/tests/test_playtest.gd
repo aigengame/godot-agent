@@ -5,6 +5,7 @@ const PlaytestFeedbackFile = preload(
 )
 const RewardRun = preload("res://systems/reward_run.gd")
 const CombatDuel = preload("res://systems/combat_duel.gd")
+const PeriodicEffectTimeline = preload("res://systems/periodic_effect_timeline.gd")
 const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
 
 func _init() -> void:
@@ -15,6 +16,7 @@ func _init() -> void:
 	_test_reward_run(rare_trial, 1)
 	_test_reward_run(common_trial, 3)
 	_test_combat_duel()
+	_test_periodic_effect_timeline()
 	_test_player_preferences()
 	_finish()
 
@@ -163,3 +165,32 @@ func _test_combat_duel() -> void:
 	duel.primary_action()
 	_expect(duel.snapshot()["phase"] == "exchange_complete", "duel completes")
 	_expect(not duel.snapshot().has("provenance"), "duel owns gameplay values only")
+
+
+func _test_periodic_effect_timeline() -> void:
+	var timeline := PeriodicEffectTimeline.new()
+	timeline.start(
+		{
+			"timeline": [
+				{"damage": 0, "effect_active": true, "health": 100, "phase": "apply"},
+				{"damage": 15, "effect_active": true, "health": 85, "phase": "pulse"},
+				{"damage": 10, "effect_active": true, "health": 75, "phase": "attack"},
+				{"damage": 0, "effect_active": true, "health": 75, "phase": "pulse"},
+				{"damage": 0, "effect_active": false, "health": 75, "phase": "expire"},
+			],
+			"trial_kind": "reactive",
+		}
+	)
+	_expect(timeline.snapshot()["lifecycle_phase"] == "apply", "Effect starts at apply")
+	for expected in ["pulse", "attack", "pulse", "expire"]:
+		timeline.primary_action()
+		_expect(
+			timeline.snapshot()["lifecycle_phase"] == expected,
+			"Effect presents the validated %s step" % expected,
+		)
+	timeline.primary_action()
+	_expect(timeline.snapshot()["phase"] == "trial_complete", "Effect trial completes")
+	_expect(
+		not timeline.snapshot().has("provenance"),
+		"Effect timeline owns gameplay values only",
+	)

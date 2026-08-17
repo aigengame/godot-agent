@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://apps/periodic_effect/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://ui/periodic_effect/periodic_effect_view.gd" id="2_view"]
+
+[node name="PeriodicEffectApp" type="Node"]
+script = ExtResource("1_main")
+
+[node name="PeriodicEffectView" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("2_view")

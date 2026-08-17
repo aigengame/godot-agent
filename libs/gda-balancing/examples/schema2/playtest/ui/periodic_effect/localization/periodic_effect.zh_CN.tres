@@ -1,0 +1,39 @@
+[gd_resource type="Translation" format=3]
+
+[resource]
+locale = "zh_CN"
+messages = {
+[&"", &"EFFECT_APP_TITLE"]: [&"诅咒时机"],
+[&"", &"EFFECT_APP_SUBTITLE"]: [&"观察两种诅咒如何响应攻击，然后选出节奏更好的一种。"],
+[&"", &"EFFECT_TARGET"]: [&"训练魔像"],
+[&"", &"EFFECT_HEALTH"]: [&"生命 %d"],
+[&"", &"EFFECT_ACTIVE"]: [&"诅咒生效中"],
+[&"", &"EFFECT_EXPIRED"]: [&"诅咒已结束"],
+[&"", &"EFFECT_INACTIVE"]: [&"没有生效中的诅咒"],
+[&"", &"EFFECT_PREPARING"]: [&"正在准备训练场……"],
+[&"", &"EFFECT_READY"]: [&"%s 已就绪。准备好后施放。"],
+[&"", &"EFFECT_RESOLVING"]: [&"正在准备本次诅咒试玩……"],
+[&"", &"EFFECT_RETRY"]: [&"试玩无法继续。已完成的试玩不会丢失。"],
+[&"", &"EFFECT_ACTION_APPLY"]: [&"施放诅咒"],
+[&"", &"EFFECT_ACTION_WAIT"]: [&"准备中……"],
+[&"", &"EFFECT_ACTION_RETRY"]: [&"重试"],
+[&"", &"EFFECT_ACTION_NEXT_STEP"]: [&"继续"],
+[&"", &"EFFECT_ACTION_FINISH"]: [&"完成本次试玩"],
+[&"", &"EFFECT_ACTION_NEXT_TRIAL"]: [&"开始下一种诅咒"],
+[&"", &"EFFECT_ACTION_FEEDBACK"]: [&"填写反馈"],
+[&"", &"EFFECT_STEP_APPLY"]: [&"诅咒开始生效。"],
+[&"", &"EFFECT_STEP_PULSE"]: [&"诅咒脉冲造成 %d 点伤害。"],
+[&"", &"EFFECT_STEP_ATTACK"]: [&"你的攻击造成 %d 点伤害。"],
+[&"", &"EFFECT_STEP_EXPIRE"]: [&"诅咒结束。"],
+[&"", &"EFFECT_TRIAL_COMPLETE"]: [&"本次试玩完成。观察目标的最终生命。"],
+[&"", &"EFFECT_TRIAL_PROGRESS"]: [&"诅咒 %d / %d"],
+[&"", &"EFFECT_FEEDBACK_PREFERENCE"]: [&"哪种诅咒节奏感觉更好？"],
+[&"", &"EFFECT_FEEDBACK_IMPACT"]: [&"脉冲和攻击的效果是否容易比较？"],
+[&"", &"EFFECT_FEEDBACK_TIMING"]: [&"诅咒的完整过程是否容易理解？"],
+[&"", &"EFFECT_REACTIVE_STYLE"]: [&"响应诅咒"],
+[&"", &"EFFECT_LOCKED_STYLE"]: [&"锁定诅咒"],
+[&"", &"EFFECT_NO_DIFFERENCE"]: [&"没有区别"],
+[&"", &"EFFECT_VERY_CLEAR"]: [&"非常清楚"],
+[&"", &"EFFECT_MOSTLY_CLEAR"]: [&"基本清楚"],
+[&"", &"EFFECT_UNCLEAR"]: [&"不清楚"]
+}

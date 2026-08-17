@@ -9,6 +9,7 @@ _PLAYTEST = Path(__file__).parents[1] / "examples" / "schema2" / "playtest"
 def test_playtest_runtime_dependencies_point_downward():
     allowed_dependencies = {
         "addons": {"addons"},
+        "apps": {"addons", "content"},
         "systems": {"systems"},
         "content": {"addons", "content", "systems"},
         "ui": {"content", "ui"},
@@ -50,14 +51,20 @@ def test_playtest_player_settings_have_explicit_defaults_and_translations():
         _PLAYTEST / "ui" / "reward_run" / "localization" / "reward_run.en.tres"
     ).read_text(encoding="utf-8")
     reward_chinese = (
-        _PLAYTEST
-        / "ui"
-        / "reward_run"
-        / "localization"
-        / "reward_run.zh_CN.tres"
+        _PLAYTEST / "ui" / "reward_run" / "localization" / "reward_run.zh_CN.tres"
     ).read_text(encoding="utf-8")
     assert '[&"", &"FREQUENCY_LABEL"]: [&"Rare reward frequency"]' in reward_english
     assert '[&"", &"FREQUENCY_LABEL"]: [&"稀有奖励出现频率"]' in reward_chinese
+    assert (
+        '[&"", &"COMBAT_APP_TITLE"]: [&"ARCANE DUEL"]'
+        in (_PLAYTEST / "ui/combat_cast/localization/combat_cast.en.tres").read_text()
+    )
+    assert (
+        '[&"", &"EFFECT_APP_TITLE"]: [&"诅咒时机"]'
+        in (
+            _PLAYTEST / "ui/periodic_effect/localization/periodic_effect.zh_CN.tres"
+        ).read_text()
+    )
 
     key_pattern = re.compile(r'\[&"", &"([A-Z0-9_]+)"\]')
     for english_path in (_PLAYTEST / "ui").rglob("*.en.tres"):
@@ -89,9 +96,7 @@ def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
     ).exists()
     assert not (_PLAYTEST / "systems" / "playtest_session.gd").exists()
 
-    main = (_PLAYTEST / "apps" / "reward_run" / "main.gd").read_text(
-        encoding="utf-8"
-    )
+    main = (_PLAYTEST / "apps" / "reward_run" / "main.gd").read_text(encoding="utf-8")
     documents = (
         _PLAYTEST / "content" / "reward_run" / "reward_run_documents.gd"
     ).read_text(encoding="utf-8")
@@ -108,57 +113,106 @@ def test_playtest_uses_maintained_sources_without_an_intermediate_case_schema():
     assert 'const EXPERIMENT_FILE := "experiment.json"' in documents
     assert 'const PARAMETER_NAME := "rare_weight"' in documents
 
+    maintained_documents = {
+        "combat_cast/combat_cast_documents.gd": (
+            "res://../rpg-combat-cast",
+            "model-source.json",
+            "experiment.json",
+        ),
+        "periodic_effect/periodic_effect_documents.gd": (
+            "res://../rpg-periodic-effect",
+            "model-source.json",
+            "same-time-experiment.json",
+        ),
+    }
+    for relative_path, expected_values in maintained_documents.items():
+        source = (_PLAYTEST / "content" / relative_path).read_text(encoding="utf-8")
+        for expected in expected_values:
+            assert expected in source, (relative_path, expected)
+
 
 def test_playtest_has_explicit_local_launch_actions_and_no_standalone_export_claim():
-    launch = _PLAYTEST / "scripts" / "run_reward_run.sh"
-    assert launch.is_file()
-    assert launch.stat().st_mode & os.X_OK
-    source = launch.read_text(encoding="utf-8")
-    assert "res://apps/reward_run/main.tscn" in source
-    assert 'exec "$' in source
-    assert "PyInstaller" not in source
+    launch_scenes = {
+        "run_reward_run.sh": "res://apps/reward_run/main.tscn",
+        "run_combat_cast.sh": "res://apps/combat_cast/main.tscn",
+        "run_periodic_effect.sh": "res://apps/periodic_effect/main.tscn",
+    }
+    for filename, scene in launch_scenes.items():
+        launch = _PLAYTEST / "scripts" / filename
+        assert launch.is_file()
+        assert launch.stat().st_mode & os.X_OK
+        source = launch.read_text(encoding="utf-8")
+        assert scene in source
+        assert 'exec "$' in source
+        assert "PyInstaller" not in source
     common = (_PLAYTEST / "scripts" / "run_playtest.sh").read_text(encoding="utf-8")
     assert "GDA_BALANCING_EXECUTABLE" in common
     assert "--gda-balancing-executable=" in common
     assert ".venv" not in common
     assert '"${arguments[@]}"' in common
-    combat = _PLAYTEST / "scripts" / "run_combat_cast.sh"
-    assert combat.is_file()
-    assert combat.stat().st_mode & os.X_OK
-    assert "res://apps/combat_cast/main.tscn" in combat.read_text(encoding="utf-8")
     assert not (_PLAYTEST / "scripts" / "export_macos.sh").exists()
     assert not (_PLAYTEST / "scripts" / "smoke_export_macos.sh").exists()
     assert not (_PLAYTEST / "export_presets.cfg").exists()
 
 
-def test_reward_run_has_an_explicit_thin_application_entry():
-    app = _PLAYTEST / "apps" / "reward_run"
-    assert (app / "main.gd").is_file()
-    assert (app / "main.tscn").is_file()
+def test_each_playtest_has_an_explicit_thin_application_entry():
     assert not (_PLAYTEST / "main.gd").exists()
     assert not (_PLAYTEST / "main.tscn").exists()
+    app_controllers = {
+        "reward_run": "RewardRunController",
+        "combat_cast": "CombatCastController",
+        "periodic_effect": "PeriodicEffectController",
+    }
+    assert {path.name for path in (_PLAYTEST / "apps").iterdir()} == set(
+        app_controllers
+    )
+    for app_name, controller_name in app_controllers.items():
+        app = _PLAYTEST / "apps" / app_name
+        assert (app / "main.gd").is_file()
+        assert (app / "main.tscn").is_file()
+        source = (app / "main.gd").read_text(encoding="utf-8")
+        assert "GdaExecutionClient" in source
+        assert controller_name in source
+        assert 'preload("res://ui/' not in source
+        assert "model-source.json" not in source
+        assert "experiment.json" not in source
 
-    source = (app / "main.gd").read_text(encoding="utf-8")
-    assert "GdaExecutionClient" in source
-    assert "RewardRunController" in source
-    assert 'preload("res://ui/' not in source
-    assert "roguelike-reward-build" not in source
-    assert "model-source.json" not in source
-    assert "experiment.json" not in source
 
-    combat_app = _PLAYTEST / "apps" / "combat_cast"
-    assert (combat_app / "main.gd").is_file()
-    assert (combat_app / "main.tscn").is_file()
-    combat_source = (combat_app / "main.gd").read_text(encoding="utf-8")
-    assert "GdaExecutionClient" in combat_source
-    assert "CombatCastController" in combat_source
-    assert "rpg-combat-cast" not in combat_source
+def test_playtest_hides_protocol_and_authority_details_from_gameplay_layers():
+    forbidden = re.compile(
+        r"\b(kernel|ldb|experiment|formula|artifact|identity|http|session|revision|diagnostic|provenance)\b",
+        re.IGNORECASE,
+    )
+    for layer in ["systems", "ui"]:
+        for script in (_PLAYTEST / layer).rglob("*.gd"):
+            assert forbidden.search(script.read_text(encoding="utf-8")) is None, script
+
+
+def test_playtest_common_modules_have_multiple_real_app_consumers():
+    app_sources = [path.read_text() for path in (_PLAYTEST / "apps").glob("*/main.gd")]
+    controller_sources = [
+        path.read_text() for path in (_PLAYTEST / "content").glob("*/*_controller.gd")
+    ]
+    assert sum("GdaExecutionClient" in source for source in app_sources) == 3
+    assert sum("PlaytestFeedbackFile" in source for source in controller_sources) == 3
+    assert (
+        sum(
+            "run_playtest.sh" in path.read_text()
+            for path in (_PLAYTEST / "scripts").glob("run_*.sh")
+        )
+        == 3
+    )
 
 
 def test_playtest_keeps_focused_runtime_behavior_proofs():
     expected = {
         "test_gda_execution_client.gd",
         "test_gda_execution_client_discovery.gd",
+        "test_periodic_effect_live_trials.gd",
+        "test_periodic_effect_controller_live.gd",
+        "test_periodic_effect_controller_failure.gd",
+        "test_periodic_effect_main_live.gd",
+        "test_periodic_effect_view.gd",
         "test_combat_consecutive_revisions_live.gd",
         "test_combat_cast_controller_live.gd",
         "test_combat_cast_controller_failure.gd",

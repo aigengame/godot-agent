@@ -1,0 +1,39 @@
+[gd_resource type="Translation" format=3]
+
+[resource]
+locale = "en"
+messages = {
+[&"", &"EFFECT_APP_TITLE"]: [&"CURSE TIMING"],
+[&"", &"EFFECT_APP_SUBTITLE"]: [&"Watch two curses react to a strike, then choose which rhythm feels better."],
+[&"", &"EFFECT_TARGET"]: [&"TRAINING GOLEM"],
+[&"", &"EFFECT_HEALTH"]: [&"Health %d"],
+[&"", &"EFFECT_ACTIVE"]: [&"CURSE ACTIVE"],
+[&"", &"EFFECT_EXPIRED"]: [&"CURSE EXPIRED"],
+[&"", &"EFFECT_INACTIVE"]: [&"NO ACTIVE CURSE"],
+[&"", &"EFFECT_PREPARING"]: [&"Preparing the training ground…"],
+[&"", &"EFFECT_READY"]: [&"%s is ready. Apply it when you choose."],
+[&"", &"EFFECT_RESOLVING"]: [&"Preparing this curse trial…"],
+[&"", &"EFFECT_RETRY"]: [&"The trial could not continue. Completed trials are safe."],
+[&"", &"EFFECT_ACTION_APPLY"]: [&"APPLY CURSE"],
+[&"", &"EFFECT_ACTION_WAIT"]: [&"PREPARING…"],
+[&"", &"EFFECT_ACTION_RETRY"]: [&"RETRY"],
+[&"", &"EFFECT_ACTION_NEXT_STEP"]: [&"CONTINUE"],
+[&"", &"EFFECT_ACTION_FINISH"]: [&"FINISH TRIAL"],
+[&"", &"EFFECT_ACTION_NEXT_TRIAL"]: [&"START NEXT CURSE"],
+[&"", &"EFFECT_ACTION_FEEDBACK"]: [&"SHARE FEEDBACK"],
+[&"", &"EFFECT_STEP_APPLY"]: [&"The curse takes hold."],
+[&"", &"EFFECT_STEP_PULSE"]: [&"The curse pulses for %d damage."],
+[&"", &"EFFECT_STEP_ATTACK"]: [&"Your strike deals %d damage."],
+[&"", &"EFFECT_STEP_EXPIRE"]: [&"The curse expires."],
+[&"", &"EFFECT_TRIAL_COMPLETE"]: [&"Curse trial complete. Review the final health."],
+[&"", &"EFFECT_TRIAL_PROGRESS"]: [&"CURSE %d OF %d"],
+[&"", &"EFFECT_FEEDBACK_PREFERENCE"]: [&"Which curse rhythm felt better?"],
+[&"", &"EFFECT_FEEDBACK_IMPACT"]: [&"Were the pulse and strike impacts easy to compare?"],
+[&"", &"EFFECT_FEEDBACK_TIMING"]: [&"Was the curse lifecycle easy to follow?"],
+[&"", &"EFFECT_REACTIVE_STYLE"]: [&"Reactive Hex"],
+[&"", &"EFFECT_LOCKED_STYLE"]: [&"Locked Hex"],
+[&"", &"EFFECT_NO_DIFFERENCE"]: [&"No difference"],
+[&"", &"EFFECT_VERY_CLEAR"]: [&"Very clear"],
+[&"", &"EFFECT_MOSTLY_CLEAR"]: [&"Mostly clear"],
+[&"", &"EFFECT_UNCLEAR"]: [&"Unclear"]
+}
