@@ -1,11 +1,9 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const WAIT_TIMEOUT_MSEC := 60000
 
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -81,26 +79,9 @@ func _wait_for_phase(view: Control, expected: String) -> bool:
 			return true
 		await process_frame
 	return false
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
 func _view_contains_text(view: Control, expected: String) -> bool:
 	for node in view.find_children("*", "Label", true, false):
 		var label := node as Label
 		if label != null and label.text.contains(expected):
 			return true
 	return false
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 15, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

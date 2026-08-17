@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
@@ -6,14 +6,10 @@ const GdaExecutionClient = preload(
 const RewardRunDocuments = preload(
 	"res://content/reward_run/reward_run_documents.gd"
 )
-const RewardRunArtifactProjector = preload(
-	"res://content/reward_run/reward_run_artifact_projector.gd"
-)
-
-var _failures: Array[String] = []
-
+const RewardTrial = preload("res://content/reward_run/reward_trial.gd")
 
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -51,12 +47,11 @@ func _run() -> void:
 		_finish()
 		return
 
-	var projector := RewardRunArtifactProjector.new()
 	var baseline: Dictionary = await _live_trial(
-		client, documents, projector, created["session"], 5
+		client, documents, created["session"], 5
 	)
 	var tuned: Dictionary = await _live_trial(
-		client, documents, projector, created["session"], 2
+		client, documents, created["session"], 2
 	)
 	_expect(baseline.get("ok", false), "baseline live trial projects")
 	_expect(tuned.get("ok", false), "later live trial projects")
@@ -90,13 +85,30 @@ func _run() -> void:
 			},
 			"later revision projects the complete build replacement",
 		)
+		_expect(
+			baseline["gameplay"].size() == 2
+			and baseline["gameplay"].has("reward")
+			and baseline["gameplay"].has("build"),
+			"gameplay projection excludes revision and provenance",
+		)
+		_expect(
+			not baseline["feedback"].has("revision")
+			and baseline["feedback"].has("provenance"),
+			"feedback projection keeps opaque provenance without the revision handle",
+		)
 		var contradictory: Dictionary = baseline["run_result"].duplicate(true)
 		_mutate_selected_reward(contradictory, "contradictory_reward")
-		var rejected: Dictionary = projector.project(contradictory, 5)
+		var contradictory_trial := RewardTrial.new()
+		var rejected: Dictionary = contradictory_trial.admit_run_result(
+			contradictory,
+			5,
+			"contradictory-trial",
+			"sha256:contradictory-revision",
+		)
 		_expect(
 			not rejected.get("ok", false)
 			and rejected.get("detail") == "selected_reward_mismatch",
-			"projector rejects contradictory reward and build artifacts",
+			"Reward Trial rejects contradictory reward and build artifacts",
 		)
 
 	await client.delete_session(created["session"])
@@ -108,7 +120,6 @@ func _run() -> void:
 func _live_trial(
 	client,
 	documents,
-	projector,
 	session: String,
 	reward_frequency: int,
 ) -> Dictionary:
@@ -123,13 +134,21 @@ func _live_trial(
 	var run: Dictionary = await client.run_revision(session, admitted["revision"])
 	if not run.get("ok", false):
 		return run
-	var projected: Dictionary = projector.project(run["value"], reward_frequency)
+	var trial := RewardTrial.new()
+	var projected: Dictionary = trial.admit_run_result(
+		run["value"],
+		reward_frequency,
+		"trial-%d" % reward_frequency,
+		admitted["revision"],
+	)
 	if not projected.get("ok", false):
 		return projected
 	return {
 		"ok": true,
 		"revision": admitted["revision"],
-		"trial": projected["value"],
+		"trial": trial.snapshot(),
+		"gameplay": trial.gameplay_values(),
+		"feedback": trial.feedback_record(),
 		"run_result": run["value"],
 	}
 
@@ -143,18 +162,3 @@ func _mutate_selected_reward(run_result: Dictionary, replacement: String) -> voi
 			if fact.get("name") == "reward_result":
 				fact["value"]["value"]["selected"]["key"] = replacement
 				return
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 10, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

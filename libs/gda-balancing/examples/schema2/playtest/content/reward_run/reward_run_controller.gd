@@ -7,9 +7,7 @@ signal feedback_saved(payload: Dictionary, path: String)
 const RewardRunDocuments = preload(
 	"res://content/reward_run/reward_run_documents.gd"
 )
-const RewardRunArtifactProjector = preload(
-	"res://content/reward_run/reward_run_artifact_projector.gd"
-)
+const RewardTrial = preload("res://content/reward_run/reward_trial.gd")
 const RewardFeedbackRecorder = preload(
 	"res://content/reward_run/reward_feedback_recorder.gd"
 )
@@ -27,7 +25,6 @@ var last_feedback_path := ""
 var _client: Node
 var _executable_path := ""
 var _documents := RewardRunDocuments.new()
-var _projector := RewardRunArtifactProjector.new()
 var _feedback := RewardFeedbackRecorder.new(FEEDBACK_PATH)
 var _run := RewardRun.new()
 var _model_source: Dictionary = {}
@@ -35,7 +32,7 @@ var _baseline_experiment: Dictionary = {}
 var _reward_frequency: Dictionary = {}
 var _selected_reward_frequency := 0
 var _session := ""
-var _trials: Array[Dictionary] = []
+var _trials: Array[RewardTrial] = []
 var _last_state: Dictionary = {}
 var _busy := false
 
@@ -91,21 +88,23 @@ func start_trial(reward_frequency: int) -> Dictionary:
 	)
 	if not executed.get("ok", false):
 		return _fail_trial(executed)
-	var projected: Dictionary = _projector.project(
-		executed["value"], reward_frequency
+	var trial := RewardTrial.new()
+	var projected: Dictionary = trial.admit_run_result(
+		executed["value"],
+		reward_frequency,
+		TRIAL_IDS[_trials.size()],
+		admitted["revision"],
 	)
 	if not projected.get("ok", false):
 		return _fail_trial(projected)
 
-	var trial: Dictionary = projected["value"].duplicate(true)
-	trial["id"] = TRIAL_IDS[_trials.size()]
-	trial["revision"] = admitted["revision"]
 	_trials.append(trial)
-	current_trial = trial["id"]
+	current_trial = trial.trial_id()
 	_busy = false
+	var gameplay: Dictionary = trial.gameplay_values()
 	_run.start(
-		trial["reward"],
-		trial["build"],
+		gameplay["reward"],
+		gameplay["build"],
 		FIRST_TARGET_HEALTH,
 		SECOND_TARGET_HEALTH,
 	)
@@ -117,7 +116,7 @@ func start_trial(reward_frequency: int) -> Dictionary:
 			"trial_index": _trials.size() - 1,
 		},
 	)
-	return {"ok": true, "trial": trial.duplicate(true)}
+	return {"ok": true, "trial": trial.snapshot()}
 
 
 func primary_action() -> void:
@@ -174,15 +173,7 @@ func submit_feedback(
 		return {}
 	var trial_records: Array[Dictionary] = []
 	for trial in _trials:
-		trial_records.append(
-			{
-				"id": trial["id"],
-				"reward_frequency": trial["reward_frequency"],
-				"reward": trial["reward"].duplicate(true),
-				"build": trial["build"].duplicate(true),
-				"provenance": trial["provenance"].duplicate(true),
-			}
-		)
+		trial_records.append(trial.feedback_record())
 	var result := _feedback.save(
 		{
 			"change_clarity": change_clarity,

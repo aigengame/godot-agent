@@ -1,13 +1,11 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const RewardRunDocuments = preload(
 	"res://content/reward_run/reward_run_documents.gd"
 )
 
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	var documents := RewardRunDocuments.new()
 	var loaded: Dictionary = documents.load_maintained()
 	_expect(loaded.get("ok", false), "maintained Reward Run documents load")
@@ -37,18 +35,3 @@ func _rare_weight(experiment: Dictionary) -> int:
 		if assignment["target"]["name"] == "rare_weight":
 			return int(assignment["value"])
 	return -1
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 5, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

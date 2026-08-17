@@ -1,13 +1,11 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
 )
 
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -46,18 +44,3 @@ func _run() -> void:
 	invalid.queue_free()
 	OS.set_environment("PATH", original_path)
 	_finish()
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 4, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

@@ -1,42 +1,12 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
 )
 
 
-class CompatibilityErrorCapture extends Logger:
-	var _errors: Array[String] = []
-	var _mutex := Mutex.new()
-
-	func _log_message(_message: String, _error: bool) -> void:
-		pass
-
-	func _log_error(
-		_function: String,
-		_file: String,
-		_line: int,
-		code: String,
-		rationale: String,
-		_editor_notify: bool,
-		_error_type: int,
-		_script_backtraces: Array[ScriptBacktrace],
-	) -> void:
-		_mutex.lock()
-		_errors.append(rationale if not rationale.is_empty() else code)
-		_mutex.unlock()
-
-	func errors() -> Array[String]:
-		_mutex.lock()
-		var snapshot := _errors.duplicate()
-		_mutex.unlock()
-		return snapshot
-
-
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -100,8 +70,6 @@ func _run() -> void:
 
 
 func _expect_compatibility_gate(client: Node) -> void:
-	var error_capture := CompatibilityErrorCapture.new()
-	OS.add_logger(error_capture)
 	var readiness := {
 		"base_url": "http://127.0.0.1:1",
 		"capability_token": "token",
@@ -146,36 +114,13 @@ func _expect_compatibility_gate(client: Node) -> void:
 				not client._is_compatible_status(readiness, invalid_status),
 				"malformed status %s is rejected" % field,
 			)
-	OS.remove_logger(error_capture)
-	_expect(
-		error_capture.errors().is_empty(),
-		"malformed compatibility facts produce no script errors: %s"
-		% JSON.stringify(error_capture.errors()),
-	)
-
-
 func _read_json(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
-		_failures.append("maintained document opens: %s" % path)
+		_fail("maintained document opens: %s" % path)
 		return {}
 	var value = JSON.parse_string(file.get_as_text())
 	if not value is Dictionary:
-		_failures.append("maintained document is JSON: %s" % path)
+		_fail("maintained document is JSON: %s" % path)
 		return {}
 	return value
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 35, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

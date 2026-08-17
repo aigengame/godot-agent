@@ -51,8 +51,8 @@ UI -> Reward Content -> RewardRun System
 - `content/reward_run/reward_run_documents.gd` reads the maintained Model Source and Experiment.
   It maps `rare_weight` to the player-facing Reward frequency control and creates complete later
   Experiment values.
-- `content/reward_run/reward_run_artifact_projector.gd` validates the returned reward/build
-  relationships and projects only gameplay values.
+- `content/reward_run/reward_trial.gd` validates the returned reward/build relationships and owns
+  the Reward-specific gameplay and feedback projections. Technical provenance stays in Content.
 - `content/reward_run/reward_run_controller.gd` coordinates service preparation, two live trials,
   atomic failure, explicit retry, and feedback.
 - `systems/reward_run.gd` owns combat, equipment, and completion state. It receives gameplay-only

@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const GdaExecutionClient = preload(
 	"res://addons/gda_balancing_client/gda_execution_client.gd"
@@ -7,10 +7,8 @@ const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
 
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -78,18 +76,3 @@ func _play_trial(controller, second_target_hits: int) -> void:
 		controller.current_state().get("phase") == "run_complete",
 		"reward power completes the trial",
 	)
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 11, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

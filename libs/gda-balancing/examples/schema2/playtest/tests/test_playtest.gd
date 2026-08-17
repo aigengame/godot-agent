@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const RewardFeedbackRecorder = preload(
 	"res://content/reward_run/reward_feedback_recorder.gd"
@@ -6,24 +6,15 @@ const RewardFeedbackRecorder = preload(
 const RewardRun = preload("res://systems/reward_run.gd")
 const PlaytestPreferences = preload("res://ui/playtest_preferences.gd")
 
-var _failures: Array[String] = []
-
-
 func _init() -> void:
+	super()
 	var rare_trial := _trial("trial-one", "volatile_crown", "rare", 90, 5)
 	var common_trial := _trial("trial-two", "steady_guard", "common", 30, 2)
 	_test_feedback([rare_trial, common_trial])
 	_test_reward_run(rare_trial, 1)
 	_test_reward_run(common_trial, 3)
 	_test_player_preferences()
-
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 4, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)
+	_finish()
 
 
 func _trial(
@@ -128,8 +119,3 @@ func _test_reward_run(trial: Dictionary, expected_reward_hits: int) -> void:
 	for unused in expected_reward_hits:
 		run.primary_action()
 	_expect(run.snapshot()["phase"] == "run_complete", "reward clears second target")
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)

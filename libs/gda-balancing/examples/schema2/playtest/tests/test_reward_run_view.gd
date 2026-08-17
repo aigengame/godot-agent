@@ -1,12 +1,9 @@
-extends SceneTree
+extends "res://tests/playtest_test_case.gd"
 
 const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
 const RewardRunView = preload("res://ui/reward_run_view.gd")
-
-var _failures: Array[String] = []
-
 
 class RecordingController extends RewardRunController:
 	var requested_weights: Array[int] = []
@@ -21,6 +18,7 @@ class RecordingController extends RewardRunController:
 
 
 func _init() -> void:
+	super()
 	call_deferred("_run")
 
 
@@ -86,18 +84,3 @@ func _run() -> void:
 	view.queue_free()
 	controller.queue_free()
 	_finish()
-
-
-func _expect(condition: bool, message: String) -> void:
-	if not condition:
-		_failures.append(message)
-
-
-func _finish() -> void:
-	if _failures.is_empty():
-		print(JSON.stringify({"passed": 8, "status": "passed"}))
-		quit(0)
-		return
-	for failure in _failures:
-		push_error(failure)
-	quit(1)

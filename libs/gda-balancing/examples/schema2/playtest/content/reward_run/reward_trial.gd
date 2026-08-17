@@ -1,4 +1,4 @@
-class_name RewardRunArtifactProjector
+class_name RewardTrial
 extends RefCounted
 
 const REWARD_OPERATION := "game.generation.select-reward-v1"
@@ -19,8 +19,22 @@ const BUILD_STATE_TYPE := {
 	"id": "BuildState",
 }
 
+var _trial_id: String
+var _revision: String
+var _reward_frequency: int
+var _reward: Dictionary
+var _build: Dictionary
+var _provenance: Dictionary
 
-func project(run_result: Dictionary, expected_reward_frequency: int) -> Dictionary:
+
+func admit_run_result(
+	run_result: Dictionary,
+	expected_reward_frequency: int,
+	trial_id: String,
+	revision: String,
+) -> Dictionary:
+	if trial_id.is_empty() or revision.is_empty():
+		return _failure("missing_trial_binding")
 	var artifacts: Dictionary = run_result.get("artifacts", {})
 	var trace: Dictionary = artifacts.get("event-trace", {})
 	if trace.get("artifact_kind") != "event-trace":
@@ -66,26 +80,51 @@ func project(run_result: Dictionary, expected_reward_frequency: int) -> Dictiona
 	):
 		return _failure("build_state_mismatch")
 
+	_trial_id = trial_id
+	_revision = revision
+	_reward_frequency = expected_reward_frequency
+	_reward = {
+		"key": reward_key,
+		"rarity": str(reward.get("rarity", "")),
+	}
+	_build = {
+		"previous_item": previous_key,
+		"equipped_item": selected_key,
+		"power_before": int(build["power_before"]),
+		"power_after": int(build["power_after"]),
+	}
+	_provenance = _artifact_provenance(artifacts, trace)
+	return {"ok": true}
+
+
+func trial_id() -> String:
+	return _trial_id
+
+
+func gameplay_values() -> Dictionary:
 	return {
-		"ok": true,
-		"value": {
-			"reward_frequency": expected_reward_frequency,
-			"reward": {
-				"key": reward_key,
-				"rarity": str(reward.get("rarity", "")),
-			},
-			"build": {
-				"previous_item": previous_key,
-				"equipped_item": selected_key,
-				"power_before": int(build["power_before"]),
-				"power_after": int(build["power_after"]),
-			},
-			"provenance": _provenance(artifacts, trace),
-		},
+		"reward": _reward.duplicate(true),
+		"build": _build.duplicate(true),
 	}
 
 
-func _operation_event(trace: Dictionary, operation: String) -> Dictionary:
+func feedback_record() -> Dictionary:
+	return {
+		"id": _trial_id,
+		"reward_frequency": _reward_frequency,
+		"reward": _reward.duplicate(true),
+		"build": _build.duplicate(true),
+		"provenance": _provenance.duplicate(true),
+	}
+
+
+func snapshot() -> Dictionary:
+	var value := feedback_record()
+	value["revision"] = _revision
+	return value
+
+
+static func _operation_event(trace: Dictionary, operation: String) -> Dictionary:
 	var found: Array = []
 	for event in trace.get("events", []):
 		if event.get("operation") == operation:
@@ -93,7 +132,7 @@ func _operation_event(trace: Dictionary, operation: String) -> Dictionary:
 	return found[0] if found.size() == 1 else {}
 
 
-func _structured_fact(
+static func _structured_fact(
 	event: Dictionary,
 	name: String,
 	expected_type: Dictionary,
@@ -110,7 +149,7 @@ func _structured_fact(
 	return typed["value"]
 
 
-func _integer_fact(event: Dictionary, name: String):
+static func _integer_fact(event: Dictionary, name: String):
 	var found: Array = []
 	for fact in event.get("facts", []):
 		if fact.get("name") == name:
@@ -120,7 +159,10 @@ func _integer_fact(event: Dictionary, name: String):
 	return found[0].get("integer")
 
 
-func _provenance(artifacts: Dictionary, trace: Dictionary) -> Dictionary:
+static func _artifact_provenance(
+	artifacts: Dictionary,
+	trace: Dictionary,
+) -> Dictionary:
 	return {
 		"experiment_identity": str(trace.get("experiment_identity", "")),
 		"event_trace_identity": str(trace.get("content_identity", "")),
@@ -133,5 +175,5 @@ func _provenance(artifacts: Dictionary, trace: Dictionary) -> Dictionary:
 	}
 
 
-func _failure(detail: String) -> Dictionary:
+static func _failure(detail: String) -> Dictionary:
 	return {"ok": false, "kind": "invalid_reward_artifacts", "detail": detail}

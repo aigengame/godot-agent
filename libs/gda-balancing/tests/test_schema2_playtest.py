@@ -115,3 +115,28 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
         "test_reward_run_view.gd",
     }
     assert {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")} == expected
+
+
+def test_playtest_godot_tests_share_one_test_case_module():
+    support = _PLAYTEST / "tests" / "playtest_test_case.gd"
+    assert support.is_file()
+
+    for script in (_PLAYTEST / "tests").glob("test_*.gd"):
+        source = script.read_text(encoding="utf-8")
+        assert source.startswith('extends "res://tests/playtest_test_case.gd"\n')
+        assert "func _expect(" not in source
+        assert "func _finish(" not in source
+
+
+def test_reward_trial_owns_gameplay_and_feedback_projections():
+    content = _PLAYTEST / "content" / "reward_run"
+    trial = content / "reward_trial.gd"
+    assert trial.is_file()
+    assert not (content / "reward_run_artifact_projector.gd").exists()
+
+    controller = (content / "reward_run_controller.gd").read_text(encoding="utf-8")
+    system = (_PLAYTEST / "systems" / "reward_run.gd").read_text(encoding="utf-8")
+    assert "trial.gameplay_values()" in controller
+    assert "trial.feedback_record()" in controller
+    assert "provenance" not in system
+    assert "revision" not in system
