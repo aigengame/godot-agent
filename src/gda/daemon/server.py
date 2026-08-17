@@ -181,8 +181,9 @@ class DaemonServer:
         except WindowedDisplayUnavailable as unavailable:
             # The authoritative no-display guard fired at the launch boundary (#345):
             # no windowed engine was spawned. Surface the code the PROBE decided —
-            # live_windowed_unavailable, or live_windowed_permission_denied when the
-            # host has a window server this process may not reach (#667) — carrying
+            # live_windowed_unavailable, or live_windowed_permission_denied when this
+            # process is denied the window-server lookup (which proves nothing about
+            # whether the host has one, #667) — carrying
             # the probe's reason as diagnostics. The remediation differs per code, so
             # the message is the verdict's own rather than one shared sentence.
             #

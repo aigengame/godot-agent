@@ -525,10 +525,11 @@ def run_daemon_start_operation(
         # live_windowed_unavailable (ENVIRONMENT / 127), mirroring the platform
         # precondition above. `daemon start` is where `windowed` already flows in.
         #
-        # The probe decides WHICH refusal (#667): a host with no window server is
-        # live_windowed_unavailable, but a host that has one this process may not
-        # reach is live_windowed_permission_denied — the difference between "skip
-        # rendered QA on this machine" and "re-run outside the sandbox". Both carry
+        # The probe decides WHICH refusal (#667): no detected window-server session
+        # is live_windowed_unavailable; a DENIED window-server lookup — which proves
+        # nothing about whether the host has one — is live_windowed_permission_denied,
+        # i.e. "skip rendered QA here" versus "re-run outside the restriction to find
+        # out". Both carry
         # the deciding probe as machine-readable envelope context (ADR-0004
         # amendment) so an agent branches without parsing the sentence.
         unavailable = (display_check or windowed_unavailable)()

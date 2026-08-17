@@ -119,7 +119,7 @@ def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denia
     for forbidden in (
         "The host itself HAS a window server",
         "is a permission boundary, not a missing display",
-        "the host has one",
+        "HAS a window server, so",
     ):
         assert forbidden not in reason
 

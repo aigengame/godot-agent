@@ -62,9 +62,10 @@ class WindowedDisplayUnavailable(Exception):
     windowed daemon's pre-launch host-display check fails — a windowed Godot would
     abort during ``DisplayServer`` registration otherwise (#345). Mirrors
     :class:`SceneMismatch`: a typed launch-boundary signal the daemon maps to the
-    probe's own error code — ``live_windowed_unavailable`` when the host has no
-    window server, ``live_windowed_permission_denied`` when it has one this process
-    may not reach (#667) — distinct from a generic launch failure
+    probe's own error code — ``live_windowed_unavailable`` when no window-server
+    session is detected, ``live_windowed_permission_denied`` when this process is
+    denied the window-server lookup (which proves nothing about whether the host
+    has one, #667) — distinct from a generic launch failure
     (``launch_session`` returns ``None``). It carries the whole ``verdict`` rather
     than only its prose, so the daemon relays the code the probe decided instead of
     re-deciding it here.
