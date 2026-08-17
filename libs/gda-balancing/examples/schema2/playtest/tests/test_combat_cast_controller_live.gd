@@ -6,6 +6,7 @@ const GdaExecutionClient = preload(
 const CombatCastController = preload(
 	"res://content/combat_cast/combat_cast_controller.gd"
 )
+const CombatDuel = preload("res://systems/combat_duel.gd")
 const WAIT_TIMEOUT_MSEC := 60000
 
 
@@ -19,7 +20,11 @@ func _run() -> void:
 	get_root().add_child(client)
 	var controller := CombatCastController.new()
 	get_root().add_child(controller)
-	controller.configure(client, OS.get_environment("GDA_BALANCING_EXECUTABLE"))
+	controller.configure(
+		client,
+		OS.get_environment("GDA_BALANCING_EXECUTABLE"),
+		CombatDuel.new(),
+	)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "Combat playtest prepares")
 	_expect(controller.current_state().get("phase") == "ready", "first exchange is ready")

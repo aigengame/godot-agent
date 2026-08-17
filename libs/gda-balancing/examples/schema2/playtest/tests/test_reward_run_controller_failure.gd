@@ -3,6 +3,7 @@ extends "res://tests/playtest_test_case.gd"
 const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
+const RewardRun = preload("res://systems/reward_run.gd")
 
 class RefusingExecutionClient extends Node:
 	var sessions_created := 0
@@ -48,6 +49,7 @@ func _run() -> void:
 	controller.configure(
 		client,
 		"unused-by-boundary-test",
+		RewardRun.new(),
 	)
 	controller.primary_action()
 	_expect(controller.phase == "loading", "input before preparation is ignored")

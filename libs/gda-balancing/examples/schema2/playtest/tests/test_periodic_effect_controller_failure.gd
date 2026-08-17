@@ -3,6 +3,9 @@ extends "res://tests/playtest_test_case.gd"
 const PeriodicEffectController = preload(
 	"res://content/periodic_effect/periodic_effect_controller.gd"
 )
+const PeriodicEffectTimeline = preload(
+	"res://systems/periodic_effect_timeline.gd"
+)
 
 class RefusingClient extends Node:
 	var sessions_created := 0
@@ -41,7 +44,7 @@ func _run() -> void:
 	get_root().add_child(client)
 	var controller := PeriodicEffectController.new()
 	get_root().add_child(controller)
-	controller.configure(client, "unused")
+	controller.configure(client, "unused", PeriodicEffectTimeline.new())
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "fake Periodic Effect preparation succeeds")
 	controller.primary_action()

@@ -26,7 +26,7 @@ var _client: Node
 var _executable_path := ""
 var _documents := RewardRunDocuments.new()
 var _feedback := PlaytestFeedbackFile.new()
-var _run := RewardRun.new()
+var _run: RewardRun
 var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
 var _reward_frequency: Dictionary = {}
@@ -37,16 +37,15 @@ var _last_state: Dictionary = {}
 var _busy := false
 
 
-func _init() -> void:
-	_run.state_changed.connect(_on_run_state_changed)
-
-
 func configure(
 	client: Node,
 	executable_path: String,
+	run: RewardRun,
 ) -> void:
 	_client = client
 	_executable_path = executable_path
+	_run = run
+	_run.state_changed.connect(_on_run_state_changed)
 
 
 func start() -> Dictionary:

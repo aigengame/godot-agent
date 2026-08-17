@@ -6,6 +6,7 @@ const GdaExecutionClient = preload(
 const RewardRunController = preload(
 	"res://content/reward_run/reward_run_controller.gd"
 )
+const RewardRun = preload("res://systems/reward_run.gd")
 
 @onready var _view: Control = $RewardRunView
 
@@ -26,6 +27,7 @@ func _ready() -> void:
 	_controller.configure(
 		_client,
 		_user_option("gda-balancing-executable"),
+		RewardRun.new(),
 	)
 	await _controller.start()
 

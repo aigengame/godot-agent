@@ -6,6 +6,9 @@ const GdaExecutionClient = preload(
 const PeriodicEffectController = preload(
 	"res://content/periodic_effect/periodic_effect_controller.gd"
 )
+const PeriodicEffectTimeline = preload(
+	"res://systems/periodic_effect_timeline.gd"
+)
 const WAIT_TIMEOUT_MSEC := 60000
 
 
@@ -19,7 +22,11 @@ func _run() -> void:
 	get_root().add_child(client)
 	var controller := PeriodicEffectController.new()
 	get_root().add_child(controller)
-	controller.configure(client, OS.get_environment("GDA_BALANCING_EXECUTABLE"))
+	controller.configure(
+		client,
+		OS.get_environment("GDA_BALANCING_EXECUTABLE"),
+		PeriodicEffectTimeline.new(),
+	)
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "Periodic Effect playtest prepares")
 	_expect(controller.current_state().get("phase") == "ready", "first curse is ready")

@@ -3,6 +3,7 @@ extends "res://tests/playtest_test_case.gd"
 const CombatCastController = preload(
 	"res://content/combat_cast/combat_cast_controller.gd"
 )
+const CombatDuel = preload("res://systems/combat_duel.gd")
 
 class RefusingClient extends Node:
 	var sessions_created := 0
@@ -41,7 +42,7 @@ func _run() -> void:
 	get_root().add_child(client)
 	var controller := CombatCastController.new()
 	get_root().add_child(controller)
-	controller.configure(client, "unused")
+	controller.configure(client, "unused", CombatDuel.new())
 	var started: Dictionary = await controller.start()
 	_expect(started.get("ok", false), "fake Combat preparation succeeds")
 	var before: Dictionary = controller.current_state().get(

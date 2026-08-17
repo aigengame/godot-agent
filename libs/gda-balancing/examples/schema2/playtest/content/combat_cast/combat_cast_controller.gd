@@ -25,7 +25,7 @@ var _client: Node
 var _executable_path := ""
 var _documents := CombatCastDocuments.new()
 var _feedback := PlaytestFeedbackFile.new()
-var _duel := CombatDuel.new()
+var _duel: CombatDuel
 var _model_source: Dictionary = {}
 var _baseline_experiment: Dictionary = {}
 var _initial_state: Dictionary = {}
@@ -36,13 +36,11 @@ var _last_state: Dictionary = {}
 var _busy := false
 
 
-func _init() -> void:
-	_duel.state_changed.connect(_on_duel_state_changed)
-
-
-func configure(client: Node, executable_path: String) -> void:
+func configure(client: Node, executable_path: String, duel: CombatDuel) -> void:
 	_client = client
 	_executable_path = executable_path
+	_duel = duel
+	_duel.state_changed.connect(_on_duel_state_changed)
 
 
 func start() -> Dictionary:

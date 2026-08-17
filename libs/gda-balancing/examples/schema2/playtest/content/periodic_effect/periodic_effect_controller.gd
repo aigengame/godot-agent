@@ -27,7 +27,7 @@ var _client: Node
 var _executable_path := ""
 var _documents := PeriodicEffectDocuments.new()
 var _feedback := PlaytestFeedbackFile.new()
-var _timeline := PeriodicEffectTimeline.new()
+var _timeline: PeriodicEffectTimeline
 var _model_source: Dictionary = {}
 var _experiments: Dictionary = {}
 var _session := ""
@@ -37,13 +37,15 @@ var _last_state: Dictionary = {}
 var _busy := false
 
 
-func _init() -> void:
-	_timeline.state_changed.connect(_on_timeline_state_changed)
-
-
-func configure(client: Node, executable_path: String) -> void:
+func configure(
+	client: Node,
+	executable_path: String,
+	timeline: PeriodicEffectTimeline,
+) -> void:
 	_client = client
 	_executable_path = executable_path
+	_timeline = timeline
+	_timeline.state_changed.connect(_on_timeline_state_changed)
 
 
 func start() -> Dictionary:

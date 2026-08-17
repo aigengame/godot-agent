@@ -9,7 +9,7 @@ _PLAYTEST = Path(__file__).parents[1] / "examples" / "schema2" / "playtest"
 def test_playtest_runtime_dependencies_point_downward():
     allowed_dependencies = {
         "addons": {"addons"},
-        "apps": {"addons", "apps", "content", "ui"},
+        "apps": {"addons", "apps", "content", "systems", "ui"},
         "systems": {"systems"},
         "content": {"addons", "content", "systems"},
         "ui": {"content", "ui"},
@@ -160,21 +160,21 @@ def test_playtest_has_explicit_local_launch_actions_and_no_standalone_export_cla
 def test_each_playtest_has_an_explicit_thin_application_entry():
     assert not (_PLAYTEST / "main.gd").exists()
     assert not (_PLAYTEST / "main.tscn").exists()
-    app_controllers = {
-        "reward_run": "RewardRunController",
-        "combat_cast": "CombatCastController",
-        "periodic_effect": "PeriodicEffectController",
+    app_modules = {
+        "reward_run": ("RewardRunController", "RewardRun"),
+        "combat_cast": ("CombatCastController", "CombatDuel"),
+        "periodic_effect": ("PeriodicEffectController", "PeriodicEffectTimeline"),
     }
-    assert {path.name for path in (_PLAYTEST / "apps").iterdir()} == set(
-        app_controllers
-    )
-    for app_name, controller_name in app_controllers.items():
+    assert {path.name for path in (_PLAYTEST / "apps").iterdir()} == set(app_modules)
+    for app_name, (controller_name, system_name) in app_modules.items():
         app = _PLAYTEST / "apps" / app_name
         assert (app / "main.gd").is_file()
         assert (app / "main.tscn").is_file()
         source = (app / "main.gd").read_text(encoding="utf-8")
         assert "GdaExecutionClient" in source
         assert controller_name in source
+        assert system_name in source
+        assert "res://systems/" in source
         assert 'preload("res://ui/' not in source
         assert "model-source.json" not in source
         assert "experiment.json" not in source
