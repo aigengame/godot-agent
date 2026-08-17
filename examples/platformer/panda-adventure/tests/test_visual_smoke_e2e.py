@@ -96,7 +96,15 @@ _COPY_IGNORE = shutil.ignore_patterns(
 
 # Daemon error codes meaning "this environment cannot show a window" — a skip
 # signal, not a failure (the test_e2e_screenshot.py precedent, #345).
-_NO_DISPLAY_CODES = {"live_windowed_unavailable", "live_display_unavailable"}
+# The daemon's typed no-display refusals. A display state can change between the
+# pre-check and the live call, so any of these is a SKIP, not a failure. Includes
+# live_windowed_permission_denied (#667): a confined run cannot reach the window
+# server, which is an environment gap like the others — never a demo defect.
+_NO_DISPLAY_CODES = {
+    "live_windowed_unavailable",
+    "live_windowed_permission_denied",
+    "live_display_unavailable",
+}
 
 _HUD_LABEL = "/root/Main/Hud/Stats/%sLabel"
 

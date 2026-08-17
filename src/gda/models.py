@@ -63,8 +63,14 @@ class EnvironmentProbe(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
-    platform: str
+    # Descriptions are deliberately terse: each one is repeated per command in the
+    # manifest, so prose here is paid ~67 times over (#667 review measured the cost).
+    name: str = Field(
+        description="The OS call that decided this failure, e.g. CGSessionCopyCurrentDictionary."
+    )
+    platform: str = Field(
+        description="The sys.platform the probe ran on, e.g. darwin or linux."
+    )
 
 
 class GdaError(BaseModel):
@@ -88,7 +94,13 @@ class GdaError(BaseModel):
     # Deliberately the minimal axis — WHICH host call decided — never the
     # operation-scoped typed EVIDENCE of a failure (parsed script errors, exit
     # statuses), which is #687's separate decision (ADR-0004 amendment, #667).
-    probe: EnvironmentProbe | None = None
+    probe: EnvironmentProbe | None = Field(
+        default=None,
+        description=(
+            "Which host probe decided this environment failure; the key is omitted "
+            "(never null) on failures that have none."
+        ),
+    )
 
 
 class GdaErrorEnvelope(BaseModel):

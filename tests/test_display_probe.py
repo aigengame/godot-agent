@@ -26,10 +26,12 @@ from pathlib import Path
 import pytest
 
 from gda.display import (
+    _DENIAL_BLANKET,
+    _DENIAL_NAME_SPECIFIC,
     WindowedUnavailable,
     _linux_verdict,
     _macos_verdict,
-    _macos_window_server_denied,
+    _macos_window_server_denial,
     windowed_unavailable,
 )
 
@@ -41,7 +43,7 @@ def test_macos_with_a_window_server_can_launch_windowed(monkeypatch):
     # The denial probe must not even run on the success path: a healthy desktop pays
     # nothing for the #667 split.
     monkeypatch.setattr(
-        "gda.display._macos_window_server_denied",
+        "gda.display._macos_window_server_denial",
         lambda: pytest.fail("the denial probe ran on the success path"),
     )
 
@@ -49,11 +51,11 @@ def test_macos_with_a_window_server_can_launch_windowed(monkeypatch):
 
 
 def test_macos_without_a_window_server_is_the_capability_verdict(monkeypatch):
-    # CGSession said NULL and nothing denied us: the host genuinely has no GUI
-    # session (SSH / CI / headless). The capability code, naming CGSession as the
-    # probe that decided it.
+    # CGSession said NULL and nothing denied us: as far as gda can tell the host has
+    # no GUI session (SSH / CI / headless). The capability code, naming CGSession as
+    # the probe that decided it.
     monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
-    monkeypatch.setattr("gda.display._macos_window_server_denied", lambda: False)
+    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: None)
 
     verdict = _macos_verdict()
 
@@ -64,14 +66,25 @@ def test_macos_without_a_window_server_is_the_capability_verdict(monkeypatch):
     # The remaining ambiguity is disclosed rather than hidden: a sandbox that HIDES
     # the window server (rather than refusing the lookup) lands here too.
     assert "outside the sandbox" in verdict.reason
+    # F5: the actionable remediation the pre-#667 message carried is still here.
+    assert "Run the daemon headless" in verdict.reason
 
 
-def test_macos_denied_window_server_is_the_permission_verdict(monkeypatch):
-    # CGSession said NULL, but the window-server lookup was REFUSED: the host has a
-    # window server we are not allowed to reach. A different code and a different
-    # probe name, so an agent branches on data.
+@pytest.mark.parametrize(
+    ("denial", "expected_breadth"),
+    [
+        (_DENIAL_NAME_SPECIFIC, "specific to that service"),
+        (_DENIAL_BLANKET, "broadly confined"),
+    ],
+)
+def test_macos_denied_window_server_is_the_permission_verdict(
+    monkeypatch, denial, expected_breadth
+):
+    # CGSession said NULL and the window-server lookup was REFUSED. Both control
+    # outcomes take the permission code with the same probe name; they differ only in
+    # how much confinement the probe could honestly characterise.
     monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
-    monkeypatch.setattr("gda.display._macos_window_server_denied", lambda: True)
+    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: denial)
 
     verdict = _macos_verdict()
 
@@ -79,10 +92,78 @@ def test_macos_denied_window_server_is_the_permission_verdict(monkeypatch):
     assert verdict.code == "live_windowed_permission_denied"
     assert verdict.probe.name == "bootstrap_look_up(com.apple.windowserver.active)"
     assert verdict.probe.platform == sys.platform
-    assert "re-run outside the sandbox" in verdict.reason
+    assert expected_breadth in verdict.reason
+    assert "re-run outside the" in verdict.reason
 
 
-def test_the_denial_probe_failing_falls_back_to_the_capability_verdict(monkeypatch):
+@pytest.mark.parametrize("denial", [_DENIAL_NAME_SPECIFIC, _DENIAL_BLANKET])
+def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denial):
+    # The #667-review regression guard. A refused lookup is evaluated per name and
+    # BEFORE resolution, so it proves confinement, NOT existence — a blanket-deny
+    # profile on a display-less CI Mac lands here too. Neither branch may tell the
+    # caller the host HAS a window server, and both must say gda cannot tell.
+    monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
+    monkeypatch.setattr("gda.display._macos_window_server_denial", lambda: denial)
+
+    verdict = _macos_verdict()
+    assert verdict is not None
+    reason = verdict.reason
+
+    # The claim is explicitly negated: gda says it CANNOT tell.
+    assert (
+        "cannot tell from a refused lookup whether this host HAS a window server"
+        in reason
+    )
+    # And none of the affirmative phrasings — including the exact sentence the
+    # original implementation shipped — may reappear.
+    for forbidden in (
+        "The host itself HAS a window server",
+        "is a permission boundary, not a missing display",
+        "the host has one",
+    ):
+        assert forbidden not in reason
+
+
+@pytest.mark.parametrize(
+    ("target", "control", "expected"),
+    [
+        # The window server refused, a name nobody registers resolved normally: the
+        # denial is specific to that service — the sandbox-profile signature.
+        (1100, 1102, _DENIAL_NAME_SPECIFIC),
+        # BOTH refused. Seatbelt evaluates the deny per name and before resolution,
+        # so this is a broadly-confined process and the probe learned only that.
+        (1100, 1100, _DENIAL_BLANKET),
+        # Not refused at all -> no denial evidence, whatever the control says.
+        (1102, 1102, None),
+        (0, 1102, None),
+    ],
+)
+def test_the_control_lookup_characterises_the_denial(target, control, expected):
+    # Ungated: the status -> breadth mapping is handed a fake lookup, so it runs on
+    # any host including a Linux CI runner with no libSystem.
+    from gda.display import _CONTROL_SERVICE, _WINDOW_SERVER_SERVICE, _classify_denial
+
+    statuses = {_WINDOW_SERVER_SERVICE: target, _CONTROL_SERVICE: control}
+
+    assert _classify_denial(lambda name: statuses[name]) is expected
+
+
+def test_the_control_lookup_is_skipped_when_the_target_was_not_refused():
+    # The control costs a second mach round-trip, so it must only run once the
+    # target has actually been refused.
+    from gda.display import _WINDOW_SERVER_SERVICE, _classify_denial
+
+    asked: list[bytes] = []
+
+    def _lookup(name: bytes) -> int:
+        asked.append(name)
+        return 0
+
+    assert _classify_denial(_lookup) is None
+    assert asked == [_WINDOW_SERVER_SERVICE]
+
+
+def test_the_denial_probe_falls_back_when_it_cannot_run(monkeypatch):
     # The denial probe is best-effort private-ish plumbing (a libSystem symbol). If it
     # cannot run at all — a future macOS drops the symbol, ctypes misbehaves — the
     # refusal must behave exactly as it did before the probe existed, never crash a
@@ -91,7 +172,7 @@ def test_the_denial_probe_failing_falls_back_to_the_capability_verdict(monkeypat
         raise OSError("no libSystem here")
 
     monkeypatch.setattr("gda.display.ctypes.CDLL", lambda _path: _explode())
-    assert _macos_window_server_denied() is False
+    assert _macos_window_server_denial() is None
 
     monkeypatch.setattr("gda.display._macos_has_window_server", lambda: False)
     fallback = _macos_verdict()
@@ -134,16 +215,40 @@ def test_the_verdict_carries_a_registered_error_code():
 
 # --- the real macOS denial probe (capability-gated) --------------------------
 
-_SANDBOX_PROFILE = '(version 1)\n(allow default)\n(deny mach-lookup (global-name "com.apple.windowserver.active"))\n'
+# Denies ONLY the window-server name: everything else, including an unregistered
+# control name, still resolves. The sandbox-profile signature.
+_NAME_SPECIFIC_PROFILE = (
+    "(version 1)\n"
+    "(allow default)\n"
+    '(deny mach-lookup (global-name "com.apple.windowserver.active"))\n'
+)
+
+# Denies every mach-lookup. The case that falsified the original spike claim: the
+# control name is refused too, so the refusal says nothing about what exists.
+_BLANKET_PROFILE = (
+    "(version 1)\n"
+    "(deny default)\n"
+    "(allow process*)\n"
+    "(allow file*)\n"
+    "(allow sysctl*)\n"
+    "(allow signal)\n"
+    "(allow ipc-posix-shm)\n"
+)
 
 _PROBE_SCRIPT = textwrap.dedent(
     """
     import json
     from gda.display import windowed_unavailable
     verdict = windowed_unavailable()
+    from gda.display import _macos_window_server_denial
     print(json.dumps(
         None if verdict is None
-        else {"code": verdict.code, "probe": verdict.probe.name}
+        else {
+            "code": verdict.code,
+            "probe": verdict.probe.name,
+            "denial": _macos_window_server_denial(),
+            "claims_existence": "cannot tell from a refused lookup" not in verdict.reason,
+        }
     ))
     """
 )
@@ -177,29 +282,44 @@ def _verdict_under(profile: Path | None, tmp_path: Path) -> dict | None:
     return json.loads(run.stdout.strip())
 
 
-def test_a_real_sandbox_denial_is_classified_as_a_permission_problem(tmp_path):
-    # The end-to-end proof of the #667 spike finding, against a REAL seatbelt sandbox
-    # rather than a fake: on a host that HAS a desktop session, denying only the
-    # window-server mach lookup must flip the verdict to the permission code — not to
-    # live_windowed_unavailable, which is what the dogfooding saw and what made
-    # automation record the machine as display-less.
+@pytest.mark.parametrize(
+    ("profile_body", "expected_denial"),
+    [
+        (_NAME_SPECIFIC_PROFILE, _DENIAL_NAME_SPECIFIC),
+        (_BLANKET_PROFILE, _DENIAL_BLANKET),
+    ],
+)
+def test_a_real_sandbox_denial_is_classified_as_a_permission_problem(
+    tmp_path, profile_body, expected_denial
+):
+    # The end-to-end proof against a REAL seatbelt sandbox rather than a fake: on a
+    # host that HAS a desktop session, a refused window-server lookup must flip the
+    # verdict to the permission code — not to live_windowed_unavailable, which is
+    # what the dogfooding saw and what made automation record the machine as
+    # display-less.
+    #
+    # Both profiles are exercised because they are the two halves of the corrected
+    # finding (#667 review): the blanket one refuses the unregistered control name
+    # too, which is exactly why NEITHER may claim the host has a window server.
     if not _sandbox_exec_works(tmp_path):
         pytest.skip("needs macOS with a working sandbox-exec")
     if windowed_unavailable() is not None:
         pytest.skip("needs a real on-console desktop session to deny access TO")
 
-    profile = tmp_path / "deny-windowserver.sb"
-    profile.write_text(_SANDBOX_PROFILE, encoding="utf-8")
+    profile = tmp_path / "profile.sb"
+    profile.write_text(profile_body, encoding="utf-8")
 
     # The control: unsandboxed on this same host, a windowed session can launch.
     assert _verdict_under(None, tmp_path) is None
 
     denied = _verdict_under(profile, tmp_path)
+    assert denied is not None
 
-    assert denied == {
-        "code": "live_windowed_permission_denied",
-        "probe": "bootstrap_look_up(com.apple.windowserver.active)",
-    }
+    assert denied["code"] == "live_windowed_permission_denied"
+    assert denied["probe"] == "bootstrap_look_up(com.apple.windowserver.active)"
+    assert denied["denial"] == expected_denial
+    # Neither branch may assert the host has a window server.
+    assert denied["claims_existence"] is False
 
 
 def test_the_probe_returns_a_verdict_or_none_on_this_host():

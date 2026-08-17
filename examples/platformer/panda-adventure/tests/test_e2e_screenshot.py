@@ -51,7 +51,15 @@ _COPY_IGNORE = shutil.ignore_patterns(
 # not a test failure. `live_windowed_unavailable` is the typed pre-launch refusal gda
 # now returns for `daemon start --windowed` on a display-less host (#345), replacing
 # the generic `engine_session_not_running` this used to key on.
-_NO_DISPLAY_CODES = {"live_windowed_unavailable", "live_display_unavailable"}
+# The daemon's typed no-display refusals. A display state can change between the
+# pre-check and the live call, so any of these is a SKIP, not a failure. Includes
+# live_windowed_permission_denied (#667): a confined run cannot reach the window
+# server, which is an environment gap like the others — never a demo defect.
+_NO_DISPLAY_CODES = {
+    "live_windowed_unavailable",
+    "live_windowed_permission_denied",
+    "live_display_unavailable",
+}
 
 
 def _error_code(stdout: str) -> str | None:

@@ -12,12 +12,18 @@ of spawning a doomed engine.
 It answers with a *verdict*, not a bare boolean, because "no window here" has two
 causes that need OPPOSITE reactions from an agent (#667):
 
-- the host genuinely has no window server (SSH, CI, a headless box) —
-  ``live_windowed_unavailable``: this machine cannot do rendered QA, skip it;
-- the host HAS one but THIS PROCESS is denied access to it (a sandbox) —
-  ``live_windowed_permission_denied``: retry outside the restriction. Reading this
-  as the first cause is exactly the dogfooded defect (GDA-DF-029): a sandboxed run
-  was recorded as a machine-capability gap and rendered QA was silently skipped.
+- nothing refused us and there is no session — ``live_windowed_unavailable``: as far
+  as gda can tell this machine cannot do rendered QA, so skip it;
+- the window-server lookup was REFUSED — ``live_windowed_permission_denied``: this
+  process may not even ask, so re-run outside the restriction. Reading this as the
+  first cause is exactly the dogfooded defect (GDA-DF-029): a sandboxed run was
+  recorded as a machine-capability gap and rendered QA was silently skipped.
+
+The second verdict deliberately claims only that the LOOKUP was denied — never that
+a window server exists. Seatbelt evaluates a mach-lookup deny per name and before
+resolution, so a blanket-deny profile refuses an unregistered name too; inferring
+existence from the refusal would tell a display-less confined CI Mac that its host
+has a window server (#667 review).
 
 Platform-dispatched (live is UNIX-only via ``live_unsupported_platform``, ADR-0021,
 so Windows is a documented, unreachable-today stub seam — a single clean slot, not a
@@ -29,8 +35,9 @@ refactor):
   ``launchctl managername`` reports "Aqua". So we deliberately do NOT use
   ``launchctl`` or ``$DISPLAY`` on macOS — that NULL is exactly what predicts a
   windowed Godot will abort during window-server registration. The API reports NULL
-  with no error code, so the NULL alone cannot say WHY; :func:`_macos_window_server_denied`
-  answers that second question.
+  with no error code, so the NULL alone cannot say WHY;
+  :func:`_macos_window_server_denial` answers the one further question that IS
+  answerable — was the lookup refused, and how broadly.
 - **Linux**: a non-empty ``$DISPLAY`` (X11) or ``$WAYLAND_DISPLAY`` (Wayland), so a
   run under ``xvfb-run`` (which sets ``DISPLAY``) passes. No permission split: the
   variables are readable regardless of confinement, so a Linux verdict is always the
@@ -44,6 +51,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from gda.models import EnvironmentProbe
@@ -59,15 +67,31 @@ _LIBSYSTEM = "/usr/lib/libSystem.B.dylib"
 # CoreGraphics probe to NULL while the rest of the host is untouched).
 _WINDOW_SERVER_SERVICE = b"com.apple.windowserver.active"
 
-# bootstrap_look_up's "the policy refused this lookup" status, from bootstrap.h.
-# The signal #667's spike was looking for: it is returned ONLY for a DENIED lookup.
-# A service that is merely not registered — the state a host with no window-server
-# session is in — returns BOOTSTRAP_UNKNOWN_SERVICE (1102) instead. So this code
-# cannot be produced by an absent session, which is what makes it safe to classify
-# on: false negatives (a sandbox that hides the service as "unknown" instead)
-# degrade to the capability verdict, but a display-less host can never be
-# mis-reported as a permission problem.
+# A name nothing registers, used as the CONTROL lookup (#667 review). Its whole job
+# is to reveal how broad the confinement is — see _macos_window_server_denial.
+_CONTROL_SERVICE = b"com.gda.probe.control.unregistered"
+
+# bootstrap_look_up statuses, from bootstrap.h.
+#
+# What these DO and DO NOT prove (#667 review corrected the original claim):
+# seatbelt evaluates a mach-lookup deny rule PER NAME and BEFORE the name is
+# resolved, so a blanket-deny profile returns NOT_PRIVILEGED for a name nobody
+# registered just as readily as for a real one. NOT_PRIVILEGED therefore proves
+# exactly one thing — "the policy refused THIS lookup" — and carries NO information
+# about whether a window server exists on the host. Claiming existence from it was
+# the falsified inference: a display-less CI Mac under a broad-deny profile would be
+# told the host HAS a window server.
+#
+# UNKNOWN_SERVICE is the not-registered answer, and is only meaningful when the
+# lookup was allowed to resolve at all.
 _BOOTSTRAP_NOT_PRIVILEGED = 1100
+_BOOTSTRAP_UNKNOWN_SERVICE = 1102
+
+# How broad a denial the control lookup revealed. Both mean "denied", so both take
+# the permission verdict; they differ only in what the probe can honestly say about
+# the confinement, never about whether a window server exists.
+_DENIAL_NAME_SPECIFIC = "name-specific"
+_DENIAL_BLANKET = "blanket"
 
 
 @dataclass(frozen=True)
@@ -75,8 +99,9 @@ class WindowedUnavailable:
     """Why a windowed live session cannot come up on THIS host (#345, #667).
 
     ``code`` is the registered ``Gda error code`` the refusal must report —
-    ``live_windowed_unavailable`` (no window server here) or
-    ``live_windowed_permission_denied`` (there is one; we are not allowed in).
+    ``live_windowed_unavailable`` (nothing refused us and no session is reachable) or
+    ``live_windowed_permission_denied`` (the lookup itself was refused, so whether a
+    window server exists is unknown).
     ``reason`` is the prose for the message/diagnostics, and ``probe`` is the
     machine-readable :class:`~gda.models.EnvironmentProbe` naming the OS call that
     decided this verdict, so an agent branches on data rather than on the sentence.
@@ -113,17 +138,27 @@ def _macos_verdict() -> WindowedUnavailable | None:
     """
     if _macos_has_window_server():
         return None
-    if _macos_window_server_denied():
+    denial = _macos_window_server_denial()
+    if denial is not None:
+        breadth = (
+            "the denial is specific to that service (a control lookup of an "
+            "unregistered name still resolved normally), which is the signature of "
+            "a sandbox profile that gates the window server"
+            if denial is _DENIAL_NAME_SPECIFIC
+            else "a control lookup of an unregistered name was refused too, so this "
+            "process is broadly confined and the probe learned only that much"
+        )
         return WindowedUnavailable(
             code="live_windowed_permission_denied",
             reason=(
-                "this process is denied access to the macOS window server "
+                "this process is denied the macOS window-server lookup "
                 "(bootstrap_look_up of com.apple.windowserver.active returned "
-                "BOOTSTRAP_NOT_PRIVILEGED — e.g. a sandbox that does not allow "
-                "mach-lookup to it). The host itself HAS a window server, so this "
-                "is a permission boundary, not a missing display: re-run outside "
-                "the sandbox/restriction rather than treating this machine as "
-                "unable to show a window"
+                f"BOOTSTRAP_NOT_PRIVILEGED — e.g. a sandbox); {breadth}. gda cannot "
+                "tell from a refused lookup whether this host HAS a window server, "
+                "only that this process may not ask: re-run outside the "
+                "sandbox/restriction to find out — if a windowed session comes up "
+                "there, this was a permission boundary; if it fails the same way, "
+                "the host genuinely has none"
             ),
             probe=EnvironmentProbe(
                 name="bootstrap_look_up(com.apple.windowserver.active)",
@@ -135,11 +170,12 @@ def _macos_verdict() -> WindowedUnavailable | None:
         reason=(
             "no usable macOS window-server session (CGSessionCopyCurrentDictionary "
             "returned NULL — e.g. SSH / CI / a headless host); a windowed Godot "
-            "session cannot register with the window server here. No permission "
-            "denial was detected, so this reads as an absent GUI session; if the "
-            "run IS confined, a sandbox that hides the window server rather than "
-            "refusing it is indistinguishable from an absent one here — re-run "
-            "outside the sandbox to tell them apart"
+            "session cannot register with the window server here. Run the daemon "
+            "headless instead, or start it on a host with an on-console GUI session. "
+            "No permission denial was detected, so this reads as an absent GUI "
+            "session; if the run IS confined, a sandbox that hides the window server "
+            "rather than refusing it is indistinguishable from an absent one here — "
+            "re-run outside the sandbox to tell them apart"
         ),
         probe=EnvironmentProbe(
             name="CGSessionCopyCurrentDictionary", platform=sys.platform
@@ -175,46 +211,82 @@ def _macos_has_window_server() -> bool:
     return True
 
 
-def _macos_window_server_denied() -> bool:
-    """Is this process DENIED the window-server mach service? (#667)
+def _macos_window_server_denial() -> str | None:
+    """Was this process DENIED the window-server lookup, and how broadly? (#667)
 
     ``CGSessionCopyCurrentDictionary`` returns NULL with no error code, so it cannot
     say whether the window server is absent or merely out of reach. Asking the
-    bootstrap namespace for the service directly does distinguish the two, because
-    ``bootstrap_look_up`` reports the two states with DIFFERENT statuses:
-    ``BOOTSTRAP_NOT_PRIVILEGED`` (1100) for a lookup the policy refused, and
-    ``BOOTSTRAP_UNKNOWN_SERVICE`` (1102) for a name nobody registered.
+    bootstrap namespace directly answers a NARROWER question that is still worth
+    asking: was the lookup *refused*? ``BOOTSTRAP_NOT_PRIVILEGED`` means the policy
+    said no — which an absent service never produces on its own, so it is real
+    evidence of confinement.
 
-    Only the refusal is claimed here. That direction is the safe one: a lookup that
-    was NOT denied cannot return 1100, so a genuinely display-less host can never be
-    mis-classified as a permission problem, while a sandbox this probe fails to
-    recognize simply falls back to the existing capability verdict.
+    What it is NOT evidence of is that a window server exists. Seatbelt evaluates a
+    mach-lookup deny PER NAME and BEFORE resolving it, so a blanket-deny profile
+    refuses an unregistered name just as readily (verified). That is why the CONTROL
+    lookup exists: a name nothing registers is looked up too, and its answer says how
+    broad the confinement is —
 
-    Any failure to run the probe at all (symbol gone on a future macOS, unexpected
-    ``ctypes`` state) returns ``False`` — "no denial evidence" — so the refusal
-    behaves exactly as it did before this probe existed.
+    - control ``UNKNOWN_SERVICE`` + target refused → the denial is **name-specific**:
+      lookups do resolve here, and this one name is gated. The sandbox signature.
+    - control refused as well → **blanket** confinement; the probe learned only that
+      this process is confined.
+
+    Neither branch licenses a claim about the host's display: both report the same
+    permission verdict, and the caller's wording says so. Returns ``None`` when there
+    is no denial evidence at all, including any failure to run the probe (symbol gone
+    on a future macOS, unexpected ``ctypes`` state) — so the refusal then behaves
+    exactly as it did before this probe existed.
     """
     try:
-        libsystem = ctypes.CDLL(_LIBSYSTEM)
-        bootstrap_port = ctypes.c_uint32.in_dll(libsystem, "bootstrap_port")
-        libsystem.bootstrap_look_up.restype = ctypes.c_int32
-        libsystem.bootstrap_look_up.argtypes = [
-            ctypes.c_uint32,
-            ctypes.c_char_p,
-            ctypes.POINTER(ctypes.c_uint32),
-        ]
+        lookup = _bootstrap_lookup()
+    except Exception:
+        return None
+    return _classify_denial(lookup)
+
+
+def _classify_denial(lookup: "Callable[[bytes], int]") -> str | None:
+    """Map the target + control lookup statuses onto a denial breadth (#667).
+
+    Split from the ``ctypes`` wiring so the decision — the part with the actual
+    reasoning in it — is exercised by handing it a fake ``lookup`` on ANY host,
+    including a Linux CI runner with no libSystem at all.
+    """
+    if lookup(_WINDOW_SERVER_SERVICE) != _BOOTSTRAP_NOT_PRIVILEGED:
+        return None
+    if lookup(_CONTROL_SERVICE) == _BOOTSTRAP_UNKNOWN_SERVICE:
+        return _DENIAL_NAME_SPECIFIC
+    return _DENIAL_BLANKET
+
+
+def _bootstrap_lookup() -> "Callable[[bytes], int]":
+    """Bind ``bootstrap_look_up`` and return a name → status callable.
+
+    Raises if the symbol or the bootstrap port cannot be bound, which the caller
+    treats as "no denial evidence".
+    """
+    libsystem = ctypes.CDLL(_LIBSYSTEM)
+    bootstrap_port = ctypes.c_uint32.in_dll(libsystem, "bootstrap_port")
+    libsystem.bootstrap_look_up.restype = ctypes.c_int32
+    libsystem.bootstrap_look_up.argtypes = [
+        ctypes.c_uint32,
+        ctypes.c_char_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+
+    def _lookup(name: bytes) -> int:
         service_port = ctypes.c_uint32(0)
         status = libsystem.bootstrap_look_up(
-            bootstrap_port.value, _WINDOW_SERVER_SERVICE, ctypes.byref(service_port)
+            bootstrap_port.value, name, ctypes.byref(service_port)
         )
-    except Exception:
-        return False
-    if status == 0 and service_port.value:
-        # The lookup handed back a send right; drop it — this probe wants the
-        # STATUS, not the port, and leaking a right per failed start would be a
-        # slow leak in a long-lived daemon.
-        _release_mach_port(libsystem, service_port.value)
-    return status == _BOOTSTRAP_NOT_PRIVILEGED
+        if status == 0 and service_port.value:
+            # The lookup handed back a send right; drop it — this probe wants the
+            # STATUS, not the port, and leaking a right per failed start would be a
+            # slow leak in a long-lived daemon.
+            _release_mach_port(libsystem, service_port.value)
+        return status
+
+    return _lookup
 
 
 def _release_mach_port(libsystem: ctypes.CDLL, port: int) -> None:
