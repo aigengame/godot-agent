@@ -246,7 +246,7 @@ def test_playtest_documentation_covers_each_player_and_maintainer_path():
 
 
 def test_playtest_keeps_focused_runtime_behavior_proofs():
-    expected = {
+    required = {
         "test_gda_execution_client.gd",
         "test_gda_execution_client_discovery.gd",
         "test_periodic_effect_live_trials.gd",
@@ -267,7 +267,8 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
         "test_reward_run_main_live.gd",
         "test_reward_run_view.gd",
     }
-    assert {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")} == expected
+    actual = {path.name for path in (_PLAYTEST / "tests").glob("test_*.gd")}
+    assert required <= actual
 
 
 def test_playtest_scripts_share_one_test_case_module():

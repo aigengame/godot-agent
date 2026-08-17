@@ -60,10 +60,11 @@ func admit_run_result(
 	var enemy_before := _integer_state(enemy.get("state_before", []))
 	var enemy_after := _integer_state(enemy.get("state_after", []))
 	if (
-		player_before != expected_initial
-		or not _has_combat_state(player_after)
+		not _has_exact_combat_state(expected_initial)
+		or player_before != expected_initial
+		or not _has_exact_combat_state(player_after)
 		or enemy_before != player_after
-		or not _has_combat_state(enemy_after)
+		or not _has_exact_combat_state(enemy_after)
 	):
 		return _failure("combat_state_discontinuity")
 	var committed: Array = snapshots.get("snapshots", [])
@@ -75,13 +76,28 @@ func admit_run_result(
 
 	var player_damage = _integer_fact(player, "player_damage_dealt")
 	var enemy_damage = _integer_fact(enemy, "enemy_damage_dealt")
-	if player_damage == null or enemy_damage == null:
+	var player_cost = _integer_fact(player, "player_action_cost")
+	var enemy_cost = _integer_fact(enemy, "enemy_action_cost")
+	if (
+		player_damage == null
+		or enemy_damage == null
+		or player_cost == null
+		or enemy_cost == null
+	):
 		return _failure("missing_damage_facts")
 	if (
-		int(expected_initial["enemy_health"]) - int(terminal["enemy_health"])
+		int(player_before["enemy_health"]) - int(player_after["enemy_health"])
 		!= int(player_damage)
-		or int(expected_initial["player_health"]) - int(terminal["player_health"])
+		or int(player_before["player_health"]) != int(player_after["player_health"])
+		or int(player_before["player_mana"]) - int(player_after["player_mana"])
+		!= int(player_cost)
+		or int(player_before["enemy_mana"]) != int(player_after["enemy_mana"])
+		or int(enemy_before["player_health"]) - int(enemy_after["player_health"])
 		!= int(enemy_damage)
+		or int(enemy_before["enemy_health"]) != int(enemy_after["enemy_health"])
+		or int(enemy_before["enemy_mana"]) - int(enemy_after["enemy_mana"])
+		!= int(enemy_cost)
+		or int(enemy_before["player_mana"]) != int(enemy_after["player_mana"])
 	):
 		return _failure("damage_state_mismatch")
 	if not _metrics_match(metrics, terminal, int(player_damage), int(enemy_damage)):
@@ -158,7 +174,9 @@ func _integer_state(rows: Array) -> Dictionary:
 	return state
 
 
-func _has_combat_state(state: Dictionary) -> bool:
+func _has_exact_combat_state(state: Dictionary) -> bool:
+	if state.size() != TERMINAL_METRICS.size():
+		return false
 	for name in TERMINAL_METRICS:
 		if not state.has(name):
 			return false

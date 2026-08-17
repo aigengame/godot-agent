@@ -87,15 +87,22 @@ func admit_run_result(
 				"phase": EXPECTED_TIMELINE_PHASES[index],
 			}
 		)
+	var pulse_damage := _pulse_damage_evidence(transitions, policy)
+	var attack_damage = _integer_fact(transitions[2], "combat_damage")
 	if (
-		int(timeline[0]["damage"]) != 0
+		pulse_damage.size() != 2
+		or attack_damage == null
+		or int(timeline[0]["damage"]) != 0
+		or int(timeline[1]["damage"]) != int(pulse_damage[0])
 		or int(timeline[1]["damage"]) <= 0
-		or int(timeline[2]["damage"]) != 10
+		or int(timeline[2]["damage"]) != int(attack_damage)
+		or int(timeline[3]["damage"]) != int(pulse_damage[1])
+		or int(timeline[3]["damage"]) < 0
 		or int(timeline[4]["damage"]) != 0
 		or bool(timeline[4]["effect_active"])
 	):
 		return _failure("invalid_lifecycle_relationships")
-	if not _metrics_match(metrics, terminal):
+	if not _metrics_match(metrics, terminal, int(attack_damage)):
 		return _failure("metric_state_mismatch")
 
 	_trial_id = trial_id
@@ -125,7 +132,11 @@ func snapshot() -> Dictionary:
 	return value
 
 
-func _metrics_match(metrics: Dictionary, terminal: Dictionary) -> bool:
+func _metrics_match(
+	metrics: Dictionary,
+	terminal: Dictionary,
+	attack_damage: int,
+) -> bool:
 	var samples: Dictionary = {}
 	for sample in metrics.get("samples", []):
 		samples[sample.get("metric", "")] = sample.get("value")
@@ -145,8 +156,82 @@ func _metrics_match(metrics: Dictionary, terminal: Dictionary) -> bool:
 		and int(samples["effect_active_terminal"]) == int(terminal["effect_active"])
 		and int(samples["effect_instance_id_terminal"])
 		== int(terminal["effect_instance_id"])
-		and int(samples["combat_damage"]) == 10
+		and int(samples["combat_damage"]) == attack_damage
 	)
+
+
+func _pulse_damage_evidence(
+	transitions: Array[Dictionary],
+	policy: String,
+) -> Array:
+	var operations: Dictionary = POLICY_OPERATIONS[policy]
+	var damage: Array[int] = []
+	if policy == "reactive":
+		for index in [1, 3]:
+			var result = _formula_result(transitions[index], operations["tick"])
+			if result == null:
+				return []
+			damage.append(int(result))
+		return damage
+
+	var apply: Dictionary = transitions[0]
+	var captured = _formula_result(apply, operations["apply"])
+	if captured == null:
+		return []
+	var scheduled_damage: Dictionary = {}
+	for schedule in apply.get("schedules", []):
+		if schedule.get("operation", {}).get("id") != operations["tick"]:
+			continue
+		var event_id := str(schedule.get("event_id", ""))
+		var magnitude = _named_integer(schedule.get("arguments", []), "magnitude")
+		if (
+			event_id.is_empty()
+			or scheduled_damage.has(event_id)
+			or magnitude == null
+			or int(magnitude) != int(captured)
+		):
+			return []
+		scheduled_damage[event_id] = int(magnitude)
+	if scheduled_damage.size() != 2:
+		return []
+	for index in [1, 3]:
+		var event_id := str(transitions[index].get("event_id", ""))
+		if not scheduled_damage.has(event_id):
+			return []
+		damage.append(int(scheduled_damage[event_id]))
+	return damage
+
+
+func _formula_result(event: Dictionary, operation_id: String):
+	var matches: Array = []
+	for evaluation in event.get("formula_evaluations", []):
+		if (
+			evaluation.get("operation", {}).get("id") == operation_id
+			and evaluation.get("formula", {}).get("id") == "periodic-magnitude"
+			and evaluation.get("slot") == "magnitude-policy"
+			and _is_integer_number(evaluation.get("result"))
+		):
+			matches.append(evaluation["result"])
+	return int(matches[0]) if matches.size() == 1 else null
+
+
+func _integer_fact(event: Dictionary, name: String):
+	var found: Array = []
+	for fact in event.get("facts", []):
+		if fact.get("name") == name:
+			found.append(fact)
+	if found.size() != 1 or found[0].get("kind") != "integer":
+		return null
+	var value = found[0].get("integer")
+	return int(value) if _is_integer_number(value) else null
+
+
+func _named_integer(rows: Array, name: String):
+	var found: Array = []
+	for row in rows:
+		if row.get("name") == name and _is_integer_number(row.get("value")):
+			found.append(row["value"])
+	return int(found[0]) if found.size() == 1 else null
 
 
 func _integer_state(rows: Array) -> Dictionary:

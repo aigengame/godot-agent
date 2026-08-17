@@ -109,6 +109,8 @@ func _run_trial(
 	var run: Dictionary = await client.run_revision(session, revision)
 	if not run.get("ok", false):
 		return run
+	if policy == "reactive":
+		_test_contradictory_pulses(run["value"], revision)
 	var trial := PeriodicEffectTrial.new()
 	var projected: Dictionary = trial.admit_run_result(
 		run["value"], policy, trial_id, revision
@@ -120,6 +122,41 @@ func _run_trial(
 		"feedback": trial.feedback_record(),
 		"gameplay": trial.gameplay_values(),
 	}
+
+
+func _test_contradictory_pulses(
+	run_result: Dictionary,
+	revision: String,
+) -> void:
+	var forged := run_result.duplicate(true)
+	var transitions := _transition_events(forged)
+	_set_state_value(transitions[1]["state_after"], "target_health", 80)
+	_set_state_value(transitions[2]["state_before"], "target_health", 80)
+	_set_state_value(transitions[2]["state_after"], "target_health", 70)
+	_set_state_value(transitions[3]["state_before"], "target_health", 70)
+	var trial := PeriodicEffectTrial.new()
+	var admitted: Dictionary = trial.admit_run_result(
+		forged, "reactive", "mutation", revision
+	)
+	_expect(
+		not admitted.get("ok", false),
+		"Content rejects pulse damage that contradicts Formula evidence",
+	)
+
+
+func _transition_events(run_result: Dictionary) -> Array[Dictionary]:
+	var transitions: Array[Dictionary] = []
+	for event in run_result.get("artifacts", {}).get("event-trace", {}).get("events", []):
+		if event.get("ordering_key", {}).get("phase") == "transition":
+			transitions.append(event)
+	return transitions
+
+
+func _set_state_value(rows: Array, name: String, value: int) -> void:
+	for row in rows:
+		if row.get("name") == name:
+			row["value"] = value
+			return
 
 
 func _phases(gameplay: Dictionary) -> Array[String]:
