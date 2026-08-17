@@ -135,6 +135,38 @@ class OperationErrorEnvelope(BaseModel):
     error: OperationError
 
 
+class LiveError(BaseModel):
+    """A live-channel failure payload: the operation shape plus optional probe context.
+
+    The daemon and the daemon IPC client report a live failure with the same ADR-0002
+    envelope a headless operation uses, so this is :class:`OperationError` — with one
+    addition. A windowed refusal at the daemon's authoritative launch boundary is
+    decided by a HOST PROBE, and that context has to survive the relay, or the
+    authoritative path would report a strictly poorer failure than the CLI's own
+    fail-fast (#667). ``probe`` is therefore optional here and ABSENT from every other
+    live envelope.
+
+    The headless sentinel stays strict and probe-less: a GDScript operation has no host
+    probe to report, so widening :class:`OperationError` would invite a key the other
+    language can never fill. Two models, one per channel, is what keeps the
+    cross-language contract narrow while the live channel carries what it actually knows.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    probe: EnvironmentProbe | None = None
+
+
+class LiveErrorEnvelope(BaseModel):
+    """The sentinel payload shape for a live-channel failure (``{"error": {...}}``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    error: LiveError
+
+
 class LiveStackConstraints(BaseModel):
     """The platform / Godot-version precondition a live-stack command needs (issue #233).
 

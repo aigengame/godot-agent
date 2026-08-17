@@ -271,7 +271,8 @@ def test_windowed_start_denied_by_a_sandbox_is_a_distinct_permission_code(
     tmp_path, short_runtime, monkeypatch
 ):
     # #667 (dogfooding GDA-DF-029): a windowed start refused because THIS PROCESS may
-    # not reach the window server is NOT the same failure as a host that has none. It
+    # denied the window-server lookup is NOT the same failure as a host where none was
+    # detected. It
     # reports the distinct live_windowed_permission_denied so automation retries
     # outside the sandbox instead of recording the machine as display-less — while
     # keeping the ENVIRONMENT/127 bucket of its sibling (the refusal is the same

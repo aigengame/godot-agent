@@ -38,9 +38,8 @@ import time
 import pytest
 
 from gda.binary import resolve_godot_binary
-from gda.display import windowed_unavailable
-
 import build_config
+from display_gate import handle_no_display_code, require_windowed_host
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -52,15 +51,6 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _COPY_IGNORE = shutil.ignore_patterns(
     "tests", ".godot", "build", "generated", "__pycache__"
 )
-# The daemon's typed no-display refusals. A display state can change between the
-# pre-check and the live call, so any of these is a SKIP, not a failure. Includes
-# live_windowed_permission_denied (#667): a confined run cannot reach the window
-# server, which is an environment gap like the others — never a demo defect.
-_NO_DISPLAY_CODES = {
-    "live_windowed_unavailable",
-    "live_windowed_permission_denied",
-    "live_display_unavailable",
-}
 
 
 def _error_code(stdout: str) -> str | None:
@@ -114,9 +104,7 @@ def _make_project_copy(dst):
 
 @pytest.mark.e2e
 def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
-    unavailable = windowed_unavailable()
-    if unavailable is not None:
-        pytest.skip(unavailable.reason)
+    require_windowed_host()
     project = _make_project_copy(tmp_path / "game")
     env = {**os.environ}
     out = tmp_path / "shot.png"
@@ -142,8 +130,7 @@ def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
         started = run("daemon", "start", "--windowed")
         if started.returncode != 0:
             code = _error_code(started.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
+            handle_no_display_code(code)
             raise AssertionError(started.stdout + started.stderr)
         assert json.loads(started.stdout)["windowed"] is True
 
@@ -165,8 +152,7 @@ def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
         cap = run("screen", "capture", "--output", str(out))
         if cap.returncode != 0:
             code = _error_code(cap.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
+            handle_no_display_code(code)
             raise AssertionError(cap.stdout + cap.stderr)
         doc = json.loads(cap.stdout)
         assert doc["format"] == "png"

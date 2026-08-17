@@ -187,16 +187,16 @@ class DaemonServer:
             # the probe's reason as diagnostics. The remediation differs per code, so
             # the message is the verdict's own rather than one shared sentence.
             #
-            # The machine-readable `probe` context does NOT ride this path: the
-            # daemon→CLI wire envelope is ADR-0002's `{code, message}` (extra keys
-            # rejected), so widening it is a cross-language contract change this
-            # slice deliberately does not make. The field is populated where the
-            # probe RAN in-process — `gda daemon start --windowed`, the site the
-            # dogfooding hit — and the code + prose carry the distinction here.
+            # This is the AUTHORITATIVE refusal — the one that fires on the lazy
+            # launch every live op goes through — so it carries the same
+            # machine-readable `probe` context the CLI fail-fast does, via the live
+            # envelope's optional key (#667 review). Reporting less here than at the
+            # optional fail-fast would make the authoritative path the poorer one.
             return error_reply(
                 unavailable.verdict.code,
                 f"a windowed engine session cannot launch: {unavailable.reason}",
                 diagnostics=unavailable.reason,
+                probe=unavailable.verdict.probe,
             )
         if session is None:
             return error_reply(

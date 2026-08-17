@@ -173,7 +173,7 @@ def test_error_envelope_round_trips_a_failure_carrying_probe_context():
         "error": {
             "category": "environment",
             "code": "live_windowed_permission_denied",
-            "message": "denied access to the macOS window server",
+            "message": "denied the macOS window-server lookup",
             "diagnostics": "",
             "probe": {
                 "name": "bootstrap_look_up(com.apple.windowserver.active)",

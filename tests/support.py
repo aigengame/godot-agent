@@ -701,3 +701,68 @@ INPUT_SEQUENCE_RESULT = {
     "events": 3,
     "frames": 5,
 }
+
+
+# --- The windowed-display test gate (#345, #667) -----------------------------
+#
+# ONE owner for the reaction policy, because the reaction is NOT uniform and the
+# duplication is what let the wrong one spread: the gates used to skip on every
+# no-display code, so a confined run greened the suite with the rendered acceptance
+# unexecuted — the exact GDA-DF-029 behaviour #667 exists to stop.
+#
+# The two reactions, and why they differ:
+#
+# - CAPABILITY (`live_windowed_unavailable`, `live_display_unavailable`): the host
+#   genuinely cannot show a window. There is nothing to run, so SKIP is honest and a
+#   visible `-rs` line records it.
+# - PERMISSION (`live_windowed_permission_denied`): the host may well be able to —
+#   this RUN is confined. The verdict is about the whole environment, not a
+#   momentary display state, so it cannot be waited out or retried into passing.
+#   Skipping would hide unexecuted rendered acceptance behind a green suite, so it
+#   FAILS, carrying the remediation the error itself gives: re-run outside the
+#   restriction.
+WINDOWED_CAPABILITY_CODES = frozenset(
+    {"live_windowed_unavailable", "live_display_unavailable"}
+)
+WINDOWED_PERMISSION_DENIED_CODE = "live_windowed_permission_denied"
+
+_CONFINED_REMEDIATION = (
+    "the windowed session was refused because this RUN is confined "
+    "({detail}). Rendered acceptance did NOT execute; this is a loud failure "
+    "rather than a skip so a sandboxed run cannot green the suite with it "
+    "unexecuted (#667). Re-run outside the sandbox/restriction."
+)
+
+
+def handle_no_display_code(code, detail=""):
+    """Apply the reaction policy to a gda error ``code``, if it is a display refusal.
+
+    Skips on a capability refusal, FAILS on a permission refusal, and returns
+    normally for anything else so the caller can raise its own assertion. Used on the
+    post-start race path, where a live call reports the refusal even though the
+    pre-flight probe passed.
+    """
+    import pytest
+
+    if code == WINDOWED_PERMISSION_DENIED_CODE:
+        pytest.fail(_CONFINED_REMEDIATION.format(detail=detail or code))
+    if code in WINDOWED_CAPABILITY_CODES:
+        pytest.skip(f"windowed session unavailable in this environment ({code})")
+
+
+def require_windowed_host():
+    """Pre-flight the host display probe with the same reaction policy.
+
+    ``None`` verdict → return and run the test. A capability verdict → skip. A
+    permission verdict → fail: a confined run must be loud, not green.
+    """
+    import pytest
+
+    from gda.display import windowed_unavailable
+
+    verdict = windowed_unavailable()
+    if verdict is None:
+        return
+    if verdict.code == WINDOWED_PERMISSION_DENIED_CODE:
+        pytest.fail(_CONFINED_REMEDIATION.format(detail=verdict.reason))
+    pytest.skip(verdict.reason)

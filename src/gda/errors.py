@@ -48,7 +48,12 @@ from gda.error_codes import (
     LIVE_ERROR_CODES,
     OPERATION_ERROR_CODES,
 )
-from gda.models import EnvironmentProbe, GdaError, OperationErrorEnvelope
+from gda.models import (
+    EnvironmentProbe,
+    GdaError,
+    LiveErrorEnvelope,
+    OperationErrorEnvelope,
+)
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
@@ -316,13 +321,25 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
     the daemon-channel codes to their registered ``Failure`` directly; any other
     envelope returns ``None`` so the shared ``classify_run`` decision tree handles
     it (e.g. ``project_not_found``).
+
+    Parsed with :class:`LiveErrorEnvelope` rather than the headless
+    ``OperationErrorEnvelope`` because the live channel may carry the optional
+    ``probe`` context (#667) — the strict headless model would reject that envelope
+    outright and drop the whole failure to ``operation_failed``. The probe rides
+    through to the public envelope, so a windowed refusal from the daemon's
+    authoritative launch boundary reports exactly what the CLI fail-fast reports.
     """
-    pair = _operation_error_from_payload(result)
-    if pair is None:
+    try:
+        payload = parse_result(result.stdout)
+    except ValueError:
         return None
-    code, message = pair
-    if code in _LIVE_CLIENT_CODES:
-        return make_failure(code, message, result.stderr)
+    try:
+        envelope = LiveErrorEnvelope.model_validate(payload)
+    except ValidationError:
+        return None
+    error = envelope.error
+    if error.code in _LIVE_CLIENT_CODES:
+        return make_failure(error.code, error.message, result.stderr, probe=error.probe)
     return None
 
 

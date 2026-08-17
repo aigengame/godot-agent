@@ -968,11 +968,9 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
         # --windowed` now refuses PRE-LAUNCH with live_windowed_unavailable on a host
         # with no usable DisplayServer (#345), so gate this half on the shared display
         # helper — the headless portions above already ran.
-        from gda.display import windowed_unavailable
+        from tests.support import require_windowed_host
 
-        unavailable = windowed_unavailable()
-        if unavailable is not None:
-            pytest.skip(unavailable.reason)
+        require_windowed_host()
         assert run("daemon", "start", "--windowed").returncode == 0
         windowed = json.loads(run("daemon", "status").stdout)
         assert windowed["running"] is True
@@ -1262,11 +1260,9 @@ def test_daemon_serves_screen_capture_while_scenetree_paused(
     # a resume `input sequence` injection, and a responsiveness proof — the same
     # read/resume/responsiveness shape the headless test proves without a display,
     # here proven end-to-end alongside the capture that needs one.
-    from gda.display import windowed_unavailable
+    from tests.support import require_windowed_host
 
-    unavailable = windowed_unavailable()
-    if unavailable is not None:
-        pytest.skip(unavailable.reason)
+    require_windowed_host()
 
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(PAUSE_MAIN_TSCN, encoding="utf-8")

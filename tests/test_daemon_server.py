@@ -256,9 +256,11 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
 ):
     # #667: the launch-boundary guard relays the code the PROBE decided, so a sandbox
     # denial reaching the daemon path is reported as live_windowed_permission_denied
-    # rather than collapsing into live_windowed_unavailable. The wire envelope is
-    # ADR-0002's {code, message}, so the machine-readable `probe` context does NOT
-    # ride this path — the code and the prose carry the distinction here.
+    # rather than collapsing into live_windowed_unavailable. This is the
+    # AUTHORITATIVE refusal (it fires on the lazy launch every live op goes through),
+    # so it also carries the machine-readable `probe` — deliberately widening the live
+    # wire envelope with that ONE optional key (#667 review), rather than reporting
+    # less here than the optional CLI fail-fast reports.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 
     def _must_not_launch(*a, **k):
@@ -278,9 +280,33 @@ def test_windowed_denied_relays_the_permission_code_not_the_capability_one(
 
     error = parse_result(reply["stdout"])["error"]
     assert error["code"] == "live_windowed_permission_denied"
-    assert set(error) == {"code", "message"}  # the wire envelope shape is unchanged
+    # The one deliberate wire widening: `probe` rides the live envelope as data.
+    assert set(error) == {"code", "message", "probe"}
+    assert error["probe"] == {
+        "name": "CGSessionCopyCurrentDictionary",
+        "platform": "darwin",
+    }
     assert "live_windowed_permission_denied" in reply["stderr"]
     assert server._session is None
+
+
+def test_a_relayed_refusal_without_a_probe_keeps_the_narrow_wire_shape(
+    tmp_path, monkeypatch
+):
+    # The widening is OPTIONAL: every live reply that has no probe — which is all of
+    # them except the windowed refusals — is byte-identical to before, so the key can
+    # never appear as a null for the harness-emitted and daemon-synthesized codes.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
+    server = DaemonServer(daemon_paths(tmp_path), godot="godot")
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+
+    error = parse_result(reply["stdout"])["error"]
+    assert error["code"] == "engine_session_not_running"
+    assert set(error) == {"code", "message"}
 
 
 def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):

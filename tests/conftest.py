@@ -118,3 +118,17 @@ def daemon_runtime_dir(monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
     yield Path(runtime)
     shutil.rmtree(runtime, ignore_errors=True)
+
+
+@pytest.fixture
+def windowed_host():
+    """Gate a test that needs a real windowed engine session (#345, #667).
+
+    A fixture rather than a ``skipif`` marker because the reaction is not uniform: a
+    confined run must FAIL, and a ``skipif`` can only skip. The policy itself lives in
+    one place (``tests.support.require_windowed_host``), shared with the post-start
+    race path so both cannot drift apart again.
+    """
+    from tests.support import require_windowed_host
+
+    require_windowed_host()

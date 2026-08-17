@@ -64,6 +64,17 @@ The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
 
+> **Scope note (2026-08-17, #667) — the shape above is the GDScript-emitted
+> *headless* payload, and stays exactly that.** The Phase-2 **live** channel reuses
+> this envelope but is emitted by Python (the daemon and the daemon IPC client), and
+> it carries one OPTIONAL extra key: `probe`, the host-probe context behind a windowed
+> refusal (ADR-0004 amendment). The two channels validate against **different models**
+> — `OperationErrorEnvelope` (headless) stays `extra="forbid"` and probe-less, because
+> a GDScript operation has no host probe to report; `LiveErrorEnvelope` accepts the
+> optional key. The key is omitted when absent, so every payload either language
+> emitted before is byte-identical. This widens no cross-language contract: GDScript
+> neither emits nor reads `probe`.
+
 ### stderr as advisory diagnostics
 
 stderr is still **never** parsed for the success/failure *outcome* or for stable

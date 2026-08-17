@@ -1,16 +1,18 @@
 """The host-display probe's verdict logic (#345, #667).
 
 ``gda.display`` answers ONE question with two possible refusals, and the split is
-what #667 is about: "no window server on this host" (skip rendered QA) versus "this
-process may not reach the one that exists" (retry outside the sandbox). Reading the
-second as the first is the dogfooded defect (GDA-DF-029).
+what #667 is about: "no window server was detected here" (skip rendered QA) versus
+"the window-server lookup was REFUSED" (re-run outside the restriction). Reading the
+second as the first is the dogfooded defect (GDA-DF-029). The second refusal claims
+nothing about whether a window server exists — macOS refuses the lookup per name and
+before resolving it — so a guard below pins that no branch reasserts existence.
 
 Tiering follows from where the risk is:
 
 - The **verdict logic** — which code, which probe name, which platform — is a pure
-  function of the two boolean host answers, so it is tested by injecting those
-  answers. UNGATED: it runs on every host, including a display-less CI runner, which
-  is exactly where a regression would otherwise hide.
+  function of the host answers, so it is tested by injecting those answers. UNGATED:
+  it runs on every host, including a display-less CI runner, which is exactly where a
+  regression would otherwise hide.
 - The **real macOS denial probe** needs a real sandbox to mean anything, so that one
   leg is capability-gated on macOS + a working ``sandbox-exec`` + an actual desktop
   session, and skips honestly elsewhere.
@@ -28,6 +30,7 @@ import pytest
 from gda.display import (
     _DENIAL_BLANKET,
     _DENIAL_NAME_SPECIFIC,
+    _DENIAL_UNKNOWN_BREADTH,
     WindowedUnavailable,
     _linux_verdict,
     _macos_verdict,
@@ -75,6 +78,7 @@ def test_macos_without_a_window_server_is_the_capability_verdict(monkeypatch):
     [
         (_DENIAL_NAME_SPECIFIC, "specific to that service"),
         (_DENIAL_BLANKET, "broadly confined"),
+        (_DENIAL_UNKNOWN_BREADTH, "stays unknown"),
     ],
 )
 def test_macos_denied_window_server_is_the_permission_verdict(
@@ -96,7 +100,9 @@ def test_macos_denied_window_server_is_the_permission_verdict(
     assert "re-run outside the" in verdict.reason
 
 
-@pytest.mark.parametrize("denial", [_DENIAL_NAME_SPECIFIC, _DENIAL_BLANKET])
+@pytest.mark.parametrize(
+    "denial", [_DENIAL_NAME_SPECIFIC, _DENIAL_BLANKET, _DENIAL_UNKNOWN_BREADTH]
+)
 def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denial):
     # The #667-review regression guard. A refused lookup is evaluated per name and
     # BEFORE resolution, so it proves confinement, NOT existence — a blanket-deny
@@ -133,6 +139,11 @@ def test_no_denial_branch_claims_the_host_has_a_window_server(monkeypatch, denia
         # BOTH refused. Seatbelt evaluates the deny per name and before resolution,
         # so this is a broadly-confined process and the probe learned only that.
         (1100, 1100, _DENIAL_BLANKET),
+        # Control answered something we have no reading for. Only a REFUSED control
+        # licenses the blanket reading, so these must NOT be folded into it — that
+        # would invent a fact about the confinement from an unreadable result.
+        (1100, 0, _DENIAL_UNKNOWN_BREADTH),  # the control name somehow resolved
+        (1100, 5, _DENIAL_UNKNOWN_BREADTH),  # an arbitrary unrelated error
         # Not refused at all -> no denial evidence, whatever the control says.
         (1102, 1102, None),
         (0, 1102, None),
@@ -327,3 +338,82 @@ def test_the_probe_returns_a_verdict_or_none_on_this_host():
     # whatever host the suite is on, whatever it concludes.
     verdict = windowed_unavailable()
     assert verdict is None or isinstance(verdict, WindowedUnavailable)
+
+
+# --- the test-side gate policy (ungated) -------------------------------------
+#
+# The gate helper decides whether an environment refusal SKIPS or FAILS, and the
+# whole point of #667 is that those two reactions are not interchangeable. Tabled
+# here so the policy itself is covered, not just the probe that feeds it.
+
+
+@pytest.mark.parametrize(
+    ("code", "reaction"),
+    [
+        ("live_windowed_unavailable", "skipped"),
+        ("live_display_unavailable", "skipped"),
+        ("live_windowed_permission_denied", "failed"),
+        ("engine_session_not_running", "returned"),
+        (None, "returned"),
+    ],
+)
+def test_the_no_display_reaction_policy(code, reaction):
+    from tests.support import handle_no_display_code
+
+    if reaction == "returned":
+        # Not a display refusal: the helper stays out of the way so the caller can
+        # raise its own assertion for a genuine failure.
+        handle_no_display_code(code)
+        return
+
+    with pytest.raises(BaseException) as caught:
+        handle_no_display_code(code)
+
+    outcome = type(caught.value).__name__
+    if reaction == "skipped":
+        assert outcome == "Skipped"
+    else:
+        assert outcome == "Failed"
+        # The failure has to carry the remediation, or a confined CI run reads as a
+        # plain breakage instead of "you are sandboxed".
+        assert "Re-run outside the sandbox/restriction" in str(caught.value)
+        assert "did NOT execute" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("verdict_code", "reaction"),
+    [
+        ("live_windowed_unavailable", "Skipped"),
+        ("live_windowed_permission_denied", "Failed"),
+    ],
+)
+def test_the_preflight_gate_applies_the_same_policy(
+    monkeypatch, verdict_code, reaction
+):
+    # The pre-flight probe path and the post-start race path must agree — they used
+    # to be written out separately at five call sites, which is how the wrong
+    # reaction spread in the first place.
+    from gda.models import EnvironmentProbe
+    from tests.support import require_windowed_host
+
+    monkeypatch.setattr(
+        "gda.display.windowed_unavailable",
+        lambda: WindowedUnavailable(
+            code=verdict_code,
+            reason=f"test verdict ({verdict_code})",
+            probe=EnvironmentProbe(name="probe", platform="darwin"),
+        ),
+    )
+
+    with pytest.raises(BaseException) as caught:
+        require_windowed_host()
+
+    assert type(caught.value).__name__ == reaction
+
+
+def test_the_preflight_gate_runs_the_test_when_a_window_can_open(monkeypatch):
+    from tests.support import require_windowed_host
+
+    monkeypatch.setattr("gda.display.windowed_unavailable", lambda: None)
+
+    require_windowed_host()  # must not raise

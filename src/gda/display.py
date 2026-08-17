@@ -92,6 +92,29 @@ _BOOTSTRAP_UNKNOWN_SERVICE = 1102
 # the confinement, never about whether a window server exists.
 _DENIAL_NAME_SPECIFIC = "name-specific"
 _DENIAL_BLANKET = "blanket"
+# The control lookup answered something we have no reading for (it succeeded, or
+# failed with an unrelated status). The target refusal still stands — that is what
+# the verdict reports — but nothing may be said about how broad the confinement is.
+_DENIAL_UNKNOWN_BREADTH = "unknown-breadth"
+
+# What each breadth may honestly say. None of the three claims a window server
+# exists — that is the caller's fixed clause — they differ only in how much they
+# can say about the confinement itself.
+_DENIAL_BREADTH_PROSE = {
+    _DENIAL_NAME_SPECIFIC: (
+        "the denial is specific to that service (a control lookup of an unregistered "
+        "name still resolved normally), which is the signature of a sandbox profile "
+        "that gates the window server"
+    ),
+    _DENIAL_BLANKET: (
+        "a control lookup of an unregistered name was refused too, so this process is "
+        "broadly confined and the probe learned only that much"
+    ),
+    _DENIAL_UNKNOWN_BREADTH: (
+        "a control lookup of an unregistered name returned neither the refusal nor "
+        "the not-registered status, so how broad the confinement is stays unknown"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -140,14 +163,7 @@ def _macos_verdict() -> WindowedUnavailable | None:
         return None
     denial = _macos_window_server_denial()
     if denial is not None:
-        breadth = (
-            "the denial is specific to that service (a control lookup of an "
-            "unregistered name still resolved normally), which is the signature of "
-            "a sandbox profile that gates the window server"
-            if denial is _DENIAL_NAME_SPECIFIC
-            else "a control lookup of an unregistered name was refused too, so this "
-            "process is broadly confined and the probe learned only that much"
-        )
+        breadth = _DENIAL_BREADTH_PROSE[denial]
         return WindowedUnavailable(
             code="live_windowed_permission_denied",
             reason=(
@@ -254,9 +270,16 @@ def _classify_denial(lookup: "Callable[[bytes], int]") -> str | None:
     """
     if lookup(_WINDOW_SERVER_SERVICE) != _BOOTSTRAP_NOT_PRIVILEGED:
         return None
-    if lookup(_CONTROL_SERVICE) == _BOOTSTRAP_UNKNOWN_SERVICE:
+    control = lookup(_CONTROL_SERVICE)
+    if control == _BOOTSTRAP_UNKNOWN_SERVICE:
         return _DENIAL_NAME_SPECIFIC
-    return _DENIAL_BLANKET
+    if control == _BOOTSTRAP_NOT_PRIVILEGED:
+        return _DENIAL_BLANKET
+    # Every OTHER control answer — it somehow succeeded, or failed with an unrelated
+    # status — is matched explicitly rather than folded into "blanket". Only a
+    # REFUSED control licenses the blanket reading; treating an unexpected status as
+    # one would invent a fact about the confinement from a result we cannot read.
+    return _DENIAL_UNKNOWN_BREADTH
 
 
 def _bootstrap_lookup() -> "Callable[[bytes], int]":

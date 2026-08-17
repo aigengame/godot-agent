@@ -83,6 +83,7 @@ import pytest
 from gda.binary import resolve_godot_binary
 
 import build_config
+from display_gate import handle_no_display_code, require_windowed_host
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -93,18 +94,6 @@ GAME_DIR = build_config.GAME_DIR
 _COPY_IGNORE = shutil.ignore_patterns(
     "tests", ".godot", "build", "generated", "__pycache__"
 )
-
-# Daemon error codes meaning "this environment cannot show a window" — a skip
-# signal, not a failure (the test_e2e_screenshot.py precedent, #345).
-# The daemon's typed no-display refusals. A display state can change between the
-# pre-check and the live call, so any of these is a SKIP, not a failure. Includes
-# live_windowed_permission_denied (#667): a confined run cannot reach the window
-# server, which is an environment gap like the others — never a demo defect.
-_NO_DISPLAY_CODES = {
-    "live_windowed_unavailable",
-    "live_windowed_permission_denied",
-    "live_display_unavailable",
-}
 
 _HUD_LABEL = "/root/Main/Hud/Stats/%sLabel"
 
@@ -341,11 +330,7 @@ def _error_code(stdout: str) -> str | None:
 def test_player_visible_surface_renders_in_the_windowed_viewport(
     tmp_path, daemon_runtime_dir
 ):
-    from gda.display import windowed_unavailable
-
-    unavailable = windowed_unavailable()
-    if unavailable is not None:
-        pytest.skip(unavailable.reason)
+    require_windowed_host()
 
     project = _make_project_copy(tmp_path / "game")
 
@@ -471,8 +456,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         cap = run("screen", "capture", "--output", str(out))
         if cap.returncode != 0:
             code = _error_code(cap.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
+            handle_no_display_code(code)
             raise AssertionError(cap.stdout + cap.stderr)
         doc = json.loads(cap.stdout)
         assert doc["format"] == "png"
@@ -491,8 +475,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         started = run("daemon", "start", "--windowed")
         if started.returncode != 0:
             code = _error_code(started.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
+            handle_no_display_code(code)
             raise AssertionError(started.stdout + started.stderr)
         assert json.loads(started.stdout)["windowed"] is True
 
@@ -502,8 +485,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         tree = run("game", "tree")
         if tree.returncode != 0:
             code = _error_code(tree.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
+            handle_no_display_code(code)
             raise AssertionError(tree.stdout + tree.stderr)
 
         # --- Beat 1: boot. HUD live, Player landed, camera settled — this
