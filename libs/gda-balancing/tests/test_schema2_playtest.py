@@ -125,6 +125,7 @@ def test_playtest_keeps_focused_runtime_behavior_proofs():
     expected = {
         "test_gda_execution_client.gd",
         "test_gda_execution_client_discovery.gd",
+        "test_combat_consecutive_revisions_live.gd",
         "test_playtest.gd",
         "test_reward_run_controller_failure.gd",
         "test_reward_run_controller_live.gd",
