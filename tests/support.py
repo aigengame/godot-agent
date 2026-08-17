@@ -705,10 +705,14 @@ INPUT_SEQUENCE_RESULT = {
 
 # --- The windowed-display test gate (#345, #667) -----------------------------
 #
-# ONE owner for the reaction policy, because the reaction is NOT uniform and the
-# duplication is what let the wrong one spread: the gates used to skip on every
-# no-display code, so a confined run greened the suite with the rendered acceptance
-# unexecuted — the exact GDA-DF-029 behaviour #667 exists to stop.
+# One owner PER PYTEST ROOT for the reaction policy, because the reaction is NOT
+# uniform and scattered per-test sets are what let the wrong one spread: the gates
+# used to skip on every no-display code, so a confined run greened the suite with
+# the rendered acceptance unexecuted — the exact GDA-DF-029 behaviour #667 exists
+# to stop. A second, deliberate copy of this policy lives in
+# examples/platformer/panda-adventure/tests/display_gate.py (a separate pytest
+# root that cannot import this package) — keep the two in step when editing
+# either side.
 #
 # The two reactions, and why they differ:
 #
