@@ -221,6 +221,12 @@ def test_both_path_forms_reach_one_canonical_address(script):
         "res://..",
         "res://../outside.gd",
         "../../etc/passwd",
+        # A leading `~` is a HOME reference — a filesystem address form. It reaches
+        # the operation unexpanded only when the shared normalizer could not resolve
+        # the user (#699); a resolvable `~/x.gd` arrives already expanded to an
+        # absolute path, refused above. Both tilde outcomes end on ONE refusal.
+        "~nosuchuser/x.gd",
+        "~/x.gd",
     ],
 )
 def test_a_non_project_scoped_path_is_invalid_path_before_any_launch(script):

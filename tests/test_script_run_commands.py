@@ -221,6 +221,7 @@ def test_params_json_accepts_the_project_relative_form_too(monkeypatch, tmp_path
         "..",
         "../outside.gd",
         "res://../outside.gd",
+        "~nosuchuser_gda_test/x.gd",
     ],
 )
 def test_a_non_project_scoped_path_emits_invalid_path_envelope(
@@ -315,3 +316,36 @@ def test_bad_gda_project_env_is_structured_not_a_traceback(monkeypatch, tmp_path
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "project_not_found"
     assert not calls
+
+
+@pytest.mark.parametrize("channel", ["argv", "params-json"])
+def test_an_unexpandable_tilde_keeps_the_structured_refusal(
+    monkeypatch, tmp_path, channel
+):
+    # Base parity, on BOTH input channels (#699 / external review). Giving
+    # `ScriptRunParams.path` the shared NormalizedPath sent `~nosuchuser/x.gd` into
+    # `Path.expanduser()`, which raises RuntimeError — a bare traceback and exit 1,
+    # where the base branch returned this structured invalid_path envelope. The
+    # normalizer is total now, so the path arrives unexpanded and the command's own
+    # gate refuses it exactly as before.
+    #
+    # Both channels because they FAIL DIFFERENTLY: --params-json wraps model
+    # construction (it would have reported invalid_params), while the argv body builds
+    # the model directly and had nothing to catch the raise at all.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+    tilde = "~nosuchuser_gda_test/x.gd"
+    argv = ["script", "run"]
+    argv += (
+        [tilde] if channel == "argv" else ["--params-json", json.dumps({"path": tilde})]
+    )
+
+    result = CliRunner().invoke(app, [*argv, "--project", str(project), "--json"])
+
+    assert result.exit_code == 4, result.stdout + (result.stderr or "")
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert err["category"] == "operation"
+    # The message names the path the caller gave, tilde intact.
+    assert tilde in err["message"]
+    assert not calls, "no engine launch on an invalid path"

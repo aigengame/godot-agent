@@ -752,7 +752,7 @@ def _project_scoped_res_path(script: str) -> str | None:
     :func:`canonical_res_path`, so the argv, the entry-load verdict and the reported
     path cannot diverge by input spelling.
 
-    Returns ``None`` for the four shapes that are not project-scoped script
+    Returns ``None`` for the five shapes that are not project-scoped script
     addresses. Each must be caught HERE, because each is otherwise launched:
 
     - an **absolute** path — outside the ``--project`` context (the reasons it stays
@@ -760,6 +760,11 @@ def _project_scoped_res_path(script: str) -> str | None:
     - **another engine scheme** (``user://``, ``uid://``) — lifting one would splice a
       second scheme into a res:// address (``user://x.gd`` → ``res://user:/x.gd``) and
       send the engine hunting for a path the caller never typed;
+    - a leading ``~`` — a HOME reference, which is a filesystem address form, not a
+      project-relative one. It reaches here only when the shared normalizer could not
+      expand it (an unknown user, #699); a resolvable ``~/x.gd`` was already expanded
+      to the absolute path refused above. So both tilde outcomes land on one refusal
+      instead of one being refused and the other spliced into ``res://~user/x.gd``;
     - a path that names the project **root** (``""``, ``"."``, ``"sub/.."``) — it names
       a directory, not a script. An unset shell variable makes ``gda script run
       "$SCRIPT"`` exactly this;
@@ -786,6 +791,10 @@ def _project_scoped_res_path(script: str) -> str | None:
     if Path(script).is_absolute():
         return None
     if "://" in script and not script.startswith(_RES_PREFIX):
+        return None
+    # Only a LEADING `~` is a home reference (expanduser's own rule), so `sub/~x.gd`
+    # stays a legal project-relative filename.
+    if script.startswith("~"):
         return None
     lifted = script if script.startswith(_RES_PREFIX) else _RES_PREFIX + script
     canonical = canonical_res_path(lifted)

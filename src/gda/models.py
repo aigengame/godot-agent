@@ -262,10 +262,28 @@ def normalize_path(path: str) -> str:
     :func:`gda.project.is_engine_virtual_path` — the same test the project
     containment check reads, so the two cannot disagree about what ``res://``
     means.
+
+    **Total: it never raises** (#699). ``Path.expanduser()`` raises ``RuntimeError``
+    for a ``~unknownuser/…`` prefix it cannot resolve, which crashed every
+    ``NormalizedPath`` consumer with a bare traceback. Such a path is passed through
+    UNCHANGED instead. Two reasons it is swallowed rather than re-raised:
+
+    - Normalization is a **convenience**, not a validity check — it saves the caller
+      a shell. Whether a path is usable is decided by whoever consumes it (the
+      operation that opens it, or a command's own path gate), and an unresolvable
+      ``~user`` is simply a path that does not exist there.
+    - Raising would not even fix the crash. The argv path constructs its params model
+      DIRECTLY in the command body, so a ``ValueError`` becomes a pydantic
+      ``ValidationError`` that escapes as a bare traceback anyway; only
+      ``--params-json`` catches it. Staying total is what repairs BOTH input paths,
+      for every consumer, without a per-command guard.
     """
     if is_engine_virtual_path(path):
         return path
-    return str(Path(path).expanduser())
+    try:
+        return str(Path(path).expanduser())
+    except RuntimeError:
+        return path
 
 
 # The one reusable path-field type: a ``str`` whose value is run through
