@@ -1193,7 +1193,8 @@ def test_script_run_command_schema_is_model_derived():
     # `script run` self-describes like any command (ADR-0004): input/output from its
     # typed models, the uniform error envelope. Its output carries the passthrough
     # {exit_status, stdout, stderr} — the public promotion of the Raw run — plus the
-    # classified `diagnostics` gda reads out of the engine's stderr (#651).
+    # classified `diagnostics` gda reads out of the engine's stderr (#651) and the
+    # canonical res:// `path` both accepted input forms converge on (#675).
     from gda.commands.script import ScriptRunParams, ScriptRunResult
 
     doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
@@ -1201,8 +1202,10 @@ def test_script_run_command_schema_is_model_derived():
     assert doc["input"] == ScriptRunParams.model_json_schema()
     assert doc["output"] == ScriptRunResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
-    # The success output exposes exit_status (can be non-zero on success, ADR-0031).
+    # The success output exposes exit_status (can be non-zero on success, ADR-0031)
+    # and `path`, the declared schema addition of the ADR-0031 path-form amendment.
     assert set(doc["output"]["properties"]) == {
+        "path",
         "exit_status",
         "stdout",
         "stderr",

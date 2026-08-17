@@ -66,6 +66,22 @@ def _has_dotdot(path: Path) -> bool:
     return ".." in path.parts
 
 
+def _expand_user(path: Path) -> Path:
+    """``Path.expanduser()``, total: an unresolvable ``~user`` stays literal.
+
+    ``expanduser`` raises ``RuntimeError`` for a ``~unknownuser/…`` prefix it
+    cannot resolve. The shared normalizer deliberately passes such a path
+    through unchanged (#699 — bash treats an unresolvable ``~user`` as a
+    literal name), so the containment layer must be total the same way: the
+    literal path simply will not exist, and the consumer reports that
+    structurally instead of a RuntimeError escaping as a traceback.
+    """
+    try:
+        return path.expanduser()
+    except RuntimeError:
+        return path
+
+
 def project_anchored(path: str, project: Path) -> Path:
     """``path`` as the ENGINE will address it under ``--path project``.
 
@@ -80,10 +96,10 @@ def project_anchored(path: str, project: Path) -> Path:
     The single anchoring rule, so the containment check and the engine cannot
     disagree about which file a relative argument names.
     """
-    target = Path(path).expanduser()
+    target = _expand_user(Path(path))
     if target.is_absolute():
         return target
-    return project.expanduser() / target
+    return _expand_user(project) / target
 
 
 def path_outside_project(path: str, project: Path) -> Path | None:
@@ -134,7 +150,7 @@ def path_outside_project(path: str, project: Path) -> Path | None:
     """
     if is_engine_virtual_path(path):
         return None
-    root = project.expanduser()
+    root = _expand_user(project)
     candidate = project_anchored(path, project)
     location = candidate.resolve()
     if location.is_relative_to(root.resolve()):
@@ -147,7 +163,7 @@ def path_outside_project(path: str, project: Path) -> Path | None:
 
 def _project_or_raise(raw: str, source: str) -> Path:
     """Expand ``raw`` to a project directory, or raise if it is not one."""
-    candidate = Path(raw).expanduser()
+    candidate = _expand_user(Path(raw))
     if not (candidate / PROJECT_MARKER).exists():
         raise ValueError(
             f"{source} is not a Godot project (no {PROJECT_MARKER}): {candidate}"

@@ -382,18 +382,34 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
 
 
 def script_path_invalid_failure(path: str) -> Failure:
-    """The ``invalid_path`` failure for a ``script run`` path that is not ``res://`` (ADR-0031).
+    """The ``invalid_path`` failure for a non-project-scoped ``script run`` path (ADR-0031, #675).
 
-    ``script run`` is res://-only: a res:// path resolves against the ``--project``
-    context (ADR-0006), and the motivating need is project-scoped. An absolute or
-    otherwise non-``res://`` path is a structured ``invalid_path`` failure decided
-    at the CLI, *before* any engine launch — never a crash or a raw engine failure
-    (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
-    the whole taxonomy reads from one place.
+    ``script run`` is project-scoped: it takes the two PORTABLE forms — a
+    project-relative path and a ``res://`` address — which both resolve against the
+    ``--project`` context (ADR-0006). It refuses four shapes, all decided at the
+    CLI *before* any engine launch, never as a crash or a raw engine failure (an
+    explicit ABI edge of ADR-0031): an **absolute** path, **another engine scheme**
+    (``user://``, ``uid://``), a path naming the project **root** (``""``, ``"."``),
+    and a path **escaping above the root** (``".."``, ``"../outside.gd"``). The
+    message names the accepted forms rather than the rejected shape, so it reads the
+    same for all four.
+
+    Absolute stays refused for two verified reasons, not merely as deferred scope.
+    The engine reports a failed run under the ``res://`` spelling even when launched
+    with an absolute in-project path, so accepting one without also mapping it back
+    to ``res://`` would break the canonical-identity match the never-ran verdict
+    depends on (#651) and reopen the phantom success it closed. And ``--script``
+    with an absolute path OUTSIDE the project really does execute, so accepting
+    absolute would widen the Project-code execution surface past ADR-0009's Trusted
+    project — a trust decision that needs its own ADR. Note ``script validate`` does
+    accept an absolute path today; the asymmetry is deliberate, and bounded to the
+    two portable forms.
+
+    Kept beside the other pre-run failures so the whole taxonomy reads from one place.
     """
     return make_failure(
         "invalid_path",
-        f"script run requires a res:// script path, got: {path!r}",
+        f"script run requires a project-relative or res:// script path, got: {path!r}",
         "",
     )
 

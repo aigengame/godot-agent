@@ -78,6 +78,61 @@ status: accepted
 > `diagnostics` and a status named in the message, but it is not typed. That gap is the deferral
 > above, not an oversight.
 
+> **Amendment (2026-08-16, #675) — `script run` accepts BOTH script-path forms; the `res://`-only
+> scope below is superseded.** That scope rests on a rationale that does not hold: "consistent with
+> the rest of the `script` command group (which all act on `res://`)". The rest of the group takes a
+> **project-relative** path as well, through the shared path normalization every path-taking command
+> uses (ADR-0006, ADR-0015). `script run` alone refused it, so a caller who addressed a script one way
+> for `script validate` had to rewrite it for `script run` (dogfooding GDA-DF-019).
+>
+> **`script run` now accepts the project-relative form beside `res://`.** A project-relative path is
+> lifted onto the scheme it is already relative to — the `res://` root of the resolved `--project`
+> (ADR-0006) — and then put through the same `canonical_res_path` the amendment above introduced. Both
+> spellings therefore converge on **one** address before any launch, so the argv handed to the engine,
+> the entry-load verdict matching, and every message keep the single canonical identity that amendment
+> established. No second normalization rule is added.
+>
+> **The success result gains a `path` field** carrying that canonical `res://` address. A caller who
+> addressed the script project-relatively reads back what the engine was actually asked to run —
+> otherwise the accepted form and the form every failure message quotes would differ with nothing to
+> connect them. This is a schema addition in ADR-0004's sense, moving with the implementation.
+>
+> **What stays refused**, all decided before any launch as `invalid_path`: an **absolute** path;
+> **another engine scheme** (`user://`, `uid://` — lifting one would splice a second scheme into a
+> res:// address and send the engine after a path nobody typed); a path naming the project **root**
+> (`""`, `"."`, `"sub/.."`, and the `res://` / `res://.` spellings — a directory, not a script); and a
+> path **escaping above the root** (`".."`, `"../outside.gd"`, and their `res://` spellings). The ABI
+> edge below names "a non-`res://` **or absolute** script path"; only its first half is lifted here.
+>
+> The last two are refused for a reason beyond tidiness, and both were **verified**. The engine
+> answers a root or escape address with `Can't load script: res://.` / `res://..`, whose address the
+> error parser reads back with the sentence period stripped — so it never matches the entry, the
+> never-ran verdict misses it, and the run reports a phantom `exit_status: 0`. Worse, an escape that
+> *resolves* (`../outside.gd`) **executes a script outside the project**, which is precisely the
+> ADR-0009 widening cited just below as the reason absolute paths stay refused; admitting it by the
+> relative spelling would make that reasoning false. Both shapes are reachable on the pre-amendment
+> `res://` spelling too, so this closes a pre-existing hole rather than one the widening created — but
+> the widening is what made them reachable from the ordinary project-relative form, so they are closed
+> here. The residual parser weakness (a trailing-period strip that mis-reads `res://..`) is **not**
+> addressed here; it belongs to the error parser and is tracked separately.
+>
+> Absolute stays refused for two **verified** reasons, not merely as deferred scope. First, the engine
+> reports a failed run under the **`res://` spelling even when launched with an absolute in-project
+> path**, so accepting absolute without also mapping it back to `res://` would break the
+> canonical-identity match the verdict above depends on and reopen the phantom success it closed.
+> Second, `--script <absolute path OUTSIDE the project>` really **does execute** (verified against
+> Godot 4.6.3), so accepting absolute would widen the
+> [Project-code execution surface](../../CONTEXT.md) past ADR-0009's Trusted project — a trust
+> decision that belongs in its own ADR, not in a path-form amendment. `script validate` does accept an
+> absolute path today, so the two commands are **not** at full parity; the shared representation this
+> amendment establishes is the two **portable** forms, which is what an agent needs to address a
+> script once and use it for either.
+>
+> The `script validate` result still echoes the path spelling it was given, as every sentinel
+> operation does. Making one operation report a canonical form would trade this inconsistency for a
+> different one, so it is left alone deliberately; the convergence decided here is `script run`'s,
+> whose path must be canonical because its verdict machinery matches on it.
+
 ADR-0010 recognised **two** execution mechanisms for [headless operations](../../CONTEXT.md):
 ① GDScript op-dispatch under the ADR-0002 sentinel contract (the default), and ② native engine
 CLI mode for editor-only capabilities (e.g. `--export-*`), whose outcome `gda` classifies from the

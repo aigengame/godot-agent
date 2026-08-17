@@ -764,6 +764,25 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_pr
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("form", ["ok.gd", "res://ok.gd"])
+def test_script_validate_accepts_both_path_forms(godot_project, form):
+    # The `script validate` half of #675's AC: the group has always taken both the
+    # project-relative and the res:// form, and `script run` now takes the same two
+    # (see tests/test_e2e_script_run.py). Pinned here so the shared representation is
+    # a guarded contract on BOTH commands rather than an accident of this build —
+    # the property that lets an agent address a script once and use it for either.
+    gda = _gda_project(godot_project)
+    (godot_project / "ok.gd").write_text("extends Node\n", encoding="utf-8")
+
+    validated = gda("script", "validate", form, "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True
+    assert data["diagnostics"] == []
+
+
+@pytest.mark.e2e
 def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_project):
     # The mechanism gate's hard half: a deliberately BROKEN script is a SUCCESSFUL
     # op (exit 0) reporting valid=false, and at least one diagnostic with a real
