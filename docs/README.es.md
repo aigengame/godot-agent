@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=c31d9f6a9b9d8a0dd3cef9f34f4ad27a2077b8cf697c9e181463e930594873b7 -->
+<!-- gda-readme-i18n: source=README.md sha256=32762f3f360f152fa9389c505fbd72cba484d9056d54db63df99f10aabbecaa8 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -559,7 +559,7 @@ de entrada.
 | `--schema`  | Emite el contrato JSON Schema de entrada/salida del comando (sin lanzar Godot). |
 | `--godot`   | Ruta al binario de Godot (anula `$GDA_GODOT` y el valor por defecto). |
 | `--project` | Directorio del proyecto de Godot para la resolución de `res://` (anula `$GDA_PROJECT`; por defecto, el directorio actual si es un proyecto). Solo comandos de dominio. Resolver un proyecto ejecuta el código de ese proyecto — consulta [Ejecución del código del proyecto](#configuration). |
-| `--version` | Imprime la versión instalada de `gda`. Con `--json`, emite en su lugar la procedencia estructurada de la instalación: versión, rutas del ejecutable, del intérprete y del paquete realmente importado, tipo de instalación (`wheel` o `editable`) y, para una instalación editable, el directorio de código fuente con su revisión de Git y su estado de cambios sin confirmar (sin lanzar Godot). Útil como comprobación previa a una ejecución larga: una instalación editable puede cambiar de revisión mientras la ejecución está en curso. |
+| `--version` | Imprime la versión instalada de `gda`. Con `--json`, emite en su lugar la procedencia estructurada de la instalación: versión, rutas del ejecutable, del intérprete y del paquete realmente importado, tipo de instalación (`wheel`, `editable`, o `unknown` cuando los metadatos de la instalación no se pueden leer) y, para una instalación editable, el directorio de código fuente con su revisión de Git y su estado de cambios sin confirmar (sin lanzar Godot). Útil como comprobación previa a una ejecución larga: una instalación editable puede cambiar de revisión mientras la ejecución está en curso. |
 | `--help`    | Muestra el uso de `gda` o de cualquier comando.                     |
 
 ---

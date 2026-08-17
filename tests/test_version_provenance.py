@@ -11,9 +11,10 @@ So these tests pin three things:
   `gda --json --version` must produce the same payload. Click processes eager
   parameters in argv order, so this only holds because `--version` is deliberately
   NOT eager and therefore sorts after the eager `--json` in both orders.
-- **both install kinds.** Editable and wheel installs are covered by faking the
-  PEP 610 `direct_url.json` record — a real wheel install cannot be produced from
-  inside the editable checkout the suite runs in.
+- **both install kinds, and the refusal to pick one.** Editable and wheel installs
+  are covered by faking the PEP 610 `direct_url.json` record — a real wheel install
+  cannot be produced from inside the editable checkout the suite runs in. A record
+  that exists but cannot be read is `unknown`, never a confident `wheel`.
 - **no engine launch.** The motivating environment is one where spawning Godot
   crashes, so a provenance preflight that spawned Godot would be useless there.
 
@@ -33,7 +34,8 @@ from gda.cli import app
 from gda.provenance import (
     InstallKind,
     build_version_provenance,
-    read_direct_url,
+    classify_install,
+    read_direct_url_text,
 )
 from tests.support import GDA_CMD, plain_text
 
@@ -78,15 +80,25 @@ def make_git_checkout(repo: Path) -> str:
     return _git(repo, "rev-parse", "HEAD").strip()
 
 
+def fake_direct_url(monkeypatch, raw: str | None) -> None:
+    """Serve ``raw`` as the running gda's PEP 610 record.
+
+    The seam takes RAW text, so a fake can hand over a malformed document as easily
+    as a well-formed one — which is the point: "no record" and "a record I cannot
+    read" must reach opposite conclusions.
+    """
+    monkeypatch.setattr(provenance, "read_direct_url_text", lambda *a, **k: raw)
+
+
 def fake_editable_install(monkeypatch, root: Path) -> None:
     """Make gda look like an editable install rooted at ``root`` (PEP 610)."""
     record = {"url": root.as_uri(), "dir_info": {"editable": True}}
-    monkeypatch.setattr(provenance, "read_direct_url", lambda *a, **k: record)
+    fake_direct_url(monkeypatch, json.dumps(record))
 
 
 def fake_wheel_install(monkeypatch) -> None:
     """Make gda look like an ordinary built install: no PEP 610 record at all."""
-    monkeypatch.setattr(provenance, "read_direct_url", lambda *a, **k: None)
+    fake_direct_url(monkeypatch, None)
 
 
 # --- the two argv orders ------------------------------------------------------
@@ -139,7 +151,7 @@ def test_payload_carries_the_required_provenance_fields():
         "source",
         "godot",
     }
-    assert payload["install_kind"] in {"wheel", "editable"}
+    assert payload["install_kind"] in {"wheel", "editable", "unknown"}
     assert Path(payload["executable"]).is_absolute()
     assert Path(payload["interpreter"]).is_absolute()
     assert Path(payload["package_path"]).is_absolute()
@@ -190,6 +202,26 @@ def test_editable_install_reports_a_dirty_working_tree(monkeypatch, tmp_path):
     assert payload.source.dirty is True
 
 
+def test_dirty_ignores_the_repositorys_untracked_files_config(monkeypatch, tmp_path):
+    # `status.showUntrackedFiles=no` is a real setting people put in a repo or their
+    # global config. With the status call left to it, an untracked module sitting in
+    # the checkout — importable by the editable install, so code that can run —
+    # reported `dirty: false`, contradicting this module's stated contract. The
+    # verdict must be a property of the TREE, not of someone's git config.
+    checkout = tmp_path / "src-checkout"
+    make_git_checkout(checkout)
+    _git(checkout, "config", "status.showUntrackedFiles", "no")
+    (checkout / "runtime_shadow.py").write_text("# untracked\n", encoding="utf-8")
+    fake_editable_install(monkeypatch, checkout)
+
+    payload = build_version_provenance()
+
+    # The config really is in force — this is what gda would have believed.
+    assert _git(checkout, "status", "--porcelain").strip() == ""
+    assert payload.source is not None
+    assert payload.source.dirty is True
+
+
 def test_editable_install_outside_git_reports_null_revision(monkeypatch, tmp_path):
     # "when resolvable": no repository means null, never a guessed revision.
     missing = tmp_path / "not-a-repo-and-not-even-there"
@@ -232,13 +264,14 @@ def test_editable_install_with_a_non_local_url_reports_no_checkout(monkeypatch):
     # Editable is read from `dir_info.editable`; only a `file:` URL names a
     # directory on this machine, so a non-local origin stays honestly null
     # instead of being turned into a fabricated path.
-    monkeypatch.setattr(
-        provenance,
-        "read_direct_url",
-        lambda *a, **k: {
-            "url": "https://example.invalid/gda.tar.gz",
-            "dir_info": {"editable": True},
-        },
+    fake_direct_url(
+        monkeypatch,
+        json.dumps(
+            {
+                "url": "https://example.invalid/gda.tar.gz",
+                "dir_info": {"editable": True},
+            }
+        ),
     )
 
     payload = build_version_provenance()
@@ -282,13 +315,14 @@ def test_a_built_local_wheel_is_still_a_wheel(monkeypatch, tmp_path):
     # `pip install ./dist/gda-*.whl` DOES record a direct_url.json — with
     # `archive_info`, not an editable `dir_info`. The code that runs is still a
     # copy, so there is no checkout to report.
-    monkeypatch.setattr(
-        provenance,
-        "read_direct_url",
-        lambda *a, **k: {
-            "url": (tmp_path / "gda-0.0.0-py3-none-any.whl").as_uri(),
-            "archive_info": {},
-        },
+    fake_direct_url(
+        monkeypatch,
+        json.dumps(
+            {
+                "url": (tmp_path / "gda-0.0.0-py3-none-any.whl").as_uri(),
+                "archive_info": {},
+            }
+        ),
     )
 
     payload = build_version_provenance()
@@ -300,10 +334,20 @@ def test_a_built_local_wheel_is_still_a_wheel(monkeypatch, tmp_path):
 def test_a_non_editable_directory_install_is_a_wheel(monkeypatch, tmp_path):
     # `pip install .` records `dir_info` with `editable` absent/false; it builds a
     # wheel, so the checkout it was built from is not what runs.
-    monkeypatch.setattr(
-        provenance,
-        "read_direct_url",
-        lambda *a, **k: {"url": tmp_path.as_uri(), "dir_info": {}},
+    fake_direct_url(monkeypatch, json.dumps({"url": tmp_path.as_uri(), "dir_info": {}}))
+
+    payload = build_version_provenance()
+
+    assert payload.install_kind is InstallKind.WHEEL
+    assert payload.source is None
+
+
+def test_an_explicit_non_editable_dir_info_is_a_wheel(monkeypatch, tmp_path):
+    # PEP 610 types `editable` as a boolean and defaults an absent one to false;
+    # an explicit `false` must reach the same verdict as the absent one above.
+    fake_direct_url(
+        monkeypatch,
+        json.dumps({"url": tmp_path.as_uri(), "dir_info": {"editable": False}}),
     )
 
     payload = build_version_provenance()
@@ -319,6 +363,89 @@ def test_the_wheel_payload_reaches_the_cli(monkeypatch):
 
     assert payload["install_kind"] == "wheel"
     assert payload["source"] is None
+
+
+# --- unreadable metadata is `unknown`, never a confident `wheel` --------------
+
+
+def test_malformed_metadata_is_unknown_not_wheel(monkeypatch):
+    # The dangerous collapse: "no record" and "a record I cannot read" both used to
+    # become `wheel` + `source: null`, so a DAMAGED editable install was reported as
+    # an immutable copy — the exact false provenance this surface exists to prevent.
+    fake_direct_url(monkeypatch, "{not json")
+
+    payload = build_version_provenance()
+
+    assert payload.install_kind is InstallKind.UNKNOWN
+    assert payload.source is None
+
+
+def test_a_non_object_record_is_unknown(monkeypatch):
+    fake_direct_url(monkeypatch, '"just a string"')
+
+    assert build_version_provenance().install_kind is InstallKind.UNKNOWN
+
+
+def test_a_non_object_dir_info_is_unknown(monkeypatch):
+    fake_direct_url(monkeypatch, json.dumps({"url": "file:///x", "dir_info": "yes"}))
+
+    assert build_version_provenance().install_kind is InstallKind.UNKNOWN
+
+
+def test_a_non_boolean_editable_is_unknown_not_truthiness(monkeypatch, tmp_path):
+    # PEP 610 types `editable` as a boolean. Reading `"false"` or `1` by truthiness
+    # is how a mutable checkout gets called immutable (or the reverse), so anything
+    # off-spec refuses to answer rather than guessing.
+    for off_spec in ("false", "true", 1, 0, None, [], {}):
+        fake_direct_url(
+            monkeypatch,
+            json.dumps({"url": tmp_path.as_uri(), "dir_info": {"editable": off_spec}}),
+        )
+
+        payload = build_version_provenance()
+
+        assert payload.install_kind is InstallKind.UNKNOWN, off_spec
+        assert payload.source is None, off_spec
+
+
+def test_unknown_never_claims_a_checkout(monkeypatch, tmp_path):
+    # Even when the damaged record names a perfectly good local checkout, an
+    # unresolved kind must not vouch for it.
+    checkout = tmp_path / "src-checkout"
+    make_git_checkout(checkout)
+    fake_direct_url(
+        monkeypatch,
+        json.dumps({"url": checkout.as_uri(), "dir_info": {"editable": "yes"}}),
+    )
+
+    payload = build_version_provenance()
+
+    assert payload.install_kind is InstallKind.UNKNOWN
+    assert payload.source is None
+
+
+def test_malformed_metadata_reaches_the_cli_as_unknown(monkeypatch):
+    fake_direct_url(monkeypatch, "{not json")
+
+    result = CliRunner().invoke(app, ["--version", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["install_kind"] == "unknown"
+    assert payload["source"] is None
+    # …and the rest of the payload still answers what it CAN answer.
+    assert payload["gda_version"] and payload["package_path"]
+
+
+def test_classify_install_is_pure_and_total():
+    # The classifier is the whole decision, so it is exercised directly too: the
+    # three verdicts, from raw text, with no installer and no filesystem.
+    assert classify_install(None).kind is InstallKind.WHEEL
+    assert (
+        classify_install('{"url":"file:///x","dir_info":{"editable":true}}').kind
+        is InstallKind.EDITABLE
+    )
+    assert classify_install("").kind is InstallKind.UNKNOWN
 
 
 # --- the imported package, not just the recorded install ----------------------
@@ -364,33 +491,62 @@ def test_package_path_exposes_a_sys_path_shadow(tmp_path):
 # --- the direct_url seam ------------------------------------------------------
 
 
-def test_read_direct_url_is_none_for_an_uninstalled_distribution():
-    # The seam degrades to "nothing to disclose" rather than raising, so a
-    # preflight never fails on missing metadata.
-    assert read_direct_url("definitely-not-an-installed-distribution") is None
+def test_read_direct_url_text_is_none_for_an_uninstalled_distribution():
+    # The seam degrades to "no record" rather than raising, so a preflight never
+    # fails on missing metadata.
+    assert read_direct_url_text("definitely-not-an-installed-distribution") is None
 
 
-def test_read_direct_url_ignores_a_malformed_record(monkeypatch, tmp_path):
+def test_read_direct_url_text_hands_over_a_malformed_record_verbatim(monkeypatch):
+    # The seam must NOT flatten a damaged record into "absent": that is what made a
+    # broken editable install look like a wheel. It returns the bytes; the
+    # classifier decides.
     class _Dist:
         def read_text(self, name: str) -> str:
             return "{not json"
 
     monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
 
-    assert read_direct_url() is None
+    assert read_direct_url_text() == "{not json"
+
+
+def test_read_direct_url_text_treats_a_blank_record_as_absent(monkeypatch):
+    class _Dist:
+        def read_text(self, name: str) -> str:
+            return "   \n"
+
+    monkeypatch.setattr(provenance.Distribution, "from_name", lambda name: _Dist())
+
+    assert read_direct_url_text() is None
 
 
 # --- the engine side is resolved WITHOUT a launch -----------------------------
 
 
-def test_godot_version_is_omitted_with_a_stated_reason(monkeypatch):
+def test_godot_version_key_is_omitted_with_a_stated_reason(monkeypatch):
+    # #659's contract is "the engine version appears only when obtainable without a
+    # launch, otherwise OMITTED with a stated reason". A `null` would claim gda
+    # looked and found nothing; the key's ABSENCE plus the reason says it declined
+    # to look — the same omitted-never-null convention gda uses elsewhere. So this
+    # asserts absence, not nullness.
     monkeypatch.setenv("GDA_GODOT", "/definitely/missing/Godot")
 
     payload = json.loads(CliRunner().invoke(app, ["--version", "--json"]).stdout)
 
     assert payload["godot"]["binary"] == "/definitely/missing/Godot"
-    assert payload["godot"]["version"] is None
+    assert "version" not in payload["godot"]
     assert payload["godot"]["version_unavailable_reason"]
+    assert set(payload["godot"]) == {"binary", "version_unavailable_reason"}
+
+
+def test_a_resolved_godot_version_would_omit_the_reason_instead():
+    # The mirror of the rule: exactly one of the pair is ever present, so a future
+    # spawn-free version source cannot leave a stale null reason beside it.
+    resolved = provenance.GodotProvenance(binary="/x/Godot", version="4.6.3-stable")
+
+    serialized = json.loads(resolved.model_dump_json())
+
+    assert serialized == {"binary": "/x/Godot", "version": "4.6.3-stable"}
 
 
 def test_the_surface_never_launches_godot(monkeypatch):
