@@ -30,6 +30,11 @@ import gda_balancing.domain.model._lowering as model_lowering_module
 import gda_balancing.domain.publication as publication_module
 from gda_balancing.domain.canonical import canonical_bytes, content_identity
 from gda_balancing.domain.diagnostics import ArtifactLocation, Schema2RefusalReport
+from gda_balancing.domain.artifact_errors import PublishedArtifactUnavailable
+from gda_balancing.domain.model import (
+    EXACT_RESOLVED_MODEL_BINDING_MEMBERS,
+    ExactResolvedModelBinding,
+)
 from gda_balancing.infrastructure.input_bytes import (
     BoundedInputObservation,
     read_bounded_input_with_sha256,
@@ -483,17 +488,11 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
     )
     specification_path.write_text(json.dumps(specification), encoding="utf-8")
 
-    original_find = experiment_admission_module.find_published_artifact
-    original_admit = experiment_admission_module.admit_resolved_model
-    original_rir: dict[str, Any] | None = None
+    original_artifacts = ExactResolvedModelBinding.artifacts
 
-    def find_with_conflicting_entrypoint(content_identity_value, artifact_kind, ldb):
-        nonlocal original_rir
-        artifact = original_find(content_identity_value, artifact_kind, ldb)
-        if artifact_kind != "rir-semantic-payload" or artifact is None:
-            return artifact
-        original_rir = artifact
-        conflicting = deepcopy(artifact)
+    def artifacts_with_conflicting_entrypoint(self):
+        artifacts = original_artifacts(self)
+        conflicting = deepcopy(artifacts["rir-semantic-payload"])
         entrypoints = {row["id"]: row for row in conflicting["entrypoints"]}
         cast_targets = entrypoints["combat.cast"]["scenario_input_contract"]["targets"]
         plan_targets = entrypoints["combat.plan-casts"]["scenario_input_contract"][
@@ -506,28 +505,13 @@ def test_experiment_check_reports_cross_entrypoint_contract_conflicts(
             row for row in plan_targets if row["target"] == cast_target["target"]
         )
         plan_target["cardinality"] = "optional"
-        return conflicting
-
-    def admit_original_model(artifacts, *, authority_context=None):
-        assert original_rir is not None
-        original_artifacts = {
-            **artifacts,
-            "rir-semantic-payload": original_rir,
-        }
-        return original_admit(
-            original_artifacts,
-            authority_context=authority_context,
-        )
+        artifacts["rir-semantic-payload"] = conflicting
+        return artifacts
 
     monkeypatch.setattr(
-        experiment_admission_module,
-        "find_published_artifact",
-        find_with_conflicting_entrypoint,
-    )
-    monkeypatch.setattr(
-        experiment_admission_module,
-        "admit_resolved_model",
-        admit_original_model,
+        ExactResolvedModelBinding,
+        "artifacts",
+        artifacts_with_conflicting_entrypoint,
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -6170,6 +6154,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
 def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corruption(
     tmp_path,
     run_cli,
+    monkeypatch,
 ):
     source_value = _rpg_model_source()
     source = tmp_path / "lookup-model.json"
@@ -6206,11 +6191,21 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
     )
     unrelated_anchor.parent.mkdir(parents=True)
     unrelated_anchor.write_text("not-json", encoding="utf-8")
+    original_regular_files = publication_module.regular_files
+    traversals = 0
+
+    def counted_regular_files(*args, **kwargs):
+        nonlocal traversals
+        traversals += 1
+        return original_regular_files(*args, **kwargs)
+
+    monkeypatch.setattr(publication_module, "regular_files", counted_regular_files)
     check_exit, check_stdout, check_stderr = run_cli(
         ["experiment", "check", str(specification_path)]
     )
     assert (check_exit, check_stderr) == (0, "")
     assert json.loads(check_stdout)["checked"] is True
+    assert traversals == 1
 
     build_locator = next(
         Path(row["locator"])
@@ -6237,14 +6232,27 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
     )
     manifest_path.write_bytes(canonical_bytes(replacement_manifest))
     context = authority_module.packaged_authority_context()
-    assert (
-        publication_module.find_published_artifact(
-            build_record["content_identity"],
-            "build-receipt",
+    with pytest.raises(PublishedArtifactUnavailable):
+        publication_module.find_published_artifacts(
+            tuple(
+                (
+                    logical_name,
+                    artifact_kind,
+                    specification["model"][
+                        {
+                            "build-receipt": "build_receipt_identity",
+                            "package-lock": "package_lock_identity",
+                            "resolved-model": "resolved_model_identity",
+                            "rir-semantic-payload": "rir_identity",
+                        }[logical_name]
+                    ],
+                )
+                for logical_name, artifact_kind in (
+                    EXACT_RESOLVED_MODEL_BINDING_MEMBERS
+                )
+            ),
             context.language_bundle,
         )
-        is None
-    )
     manifest_path.write_bytes(manifest_bytes)
 
     corrupted = json.loads(build_locator.read_text(encoding="utf-8"))
@@ -6261,6 +6269,34 @@ def test_artifact_lookup_skips_unrelated_damage_but_refuses_named_member_corrupt
         "language.resolved_authority_mismatch"
     ]
     assert "failed integrity verification" in error["diagnostics"][0]["message"]
+
+
+def test_artifact_lookup_preserves_model_member_diagnostic_order(
+    tmp_path,
+    run_cli,
+):
+    specification_path = _write_built_experiment(tmp_path, run_cli)
+    specification = json.loads(specification_path.read_text(encoding="utf-8"))
+    specification["model"]["build_receipt_identity"] = "sha256:" + ("0" * 64)
+    specification_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    package_lock_path = next(store.glob("invocations/*/*/package-lock.json"))
+    corrupted = json.loads(package_lock_path.read_text(encoding="utf-8"))
+    corrupted["content_identity"] = "sha256:" + ("1" * 64)
+    package_lock_path.write_bytes(canonical_bytes(corrupted))
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification_path)]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.resolved_authority_mismatch"
+    assert diagnostic["primary"]["pointer"] == "/model/build_receipt_identity"
+    assert diagnostic["message"] == (
+        "Exact build-receipt is unavailable in the committed artifact store"
+    )
 
 
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():

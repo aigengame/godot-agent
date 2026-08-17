@@ -237,6 +237,7 @@ def test_admitted_revisions_detach_from_caller_owned_values() -> None:
 
     created = sessions.create(model_source, experiment)
     assert isinstance(created, ExecutionSessionCreated)
+    model_source.clear()
     experiment["seed"]["value"] = baseline_seed + 100
 
     initial_run = sessions.run(created.session_id, created.revision_id)
