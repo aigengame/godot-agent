@@ -437,6 +437,13 @@ def test_an_empty_explicit_flag_is_refused_not_demoted_to_the_environment(monkey
     assert result.exit_code == EXIT_NOT_FOUND
     # The environment value must NOT have been used.
     assert "/from/env" not in result.stderr
+    # The three-path diagnostic shape holds even here: the refusal goes through
+    # the shared formatter, with the unavailable fields rendered explicitly
+    # instead of dropped (PR #696 follow-up recheck).
+    assert "binary:    /x/Godot" in result.stderr
+    assert "user data: unresolved (--user-data-root is empty)" in result.stderr
+    assert "log file:  not attempted (no placement was prepared)" in result.stderr
+    assert "non-empty --user-data-root" in result.stderr
 
 
 def test_an_empty_flag_beats_the_environment_in_the_resolver(monkeypatch):

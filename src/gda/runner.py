@@ -212,12 +212,14 @@ class UserDataUnwritable(OSError):
         cause: str,
         *,
         data_path: Optional[Path] = None,
+        data_location: Optional[str] = None,
         log_file: Optional[Path] = None,
         log_location: Optional[str] = None,
     ) -> None:
         super().__init__(cause)
         self.cause = cause
         self.data_path = data_path
+        self.data_location = data_location
         self.log_file = log_file
         self.log_location = log_location
 
@@ -349,7 +351,16 @@ def _user_data_unwritable_stderr(
     could not act on either. Prose only: this text becomes
     ``GdaError.diagnostics``, whose ADR-0004 shape is unchanged.
     """
-    if root is None:
+    if failure.data_path is None and failure.data_location is not None:
+        # The placement was never prepared (an unresolvable root), so there is no
+        # resolved path to name — render the unavailable fields explicitly rather
+        # than dropping the three-path shape this diagnostic guarantees.
+        where_suffix = ""
+        remedy = (
+            "pass a non-empty --user-data-root directory (an explicit empty "
+            "value is refused rather than silently ignored, mirroring --godot)"
+        )
+    elif root is None:
         where_suffix = " (engine default; gda is not redirecting user://)"
         remedy = (
             "gda redirects only the engine log by default, not user://; "
@@ -362,7 +373,11 @@ def _user_data_unwritable_stderr(
             f"gda redirects user:// under {root} for this invocation, so that "
             "directory and the platform path derived from it must both be writable"
         )
-    where = f"{failure.data_path}{where_suffix}" if failure.data_path else "unknown"
+    where = (
+        f"{failure.data_path}{where_suffix}"
+        if failure.data_path
+        else (failure.data_location or "unknown")
+    )
     log_target = (
         str(failure.log_file)
         if failure.log_file is not None
@@ -434,13 +449,17 @@ def launch(
     except ValueError as exc:
         # An explicit but empty --user-data-root. There is no placement to prepare,
         # so it is the same unusable-placement outcome, reported before any spawn
-        # (mirrors how an empty --godot becomes binary_not_found, #33).
+        # (mirrors how an empty --godot becomes binary_not_found, #33) — through
+        # the SHARED formatter, so the three-path diagnostic shape holds with the
+        # unavailable fields rendered explicitly.
+        refusal = UserDataUnwritable(
+            str(exc),
+            data_location="unresolved (--user-data-root is empty)",
+            log_location="not attempted (no placement was prepared)",
+        )
         return RunResult(
             stdout="",
-            stderr=(
-                "gda: Godot user data placement could not be resolved; the launch "
-                f"was refused before the engine started\ngda:   cause:     {exc}\n"
-            ),
+            stderr=_user_data_unwritable_stderr(binary, None, refusal),
             exit_code=EXIT_NOT_FOUND,
             launch_failure=LaunchFailure.USER_DATA_UNWRITABLE,
         )
